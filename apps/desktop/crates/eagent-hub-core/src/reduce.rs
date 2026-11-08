@@ -48,6 +48,11 @@ fn is_working(session: &HubSession) -> bool {
     matches!(session.status, Status::Running | Status::Idle)
 }
 
+/// #EXP-1731: a row the device writes for a CLI subagent (subagents.json).
+pub fn is_subagent(session: &HubSession) -> bool {
+    session.subagent_key.is_some()
+}
+
 /// A tree's acting agent: its conversation root's agent, else the agent that started it.
 pub fn tree_agent_id(root: &HubSession) -> Option<String> {
     root.agent_id.clone().or_else(|| root.started_by_agent_id.clone())
@@ -270,7 +275,13 @@ impl Deliver<'_> {
 }
 
 fn deliver(ctx: &mut Ctx, child: &HubSession, message: Deliver) {
-    let all = bus_listeners(&ctx.state, child);
+    // #EXP-1731: a subagent's parent is the CLI process that ran it and has every line in-band: the bus never posts
+    // into it (no wake-up per subagent turn, not even its end report). Its watchers still hear it.
+    let subagent = is_subagent(child);
+    let all: Vec<HubSession> = bus_listeners(&ctx.state, child)
+        .into_iter()
+        .filter(|listener| !(subagent && child.parent_id.as_ref() == Some(&listener.id)))
+        .collect();
     let listeners: Vec<&HubSession> = all.iter().filter(|l| !message.skip.is_some_and(|skip| skip(&ctx.state, l))).collect();
     for listener in listeners {
         let plain = Line::new(message.body.clone(), message.card.clone());
@@ -449,7 +460,8 @@ fn assert_tree_room(state: &HubState, root_id: &str, depth: i64) -> Step<()> {
     if depth > caps.tree_max_depth {
         return refuse(ErrorCode::Invalid, &fill(text(&["tooDeep"]), &[("max", &caps.tree_max_depth.to_string())]));
     }
-    let live = state.sessions.values().filter(|row| row.root_id == root_id && is_live(row)).count();
+    // #EXP-1731: subagent rows hold no slot (the CLI already ran them; the caps stay today's).
+    let live = state.sessions.values().filter(|row| row.root_id == root_id && is_live(row) && !is_subagent(row)).count();
     if live >= caps.tree_max_sessions {
         return refuse(ErrorCode::Limit, &fill(text(&["tooMany"]), &[("max", &caps.tree_max_sessions.to_string())]));
     }
@@ -487,6 +499,7 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
         agent_id: None,
         started_by_agent_id: row.started_by_agent_id,
         continued_from_id: row.continued_from_id,
+        subagent_key: None,
         device_id: row.device_id,
         status: Status::Queued,
         busy: false,
@@ -631,6 +644,9 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
 
 fn start_child(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> Step<StepResult> {
     let parent = session(&ctx.state, data.parent_id.as_deref())?;
+    if is_subagent(&parent) {
+        return refuse(ErrorCode::Invalid, text(&["subagentNoChildren"]));
+    }
     assert_tree_room(&ctx.state, &parent.root_id, parent.depth + 1)?;
     let root = session(&ctx.state, Some(&parent.root_id))?;
     let team_id = start_team(&ctx.state, Some(&parent), data.team_id.as_ref(), &parent.team_id)?;
@@ -685,7 +701,8 @@ fn agent_fresh_session(ctx: &mut Ctx, data: &SendData, caller: &HubSession, targ
     if caller_tree_agent(&ctx.state, Some(caller)).is_none() {
         return Ok(None);
     }
-    let children = ctx.state.sessions.values().filter(|row| row.root_id == target.id && row.id != target.id).count();
+    let children =
+        ctx.state.sessions.values().filter(|row| row.root_id == target.id && row.id != target.id && !is_subagent(row)).count();
     let awaits = awaits_caller(&ctx.state, caller, target);
     let Some(reason) = reuse_refusal(&ReuseRoot::from(target), children, ctx.now, awaits) else { return Ok(None) };
     let fresh = SendData {
@@ -699,6 +716,18 @@ fn agent_fresh_session(ctx: &mut Ctx, data: &SendData, caller: &HubSession, targ
 
 fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> Step<StepResult> {
     let mut target = session(&ctx.state, data.session_id.as_deref())?;
+    if let (true, Some(parent_id)) = (is_subagent(&target), target.parent_id.clone()) {
+        // #EXP-1731: a subagent runs inside its parent's process and takes no input of its own (a message mid-run
+        // would resume a second copy): the message goes to its parent instead, exactly as if sent there, with a warning.
+        let redirected = SendData { session_id: Some(parent_id.clone()), ..data.clone() };
+        let out = send_message(ctx, &redirected, caller)?;
+        let redirect = fill(text(&["subagentRedirect"]), &[("id", &target.id), ("parentId", &parent_id)]);
+        let warning = match &out.warning {
+            Some(inner) if !inner.is_empty() => format!("{redirect} {inner}"),
+            _ => redirect,
+        };
+        return Ok(StepResult { warning: Some(warning), ..out });
+    }
     if let Some(scope) = &data.scope_team_ids {
         // #EXP-1720: a turn's teams are the Assistant's alone: they become its conversation root's scope.
         let assistant = target.agent_id.as_ref().and_then(|id| ctx.state.agents.get(id)).is_some_and(|a| a.role == AgentRole::Assistant);
@@ -825,10 +854,145 @@ fn end_rows(ctx: &mut Ctx, ids: &[String], named: Option<Named>) -> Vec<String> 
             _ => bus_report(ctx, &row, None, false),
         }
     }
+    // #EXP-1731: a subagent has no process of its own to kill (its parent's runs it).
     for id in &ended {
-        ctx.effects.push(Effect::Kill { session_id: id.clone() });
+        if !is_subagent(ctx.row(id)) {
+            ctx.effects.push(Effect::Kill { session_id: id.clone() });
+        }
     }
     ended
+}
+
+/// #EXP-1731: a subagent row's end: its summary (a failure says so) as its own last line, then End (no kill, no
+/// report into its parent: deliver() skips it).
+fn end_subagent(ctx: &mut Ctx, id: &str, summary: Option<&str>, failed: bool) -> Vec<String> {
+    // #FEED-192: a keyed tree never takes the device's plaintext summary (dropped, never stored).
+    let keyed = ctx.state.sessions.get(id).and_then(|row| ctx.state.sessions.get(&row.root_id)).is_some_and(|root| root.seal_epoch.is_some());
+    let said = if keyed { "" } else { js::trim(summary.unwrap_or("")) };
+    let text_ = if !failed {
+        said.to_string()
+    } else if said.is_empty() {
+        text(&["subagentFailedBare"]).to_string()
+    } else {
+        fill(text(&["subagentFailed"]), &[("summary", said)])
+    };
+    if !text_.is_empty() {
+        post(
+            ctx,
+            id,
+            Post { author_kind: AuthorKind::Agent, author_session_id: None, body: text_.clone(), card: None, sealed: false, waking: false },
+        );
+    }
+    let named = Named { id, summary: if text_.is_empty() { None } else { Some(text_.as_str()) }, summary_sealed: false };
+    end_rows(ctx, &[id.to_string()], Some(named))
+}
+
+/// #EXP-1731: a parent whose turn is over (not busy: background work included) runs no subagent any more; the
+/// ones its device never closed end now, oldest first.
+fn sweep_subagents(ctx: &mut Ctx, parent_id: &str) -> Vec<String> {
+    let parent = ctx.row(parent_id);
+    if parent.busy && is_live(parent) {
+        return vec![];
+    }
+    let ids: Vec<String> = ordered(&ctx.state)
+        .into_iter()
+        .filter(|id| {
+            let row = ctx.row(id);
+            row.parent_id.as_deref() == Some(parent_id) && is_subagent(row) && is_live(row)
+        })
+        .collect();
+    let mut ended = vec![];
+    for id in &ids {
+        ended.extend(end_subagent(ctx, id, None, false));
+    }
+    ended
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubagentData {
+    session_id: Option<String>,
+    #[serde(default)]
+    device_id: Field<String>,
+    key: Option<String>,
+    fresh_id: Option<String>,
+    status: Option<Status>,
+    failed: Option<bool>,
+    summary: Option<String>,
+}
+
+/// #EXP-1731: the device's subagent edge. The first `running` (or a late first `ended`) of a key under a parent
+/// writes the row: one below the parent, its team, member, visibility and device, running and busy at once (never
+/// queued, no brief, no first input, no card on the parent); later `running` edges are its progress, `ended` its End.
+/// Every edge is a sign of life of the parent too.
+fn subagent_edge(ctx: &mut Ctx, data: SubagentData) -> Step<StepResult> {
+    let parent = session(&ctx.state, data.session_id.as_deref())?;
+    let key = js::trim(data.key.as_deref().unwrap_or("")).to_string();
+    if key.is_empty() {
+        return refuse(ErrorCode::Invalid, text(&["subagentNoKey"]));
+    }
+    if is_subagent(&parent) {
+        return refuse(ErrorCode::Invalid, text(&["subagentNoChildren"]));
+    }
+    // Like a report: a parent that ended, or a device it left, is ignored.
+    let moved = match &data.device_id {
+        Field::Missing => false,
+        Field::Null => true,
+        Field::Value(device) => *device != parent.device_id,
+    };
+    if !is_live(&parent) || moved {
+        return Ok(StepResult::default());
+    }
+    let now = ctx.now;
+    ctx.row_mut(&parent.id).last_activity_at = Some(now);
+    let ended = data.status == Some(Status::Ended);
+    let found = ordered(&ctx.state).into_iter().find(|id| {
+        let row = ctx.row(id);
+        row.parent_id.as_ref() == Some(&parent.id) && row.subagent_key.as_deref() == Some(key.as_str())
+    });
+    let id = match found {
+        Some(id) => {
+            let row = ctx.row_mut(&id);
+            if !ended && !is_live(row) {
+                // A resumed subagent (its CLI ran the same key again) is live again in place.
+                row.status = Status::Running;
+                row.busy = true;
+                row.ended_at = None;
+                row.updated_at = now;
+            }
+            id
+        }
+        None => {
+            let created = insert_session(
+                ctx,
+                NewSession {
+                    id: data.fresh_id.clone().unwrap_or_default(),
+                    parent_id: Some(parent.id.clone()),
+                    root_id: parent.root_id.clone(),
+                    depth: parent.depth + 1,
+                    team_id: parent.team_id.clone(),
+                    user_id: parent.user_id.clone(),
+                    shared: parent.shared,
+                    device_id: parent.device_id.clone(),
+                    started_by_agent_id: None,
+                    continued_from_id: None,
+                },
+            )?;
+            let row = ctx.row_mut(&created.id);
+            row.subagent_key = Some(key.clone());
+            row.status = Status::Running;
+            row.busy = true;
+            row.started_at = Some(now);
+            created.id
+        }
+    };
+    let row = ctx.row_mut(&id);
+    row.last_activity_at = Some(now);
+    if ended && is_live(row) {
+        let ended_ids = end_subagent(ctx, &id, data.summary.as_deref(), data.failed == Some(true));
+        return Ok(StepResult { ended_ids: Some(ended_ids), ..StepResult::session(&id) });
+    }
+    Ok(StepResult::session(&id))
 }
 
 // ── the device ───────────────────────────────────────────────────────────────
@@ -949,7 +1113,9 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
         }
         row.last_activity_at = Some(now);
         row.updated_at = now;
-        return Ok(StepResult::session(&row.id));
+        let id = row.id.clone();
+        let swept = sweep_subagents(ctx, &id);
+        return Ok(if swept.is_empty() { StepResult::session(&id) } else { StepResult { ended_ids: Some(swept), ..StepResult::session(&id) } });
     }
     // A chat ROOT that finished a turn and an agent's conversation survive their process (idle);
     // a child, or a root that never finished a turn (a refused launch), ends.
@@ -958,7 +1124,9 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
         status => status,
     };
     if status == Some(Status::Ended) {
-        let ended_ids = end_rows(ctx, std::slice::from_ref(&row.id), None);
+        ctx.row_mut(&row.id).busy = false;
+        let mut ended_ids = sweep_subagents(ctx, &row.id);
+        ended_ids.extend(end_rows(ctx, std::slice::from_ref(&row.id), None));
         return Ok(StepResult { ended_ids: Some(ended_ids), ..StepResult::session(&row.id) });
     }
     let (blocked, handled) = match data.blocked {
@@ -1035,7 +1203,8 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
         let row = ctx.row(&row.id).clone();
         bus_line(ctx, &row, "session_blocked", body, true, None, true);
     }
-    Ok(StepResult::session(&row.id))
+    let swept = if is_subagent(&row) { vec![] } else { sweep_subagents(ctx, &row.id) };
+    Ok(if swept.is_empty() { StepResult::session(&row.id) } else { StepResult { ended_ids: Some(swept), ..StepResult::session(&row.id) } })
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1117,7 +1286,9 @@ fn heartbeat(ctx: &mut Ctx, data: BeatData) -> Step<StepResult> {
     let device_id = data.device_id.unwrap_or_default();
     let live = data.live_session_ids.map(|ids| clean_live_session_ids(&ids).0);
     ctx.state.devices.insert(device_id.clone(), HubDevice { id: device_id.clone(), last_seen_at: now, live_session_ids: live.clone() });
-    let hosted: Vec<String> = ordered(&ctx.state).into_iter().filter(|id| ctx.row(id).device_id == device_id).collect();
+    // #EXP-1731: a subagent lives and dies with its parent's process, never in the device's live list.
+    let hosted: Vec<String> =
+        ordered(&ctx.state).into_iter().filter(|id| ctx.row(id).device_id == device_id && !is_subagent(ctx.row(id))).collect();
     // An offline-parked session: a listed one survived (busy again), an unlisted mid-turn one waits for its
     // device to continue it from now on (`resumeSince`), anything else is simply live again.
     for id in &hosted {
@@ -1194,8 +1365,10 @@ fn liveness(row: &HubSession) -> i64 {
 fn tick(ctx: &mut Ctx) -> Step<StepResult> {
     let w = &rules().watchdog;
     let now = ctx.now;
+    // #EXP-1731: the watchdog never flags a subagent row: its liveness is its parent's (sweep_subagents ends strays).
+    let watched: Vec<String> = ordered(&ctx.state).into_iter().filter(|id| !is_subagent(ctx.row(id))).collect();
     // Unclaimed: queued past unclaimedMinutes, flagged once.
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         if row.status != Status::Queued || row.started_at.is_some() || row.blocked.is_some() || row.created_at >= now - w.unclaimed_minutes * MIN {
             continue;
@@ -1209,7 +1382,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
     }
     // Stalled input: its host is nudged again every tick while it lasts.
     let mut nudged = HashSet::new();
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         if !is_working(row) || blocked_kind(row) == Some(BlockedKind::DeviceOffline) || !ctx.state.devices.contains_key(&row.device_id) {
             continue;
@@ -1221,7 +1394,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         }
     }
     // Stuck: busy with no sign of life, unless its online host lists it live.
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         let alive = liveness(row);
         if !is_working(row) || !row.busy || row.blocked.is_some() {
@@ -1245,7 +1418,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         bus_line(ctx, &row, "session_stuck", copy::stuck_text(copy::silent_minutes(Some(alive), now)), true, None, true);
     }
     // Offline host: a busy run is interrupted (resume, silent); a claimed one between turns just reads idle.
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         if !is_working(row) || !row.busy || row.blocked.is_some() || online(ctx, &row.device_id) {
             continue;
@@ -1257,7 +1430,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         row.blocked = Some(interruption(BlockedKind::DeviceOffline, now, true, None));
         row.updated_at = now;
     }
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         if row.status == Status::Running && !row.busy && !online(ctx, &row.device_id) {
             let row = ctx.row_mut(&id);
@@ -1266,7 +1439,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         }
     }
     // Unresumed: an interruption its device has not continued resumeMinutes after it could = on a person, said once.
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         let Some(b) = &row.blocked else { continue };
         if !is_working(row) || !b.kind.is_interruption() || row.needs_input || b.resume != Field::Value(true) {
@@ -1282,7 +1455,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         bus_line(ctx, &row, "session_interrupted", copy::unresumed_text(), true, None, true);
     }
     // Offline too long: a cut run whose device never came back = on a person, said once.
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         let Some(b) = &row.blocked else { continue };
         if !is_working(row) || b.kind != BlockedKind::DeviceOffline || row.needs_input || b.resume != Field::Value(true) {
@@ -1298,7 +1471,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         bus_line(ctx, &row, "session_interrupted", copy::offline_text(), true, None, true);
     }
     // A usage wall whose reset passed: cleared, silently.
-    for id in ordered(&ctx.state) {
+    for id in watched.clone() {
         let row = ctx.row(&id);
         let Some(b) = row.blocked.as_ref().filter(|b| b.kind == BlockedKind::RateLimit) else { continue };
         let Some(resets_at) = b.resets_at.value().filter(|r| !r.is_empty()) else { continue };
@@ -1533,6 +1706,7 @@ fn step(ctx: &mut Ctx, event: &HubEvent, data: &Value) -> Step<StepResult> {
         "device.report" => report(ctx, parse(data, &event.kind)?),
         "device.reply" => reply(ctx, parse(data, &event.kind)?),
         "device.consume" => consume(ctx, parse(data, &event.kind)?),
+        "device.subagent" => subagent_edge(ctx, parse(data, &event.kind)?),
         "device.heartbeat" => heartbeat(ctx, parse(data, &event.kind)?),
         "watchdog.tick" => tick(ctx),
         "trigger.schedule" => schedule(ctx, parse(data, &event.kind)?),

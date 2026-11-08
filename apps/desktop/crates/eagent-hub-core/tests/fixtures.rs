@@ -16,6 +16,7 @@ const SCENARIOS: &[(&str, &str)] = &[
     ("watchdog", include_str!("../../../../../packages/eagent/fixtures/watchdog.json")),
     ("reuse", include_str!("../../../../../packages/eagent/fixtures/reuse.json")),
     ("incidents", include_str!("../../../../../packages/eagent/fixtures/incidents.json")),
+    ("subagents", include_str!("../../../../../packages/eagent/fixtures/subagents.json")),
 ];
 
 fn fixture(name: &str) -> Value {

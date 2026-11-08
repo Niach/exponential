@@ -57,7 +57,7 @@ use crate::command_head::command_head;
 use crate::wire;
 
 use super::host_tools::{HostTools, CODEMODE_SERVER_NAME};
-use super::reply::{ReplyCard, ReplyOption};
+use super::reply::{ReplyCard, ReplyOption, SubagentRow, SubagentRowStatus};
 use super::local::{
     EnginePhase, LocalFeedEvent, PlanEntryPriorityView, PlanEntryStatusView, PlanEntryView,
     SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus,
@@ -164,7 +164,17 @@ pub struct MapOut {
     /// through ONE ordered worker (`sessions.reply`); the wire events above
     /// stay the live layer.
     pub replies: Vec<Reply>,
+    /// EXP-1731: the CLI subagent edges this step saw, as their child
+    /// session rows (`sessions.subagent`), in order — one per
+    /// started/completed/duplicate edge of a LIVE session (never a history
+    /// replay's), never per attributed tool call. The host posts them on
+    /// the same ordered worker as [`MapOut::replies`].
+    pub subagents: Vec<SubagentRow>,
 }
+
+/// EXP-1731: the server's cap on a subagent row's summary
+/// (`sessions.subagent{summary}`, ≤ 4000).
+pub const SUBAGENT_SUMMARY_MAX: usize = 4000;
 
 /// EXP-1292: one agent row for the Conversation — `sessions.reply`'s input.
 /// `body` is the turn's final message (empty beside a card).
@@ -1733,6 +1743,32 @@ impl Mapper {
                 Some(counted.max(edge.tool_calls.unwrap_or(0))).filter(|total| *total > 0)
             }
         };
+        // EXP-1731: every edge of a LIVE session is its child row's edge:
+        // started = the row, duplicate = progress, completed = its end. A
+        // history replay (before the seed) writes nothing — it re-streams
+        // long-ended subagents as started.
+        if self.turn_live {
+            let ended = edge.status == SubagentEdgeStatus::Completed;
+            let title = edge
+                .title
+                .as_ref()
+                .map(|title| self.clean(title, TOOL_NAME_MAX))
+                .filter(|title| !title.trim().is_empty())
+                .or_else(|| Some(agent_type.clone()).filter(|kind| !kind.trim().is_empty()));
+            let summary = edge
+                .detail
+                .as_ref()
+                .filter(|_| ended)
+                .map(|detail| self.clean_marked(detail, SUBAGENT_SUMMARY_MAX))
+                .filter(|detail| !detail.trim().is_empty());
+            out.subagents.push(SubagentRow {
+                key: id.clone(),
+                status: if ended { SubagentRowStatus::Ended } else { SubagentRowStatus::Running },
+                title,
+                summary,
+                failed: ended && edge.failed,
+            });
+        }
         // EXP-1292: a finished subagent is ONE Conversation card, posted at
         // its completion (never at its start).
         if edge.status == SubagentEdgeStatus::Completed && self.carded.insert(format!("subagent:{id}")) {
@@ -5620,6 +5656,7 @@ mod tests {
             tool_calls: None,
             title: None,
             workflow_id: None,
+            failed: false,
         };
         let notification = notify(SessionUpdate::AgentMessageChunk(chunk("", None)))
             .meta(edge.to_meta().clone());
@@ -5645,6 +5682,7 @@ mod tests {
             tool_calls: None,
             title: None,
             workflow_id: None,
+            failed: false,
         };
         mapper.on_update(
             &notify(SessionUpdate::AgentMessageChunk(chunk("", None))).meta(start.to_meta()),
@@ -5702,6 +5740,7 @@ mod tests {
                 tool_calls: None,
                 title: None,
                 workflow_id: None,
+                failed: false,
             },
             &mut out,
         );
@@ -6580,6 +6619,7 @@ mod exp850_tests {
             tool_calls: None,
             title: Some("slowpoke".to_string()),
             workflow_id: Some("toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()),
+            failed: false,
         };
         mapper.on_subagent(&edge, &mut out);
         assert_eq!(
@@ -7390,6 +7430,7 @@ mod conversation_tests {
             tool_calls: None,
             title: Some("Find the callers".to_string()),
             workflow_id: None,
+            failed: false,
         };
         let mut out = MapOut::default();
         mapper.on_subagent(&edge(SubagentEdgeStatus::Started), &mut out);
@@ -7407,5 +7448,82 @@ mod conversation_tests {
                 }),
             }]
         );
+    }
+
+    /// EXP-1731: each edge of a live session is its child row's edge, in
+    /// order: started = running, duplicate = progress, completed = ended
+    /// with the summary; the title falls back on the agent type.
+    #[test]
+    fn subagent_edges_are_child_row_edges() {
+        let mut mapper = live();
+        let edge = |status, title: Option<&str>, failed| SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status,
+            detail: Some("Found 3 call sites".to_string()),
+            tool_calls: None,
+            title: title.map(str::to_string),
+            workflow_id: None,
+            failed,
+        };
+        let mut out = MapOut::default();
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Started, Some("Find the callers"), false), &mut out);
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Duplicate, None, false), &mut out);
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Completed, Some("Find the callers"), true), &mut out);
+        assert_eq!(
+            out.subagents,
+            vec![
+                SubagentRow {
+                    key: "task-1".into(),
+                    status: SubagentRowStatus::Running,
+                    title: Some("Find the callers".into()),
+                    summary: None,
+                    failed: false,
+                },
+                SubagentRow {
+                    key: "task-1".into(),
+                    status: SubagentRowStatus::Running,
+                    title: Some("explore".into()),
+                    summary: None,
+                    failed: false,
+                },
+                SubagentRow {
+                    key: "task-1".into(),
+                    status: SubagentRowStatus::Ended,
+                    title: Some("Find the callers".into()),
+                    summary: Some("Found 3 call sites".into()),
+                    failed: true,
+                },
+            ]
+        );
+    }
+
+    /// EXP-1731: a history replay (before the host seeds the turn slot)
+    /// re-streams ended subagents; it writes no row.
+    #[test]
+    fn a_replayed_subagent_edge_writes_no_row() {
+        let mut mapper = Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(vec!["expu_supersecretkey".to_string()])),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::activity::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        });
+        let mut out = MapOut::default();
+        mapper.on_subagent(
+            &SubagentEdge {
+                id: "task-1".to_string(),
+                agent_type: "explore".to_string(),
+                status: SubagentEdgeStatus::Started,
+                detail: None,
+                tool_calls: None,
+                title: None,
+                workflow_id: None,
+                failed: false,
+            },
+            &mut out,
+        );
+        assert!(out.subagents.is_empty(), "{:?}", out.subagents);
+        assert_eq!(out.wire.len(), 1, "the live layer still shows it");
     }
 }

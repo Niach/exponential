@@ -64,6 +64,7 @@ use agent_client_protocol::{
 use super::launch::ResumeHandle;
 use super::local::{EnginePhase, LocalFeedEvent, ASK_WITHDRAWN_META_KEY};
 use super::mapper::{AnswerDecision, MapOut, Mapper, PendingAskKey, Reply, FLUSH_IDLE};
+use super::reply::SubagentRow;
 use super::sink::EventSink;
 use super::terminals::{TerminalSink, Terminals};
 use crate::wire;
@@ -252,6 +253,10 @@ pub trait RunBackend: Send + Sync + 'static {
 
     /// EXP-1292: one step's replies, in order (the Conversation).
     fn post_replies(&self, _replies: Vec<Reply>) {}
+
+    /// EXP-1731: one step's CLI subagent edges as their child session rows,
+    /// in order, AFTER the step's replies.
+    fn post_subagents(&self, _rows: Vec<SubagentRow>) {}
 
     /// A card the engine resolved (answered anywhere, or dismissed).
     fn resolve_question(&self, _question_id: &str) {}
@@ -1558,6 +1563,10 @@ impl SessionCtx {
             }
             // EXP-1330: an aside's answer is its turn's final text reply.
             backend.post_replies(std::mem::take(&mut out.replies));
+            // EXP-1731: the subagents' child rows, on the same ordered worker.
+            if !out.subagents.is_empty() {
+                backend.post_subagents(std::mem::take(&mut out.subagents));
+            }
         }
         // EXP-850 §8: the caption's one input. Read BEFORE the wire vec is
         // consumed by the sink.

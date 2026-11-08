@@ -54,6 +54,7 @@ import {
 } from "@/lib/sessions/access"
 import { closeAskMirrorsOf, rewatchRevived, watchSessions } from "@/lib/sessions/bus"
 import { clearBlockedInTx } from "@/lib/sessions/watchdog"
+import { SUBAGENT_NO_CHILDREN, subagentRedirectText } from "@/lib/sessions/subagent"
 import {
   agentForwardLine,
   assertIssuesInTeam,
@@ -771,7 +772,9 @@ export function modelCommand(input: SessionsSendInput, viaMcp: boolean): Session
 
 /** Refuses a child the follow-up caps forbid: depth below the root, and
  *  the tree's LIVE sessions (an ended branch frees its slot). Holds the
- *  root's row lock so two concurrent starts cannot both take the last slot. */
+ *  root's row lock so two concurrent starts cannot both take the last slot.
+ *  #EXP-1731: a CLI subagent row holds no slot (subagents.json; its own
+ *  insert, `lib/sessions/subagent.ts`, never comes through here). */
 async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
   if (depth > SESSION_TREE_MAX_DEPTH) {
     throw new TRPCError({
@@ -783,7 +786,7 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
   const [{ live } = { live: 0 }] = await tx
     .select({ live: sql<number>`count(*)::int` })
     .from(sessions)
-    .where(and(eq(sessions.rootId, rootId), ne(sessions.status, `ended`)))
+    .where(and(eq(sessions.rootId, rootId), ne(sessions.status, `ended`), isNull(sessions.subagentKey)))
   if (Number(live) >= SESSION_TREE_MAX_SESSIONS) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
@@ -1225,7 +1228,8 @@ async function agentFreshSession(
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(sessions)
-    .where(and(eq(sessions.rootId, target.id), ne(sessions.id, target.id)))
+    // #EXP-1731: a CLI subagent is no sub-session (reuse.json maxChildren).
+    .where(and(eq(sessions.rootId, target.id), ne(sessions.id, target.id), isNull(sessions.subagentKey)))
   const reason = agentReuseRefusal(target, count, new Date(), await awaitsCaller(caller, target))
   if (!reason) return null
   const fresh: SessionsSendInput = {
@@ -1258,6 +1262,14 @@ async function messageSession(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const target = await loadSessionForUser(userId, sent.sessionId!)
+  if (target.subagentKey !== null && target.parentId) {
+    // #EXP-1731: a subagent runs inside its parent's process and takes no
+    // input of its own (a message mid-run would resume a second copy of
+    // it): the send goes to its PARENT exactly as if sent there, warned.
+    const out = await messageSession(userId, uploaderIds, { ...sent, sessionId: target.parentId }, caller, extras, viaMcp)
+    const redirect = subagentRedirectText(target.id, target.parentId)
+    return { ...out, warning: out.warning ? `${redirect} ${out.warning}` : redirect }
+  }
   await assertCanSteer(userId, target)
   if (sent.teamId && sent.teamId !== target.teamId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The session is in another team` })
@@ -1768,6 +1780,8 @@ async function startChild(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const parent = await loadSessionForUser(userId, input.parentId!)
+  // #EXP-1731: the CLI's subagents attach to the session that runs the CLI.
+  if (parent.subagentKey !== null) throw new TRPCError({ code: `BAD_REQUEST`, message: SUBAGENT_NO_CHILDREN })
   await assertCanSteer(userId, parent)
   const teamId = await childTeam(input, parent)
   await assertTeamMember(userId, teamId)
