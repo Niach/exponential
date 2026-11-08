@@ -351,7 +351,7 @@ Applies to the following 3 components:
   com.google.guava:failureaccess 1.0.2
     Copyright (C) 2018 The Guava Authors
   com.google.guava:listenablefuture 9999.0-empty-to-avoid-conflict-with-guava
-  net.java.dev.jna:jna 5.17.0
+  net.java.dev.jna:jna 5.18.1
     Copyright (c) 2007 Timothy Wall, All Rights Reserved
 
 ..............................................................................
