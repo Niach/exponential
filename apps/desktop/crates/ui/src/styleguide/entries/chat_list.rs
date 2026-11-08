@@ -1,4 +1,4 @@
-//! Thread 58cb32df (#EXP-1373): `chat-list` (Special components): THE
+//! Session 58cb32df (#EXP-1373): `chat-list` (Special components): THE
 //! Chats list's pieces (`fixtures/chats.json` LIST, #FEED-191). #EXP-1380: the
 //! IDE's Chats page paints the SAME list ([`crate::chat_list`], shared with
 //! this entry), so this twin draws the web entry's phone specimen with those

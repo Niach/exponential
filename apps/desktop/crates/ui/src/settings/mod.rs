@@ -1627,8 +1627,8 @@ pub(crate) fn my_membership(cx: &App, team_id: &str) -> Option<(String, String)>
 
 /// Web `isMember` gate (`useTeamPermissions`: the signed-in user has a
 /// `team_members` row of the team — v7's one capability gate, every
-/// mutation affordance rides it). The thread strip's `+` and the Guide
-/// menu read it (web thread route `permissions.isMember`).
+/// mutation affordance rides it). The chat strip's `+` and the Guide
+/// menu read it (web chat route `permissions.isMember`).
 pub(crate) fn is_member(cx: &App, team_id: &str) -> bool {
     my_membership(cx, team_id).is_some()
 }

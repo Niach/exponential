@@ -21,7 +21,7 @@ import { isVoiceConversation } from "@/lib/sessions/brief"
 import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
 // EXP-1280/NEW-1: answering a question/plan card. ONE write path for the
-// thread card (`sessions.answer`, a person), the device's write-back
+// chat card (`sessions.answer`, a person), the device's write-back
 // (`sessions.resolveCard`) and a parent's or watcher's answer over the bus
 // (`sessions.send({sessionId, answer})`): the answer is stamped IN the card
 // with `answered_at`, under an "unanswered" guard, so the FIRST answer wins

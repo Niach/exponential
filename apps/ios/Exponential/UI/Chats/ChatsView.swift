@@ -3,7 +3,7 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-/// Thread 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
+/// Session 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
 /// page header (#EXP-1384 `shell.header`: the large title "Chats", the
 /// native search and INBOX circles), then #FEED-191 the Needs you entry
 /// (needs-you.json, none = no row), the Agents section and the ACTIVE team's
@@ -200,7 +200,7 @@ struct ChatsView: View {
                         if view == .archived {
                             EmptyState(title: Chats.Copy.Archived.empty, icon: AppIcons.uiArchive)
                         } else {
-                            EmptyState(.threads)
+                            EmptyState(.chats)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -307,7 +307,7 @@ struct ChatsView: View {
                 if selectionActive {
                     toggleSelection(row.sessionId)
                 } else {
-                    pushRoute(.thread(accountId: accountId, threadId: row.sessionId))
+                    pushRoute(.chat(accountId: accountId, chatId: row.sessionId))
                 }
             },
             onLongPress: { enterSelection(with: row.sessionId) }
@@ -397,7 +397,7 @@ struct ChatsView: View {
         guard let pick = pendingPick else { return }
         pendingPick = nil
         switch pick.entry {
-        case .thread(.delete):
+        case .chat(.delete):
             deleteTarget = pick.target.id
         case let .agent(entry):
             let agentId = pick.target.id

@@ -105,12 +105,12 @@ import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.search.SearchScreen
-import com.exponential.app.ui.thread.ThreadScreen
+import com.exponential.app.ui.chat.ChatScreen
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.plan.OpenPlanPage
 import com.exponential.app.ui.chats.NeedsYouPage
-import com.exponential.app.ui.threads.ThreadsScreen
-import com.exponential.app.ui.threads.ThreadsViewModel
+import com.exponential.app.ui.chats.ChatsScreen
+import com.exponential.app.ui.chats.ChatsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.settings.AgentSettingsScreen
@@ -123,7 +123,7 @@ import com.exponential.app.ui.settings.SettingsViewModel
 import com.exponential.app.ui.settings.SkillSettingsScreen
 import com.exponential.app.ui.settings.TeamTabViewModel
 import com.exponential.app.ui.settings.SkillsSettingsScreen
-import com.exponential.app.ui.thread.AgentConversationScreen
+import com.exponential.app.ui.chat.AgentConversationScreen
 import com.exponential.app.ui.apps.AppEditorScreen
 import com.exponential.app.ui.apps.AppRunScreen
 import com.exponential.app.ui.apps.AppsScreen
@@ -152,7 +152,7 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · Inbox · Devices · Threads + the Chat | New issue
+ * pill (Issues · Inbox · Devices · Chats + the Chat | New issue
  * capsule) overlaid on the top-level routes; the app lands on the Agent page,
  * which the Chat arm selects like a tab. EXP-1210: the tabs are ROOT siblings
  * ([MainTabs], [selectTab]) — no back button, no slide between them. Replaces
@@ -198,15 +198,15 @@ fun AppNavHost() {
     // EXP-980 / #EXP-1456: a session push tap or inbox row (a wall, an
     // agent's decision, an @mention) opens where that session lives
     // (fixtures/inbox-route.json): my agent conversation = its channel, a
-    // thread root = the thread, else the session view. Same snapshot hazard
+    // chat root = the chat, else the session view. Same snapshot hazard
     // as the issue route — the screens read their id from SavedStateHandle
     // once. #EXP-1638: a recent-chat app shortcut rides the same open.
     suspend fun openSession(id: String) {
         // #EXP-1662: a session with a waiting plan of its own = its
-        // thread's plan tab, on that plan.
-        val planRoot = webLinkResolver.planThread(id)
+        // chat's plan tab, on that plan.
+        val planRoot = webLinkResolver.planChat(id)
         val route = planRoot?.let { root ->
-            webLinkResolver.planPageTarget(id)?.let { Routes.threadPlan(root, it) }
+            webLinkResolver.planPageTarget(id)?.let { Routes.chatPlan(root, it) }
         } ?: sessionTargetRoute(id, webLinkResolver.sessionTarget(id))
         val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(id))
         guarded {
@@ -240,10 +240,10 @@ fun AppNavHost() {
             is DeepLinkBus.Target.Invite -> guarded {
                 navController.navigateDeepLink("invite/${target.token}")
             }
-            // An agent's message (EXP-801) renders in the inbox — thread
+            // An agent's message (EXP-801) renders in the inbox — chat
             // 58cb32df: a page pushed over the Chats tab, not a tab root.
             DeepLinkBus.Target.Inbox -> guarded {
-                navController.selectTab(MainTabs.THREADS, tabSwitch, restore = false)
+                navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false)
                 navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
             is DeepLinkBus.Target.Session -> openSession(target.id)
@@ -321,7 +321,7 @@ fun AppNavHost() {
                     when {
                         direct?.sessionId != null -> {
                             teamSelection.setPendingChatShare(ChatShare(target, sessionId = direct.sessionId))
-                            navController.navigateDeepLink(Routes.thread(direct.sessionId))
+                            navController.navigateDeepLink(Routes.chat(direct.sessionId))
                         }
                         direct?.pick != null -> {
                             teamSelection.setPendingChatShare(ChatShare(target, pick = direct.pick))
@@ -499,8 +499,8 @@ private fun AuthenticatedNav(
     val openPlanTab = remember(navController) {
         OpenPlanPage { sessionId, messageId ->
             planScope.launch {
-                val root = planLinks.planThread(sessionId)
-                navController.navigate(root?.let { Routes.threadPlan(it, messageId) } ?: Routes.session(sessionId))
+                val root = planLinks.planChat(sessionId)
+                navController.navigate(root?.let { Routes.chatPlan(it, messageId) } ?: Routes.session(sessionId))
             }
         }
     }
@@ -544,14 +544,14 @@ private fun AuthenticatedNav(
     val barSuppression = remember { BottomBarSuppression() }
     val barShown = barVisible && !barSuppression.suppressed
 
-    // EXP-1291: the Threads tab's dot — amber while a thread needs a person,
+    // EXP-1291: the Chats tab's dot — amber while a chat needs a person,
     // EXP-1327: green while one runs (the launcher wears none).
-    val threadsVm: ThreadsViewModel = hiltViewModel()
-    val threadsRunning by threadsVm.anyRunning.collectAsStateWithLifecycle()
-    val threadsNeedYou by threadsVm.needsYou.collectAsStateWithLifecycle()
-    val threadsUnread by threadsVm.unread.collectAsStateWithLifecycle()
-    // Thread 58cb32df: the Team tab wears the ACTIVE team's avatar + name.
-    val teams by threadsVm.teams.collectAsStateWithLifecycle()
+    val chatsVm: ChatsViewModel = hiltViewModel()
+    val chatsRunning by chatsVm.anyRunning.collectAsStateWithLifecycle()
+    val chatsNeedYou by chatsVm.needsYou.collectAsStateWithLifecycle()
+    val chatsUnread by chatsVm.unread.collectAsStateWithLifecycle()
+    // Session 58cb32df: the Team tab wears the ACTIVE team's avatar + name.
+    val teams by chatsVm.teams.collectAsStateWithLifecycle()
     val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
     val activeTeam = teams.firstOrNull { it.id == selectedTeamId }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
@@ -632,7 +632,7 @@ private fun AuthenticatedNav(
     val pushSpec = Motion.slow<IntOffset>(reduceMotion)
 
     // EXP-920: the ONE navigator an entity-preview sheet's Open rides — every
-    // kind's detail surface behind one local, so the transcript never threads
+    // kind's detail surface behind one local, so the transcript never chats
     // a lambda per kind.
     val entityNavigator = remember(navController, tabSwitch) {
         EntityNavigator { target -> guarded {
@@ -649,7 +649,7 @@ private fun AuthenticatedNav(
                 EntityTarget.Devices -> navController.navigate(Routes.teamSettings(SettingsNav.DEVICES)) { launchSingleTop = true }
                 is EntityTarget.TeamSettings -> navController.navigate(Routes.teamSettings(target.section))
                 EntityTarget.Team -> navController.selectTab(MainTabs.TEAM, tabSwitch)
-                // Thread 58cb32df: the inbox is a page, pushed.
+                // Session 58cb32df: the inbox is a page, pushed.
                 EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
         } }
@@ -670,7 +670,7 @@ private fun AuthenticatedNav(
         LocalEntityNavigator provides entityNavigator,
         LocalLeaveGuard provides leaveGuard,
         LocalPageHeaderActions provides pageHeaderActions,
-        // #EXP-1662: every way in from outside a thread opens that thread's
+        // #EXP-1662: every way in from outside a chat opens that chat's
         // plan tab (an unsynced session = its own route, web's plan route).
         LocalOpenPlanPage provides openPlanTab,
     ) {
@@ -713,9 +713,9 @@ private fun AuthenticatedNav(
                 onBack = null,
                 onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
-                // EXP-1291: an accepted send lands on its thread.
-                onLandInThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                // EXP-1291: an accepted send lands on its chat.
+                onLandInChat = { id -> navController.navigate(Routes.chat(id)) },
             )
         }
         composable("home") {
@@ -730,7 +730,7 @@ private fun AuthenticatedNav(
                 liveRunsByTeam = liveRunsByTeamLatest.value,
                 selectedTeamId = selectedTeamId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                // Thread 58cb32df: the gear moved to the Team tab.
+                // Session 58cb32df: the gear moved to the Team tab.
                 onOpenAgent = openAgent,
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
@@ -741,7 +741,7 @@ private fun AuthenticatedNav(
                 onNewIssue = {
                     currentBoardIdLatest.value?.let { navController.openIssueDraft(it) }
                 },
-                // Thread 58cb32df: the board's Drafts chip reopens a draft.
+                // Session 58cb32df: the board's Drafts chip reopens a draft.
                 onOpenDraft = { boardId, draftId -> navController.openIssueDraft(boardId, draftId = draftId) },
             )
         }
@@ -772,13 +772,13 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
-                // The seeded composer gives way to the thread it started.
-                onLandInThread = { id -> navController.landOnThread(id, replaceCurrent = true) },
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                // The seeded composer gives way to the chat it started.
+                onLandInChat = { id -> navController.landOnChat(id, replaceCurrent = true) },
             )
         }
         composable(MainTabs.INBOX) {
-            // Thread 58cb32df: the INBOX page — pushed from the Chats
+            // Session 58cb32df: the INBOX page — pushed from the Chats
             // header's inbox circle (no segments: My issues and Drafts moved
             // to the board's chips).
             val inboxDeepLinks = applicationDeepLinkBus()
@@ -794,16 +794,16 @@ private fun AuthenticatedNav(
                 onOpenIssueGuide = { id -> navController.navigate("issue/$id") },
             )
         }
-        composable(Routes.THREADS) {
-            // EXP-1291: the Threads tab (it replaced Reviews) — a row opens
-            // its thread, an agent row its channel (the same screen).
-            ThreadsScreen(
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+        composable(Routes.CHATS) {
+            // EXP-1291: the Chats tab (it replaced Reviews) — a row opens
+            // its chat, an agent row its channel (the same screen).
+            ChatsScreen(
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // NEW-7: an agent with no conversation of mine yet opens its
                 // empty DM (the first send creates it).
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
-                // Thread 58cb32df: the header's inbox circle pushes the inbox.
+                // Session 58cb32df: the header's inbox circle pushes the inbox.
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
                 inboxUnread = unreadCountLatest.value > 0,
@@ -826,8 +826,8 @@ private fun AuthenticatedNav(
         composable(Routes.CHATS_ARCHIVED) {
             // #EXP-1388: the viewer's archived chats (the page header with
             // back; the selection bar unarchives).
-            ThreadsScreen(
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+            ChatsScreen(
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 inboxUnread = unreadCountLatest.value > 0,
@@ -836,7 +836,7 @@ private fun AuthenticatedNav(
             )
         }
         composable(MainTabs.TEAM) {
-            // Thread 58cb32df: the Team tab (the active team, the ONE team
+            // Session 58cb32df: the Team tab (the active team, the ONE team
             // switch, the settings rows, the servers, General).
             TeamTabScreen(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
@@ -1101,8 +1101,8 @@ private fun AuthenticatedNav(
                     nullable = true
                     defaultValue = null
                 },
-                // EXP-1284: "New issue in this thread" — the create links it.
-                navArgument("thread") {
+                // EXP-1284: "New issue in this chat" — the create links it.
+                navArgument("chat") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -1112,10 +1112,10 @@ private fun AuthenticatedNav(
             IssueDraftScreen(
                 onBack = { navController.popBackStack() },
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
-                // T11: a thread draft (opened from the thread, or reopened
-                // from Drafts) lands on the thread with its new issue's tab.
-                onCreatedInThread = { _, threadId ->
-                    navController.landOnThread(threadId, replaceCurrent = true)
+                // T11: a chat draft (opened from the chat, or reopened
+                // from Drafts) lands on the chat with its new issue's tab.
+                onCreatedInChat = { _, chatId ->
+                    navController.landOnChat(chatId, replaceCurrent = true)
                 },
             )
         }
@@ -1137,7 +1137,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenAgent = openAgent,
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
@@ -1152,13 +1152,13 @@ private fun AuthenticatedNav(
                 sessionId = entry.arguments?.getString("sessionId").orEmpty(),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // S-3: an inter-session link pushes that session.
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
             )
         }
         composable(
-            Routes.THREAD_PATTERN,
+            Routes.CHAT_PATTERN,
             arguments = listOf(
                 navArgument("tab") {
                     type = NavType.StringType
@@ -1179,14 +1179,14 @@ private fun AuthenticatedNav(
                 },
             ),
         ) {
-            // EXP-1291: a thread root OR an agent root — ONE conversation screen.
-            ThreadScreen(
+            // EXP-1291: a chat root OR an agent root — ONE conversation screen.
+            ChatScreen(
                 onBack = { navController.popBackStack() },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
-                onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, threadId = rootId) },
+                onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
                 // chats.json `agentMenuCases`: an agent chat's menu opens its settings.
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
@@ -1219,13 +1219,13 @@ private fun AuthenticatedNav(
             )
         }
         composable(Routes.AGENT_DM_PATTERN) {
-            // NEW-7: my DM with an agent; once it exists it IS the thread
+            // NEW-7: my DM with an agent; once it exists it IS the chat
             // screen's agent channel, which replaces this entry.
             AgentConversationScreen(
                 onBack = { navController.popBackStack() },
                 onOpenConversation = { id ->
                     val here = navController.currentBackStackEntry?.destination?.id
-                    navController.navigate(Routes.thread(id)) {
+                    navController.navigate(Routes.chat(id)) {
                         if (here != null) popUpTo(here) { inclusive = true }
                     }
                 },
@@ -1341,7 +1341,7 @@ private fun AuthenticatedNav(
             selected = when {
                 onDevicesPage -> "team"
                 currentTab == MainTabs.ISSUES -> "board"
-                currentTab == MainTabs.THREADS -> "chats"
+                currentTab == MainTabs.CHATS -> "chats"
                 currentTab == MainTabs.APPS -> "apps"
                 currentTab == MainTabs.TEAM -> "team"
                 else -> null
@@ -1351,9 +1351,9 @@ private fun AuthenticatedNav(
             onBoardView = onBoardView,
             team = activeTeam,
             onTeamPage = onTeamPage,
-            chatsRunning = threadsRunning,
-            chatsNeedYou = threadsNeedYou,
-            chatsUnread = threadsUnread,
+            chatsRunning = chatsRunning,
+            chatsNeedYou = chatsNeedYou,
+            chatsUnread = chatsUnread,
             // The Chat arm (the Agent page) rides every top-level surface, with New issue beside it in
             // one capsule (EXP-827/EXP-973) — dimmed while the team has no
             // board to file onto. The arm SWITCHES to the Agent page like a
@@ -1372,7 +1372,7 @@ private fun AuthenticatedNav(
                     } else {
                         navController.selectTab(MainTabs.ISSUES, tabSwitch)
                     }
-                    "chats" -> navController.selectTab(MainTabs.THREADS, tabSwitch)
+                    "chats" -> navController.selectTab(MainTabs.CHATS, tabSwitch)
                     "apps" -> navController.selectTab(MainTabs.APPS, tabSwitch)
                     "team" -> if (onTeamPage) {
                         stripMenuOpen = !teamMenu || !stripMenuOpen
@@ -1456,22 +1456,22 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwap(
 
 /** EXP-1170: the New issue page — `drafts/{draftId}?board=&status=&parent=`. */
 private const val ISSUE_DRAFT_ROUTE =
-    "drafts/{draftId}?board={board}&status={status}&parent={parent}&thread={thread}"
+    "drafts/{draftId}?board={board}&status={status}&parent={parent}&chat={chat}"
 
 /**
- * EXP-1291: land on the THREAD [threadId] (a root session). The page that
+ * EXP-1291: land on the CHAT [chatId] (a root session). The page that
  * started it is replaced when [replaceCurrent]; when that page sat on this
- * very thread, the old thread entry goes too, so Back never returns to a
+ * very chat, the old chat entry goes too, so Back never returns to a
  * stale copy of it.
  */
-private fun NavHostController.landOnThread(threadId: String, replaceCurrent: Boolean) {
+private fun NavHostController.landOnChat(chatId: String, replaceCurrent: Boolean) {
     val current = currentBackStackEntry
     val previous = previousBackStackEntry
-    val overSameThread = previous?.destination?.route == Routes.THREAD_PATTERN &&
-        previous.arguments?.getString("sessionId") == threadId
-    navigate(Routes.thread(threadId)) {
+    val overSameChat = previous?.destination?.route == Routes.CHAT_PATTERN &&
+        previous.arguments?.getString("sessionId") == chatId
+    navigate(Routes.chat(chatId)) {
         when {
-            overSameThread && previous != null -> popUpTo(previous.destination.id) { inclusive = true }
+            overSameChat && previous != null -> popUpTo(previous.destination.id) { inclusive = true }
             replaceCurrent && current != null -> popUpTo(current.destination.id) { inclusive = true }
         }
     }
@@ -1490,13 +1490,13 @@ private fun NavHostController.openIssueDraft(
     parentId: String? = null,
     draftId: String = java.util.UUID.randomUUID().toString(),
     singleTop: Boolean = false,
-    threadId: String? = null,
+    chatId: String? = null,
 ) {
     val query = listOfNotNull(
         "board=${Uri.encode(boardId)}",
         statusId?.let { "status=${Uri.encode(it)}" },
         parentId?.let { "parent=${Uri.encode(it)}" },
-        threadId?.let { "thread=${Uri.encode(it)}" },
+        chatId?.let { "chat=${Uri.encode(it)}" },
     ).joinToString("&")
     navigate("drafts/$draftId?$query") {
         if (singleTop) launchSingleTop = true

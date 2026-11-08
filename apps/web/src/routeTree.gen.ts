@@ -51,7 +51,7 @@ import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
 import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
-import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
+import { Route as ApiSupportConversationRouteImport } from './routes/api/support/conversation'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
 import { Route as ApiShareTokenRouteImport } from './routes/api/share/$token'
@@ -104,12 +104,11 @@ import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as AuthenticatedAdminConnectionsRouteImport } from './routes/_authenticated/admin/connections'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
-import { Route as TTeamSlugThreadsIndexRouteImport } from './routes/t/$teamSlug/threads/index'
+import { Route as TTeamSlugChatsIndexRouteImport } from './routes/t/$teamSlug/chats/index'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugAppsIndexRouteImport } from './routes/t/$teamSlug/apps/index'
-import { Route as TTeamSlugThreadsThreadIdRouteImport } from './routes/t/$teamSlug/threads/$threadId'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsVoiceRouteImport } from './routes/t/$teamSlug/settings/voice'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
@@ -377,9 +376,9 @@ const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
   path: '/api/trpc/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSupportThreadRoute = ApiSupportThreadRouteImport.update({
-  id: '/api/support/thread',
-  path: '/api/support/thread',
+const ApiSupportConversationRoute = ApiSupportConversationRouteImport.update({
+  id: '/api/support/conversation',
+  path: '/api/support/conversation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
@@ -652,9 +651,9 @@ const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugThreadsIndexRoute = TTeamSlugThreadsIndexRouteImport.update({
-  id: '/threads/',
-  path: '/threads/',
+const TTeamSlugChatsIndexRoute = TTeamSlugChatsIndexRouteImport.update({
+  id: '/chats/',
+  path: '/chats/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
@@ -677,12 +676,6 @@ const TTeamSlugAppsIndexRoute = TTeamSlugAppsIndexRouteImport.update({
   path: '/apps/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugThreadsThreadIdRoute =
-  TTeamSlugThreadsThreadIdRouteImport.update({
-    id: '/threads/$threadId',
-    path: '/threads/$threadId',
-    getParentRoute: () => TTeamSlugRouteRoute,
-  } as any)
 const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
   id: '/widget',
   path: '/widget',
@@ -1065,7 +1058,7 @@ export interface FileRoutesByFullPath {
   '/api/share/$token': typeof ApiShareTokenRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
-  '/api/support/thread': typeof ApiSupportThreadRoute
+  '/api/support/conversation': typeof ApiSupportConversationRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
@@ -1110,12 +1103,11 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/apps/': typeof TTeamSlugAppsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
-  '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/chats/': typeof TTeamSlugChatsIndexRoute
   '/.well-known/oauth-protected-resource/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   '/api/apps/hooks/$appId/$name': typeof ApiAppsHooksAppIdNameRoute
   '/t/$teamSlug/apps/$appSlug/$screen': typeof TTeamSlugAppsAppSlugScreenRoute
@@ -1216,7 +1208,7 @@ export interface FileRoutesByTo {
   '/api/share/$token': typeof ApiShareTokenRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
-  '/api/support/thread': typeof ApiSupportThreadRoute
+  '/api/support/conversation': typeof ApiSupportConversationRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
@@ -1261,12 +1253,11 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/apps': typeof TTeamSlugAppsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
-  '/t/$teamSlug/threads': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/chats': typeof TTeamSlugChatsIndexRoute
   '/.well-known/oauth-protected-resource/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   '/api/apps/hooks/$appId/$name': typeof ApiAppsHooksAppIdNameRoute
   '/t/$teamSlug/apps/$appSlug/$screen': typeof TTeamSlugAppsAppSlugScreenRoute
@@ -1372,7 +1363,7 @@ export interface FileRoutesById {
   '/api/share/$token': typeof ApiShareTokenRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
-  '/api/support/thread': typeof ApiSupportThreadRoute
+  '/api/support/conversation': typeof ApiSupportConversationRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
@@ -1417,12 +1408,11 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/apps/': typeof TTeamSlugAppsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
-  '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/chats/': typeof TTeamSlugChatsIndexRoute
   '/.well-known/oauth-protected-resource_/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   '/api/apps/hooks/$appId/$name': typeof ApiAppsHooksAppIdNameRoute
   '/t/$teamSlug/apps/$appSlug/$screen': typeof TTeamSlugAppsAppSlugScreenRoute
@@ -1528,7 +1518,7 @@ export interface FileRouteTypes {
     | '/api/share/$token'
     | '/api/support/attachment'
     | '/api/support/reply'
-    | '/api/support/thread'
+    | '/api/support/conversation'
     | '/api/trpc/$'
     | '/api/webhooks/github'
     | '/api/webhooks/ses'
@@ -1573,12 +1563,11 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/apps/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/settings/'
-    | '/t/$teamSlug/threads/'
+    | '/t/$teamSlug/chats/'
     | '/.well-known/oauth-protected-resource/api/mcp/apps'
     | '/api/apps/hooks/$appId/$name'
     | '/t/$teamSlug/apps/$appSlug/$screen'
@@ -1679,7 +1668,7 @@ export interface FileRouteTypes {
     | '/api/share/$token'
     | '/api/support/attachment'
     | '/api/support/reply'
-    | '/api/support/thread'
+    | '/api/support/conversation'
     | '/api/trpc/$'
     | '/api/webhooks/github'
     | '/api/webhooks/ses'
@@ -1724,12 +1713,11 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/apps'
     | '/t/$teamSlug/drafts'
     | '/t/$teamSlug/inbox'
     | '/t/$teamSlug/settings'
-    | '/t/$teamSlug/threads'
+    | '/t/$teamSlug/chats'
     | '/.well-known/oauth-protected-resource/api/mcp/apps'
     | '/api/apps/hooks/$appId/$name'
     | '/t/$teamSlug/apps/$appSlug/$screen'
@@ -1834,7 +1822,7 @@ export interface FileRouteTypes {
     | '/api/share/$token'
     | '/api/support/attachment'
     | '/api/support/reply'
-    | '/api/support/thread'
+    | '/api/support/conversation'
     | '/api/trpc/$'
     | '/api/webhooks/github'
     | '/api/webhooks/ses'
@@ -1879,12 +1867,11 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/apps/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/settings/'
-    | '/t/$teamSlug/threads/'
+    | '/t/$teamSlug/chats/'
     | '/.well-known/oauth-protected-resource_/api/mcp/apps'
     | '/api/apps/hooks/$appId/$name'
     | '/t/$teamSlug/apps/$appSlug/$screen'
@@ -1979,7 +1966,7 @@ export interface RootRouteChildren {
   ApiShareTokenRoute: typeof ApiShareTokenRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
-  ApiSupportThreadRoute: typeof ApiSupportThreadRoute
+  ApiSupportConversationRoute: typeof ApiSupportConversationRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
   ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
@@ -2293,11 +2280,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTrpcSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/support/thread': {
-      id: '/api/support/thread'
-      path: '/api/support/thread'
-      fullPath: '/api/support/thread'
-      preLoaderRoute: typeof ApiSupportThreadRouteImport
+    '/api/support/conversation': {
+      id: '/api/support/conversation'
+      path: '/api/support/conversation'
+      fullPath: '/api/support/conversation'
+      preLoaderRoute: typeof ApiSupportConversationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/support/reply': {
@@ -2664,11 +2651,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/threads/': {
-      id: '/t/$teamSlug/threads/'
-      path: '/threads'
-      fullPath: '/t/$teamSlug/threads/'
-      preLoaderRoute: typeof TTeamSlugThreadsIndexRouteImport
+    '/t/$teamSlug/chats/': {
+      id: '/t/$teamSlug/chats/'
+      path: '/chats'
+      fullPath: '/t/$teamSlug/chats/'
+      preLoaderRoute: typeof TTeamSlugChatsIndexRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/settings/': {
@@ -2697,13 +2684,6 @@ declare module '@tanstack/react-router' {
       path: '/apps'
       fullPath: '/t/$teamSlug/apps/'
       preLoaderRoute: typeof TTeamSlugAppsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
-    '/t/$teamSlug/threads/$threadId': {
-      id: '/t/$teamSlug/threads/$threadId'
-      path: '/threads/$threadId'
-      fullPath: '/t/$teamSlug/threads/$threadId'
-      preLoaderRoute: typeof TTeamSlugThreadsThreadIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/settings/widget': {
@@ -3221,11 +3201,10 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugIssuesIdentifierRoute: typeof TTeamSlugIssuesIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
-  TTeamSlugThreadsThreadIdRoute: typeof TTeamSlugThreadsThreadIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
   TTeamSlugDraftsIndexRoute: typeof TTeamSlugDraftsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
-  TTeamSlugThreadsIndexRoute: typeof TTeamSlugThreadsIndexRoute
+  TTeamSlugChatsIndexRoute: typeof TTeamSlugChatsIndexRoute
   TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
   TTeamSlugSessionsSessionIdPlanMessageIdRoute: typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
@@ -3244,11 +3223,10 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugIssuesIdentifierRoute: TTeamSlugIssuesIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
-  TTeamSlugThreadsThreadIdRoute: TTeamSlugThreadsThreadIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,
   TTeamSlugDraftsIndexRoute: TTeamSlugDraftsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
-  TTeamSlugThreadsIndexRoute: TTeamSlugThreadsIndexRoute,
+  TTeamSlugChatsIndexRoute: TTeamSlugChatsIndexRoute,
   TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
     TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,
@@ -3337,7 +3315,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShareTokenRoute: ApiShareTokenRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
-  ApiSupportThreadRoute: ApiSupportThreadRoute,
+  ApiSupportConversationRoute: ApiSupportConversationRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
   ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,

@@ -79,10 +79,10 @@ import com.exponential.app.ui.session.TranscriptBodyStyle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.thread.CardSurfaceHandle
-import com.exponential.app.ui.thread.CardSurfaceView
-import com.exponential.app.ui.thread.PlanAskCard
-import com.exponential.app.ui.thread.ThreadPlanDecision
+import com.exponential.app.ui.chat.CardSurfaceHandle
+import com.exponential.app.ui.chat.CardSurfaceView
+import com.exponential.app.ui.chat.PlanAskCard
+import com.exponential.app.ui.chat.ChatPlanDecision
 import com.exponential.app.ui.work.PictureViewer
 import com.exponential.app.ui.work.PictureViewerItem
 import kotlinx.coroutines.launch
@@ -91,17 +91,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 
-/** What THE plan tab draws: the plan card as THE thread row the questions
+/** What THE plan tab draws: the plan card as THE chat row the questions
  *  answer, [card] raw (its probed picture sizes). */
 data class PlanPageState(
-    val row: SessionTree.ThreadRow.Plan,
+    val row: SessionTree.SessionChatRow.Plan,
     val card: JsonObject? = null,
 )
 
 /**
  * #EXP-1493 → #EXP-1662 THE PLAN TAB, phone form (fixtures/plan-page.json; web
- * packages/ui plan-page.tsx, iOS PlanPageScreen.swift): the BODY of a thread's
- * plan tab, under the thread's own header + strip, on its ground; no own header,
+ * packages/ui plan-page.tsx, iOS PlanPageScreen.swift): the BODY of a chat's
+ * plan tab, under the chat's own header + strip, on its ground; no own header,
  * no composer. ONE scroll: the blocks ([PlanPage.blocks]): the big title, prose
  * through THE chat markdown renderer, a section = its h2 (the outline's anchor),
  * a picture group = THE carousel. A press on a picture opens THE lightbox
@@ -113,7 +113,7 @@ data class PlanPageState(
 @Composable
 fun PlanPageContent(
     state: PlanPageState,
-    onDecidePlan: ThreadPlanDecision,
+    onDecidePlan: ChatPlanDecision,
     modifier: Modifier = Modifier,
     /** The header band over the body / the bar under it. */
     topInset: Dp = 0.dp,
@@ -228,8 +228,8 @@ fun PlanPageContent(
  */
 @Composable
 private fun PlanQuestionsPanel(
-    row: SessionTree.ThreadRow.Plan,
-    onDecidePlan: ThreadPlanDecision,
+    row: SessionTree.SessionChatRow.Plan,
+    onDecidePlan: ChatPlanDecision,
     maxHeight: Dp,
     modifier: Modifier = Modifier,
 ) {

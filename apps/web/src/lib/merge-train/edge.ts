@@ -1,5 +1,5 @@
-// EXP-1709: a lifecycle edge of a thread (a turn ending, a session ending,
-// `pr open`, a draft readied) passes the merge train over the thread's
+// EXP-1709: a lifecycle edge of a chat (a turn ending, a session ending,
+// `pr open`, a draft readied) passes the merge train over the chat's
 // repositories. Loaded lazily: the worker pulls in the PR stack, which the
 // session router and the MCP server must not import.
 import type { EdgeScope } from "@/lib/merge-train/worker"

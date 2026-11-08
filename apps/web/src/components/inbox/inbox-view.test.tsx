@@ -122,14 +122,14 @@ describe(`InboxView message rows`, () => {
     })
   })
 
-  it(`opens a thread's ask through the session route`, () => {
-    data.notifications = [message(`n4`, `thread`)]
-    data.sessions.set(`thread`, { id: `thread`, rootId: `thread`, agentId: null, userId: `me` })
+  it(`opens a chat's ask through the session route`, () => {
+    data.notifications = [message(`n4`, `chat`)]
+    data.sessions.set(`chat`, { id: `chat`, rootId: `chat`, agentId: null, userId: `me` })
     render(<InboxView compact from="inbox" />)
     fireEvent.click(screen.getByTestId(`inbox-row-agent_message`))
     expect(navigate).toHaveBeenCalledWith({
       to: `/t/$teamSlug/sessions/$sessionId`,
-      params: { teamSlug: `acme`, sessionId: `thread` },
+      params: { teamSlug: `acme`, sessionId: `chat` },
       search: { from: `inbox` },
     })
   })

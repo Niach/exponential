@@ -3,7 +3,7 @@
 //! (the 52 lead disc, title + time, the two-line muted preview, the row word
 //! and the unread badge, a hairline under the text column only), the section
 //! headers. The IDE's Chats page
-//! ([`crate::threads_view`]) and the styleguide's `chat-list` entry paint
+//! ([`crate::chats_view`]) and the styleguide's `chat-list` entry paint
 //! these same functions; the model is `domain::chats`.
 
 use std::rc::Rc;
@@ -16,7 +16,7 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_selection_count, ChatSelectionAction, ChatLead, ChatPreviewKind, ChatRow, CHATS};
-use domain::session_tree::ThreadRowWord;
+use domain::session_tree::ChatRowWord;
 
 use crate::icons::registry;
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
@@ -27,10 +27,10 @@ const GLYPH_PX: f32 = 24.;
 /// The glyph before a row word ×4 (web `ChatRowText`, Android
 /// `ChatComponents`, iOS `wordIcon`): only a stack wears one (`pr-stack`);
 /// #EXP-1469: ready to merge has none, the lead disc already shows the PR.
-fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
+fn word_glyph(word: ChatRowWord) -> Option<crate::icons::ExpIcon> {
     match word {
-        ThreadRowWord::Stack => Some(registry::PR_STACK),
-        ThreadRowWord::ReadyToMerge | ThreadRowWord::Merged | ThreadRowWord::Offline | ThreadRowWord::Question => None,
+        ChatRowWord::Stack => Some(registry::PR_STACK),
+        ChatRowWord::ReadyToMerge | ChatRowWord::Merged | ChatRowWord::Offline | ChatRowWord::Question => None,
     }
 }
 
@@ -463,11 +463,11 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
         title: row.name.clone(),
         device_id: None,
         group: if row.needs_you {
-            domain::session_tree::ThreadsListKey::NeedsYou
+            domain::session_tree::ChatsListKey::NeedsYou
         } else if row.busy {
-            domain::session_tree::ThreadsListKey::Running
+            domain::session_tree::ChatsListKey::Running
         } else {
-            domain::session_tree::ThreadsListKey::Recent
+            domain::session_tree::ChatsListKey::Recent
         },
         lead: ChatLead::Waiting,
         preview: row.preview.clone(),
@@ -511,7 +511,7 @@ pub(crate) fn composer_agent_row(
 ) -> AnyElement {
     let spec = &*domain::composer_agent_row::COMPOSER_AGENT_ROW;
     let theme = cx.theme();
-    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+    let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
     // Web `size-5` inside the 40 px bubble (composer-agent-row.tsx).
     let glyph_size = 20.;
     let mut circles: Vec<AnyElement> = Vec::new();

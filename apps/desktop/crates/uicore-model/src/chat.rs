@@ -31,7 +31,7 @@ pub struct ChatRowOption {
     pub message_id: String,
 }
 
-/// One row as the host resolved it from the domain's thread rows.
+/// One row as the host resolved it from the domain's chat rows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ChatRowInput {

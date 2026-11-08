@@ -8,7 +8,7 @@ import {
 // Lives under a `-` prefix so the route generator ignores it (src/routes/**
 // is scanned for routes; `-` is the documented escape hatch).
 
-const thread = {
+const conversation = {
   subject: `Login is broken`,
   teamName: `Acme`,
   status: `open` as `open` | `resolved`,
@@ -51,7 +51,7 @@ const jsonResponse = (status: number, body: unknown, headers?: HeadersInit) =>
   })
 
 function mockFetch(handlers: {
-  thread?: () => Response
+  conversation?: () => Response
   reply?: () => Response
   attachment?: () => Response
 }) {
@@ -60,8 +60,8 @@ function mockFetch(handlers: {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input)
-      if (url.endsWith(`/api/support/thread`)) {
-        return handlers.thread?.() ?? jsonResponse(200, thread)
+      if (url.endsWith(`/api/support/conversation`)) {
+        return handlers.conversation?.() ?? jsonResponse(200, conversation)
       }
       if (url.endsWith(`/api/support/reply`)) {
         return handlers.reply?.() ?? jsonResponse(200, { ok: true })
@@ -137,7 +137,7 @@ describe(`SupportConversationView`, () => {
 
   it(`keeps the reply box on a resolved report`, async () => {
     mockFetch({
-      thread: () => jsonResponse(200, { ...thread, status: `resolved` }),
+      conversation: () => jsonResponse(200, { ...conversation, status: `resolved` }),
     })
     render(<SupportConversationView token="tok" />)
     expect(await screen.findByPlaceholderText(`Write a reply…`)).toBeTruthy()
@@ -146,7 +146,7 @@ describe(`SupportConversationView`, () => {
   })
 
   it(`tells a forged or retired link that the conversation moved`, async () => {
-    mockFetch({ thread: () => jsonResponse(404, { error: `nope` }) })
+    mockFetch({ conversation: () => jsonResponse(404, { error: `nope` }) })
     render(<SupportConversationView token="tok" />)
     expect(
       await screen.findByText(
@@ -200,14 +200,14 @@ describe(`SupportConversationView`, () => {
   it(`offers a retry instead of a dead end when the load is throttled`, async () => {
     let throttle = true
     const fetchMock = mockFetch({
-      thread: () =>
+      conversation: () =>
         throttle
           ? jsonResponse(
               429,
               { error: `Too many requests` },
               { "Retry-After": `30` }
             )
-          : jsonResponse(200, thread),
+          : jsonResponse(200, conversation),
     })
     render(<SupportConversationView token="tok" />)
 
@@ -224,10 +224,10 @@ describe(`SupportConversationView`, () => {
   it(`keeps the transcript when the post-send refresh is rejected`, async () => {
     let loads = 0
     mockFetch({
-      thread: () => {
+      conversation: () => {
         loads += 1
         return loads === 1
-          ? jsonResponse(200, thread)
+          ? jsonResponse(200, conversation)
           : jsonResponse(429, { error: `Too many requests` })
       },
     })

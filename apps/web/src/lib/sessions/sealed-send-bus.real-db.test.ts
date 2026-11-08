@@ -119,7 +119,7 @@ const fromChild = async (sessionId: string, from: string) =>
   ).filter((m) => (m.card as { event?: string } | null)?.event !== `session_claimed`)
 
 describe.skipIf(!ready.ok)(`sessions.send with sealed content`, () => {
-  it(`a new thread takes its key and its sealed first message in ONE send`, async () => {
+  it(`a new chat takes its key and its sealed first message in ONE send`, async () => {
     const w = await world()
     const { tree, seal } = w.seal()
     const text = sealBody(tree.publicKey, 1, `secret plan`)
@@ -380,7 +380,7 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     const reports4 = (await fromChild(rootId, child4)).filter(isReport)
     expect(reports4).toMatchObject([{ body: REPORT_FALLBACK }])
     expect(JSON.stringify(reports4)).not.toContain(`closing words in clear`)
-    // A thread started in clear has no key: it counts as unsealed, its summary stays.
+    // A chat started in clear has no key: it counts as unsealed, its summary stays.
     const clear = (await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `in clear` } })).sessionId
     const kept = await endSession({ userId: w.owner, sessionId: clear, summary: `clear closing words` })
     expect(kept.summaryDropped).toBe(false)

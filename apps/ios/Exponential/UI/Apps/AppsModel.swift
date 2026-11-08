@@ -276,9 +276,9 @@ final class AppEditorModel {
     }
 
     /// #FEED-204: an ended root's next send, elsewhere; nil = a plain message.
-    var deviceAppMove: ThreadComposerDraft.AppMove? {
+    var deviceAppMove: ChatComposerDraft.AppMove? {
         guard deviceMove, let deviceId else { return nil }
-        return ThreadComposerDraft.AppMove(appId: boundAppId, deviceId: deviceId)
+        return ChatComposerDraft.AppMove(appId: boundAppId, deviceId: deviceId)
     }
 
     /// A pick is remembered per app on this device, never as the default.

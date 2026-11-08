@@ -11,7 +11,7 @@ import {
 } from "@/lib/reporter/reply"
 
 // SLOP-4: anonymous reporter reply on a widget report (magic-link token in
-// the JSON body — see thread.ts for the query-string rationale). The reply
+// the JSON body — see conversation.ts for the query-string rationale). The reply
 // is a COMMENT on the issue: author_id NULL, source `reporter`, audience
 // `reporter`, body escaped ONCE into literal GFM (lib/reporter-text.ts) so
 // every member client renders it as the words typed and no mention/ref

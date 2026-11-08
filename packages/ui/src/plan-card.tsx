@@ -13,7 +13,7 @@ import {
   type CardSurface,
 } from "@exp/domain-contract/plan-card"
 import { ASK_DOCK_COPY, PLAN_OPTIONS, type PlanOption } from "@exp/domain-contract/ask-dock"
-import type { ThreadPlanQuestion, ThreadQuestionOption } from "@exp/domain-contract/session-tree"
+import type { ChatPlanQuestion, ChatQuestionOption } from "@exp/domain-contract/session-tree"
 import { ASK_OPTION_PICKED_CLASS, ASK_OPTION_ROW_CLASS } from "./ask-card"
 import { Button } from "./button"
 import { ChoiceTiles } from "./choice-tiles"
@@ -27,8 +27,8 @@ import { Textarea } from "./textarea"
 
 // EXP-1280 custom plan mode: THE rich plan / question card's form parts ×web
 // (fixtures/plan-card.json; desktop `crates/ui/src/plan_card.rs`, iOS
-// `PlanCardForm.swift`, Android `PlanCardView.kt`). The thread's cards
-// (`session-thread-view.tsx` ThreadPlanCard / ThreadQuestionCard), THE ask
+// `PlanCardForm.swift`, Android `PlanCardView.kt`). The chat's cards
+// (`session-chat-view.tsx` ChatPlanCard / ChatQuestionCard), THE ask
 // dock and the session view's tool-posted cards paint through these:
 //
 //   PlanCardSurface       the agent's inline Exponential UI surface: the real
@@ -135,7 +135,7 @@ export function useCardLinks(): CardLinks | null {
   return useContext(CardLinksContext)
 }
 
-/** THE card host (the plan card's, and thread 58cb32df's `SurfaceCard`):
+/** THE card host (the plan card's, and chat 58cb32df's `SurfaceCard`):
  *  `onAction` = the surface's action events (a surface card's `reply`). */
 export function planCardHost(
   onAction?: (event: { name: string; context: Record<string, unknown> }) => void,
@@ -230,7 +230,7 @@ export function PlanCardOptions({
   attachmentSrc,
   label,
 }: {
-  options: readonly ThreadQuestionOption[]
+  options: readonly ChatQuestionOption[]
   multi: boolean
   picked: readonly string[]
   onPick?: (next: string[]) => void
@@ -352,7 +352,7 @@ export function PlanCardQuestionBlock({
   closedFree,
   className,
 }: {
-  question: ThreadPlanQuestion
+  question: ChatPlanQuestion
   picked: readonly string[]
   customText: string
   /** Absent = closed. */

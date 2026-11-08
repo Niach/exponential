@@ -1,7 +1,7 @@
 import ExpCore
 import Foundation
 
-/// One eligible issue Home's composer can put on a thread (EXP-156,
+/// One eligible issue Home's composer can put on a chat (EXP-156,
 /// top-level since EXP-825 — it used to be nested in the Start-coding sheet).
 /// `repositoryId` drives the single-repository-per-run validation (all
 /// checked issues must share one).

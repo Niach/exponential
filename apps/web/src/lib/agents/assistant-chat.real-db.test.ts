@@ -178,11 +178,11 @@ describe.skipIf(!ready.ok)(`the Assistant's quiet chat (#EXP-1439)`, () => {
     // Its own conversation's activity is not news.
     await db.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, w.conversation.id))
     expect(await memberChatsChanged(db, { ...w.assistant }, before)).toBe(false)
-    const thread = crypto.randomUUID()
+    const chat = crypto.randomUUID()
     await db.insert(sessions).values({
-      id: thread,
+      id: chat,
       teamId: w.teamId,
-      rootId: thread,
+      rootId: chat,
       userId: w.owner,
       deviceId: w.deviceId,
       lastActivityAt: new Date(),

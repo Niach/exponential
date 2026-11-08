@@ -155,7 +155,7 @@ fun issueRefTarget(hit: SearchIssueHit): IssueRefTarget = IssueRefTarget(
 
 /**
  * Provided by screens that can resolve + navigate (issue detail covers the
- * description read view, the comment thread, and every embedded editor's
+ * description read view, the comment list, and every embedded editor's
  * #-autocomplete; the create screen provides it for autocomplete only); null
  * (the default) keeps every token plain text and disables the affordance.
  */

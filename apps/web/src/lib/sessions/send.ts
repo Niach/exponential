@@ -107,7 +107,7 @@ import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notificati
 //     idle session in place). `answer` answers its open card; `issueIds`
 //     forward issues to it; `deviceId` moves it (a queued row re-targets, a
 //     live ROOT re-queues there in place, a live child ends here and continues
-//     there). An ENDED thread ROOT
+//     there). An ENDED chat ROOT
 //     revives (FEED-134): the SAME row goes idle with the message pending;
 //     an ENDED child continues in a NEW session carrying the message, as
 //     its sibling, on the same branch.
@@ -116,7 +116,7 @@ import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notificati
 //     first use on the agent's device, never ending).
 //   - `parentId`: a child (sub-session) of any visible session, depth + 1,
 //     inheriting its parent's runner picks.
-//   - neither: a new ROOT — a thread that WORKS (the composer's picks, a
+//   - neither: a new ROOT — a chat that WORKS (the composer's picks, a
 //     worktree when a repo is set; `promptId` = a saved prompt's body plus
 //     the text as its first message, titled after the prompt). Started from
 //     inside a session, the caller WATCHES it (the bus delivers its
@@ -567,7 +567,7 @@ async function postSendMessage(
 
 /** #EXP-1584 (fixtures/session-brief.json `issueBriefCases`): the Issues
  *  section of `issueIds` (input order) for a message forwarding them into
- *  a session already under way: a queued thread's brief lists its rows, a
+ *  a session already under way: a queued chat's brief lists its rows, a
  *  running or idle one would never see them. #EXP-1686: an agent's
  *  conversation holds no rows, so its message always carries the section. */
 async function forwardedIssueBrief(
@@ -794,7 +794,7 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
 
 /** VAPP-229: the app this send runs for (the apps broker's server-side
  *  context, `sendSession({viaAppId})`), scoped to that one call: every
- *  session row it inserts (a root, a child, an agent's fresh thread) reads
+ *  session row it inserts (a root, a child, an agent's fresh chat) reads
  *  "via <app>" (via-app.json). */
 const sendViaApp = new AsyncLocalStorage<string | undefined>()
 
@@ -817,10 +817,10 @@ async function applyWakeOn(tx: Tx, caller: Session | null, input: SessionsSendIn
 }
 
 /** #FEED-173/#FEED-174: a send naming no session (sessionId, agentId,
- *  appId, parentId) and carrying no work for a new thread (text,
+ *  appId, parentId) and carrying no work for a new chat (text,
  *  attachments, a prompt, issues). Spec copy: packages/eagent rules
  *  `copy.startNeedsWork`. */
-export const START_NEEDS_WORK = `Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session`
+export const START_NEEDS_WORK = `Name the session to message (sessionId, agentId, appId or parentId), or give the new root session a text or issues; wakeOn alone watches from your own session`
 
 function startsNothing(input: SessionsSendInput): boolean {
   if (input.sessionId || input.agentId || input.appId || input.parentId) return false
@@ -829,7 +829,7 @@ function startsNothing(input: SessionsSendInput): boolean {
 
 /** #FEED-173/#FEED-174: `{wakeOn}` with no target and nothing to start
  *  registers the wake on the CALLING session (the core's `send.watch`);
- *  without `wakeOn` such a send is refused. Never an empty thread. */
+ *  without `wakeOn` such a send is refused. Never an empty chat. */
 async function watchOnly(caller: Session | null, input: SessionsSendInput): Promise<SendOutcome> {
   // Anything beside the watch (a name, a seal, a device, runner picks) is a
   // start without work, never a watch: a sealing daemon's fresh `seal` must
@@ -1184,7 +1184,7 @@ async function restampRootVisibilityInTx(tx: Tx, rootId: string, shared: boolean
 /** #FEED-172 (packages/eagent/fixtures/reuse.json): the target's tree has
  *  the last word with the caller: its newest agent-authored line in the
  *  caller's conversation is newer than the caller's newest message into the
- *  target's tree. Such a send is a REPLY (the thread asked in a plain
+ *  target's tree. Such a send is a REPLY (the chat asked in a plain
  *  message), never new work, so it never forks. */
 async function awaitsCaller(caller: Session, target: Session): Promise<boolean> {
   const result = await db.execute(sql`
@@ -1202,11 +1202,11 @@ async function awaitsCaller(caller: Session, target: Session): Promise<boolean> 
   return from !== null && (to === null || from > to)
 }
 
-/** S-3: an agent's message to a thread it may not reuse never fails: it
- *  starts a FRESH thread on the same device and repository with the same
+/** S-3: an agent's message to a chat it may not reuse never fails: it
+ *  starts a FRESH chat on the same device and repository with the same
  *  message (watched by the caller, `startRoot`), the result's `warning`
  *  naming why. */
-async function agentFreshThread(
+async function agentFreshSession(
   userId: string,
   uploaderIds: string[],
   input: SessionsSendInput,
@@ -1219,7 +1219,7 @@ async function agentFreshThread(
   if (input.answer || !(input.text?.trim() || input.attachmentIds?.length)) return null
   // EXP-1458: a text sealed to THIS tree could not move to a fresh one.
   if (isSealedBody(input.text)) return null
-  // A thread waiting on an answer: the reply answers it, never forks.
+  // A chat waiting on an answer: the reply answers it, never forks.
   if (target.needsInput) return null
   if (!(await callerTreeAgentId(caller))) return null
   const [{ count }] = await db
@@ -1245,7 +1245,7 @@ async function agentFreshThread(
   const outcome = await startRoot(userId, uploaderIds, fresh, caller, viaMcp)
   return {
     ...outcome,
-    warning: `Started a fresh thread instead of reusing ${target.id}: ${reason}. You watch the new one.`,
+    warning: `Started a fresh session instead of reusing ${target.id}: ${reason}. You watch the new one.`,
   }
 }
 
@@ -1264,7 +1264,7 @@ async function messageSession(
   }
   const input = modelCommand(sent, viaMcp)
   if (viaMcp) {
-    const fresh = await agentFreshThread(userId, uploaderIds, input, caller, target, viaMcp)
+    const fresh = await agentFreshSession(userId, uploaderIds, input, caller, target, viaMcp)
     if (fresh) return fresh
   }
   // EXP-1376: the runner picks apply to the session (never dropped), in the
@@ -1422,8 +1422,8 @@ async function messageSession(
   }
 
   if (target.parentId === null) {
-    // FEED-134: an ended thread ROOT revives in place (the conversation IS
-    // the thread, so it never forks into a child). A named device is where
+    // FEED-134: an ended chat ROOT revives in place (the conversation IS
+    // the chat, so it never forks into a child). A named device is where
     // it resumes: nothing runs the row, so it simply re-targets.
     const moveTarget =
       input.deviceId !== undefined && input.deviceId !== target.deviceId
@@ -1579,11 +1579,11 @@ async function messageApp(
  * taking over its issue rows, as its SIBLING (#FEED-84): same parent and
  * depth. `adopt` (a move): the ended row's live children re-parent onto it
  * and its watchers follow.
- * FEED-134: an ended thread ROOT revives: the SAME row goes `idle` again
+ * FEED-134: an ended chat ROOT revives: the SAME row goes `idle` again
  * (`endedAt` cleared, not busy, nothing flagged), keeping its `startedAt`,
  * title, branch, pickers and issue rows, with this message pending on it,
  * so its device resumes it from its run record (the agent keeps its context)
- * and the thread keeps ONE worker (`liveSessionId` stays the root). A
+ * and the chat keeps ONE worker (`liveSessionId` stays the root). A
  * `moveTarget` re-targets the row first (the queued-row rule: no engine
  * runs it, so it moves and says so); a bare `account` switches its login.
  * A concurrent revive wins the row: the loser is CONFLICT (`moveRaced`).
@@ -1889,7 +1889,7 @@ async function startRoot(
 
   // An agent's spawn runs on the agent's own device unless it names one:
   // the caller's root is a conversation session (its device = the agent's).
-  // #EXP-1720: also across teams (the Assistant starts threads in its scope teams).
+  // #EXP-1720: also across teams (the Assistant starts chats in its scope teams).
   const callerRoot =
     caller
       ? caller.rootId === caller.id
@@ -1979,7 +1979,7 @@ async function startRoot(
     if (caller && caller.teamId === teamId) {
       // NEW-1: a root started from inside a session is WATCHED by its
       // starter: the bus delivers its transitions there (an agent's spawned
-      // threads report back into its conversation). The card names it.
+      // chats report back into its conversation). The card names it.
       await watchSessions(tx, caller.id, [root.id])
       await postSystemCard(tx, caller, { kind: `thread_started`, sessionId: root.id })
     }

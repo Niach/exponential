@@ -35,13 +35,13 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `S-3`,
   title: `Session link`,
-  blurb: `A row that came from ANOTHER session says so in one compact line, identical on all four clients: the muted lead (\`Message from\` · \`Report from\` · \`Started by\` · \`Reported to\`, \`session-thread.json\` \`copy.xref\`), the session's mark (the agent's avatar at 16 px when its tree has an agent, else the session glyph \`coding-assistant\`), the session's name (foreground, medium, truncating) and a muted chevron, 4 px apart, text-xs. The whole line is a button (hover = foreground, test id \`thread-xref\`): a tap opens that session and pushes the one on show on the back stack (web: the route's \`back\`, the header's ‹ pops it; phones and the IDE: their navigation push). A message from another session carries it above its bubble; a child's report IS the line; the session view and the Conversation open with the viewed session's origin (\`Started by\`, \`Reported to\` once it ended). Model = \`buildSessionThread\` (\`xref\`, \`origin\`, fixture \`session-thread.json\` ×4).`,
+  blurb: `A row that came from ANOTHER session says so in one compact line, identical on all four clients: the muted lead (\`Message from\` · \`Report from\` · \`Started by\` · \`Reported to\`, \`session-chat.json\` \`copy.xref\`), the session's mark (the agent's avatar at 16 px when its tree has an agent, else the session glyph \`coding-assistant\`), the session's name (foreground, medium, truncating) and a muted chevron, 4 px apart, text-xs. The whole line is a button (hover = foreground, test id \`chat-xref\`): a tap opens that session and pushes the one on show on the back stack (web: the route's \`back\`, the header's ‹ pops it; phones and the IDE: their navigation push). A message from another session carries it above its bubble; a child's report IS the line; the session view and the Conversation open with the viewed session's origin (\`Started by\`, \`Reported to\` once it ended). Model = \`buildSessionChat\` (\`xref\`, \`origin\`, fixture \`session-chat.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
       symbol: `SessionXref`,
       file: `packages/ui/src/session-xref.tsx`,
-      note: `rows: session-thread-view.tsx; back stack: apps/web/src/lib/session-back.ts`,
+      note: `rows: session-chat-view.tsx; back stack: apps/web/src/lib/session-back.ts`,
     },
     desktop: {
       state: `ok`,

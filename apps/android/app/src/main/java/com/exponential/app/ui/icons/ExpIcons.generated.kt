@@ -9476,6 +9476,7 @@ public object ExpIcons {
         "call-speaker" -> `volume-2`
         "call-speaker-off" -> `ear`
         "call-unmute" -> `mic-off`
+        "chat-results" -> `images`
         "ci-failed" -> `circle-x`
         "ci-passed" -> `circle-check`
         "ci-queued" -> `circle-dashed`
@@ -9549,6 +9550,7 @@ public object ExpIcons {
         "nav-apps" -> `layout-grid`
         "nav-boards" -> `folder-kanban`
         "nav-changelog" -> `megaphone`
+        "nav-chats" -> `list-tree`
         "nav-computer" -> `computer`
         "nav-create-issue" -> `square-pen`
         "nav-devices" -> `monitor`
@@ -9569,7 +9571,6 @@ public object ExpIcons {
         "nav-source-control" -> `git-merge`
         "nav-team-switcher" -> `chevrons-up-down`
         "nav-terminal" -> `square-terminal`
-        "nav-threads" -> `list-tree`
         "notification-agent-message" -> `bot`
         "notification-agent-signed-out" -> `log-out`
         "notification-issue-assigned" -> `user-plus`
@@ -9643,7 +9644,6 @@ public object ExpIcons {
         "status-todo" -> `circle`
         "support-open" -> `circle-dot`
         "support-resolved" -> `circle-check`
-        "thread-results" -> `images`
         "tool-script" -> `braces`
         "trace-background" -> `repeat`
         "trace-chevron" -> `chevron-right`
@@ -9810,6 +9810,8 @@ public object ExpIcons {
     public val callSpeakerOff: ImageVector get() = `ear`
     /** Concept `call-unmute`. */
     public val callUnmute: ImageVector get() = `mic-off`
+    /** Concept `chat-results`. */
+    public val chatResults: ImageVector get() = `images`
     /** Concept `ci-failed`. */
     public val ciFailed: ImageVector get() = `circle-x`
     /** Concept `ci-passed`. */
@@ -9956,6 +9958,8 @@ public object ExpIcons {
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
     public val navChangelog: ImageVector get() = `megaphone`
+    /** Concept `nav-chats`. */
+    public val navChats: ImageVector get() = `list-tree`
     /** Concept `nav-computer`. */
     public val navComputer: ImageVector get() = `computer`
     /** Concept `nav-create-issue`. */
@@ -9996,8 +10000,6 @@ public object ExpIcons {
     public val navTeamSwitcher: ImageVector get() = `chevrons-up-down`
     /** Concept `nav-terminal`. */
     public val navTerminal: ImageVector get() = `square-terminal`
-    /** Concept `nav-threads`. */
-    public val navThreads: ImageVector get() = `list-tree`
     /** Concept `notification-agent-message`. */
     public val notificationAgentMessage: ImageVector get() = `bot`
     /** Concept `notification-agent-signed-out`. */
@@ -10144,8 +10146,6 @@ public object ExpIcons {
     public val supportOpen: ImageVector get() = `circle-dot`
     /** Concept `support-resolved`. */
     public val supportResolved: ImageVector get() = `circle-check`
-    /** Concept `thread-results`. */
-    public val threadResults: ImageVector get() = `images`
     /** Concept `tool-script`. */
     public val toolScript: ImageVector get() = `braces`
     /** Concept `trace-background`. */

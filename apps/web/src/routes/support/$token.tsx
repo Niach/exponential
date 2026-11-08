@@ -45,7 +45,7 @@ export const Route = createFileRoute(`/support/$token`)({
   component: SupportConversationPage,
 })
 
-interface ThreadMessage {
+interface ConversationMessage {
   id: string
   direction: `inbound` | `outbound`
   body: string
@@ -60,14 +60,14 @@ interface ReportAttachment {
   height: number | null
 }
 
-interface ThreadData {
+interface ConversationData {
   subject: string
   teamName: string | null
   status: `open` | `resolved`
   reporterName: string | null
   report: { title: string; description: string; createdAt: string }
   attachments: ReportAttachment[]
-  messages: ThreadMessage[]
+  messages: ConversationMessage[]
 }
 
 type LoadState =
@@ -75,7 +75,7 @@ type LoadState =
   | { kind: `notFound` }
   | { kind: `error` }
   | { kind: `throttled`; retryIn: number }
-  | { kind: `ready`; thread: ThreadData }
+  | { kind: `ready`; conversation: ConversationData }
 
 const RETRY_AFTER_FALLBACK_S = 5
 const RETRY_AFTER_MAX_S = 60
@@ -97,7 +97,7 @@ function SupportConversationPage() {
 export function SupportConversationView({ token }: { token: string }) {
   const [state, setState] = useState<LoadState>({ kind: `loading` })
   usePageTitle(
-    state.kind === `ready` ? pageTitle(state.thread.subject) : undefined
+    state.kind === `ready` ? pageTitle(state.conversation.subject) : undefined
   )
   const [draft, setDraft] = useState(``)
   const [sending, setSending] = useState(false)
@@ -108,14 +108,14 @@ export function SupportConversationView({ token }: { token: string }) {
   const load = useCallback(
     async ({ refresh = false }: { refresh?: boolean } = {}) => {
       try {
-        const res = await fetch(`/api/support/thread`, {
+        const res = await fetch(`/api/support/conversation`, {
           method: `POST`,
           headers: { "content-type": `application/json` },
           body: JSON.stringify({ token }),
         })
         if (res.ok) {
-          const thread = (await res.json()) as ThreadData
-          setState({ kind: `ready`, thread })
+          const conversation = (await res.json()) as ConversationData
+          setState({ kind: `ready`, conversation })
           return
         }
         if (refresh) return
@@ -172,7 +172,7 @@ export function SupportConversationView({ token }: { token: string }) {
   // Keyed on the message count (not the whole state) so a refresh that
   // brought nothing new doesn't yank the scroll position.
   const messageCount =
-    state.kind === `ready` ? state.thread.messages.length : 0
+    state.kind === `ready` ? state.conversation.messages.length : 0
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: `end` })
   }, [state.kind, messageCount])
@@ -260,7 +260,7 @@ export function SupportConversationView({ token }: { token: string }) {
     )
   }
 
-  const { thread } = state
+  const { conversation } = state
   return (
     <div className="flex min-h-svh flex-col">
       <header className="border-b px-4 py-3">
@@ -268,17 +268,17 @@ export function SupportConversationView({ token }: { token: string }) {
           <LifeBuoy className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold">
-              {unescapeReporterText(thread.subject)}
+              {unescapeReporterText(conversation.subject)}
             </h1>
             <p className="truncate text-xs text-muted-foreground">
-              Your report to {thread.teamName ?? `the team`}
+              Your report to {conversation.teamName ?? `the team`}
             </p>
           </div>
           <Pill
-            dot={thread.status === `resolved` ? `#22c55e` : `#a1a1aa`}
+            dot={conversation.status === `resolved` ? `#22c55e` : `#a1a1aa`}
             data-testid="report-status"
           >
-            {thread.status === `resolved` ? `Resolved` : `Open`}
+            {conversation.status === `resolved` ? `Resolved` : `Open`}
           </Pill>
         </div>
       </header>
@@ -286,10 +286,10 @@ export function SupportConversationView({ token }: { token: string }) {
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-3 px-4 py-4">
         <ReportBlock
           token={token}
-          report={thread.report}
-          attachments={thread.attachments}
+          report={conversation.report}
+          attachments={conversation.attachments}
         />
-        {thread.messages.map((message) => (
+        {conversation.messages.map((message) => (
           <div
             key={message.id}
             className={
@@ -314,8 +314,8 @@ export function SupportConversationView({ token }: { token: string }) {
               }`}
             >
               {message.direction === `inbound`
-                ? (thread.reporterName ?? `You`)
-                : (thread.teamName ?? `Support`)}{` `}
+                ? (conversation.reporterName ?? `You`)
+                : (conversation.teamName ?? `Support`)}{` `}
               · {relativeTime(message.createdAt)}
             </p>
           </div>
@@ -332,7 +332,7 @@ export function SupportConversationView({ token }: { token: string }) {
           the input. Opaque at the bottom endpoint is the seamless one. */}
       <div className="sticky bottom-0 border-t bg-[var(--glass-background-bottom)] px-4 py-3">
         <div className="mx-auto w-full max-w-lg">
-          {thread.status === `resolved` && (
+          {conversation.status === `resolved` && (
             <p className="pb-2 text-center text-xs text-muted-foreground">
               This report was resolved. Replying reopens it.
             </p>
@@ -365,7 +365,7 @@ export function SupportConversationView({ token }: { token: string }) {
                   // Enter always inserts a newline here: this page is opened
                   // from mail apps on phones, whose return key has no Shift —
                   // Enter-to-send would make multi-line replies impossible and
-                  // burn the strict per-thread reply budget one fragment at a
+                  // burn the strict per-conversation reply budget one fragment at a
                   // time. Sending is the button, or ⌘/Ctrl+Enter on a hardware
                   // keyboard (never mid-IME-composition).
                   if (
@@ -401,7 +401,7 @@ function ReportBlock({
   attachments,
 }: {
   token: string
-  report: ThreadData[`report`]
+  report: ConversationData[`report`]
   attachments: ReportAttachment[]
 }) {
   const description = unescapeReporterText(report.description)

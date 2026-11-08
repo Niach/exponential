@@ -238,11 +238,11 @@ pub fn board_glyph(board: &Board) -> ExpIcon {
 }
 
 /// EXP-1294: an agent's glyph — the stored curated `icon` when known, else
-/// the fixture default (`threads-list.json` `agentDefaults.icon`), else the
+/// the fixture default (`chat-list.json` `agentDefaults.icon`), else the
 /// agent concept. [`board_glyph`]'s twin for agent roots.
 pub fn agent_glyph(icon: Option<&str>) -> ExpIcon {
     icon.and_then(board_icon_glyph)
-        .or_else(|| board_icon_glyph(&domain::session_tree::THREADS_LIST.agent_defaults.icon))
+        .or_else(|| board_icon_glyph(&domain::session_tree::CHATS_LIST.agent_defaults.icon))
         .unwrap_or(registry::UI_AGENT_SOURCE)
 }
 
@@ -252,7 +252,7 @@ pub fn agent_glyph(icon: Option<&str>) -> ExpIcon {
 pub fn agent_tint(color: Option<&str>) -> Hsla {
     color
         .and_then(crate::settings::parse_hex_color)
-        .or_else(|| crate::settings::parse_hex_color(&domain::session_tree::THREADS_LIST.agent_defaults.color))
+        .or_else(|| crate::settings::parse_hex_color(&domain::session_tree::CHATS_LIST.agent_defaults.color))
         .unwrap_or_else(|| theme::tokens::MUTED_FOREGROUND.to_hsla())
 }
 
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn agent_icon_falls_back_to_the_fixture_defaults() {
         let path = |icon: ExpIcon| icon.path().to_string();
-        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let default_glyph = registry::icon_by_name(&defaults.icon).expect("default agent icon resolves");
         assert_eq!(path(agent_glyph(Some("rocket"))), path(registry::icon_by_name("rocket").unwrap()));
         assert_eq!(path(agent_glyph(None)), path(default_glyph.clone()));

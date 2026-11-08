@@ -26,9 +26,9 @@ import org.junit.runner.RunWith
  *   password), onto the home page. The login screen's success used to navigate
  *   to Agent on the signed-out graph, which has no such route: an
  *   IllegalArgumentException whenever the token landed a frame after it.
- * - home → Chats → a temporary session (a thread no agent runs) → its page,
+ * - home → Chats → a temporary session (a chat no agent runs) → its page,
  *   and Back to the list.
- * - a thread's transcript: the cold-start thread's conversation shows its
+ * - a chat's transcript: the cold-start chat's conversation shows its
  *   synced rows.
  */
 @RunWith(AndroidJUnit4::class)
@@ -37,9 +37,9 @@ class LoginToSessionTest {
     private companion object {
         // seed-screenshots.ts `offlineSpike`: a root with no agent, i.e. a
         // Temporary session.
-        const val TEMPORARY_THREAD_TITLE = "Spike: offline queue"
-        // The cold-start thread (`coldStart`, APP-5).
-        const val COLD_START_THREAD_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
+        const val TEMPORARY_CHAT_TITLE = "Spike: offline queue"
+        // The cold-start chat (`coldStart`, APP-5).
+        const val COLD_START_CHAT_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
         // Its last row: the agent's question (seed DEMO_FEED_QUESTION).
         const val COLD_START_TAIL_FRAGMENT = "Lazy-load the markdown editor too"
     }
@@ -55,7 +55,7 @@ class LoginToSessionTest {
     private val flow by lazy { ScreenshotFlow(composeRule) }
 
     @Test
-    fun loginThenOpenATemporarySessionAndAThreadTranscript() {
+    fun loginThenOpenATemporarySessionAndAChatTranscript() {
         flow.signIn(ScreenshotFlow.instanceUrl())
 
         // Home: the Agent page under the tab bar (the crash killed the app here).
@@ -63,10 +63,10 @@ class LoginToSessionTest {
         flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), ScreenshotFlow.SYNC_TIMEOUT)
 
         // Chats → the temporary session.
-        composeRule.onNode(hasTestTag("tab-threads")).performClick()
+        composeRule.onNode(hasTestTag("tab-chats")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), ScreenshotFlow.NAV_TIMEOUT)
-        openThread(TEMPORARY_THREAD_TITLE)
-        flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_TABS), ScreenshotFlow.NAV_TIMEOUT)
+        openChat(TEMPORARY_CHAT_TITLE)
+        flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_TABS), ScreenshotFlow.NAV_TIMEOUT)
         // A temporary session's page IS its worker's live transcript: it
         // settles out of "Connecting…" into the feed, or (no device
         // publishing it) the idle placeholder.
@@ -78,21 +78,21 @@ class LoginToSessionTest {
         Espresso.pressBack()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), ScreenshotFlow.NAV_TIMEOUT)
 
-        // A thread's transcript: the conversation renders its synced rows
+        // A chat's transcript: the conversation renders its synced rows
         // (it opens at its tail, the agent's waiting question), not an
         // endless wait.
-        openThread(COLD_START_THREAD_TITLE)
-        flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), ScreenshotFlow.SYNC_TIMEOUT)
+        openChat(COLD_START_CHAT_TITLE)
+        flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION), ScreenshotFlow.SYNC_TIMEOUT)
         flow.waitFor(
             hasText(COLD_START_TAIL_FRAGMENT, substring = true) and
-                hasAnyAncestor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION)),
+                hasAnyAncestor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION)),
             ScreenshotFlow.SYNC_TIMEOUT,
         )
         Espresso.pressBack()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), ScreenshotFlow.NAV_TIMEOUT)
     }
 
-    private fun openThread(title: String) {
+    private fun openChat(title: String) {
         val row = hasTestTag(Chats.TestIds.CHAT_ROW) and hasText(title, substring = true)
         flow.waitForInList(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), row, ScreenshotFlow.SYNC_TIMEOUT)
         composeRule.onAllNodes(row).onFirst().performClick()

@@ -155,7 +155,7 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
 
 // SLOP-4: a widget reporter's reply is ISSUE-scoped — subscribers + the
 // assignee get a `reporter_reply` row whose push routes to the issue exactly
-// like an `issue_comment` (no team-level surface, no thread id).
+// like an `issue_comment` (no team-level surface, no chat id).
 describe(`fireAndForgetReporterReplyNotify push payload (SLOP-4)`, () => {
   beforeEach(() => {
     h.selectQueue.length = 0

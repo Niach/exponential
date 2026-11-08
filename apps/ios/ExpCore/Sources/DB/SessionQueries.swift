@@ -11,7 +11,7 @@ public enum SessionQueries {
     /// A team's roots of one kind (`DomainContract.sessionKindThread` |
     /// `sessionKindAgent`); nil team = every team (phones list ALL teams).
     /// NEW-2: the kind derives from `agent_id` (`sessionKindOf`): agent = an
-    /// agent's conversation session. Threads: most recent activity first.
+    /// agent's conversation session. Chats: most recent activity first.
     /// Conversations: their agent DEFINITION's order (`agents.sort_order`,
     /// then its name), like boards (NEW-8: never the session's own mirror).
     public static func roots(db: Database, teamId: String?, kind: String) throws -> [SessionEntity] {
@@ -38,7 +38,7 @@ public enum SessionQueries {
         var request = SessionEntity
             .filter(Column("parent_id") == nil)
             .filter(Column("agent_id") == nil)
-            // VAPP-110: an app's editor session is neither a thread nor an agent.
+            // VAPP-110: an app's editor session is neither a chat nor an agent.
             .filter(Column("app_id") == nil)
         if let teamId {
             request = request.filter(Column("team_id") == teamId)
@@ -149,8 +149,8 @@ public enum SessionQueries {
 
     /// A root's issue links in display order (`sort_order`, creation, id).
     public static func sessionIssues(db: Database, rootId: String) throws -> [SessionIssueEntity] {
-        // The whole tree's links (session-thread.json: a child's linked issue
-        // is the thread's too), as web and Android read them.
+        // The whole tree's links (session-chat.json: a child's linked issue
+        // is the chat's too), as web and Android read them.
         let treeIds = try SessionEntity
             .filter(Column("root_id") == rootId)
             .select(Column("id"), as: String.self)
@@ -174,8 +174,8 @@ public enum SessionQueries {
         return ids.compactMap { byId[$0] }
     }
 
-    /// Every thread (root) holding the issue, most recent activity first —
-    /// the first one is the issue's newest thread.
+    /// Every chat (root) holding the issue, most recent activity first —
+    /// the first one is the issue's newest chat.
     public static func rootsHoldingIssue(db: Database, issueId: String) throws -> [SessionEntity] {
         let rootIds = try SessionIssueEntity
             .filter(Column("issue_id") == issueId)
@@ -190,7 +190,7 @@ public enum SessionQueries {
 
     // MARK: - Pull requests
 
-    /// A thread's pull requests, oldest first.
+    /// A chat's pull requests, oldest first.
     public static func pullRequests(db: Database, rootId: String) throws -> [PullRequestEntity] {
         try PullRequestEntity
             .filter(Column("root_session_id") == rootId)
@@ -199,7 +199,7 @@ public enum SessionQueries {
     }
 
     /// A team's pull requests, oldest first: the open-stack walk behind a
-    /// Guide's `Merge stack` (a stack may reach PRs outside the thread).
+    /// Guide's `Merge stack` (a stack may reach PRs outside the chat).
     public static func pullRequests(db: Database, teamId: String) throws -> [PullRequestEntity] {
         try PullRequestEntity
             .filter(Column("team_id") == teamId)

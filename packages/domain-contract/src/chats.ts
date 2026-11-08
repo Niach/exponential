@@ -1,4 +1,4 @@
-// Thread 58cb32df (owner 2026-10-23, #EXP-1373): Chats, the phone app's
+// Chat 58cb32df (owner 2026-10-23, #EXP-1373): Chats, the phone app's
 // WhatsApp-like list and the context menus ×4. Pure and byte-locked by
 // `fixtures/chats.json` (its `$comment` holds the rules); mirrors: iOS ExpCore
 // `Chats.swift`, Android `domain/Chats.kt`, desktop `domain::chats` (every
@@ -6,11 +6,11 @@
 
 import fixture from "../fixtures/chats.json" with { type: "json" }
 import {
-  threadRowLeadPr,
-  threadRowMarkState,
+  chatRowLeadPr,
+  chatRowMarkState,
   type AgentRow,
-  type ThreadRowWord,
-  type ThreadsListGroup,
+  type ChatRowWord,
+  type ChatsListGroup,
   type TreeMessage,
   type TreeSession,
   type TreeSessionRead,
@@ -48,7 +48,7 @@ export function transcriptWindowStart(input: {
   return Math.max(0, base - Math.max(0, input.loadedSteps) * CHATS_TRANSCRIPT.windowStep)
 }
 
-/** The indexes of a transcript's WAITING cards (buildSessionThread rows):
+/** The indexes of a transcript's WAITING cards (buildSessionChat rows):
  *  a plan without a decision, an unanswered question (an `ask` draws no
  *  row of its own). `transcriptWindowStart`'s `waitingIndexes`. */
 export function transcriptWaitingIndexes(
@@ -88,7 +88,7 @@ export interface ChatRow {
   teamId: string
   title: string
   deviceId: string | null
-  group: ThreadsListGroup[`key`]
+  group: ChatsListGroup[`key`]
   lead: ChatLead
   preview: ChatPreview
   activityAt: string
@@ -97,7 +97,7 @@ export interface ChatRow {
   unreadCount: number
   needsYou: boolean
   busy: boolean
-  word: ThreadRowWord | null
+  word: ChatRowWord | null
   /** S-3: the chat is DONE (every PR of the root merged and nothing works
    *  or needs you): it stays in the list, dimmed (`shell.dimOpacity`). */
   dim: boolean
@@ -275,18 +275,18 @@ function unreadCount(rootId: string, messages: readonly TreeMessage[], reads: re
 }
 
 /**
- * The phone Chats list (`listCases`): the ROOT rows of `partitionThreads`
+ * The phone Chats list (`listCases`): the ROOT rows of `partitionChats`
  * (active team) flattened and sorted by activity desc (ties by id), each
  * with its lead, preview, time and unread count.
  */
 export function chatList(input: {
-  groups: readonly ThreadsListGroup[]
+  groups: readonly ChatsListGroup[]
   messages: readonly TreeMessage[]
   reads?: readonly TreeSessionRead[]
   /** The ROOT's PR states by session id (absent = none). */
   prStates?: Readonly<Record<string, readonly string[]>>
-  /** threadRowWord by session id (absent = none). */
-  words?: Readonly<Record<string, ThreadRowWord | null>>
+  /** chatRowWord by session id (absent = none). */
+  words?: Readonly<Record<string, ChatRowWord | null>>
   /** #EXP-1388: absent = `list`. */
   view?: ChatListView
   now: string
@@ -301,9 +301,9 @@ export function chatList(input: {
   const rows: ChatRow[] = input.groups
     .flatMap((group) => group.rows.filter((row) => row.depth === 0).map((row) => ({ row, group: group.key })))
     .map(({ row, group }) => {
-      const mark = threadRowMarkState(row)
+      const mark = chatRowMarkState(row)
       const prStates = input.prStates?.[row.sessionId] ?? []
-      const pr = mark === `waiting` ? threadRowLeadPr(prStates) : null
+      const pr = mark === `waiting` ? chatRowLeadPr(prStates) : null
       const lead: ChatLead = mark === `needs_you` ? `needs_you` : mark === `working` ? `working` : (pr ?? `waiting`)
       return {
         sessionId: row.sessionId,
@@ -357,7 +357,7 @@ export function chatSections<R extends Pick<ChatRow, `group` | `unreadCount`>>(
   })
 }
 
-export function chatsUnread(groups: readonly ThreadsListGroup[], reads: readonly TreeSessionRead[] = []): boolean {
+export function chatsUnread(groups: readonly ChatsListGroup[], reads: readonly TreeSessionRead[] = []): boolean {
   const archived = new Set(reads.filter((r) => r.archivedAt).map((r) => r.sessionId))
   return groups.some((group) =>
     group.rows.some((row) => row.depth === 0 && row.unread && (row.needsYou || !archived.has(row.sessionId)))
@@ -429,17 +429,17 @@ export function agentChatRows(input: {
   })
 }
 
-export type ThreadMenuEntry = `delete`
+export type ChatMenuEntry = `delete`
 
-/** A thread row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28)
+/** A chat row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28)
  *  no Stop/End anywhere: Delete for a viewer who can steer the chat and
  *  may delete it (the chat's starter or a team owner, the server's
  *  `sessions.delete` rule, which ends what is live first); else nothing. */
-export function threadMenuEntries(input: {
+export function chatMenuEntries(input: {
   rootStatus: string
   canSteer: boolean
   canDelete: boolean
-}): ThreadMenuEntry[] {
+}): ChatMenuEntry[] {
   return input.canSteer && input.canDelete ? [`delete`] : []
 }
 
@@ -526,7 +526,7 @@ export function surfaceReply(event: { name?: unknown; context?: unknown }): Surf
 // conversation row (`conversations.digest`, trigger `conversation_digest`
 // in 0001_triggers.sql), exactly the messages the list's rules read, and
 // `digestMessages` turns it back into TreeMessages, so `sessionTitle`,
-// `partitionThreads` and `chatList` run UNCHANGED over it
+// `partitionChats` and `chatList` run UNCHANGED over it
 // and answer as they would over the whole conversation (an unread count
 // past `DIGEST_AGENT_TAIL` reads `DIGEST_AGENT_TAIL`). The SQL mirrors
 // `conversationDigest` below; `chats.test.ts` locks the equivalence.
@@ -560,7 +560,7 @@ export interface ConversationDigest {
    *  newest first, at most `DIGEST_WAITS_MAX`; absent on a digest written
    *  before it (read as `[]`). `waiting` stays for older clients. */
   waits?: DigestMessage[]
-  /** The newest agent message, event cards included (`partitionThreads`). */
+  /** The newest agent message, event cards included (`partitionChats`). */
   agentAt: string | null
   /** The newest `DIGEST_AGENT_TAIL` non-event agent messages' times,
    *  oldest first (`unreadCount`). */

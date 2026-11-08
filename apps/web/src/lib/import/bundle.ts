@@ -100,7 +100,7 @@ export const bundleCommentSchema = z.object({
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema.nullish(),
   editedAt: isoDateSchema.nullish(),
-  // Threads are ONE level deep here; a reply to a reply re-roots.
+  // Replies are ONE level deep here; a reply to a reply re-roots.
   parentKey: keySchema.nullish(),
 })
 

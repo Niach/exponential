@@ -165,10 +165,10 @@ describe(`entityRefRoute`, () => {
     })
   })
 
-  it(`sends a root session to its thread, any other session to its own page`, () => {
+  it(`sends a root session to its chat, any other session to its own page`, () => {
     expect(route({ kind: `session`, id: `root-1` })).toEqual({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `root-1` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `root-1` },
     })
     expect(route({ kind: `session`, id: `s-1` })).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,

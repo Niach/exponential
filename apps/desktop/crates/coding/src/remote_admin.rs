@@ -32,7 +32,7 @@ pub struct AgentDefaultsPatch {
     /// is OMITTED for every other agent (the capability mask below).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_model: Option<String>,
-    /// The model this agent's DISPATCHER roots run on (threads + team
+    /// The model this agent's DISPATCHER roots run on (chats + team
     /// agents, `sessions.dispatch`): `Settings.claude_thread_model` /
     /// `codex_thread_model`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -327,7 +327,7 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
                 subagent_model: agent
                     .supports_subagent_model()
                     .then(|| settings.subagent_model_for(agent).to_string()),
-                thread_model: Some(settings.thread_model_for(agent).to_string()),
+                thread_model: Some(settings.chat_model_for(agent).to_string()),
                 ultracode: agent
                     .supports_ultracode()
                     .then_some(settings.claude_ultracode),
@@ -518,7 +518,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Every model is explicit: a blank model, subagent or thread model on
+    /// Every model is explicit: a blank model, subagent or chat model on
     /// the wire is never applied, for any agent.
     #[test]
     fn a_blank_model_is_never_applied() {
@@ -539,10 +539,10 @@ mod tests {
         assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
     }
 
-    /// The dispatcher's thread model rides each agent's entry both ways and
+    /// The dispatcher's chat model (wire `threadModel`) rides each agent's entry both ways and
     /// is validated against THAT agent's vocabulary.
     #[test]
-    fn the_thread_model_rides_each_agents_entry() {
+    fn the_chat_model_rides_each_agents_entry() {
         let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
         assert_eq!(wire["agents"]["claude"]["threadModel"], "haiku");
         assert_eq!(wire["agents"]["codex"]["threadModel"], "gpt-5.6-luna");

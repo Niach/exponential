@@ -12,7 +12,7 @@ import { createHmac, timingSafeEqual } from "crypto"
 // rotating BETTER_AUTH_SECRET invalidates all emailed links.
 
 // Domain separation from the other BETTER_AUTH_SECRET HMAC uses (and from
-// the pre-SLOP-4 thread tokens, which must never resolve to an issue).
+// the pre-SLOP-4 conversation tokens, which must never resolve to an issue).
 const CONTEXT = `exp-reporter-issue:v1:`
 
 function secret(): string | null {

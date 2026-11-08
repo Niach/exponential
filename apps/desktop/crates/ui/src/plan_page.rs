@@ -1,7 +1,7 @@
 //! #EXP-1493 → #EXP-1662 THE PLAN IS A TAB (`fixtures/plan-page.json`, its
 //! `$comment` is the spec; web `packages/ui/src/plan-page.tsx`, iOS ExpUI
-//! `PlanPage.swift`, Android `ui/plan/PlanPage.kt`): the BODY of a thread's
-//! plan tab, under the thread's own header + strip, on its ground, no page
+//! `PlanPage.swift`, Android `ui/plan/PlanPage.kt`): the BODY of a chat's
+//! plan tab, under the chat's own header + strip, on its ground, no page
 //! header. The IDE is WIDE: THE Outline ([`crate::outline`], scroll-spy, the
 //! Questions row) + THE document (one scroll, a `layout.columnMaxWidth`
 //! column: the big title, THE chat markdown, h2 anchors, picture groups as
@@ -12,8 +12,8 @@
 //!
 //! [`open`] is every way in that names a plan (a Conversation row, a Needs you
 //! row, the Dock sheet glyph); [`prime_session`] + [`screen_for_session`]
-//! are an inbox row's and a push's. All of them land on the thread's tab
-//! ([`crate::thread_screen::request_thread_plan`]). #FEED-191: a decision taken
+//! are an inbox row's and a push's. All of them land on the chat's tab
+//! ([`crate::session_chat::request_chat_plan`]). #FEED-191: a decision taken
 //! on the tab returns the chat to its Conversation, the ONE way back besides
 //! the Conversation tab itself.
 
@@ -21,7 +21,7 @@ use std::rc::Rc;
 
 use domain::plan_page::{plan_blocks, plan_outline, PlanBlock, PLAN_PAGE};
 use domain::rows::MessageRow;
-use domain::session_tree::SessionThreadRow;
+use domain::session_tree::SessionChatRow;
 use gpui::{
     div, img, prelude::FluentBuilder as _, px, relative, AnyElement, App, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, ScrollHandle, SharedString,
@@ -37,7 +37,7 @@ use crate::image_preview::GalleryPicture;
 use crate::markdown::{attachment_natural_size, ImageCache, ImageSlot};
 use crate::navigation::Screen;
 use crate::outline::{OnOutlineSelect, OutlineEntry};
-use crate::thread_screen::ThreadText;
+use crate::session_chat::ChatText;
 
 /// How far under the column's top a heading still reads as passed (web
 /// `PlanPage`'s scroll-spy slack).
@@ -47,41 +47,41 @@ const SPY_SLACK: f32 = 16.;
 // Ways in
 // ---------------------------------------------------------------------------
 
-/// The screen that shows `session_id`'s thread (its root's id too): the
+/// The screen that shows `session_id`'s chat (its root's id too): the
 /// viewer's own agent conversation = the agent's page, every other tree = its
-/// thread screen (web: the deep link's redirect); `None` while unsynced.
-fn thread_of(session_id: &str, cx: &App) -> Option<(String, Screen)> {
+/// chat screen (web: the deep link's redirect); `None` while unsynced.
+fn chat_of(session_id: &str, cx: &App) -> Option<(String, Screen)> {
     let root_id = crate::session_data::session(session_id, cx)?.root_id_or_self().to_string();
     let screen = match crate::navigation::session_screen_for(&root_id, cx) {
         agent @ Screen::Agent { .. } => agent,
-        _ => Screen::Thread { session_id: root_id.clone() },
+        _ => Screen::Chat { session_id: root_id.clone() },
     };
     Some((root_id, screen))
 }
 
-/// Opens the thread's plan tab on `message_id` (a plan card `session_id`
-/// posted; a plan of another thread opens that thread on it). Every way in
+/// Opens the chat's plan tab on `message_id` (a plan card `session_id`
+/// posted; a plan of another chat opens that chat on it). Every way in
 /// that names a plan calls this. A message that is not a plan card = the
 /// session instead, like a session that has not synced.
 pub(crate) fn open(session_id: &str, message_id: &str, window: &mut Window, cx: &mut App) {
     let not_a_plan = message_of(message_id, session_id, cx).is_some_and(|message| !is_plan_card(&message));
-    match thread_of(session_id, cx).filter(|_| !not_a_plan) {
+    match chat_of(session_id, cx).filter(|_| !not_a_plan) {
         Some((root_id, screen)) => {
-            crate::thread_screen::request_thread_plan(&root_id, message_id, cx);
+            crate::session_chat::request_chat_plan(&root_id, message_id, cx);
             crate::navigation::navigate(window, cx, screen);
         }
-        None => crate::thread_screen::open_session_card(session_id, window, cx),
+        None => crate::session_chat::open_session_card(session_id, window, cx),
     }
 }
 
 /// What an inbox row / push naming `session_id` opens (plan-page.json WAYS
-/// IN): its thread while the session waits on its own plan
+/// IN): its chat while the session waits on its own plan
 /// ([`domain::plan_page::plan_page_for`]), else the session's screen
 /// ([`crate::navigation::session_screen_for`]). The caller pairs it with
 /// [`prime_session`] when it navigates.
 pub(crate) fn screen_for_session(session_id: &str, cx: &App) -> Screen {
     waiting_plan_of(session_id, cx)
-        .and_then(|_| thread_of(session_id, cx))
+        .and_then(|_| chat_of(session_id, cx))
         .map_or_else(|| crate::navigation::session_screen_for(session_id, cx), |(_, screen)| screen)
 }
 
@@ -89,8 +89,8 @@ pub(crate) fn screen_for_session(session_id: &str, cx: &App) -> Screen {
 /// to [`screen_for_session`] that follows.
 pub(crate) fn prime_session(session_id: &str, cx: &mut App) {
     if let Some(message_id) = waiting_plan_of(session_id, cx) {
-        if let Some((root_id, _)) = thread_of(session_id, cx) {
-            crate::thread_screen::request_thread_plan(&root_id, &message_id, cx);
+        if let Some((root_id, _)) = chat_of(session_id, cx) {
+            crate::session_chat::request_chat_plan(&root_id, &message_id, cx);
         }
     }
 }
@@ -274,11 +274,11 @@ pub(crate) struct PlanPageState {
     pub scroll: ScrollHandle,
 }
 
-/// What THE plan tab's body paints (the thread's and the styleguide's).
+/// What THE plan tab's body paints (the chat's and the styleguide's).
 pub(crate) struct PlanPageProps<'a> {
-    /// A `SessionThreadRow::Plan`.
-    pub row: &'a SessionThreadRow,
-    pub text: &'a ThreadText,
+    /// A `SessionChatRow::Plan`.
+    pub row: &'a SessionChatRow,
+    pub text: &'a ChatText,
     pub images: &'a Entity<ImageCache>,
     pub state: &'a PlanPageState,
     /// The outline's active row; `None` = the scroll-spy's.
@@ -289,7 +289,7 @@ pub(crate) struct PlanPageProps<'a> {
 
 /// THE plan tab's body, wide.
 pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> AnyElement {
-    let Some((message_id, plan, facts)) = crate::thread_screen::plan_facts(props.row) else {
+    let Some((message_id, plan, facts)) = crate::session_chat::plan_facts(props.row) else {
         return div().into_any_element();
     };
     let facts = crate::plan_card::PlanFacts { on_tab: true, ..facts };
@@ -400,7 +400,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                 .child(SharedString::from(text.clone()))
                 .into_any_element(),
             PlanBlock::Section { id, title } => {
-                let heading = crate::thread_screen::message_markdown(
+                let heading = crate::session_chat::message_markdown(
                     SharedString::from(format!("plan-page-{message_id}-h2-{id}")),
                     &format!("## {title}"),
                     props.text,
@@ -430,7 +430,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                 for (at, piece) in prose_pieces(text).into_iter().enumerate() {
                     prose = prose.child(match piece {
                         Piece::Text(text) => {
-                            let mut view = crate::thread_screen::message_markdown(
+                            let mut view = crate::session_chat::message_markdown(
                                 SharedString::from(format!("plan-page-{message_id}-{ix}-{at}")),
                                 &crate::plan_card::strip_pending_uploads(&text),
                                 props.text,

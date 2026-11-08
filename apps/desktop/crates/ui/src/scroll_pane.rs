@@ -110,7 +110,7 @@ pub(crate) fn v_list_pane(list: gpui::List, state: &ListState) -> Div {
 const PAGE_COLUMN_W: f32 = 1024.;
 
 /// The shared full-page scaffold every rail-navigated page uses (EXP-686 —
-/// Devices, Drafts, Threads): ONE scroll pane holding one centered
+/// Devices, Drafts, Chats): ONE scroll pane holding one centered
 /// column capped at [`PAGE_COLUMN_W`] (block wrapper + `mx_auto`, the
 /// EXP-179-safe centering recipe).
 ///

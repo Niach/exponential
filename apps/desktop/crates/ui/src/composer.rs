@@ -2,7 +2,7 @@
 //!
 //! Two surfaces type into a message box: the issue timeline's comment
 //! composer (`comments::composer_row`) and the steer viewer's reply composer
-//! (`steer_viewer::render_composer`); the helpdesk thread's reply/note
+//! (`steer_viewer::render_composer`); the helpdesk chat's reply/note
 //! composer was the third until SLOP-4 (gone with the helpdesk). They used
 //! to be three hand-built cards with three different radii, paddings and
 //! submit affordances. They are one recipe now:
@@ -30,7 +30,7 @@
 //! EXP-1294: [`session_composer_card`] is THE session composer box — Home's
 //! launcher card (a 2–8 line field, the "+" bottom-left, the round send
 //! bottom-right) on the work column. Dispatcher roots (2026-10-15): the
-//! thread screen and the agent channel no longer build a reply of their
+//! chat screen and the agent channel no longer build a reply of their
 //! own — they host the ROOT session's composer (`session_screen::
 //! root_composer_view`), so all three paint ONE composer: the box, the `/`
 //! menu ([`session_slash_menu`]), the run controls ([`SessionComposerControls`]:
@@ -280,7 +280,7 @@ pub(crate) type DivHook = Box<dyn FnOnce(Div) -> Div>;
 /// EXP-1294 — THE session composer box's slots. Only the field and the
 /// submit are required; the session view fills every slot (the `/` menu, its
 /// key captures, the pending images, the paste capture and the model /
-/// context footer), the thread reply and the agent channel the field, the
+/// context footer), the chat reply and the agent channel the field, the
 /// pending images and the button.
 pub(crate) struct SessionComposerBox {
     /// The mention-capable field ([`session_composer_field`]); its
@@ -479,9 +479,9 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
 // ---------------------------------------------------------------------------
 // THE session composer's footer, model pin, context ring and `/` menu — ONE
 // implementation for every surface that types at a session: the session
-// view (`steer_viewer::render_composer`), the thread screen and the agent
+// view (`steer_viewer::render_composer`), the chat screen and the agent
 // channel (both host the ROOT session's composer, `steer_viewer::
-// render_session_composer`), and the styleguide's thread parts.
+// render_session_composer`), and the styleguide's chat parts.
 // ---------------------------------------------------------------------------
 
 /// EXP-877 — the run's controls in THE session composer's bottom row
@@ -813,7 +813,7 @@ fn reply_write(
     .detach();
 }
 
-/// The row above a session's composer box (`session-thread.json`
+/// The row above a session's composer box (`session-chat.json`
 /// `copy.replies`, web `ComposerReplies`): one sm pill per open reply
 /// (`sessions.sendReply`), wrapping, then a ghost × (`sessions.
 /// dismissReplies`). It rides THE composer box's `replies` slot, so it goes
@@ -825,7 +825,7 @@ pub(crate) fn composer_replies_row(
     cx: &App,
 ) -> AnyElement {
     use gpui::InteractiveElement as _;
-    let spec = &domain::session_tree::THREAD;
+    let spec = &domain::session_tree::SESSION_CHAT;
     let test_id = spec.test_ids.replies.as_str();
     let message_id = replies.message_id.as_str();
     let dismiss_key = format!("{message_id}:*");
@@ -926,7 +926,7 @@ mod tests {
     }
 
     /// Web `fallbackModel`: the row's pick, else (a dispatcher) the device's
-    /// thread model, else the device's model, else the contract defaults.
+    /// chat model (`threadModel`), else the device's model, else the contract defaults.
     #[test]
     fn the_pin_falls_back_like_web() {
         let agents = serde_json::json!({
@@ -941,7 +941,7 @@ mod tests {
         };
         // The row's own pick wins.
         assert_eq!(fallback_session_model(Some(&row(None, Some("fable"))), Some(&agents)), "fable");
-        // NEW-8: never the legacy dispatcher's thread model; the device's
+        // NEW-8: never the legacy dispatcher's chat model; the device's
         // model, else the contract's.
         assert_eq!(fallback_session_model(Some(&row(None, None)), Some(&agents)), "opus");
         assert_eq!(

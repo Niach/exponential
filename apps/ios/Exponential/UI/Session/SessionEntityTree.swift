@@ -4,7 +4,7 @@ import GRDB
 
 // EXP-1295: the synced session-tree rows as the ×4 tree rule reads them
 // (`Tree*`). ONE mapping each, so every surface (the session view, the ref
-// previews, the thread and list screens, the issue's Threads row) derives
+// previews, the chat and list screens, the issue's Chats row) derives
 // off the same input; the jsonb text columns parse here, once.
 
 extension TreeSession {

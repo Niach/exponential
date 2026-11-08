@@ -1325,7 +1325,7 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v28 (EXP-741 threaded comments): comments.parent_id (the top-level
+        // v28 (EXP-741 nested comments): comments.parent_id (the top-level
         // comment a reply hangs off) + comments.source (user | mcp, the "via
         // MCP" caption). Guarded additive ALTERs so an older store converges
         // on the schema a fresh install gets from the v1 create above, then
@@ -2483,7 +2483,7 @@ public final class DatabaseManager: @unchecked Sendable {
         }
 
         // v69 (dispatcher roots): `sessions.dispatch` — every new root (a
-        // thread or a team agent) dispatches its work to children, so its
+        // chat or a team agent) dispatches its work to children, so its
         // composer hides the plan chip. The v64 pattern: a guarded additive
         // ALTER, and the sessions offset resets only when the column was
         // added, so already-synced rows re-arrive carrying it.
@@ -2769,7 +2769,7 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v81 (thread e4a04d22): `conversations.digest` — the server-kept
+        // v81 (session e4a04d22): `conversations.digest` — the server-kept
         // list digest every Chats list reads (JSON text, like `messages.card`).
         // A guarded additive ALTER; the conversations cursor resets only when
         // the column was added, so synced rows re-arrive carrying it.
@@ -3110,8 +3110,8 @@ public final class DatabaseManager: @unchecked Sendable {
 
         // v99 (#EXP-1682): `messages.attachment_ids` (uuid[] on the wire,
         // stored as JSON text like `issue_drafts.label_ids`): a sealed or
-        // main-composer message keeps its files ONLY there, and the thread
-        // row embeds them (session-thread.json "ATTACHMENTS"). The messages
+        // main-composer message keeps its files ONLY there, and the chat
+        // row embeds them (session-chat.json "ATTACHMENTS"). The messages
         // cursor resets only when the column was added.
         migrator.registerMigration("v99_message_attachment_ids") { db in
             guard try db.tableExists("messages") else { return }

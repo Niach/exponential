@@ -50,7 +50,7 @@ pub type ChoiceSelect = Entity<SelectState<Vec<ChoiceItem>>>;
 
 /// THE claude model list — contract `codingModel` (fable, opus, sonnet,
 /// haiku), the ONE set every claude model pick offers: the run's Model, the
-/// Thread model a dispatcher root runs on, the Subagent model and the
+/// Chat model a dispatcher root runs on, the Subagent model and the
 /// Computer use model. Models are explicit ALWAYS: no blank "Default" /
 /// "CLI default" row in any of them. These are the CLI's family aliases,
 /// which it resolves to the newest model of that family (Claude Code ≥
@@ -102,7 +102,7 @@ pub fn model_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str,
 }
 
 /// THE model select — every model pick of a settings surface (Model,
-/// Thread model, Subagent model, Computer use model) is this one component
+/// Chat model, Subagent model, Computer use model) is this one component
 /// over `agent`'s whole list ([`model_choices_for`]), never a variant with a
 /// default row.
 pub fn model_select(
@@ -184,7 +184,7 @@ pub(crate) fn claude_writing_frame(delta: f32) -> usize {
 /// with the EXP-850 opacity pulse. `size` square. A live element — gpui
 /// animates by repainting — so draw it only while the agent works.
 ///
-/// EXP-1325: this mark lives in the sidebar, the tabs and the thread rows
+/// EXP-1325: this mark lives in the sidebar, the tabs and the chat rows
 /// for as long as a session works, and gpui repaints the WHOLE window for
 /// every animation frame, at the monitor's rate while focused — so both
 /// faces are STEPPED (`with_stepped_animation`): the spark repaints only
@@ -239,7 +239,7 @@ pub(crate) fn run_badge_color(state: domain::session_tree::SessionState) -> Opti
 }
 
 /// EXP-923/EXP-1162/EXP-1184: a live run's LEAD — wherever a run is named
-/// (the rail's Running rows, the Threads rows) it reads the same:
+/// (the rail's Running rows, the Chats rows) it reads the same:
 /// the agent's working mark ([`agent_working_mark`]) while it works, else its
 /// brand mark (the generic agents concept for an unknown agent, `None`),
 /// `size` square, with a `badge`-wide state dot ([`run_badge_color`]) on its
@@ -426,7 +426,7 @@ pub fn selected(state: &ChoiceSelect, cx: &App) -> String {
 #[cfg(test)]
 mod tests {
     /// Every model pick offers the contract's models, explicit: no blank
-    /// row, and the computer-use / thread defaults are in the list.
+    /// row, and the computer-use / chat defaults are in the list.
     #[test]
     fn model_choices_are_the_contract_models_without_a_default_row() {
         let values: Vec<&str> = super::MODEL_CHOICES.iter().map(|(_, value)| *value).collect();

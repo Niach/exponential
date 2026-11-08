@@ -19,7 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Thread 58cb32df: Chats is fixture-locked ×4 — every case group of
+ * Session 58cb32df: Chats is fixture-locked ×4 — every case group of
  * `chats.json` (previewCases, timeCases, listCases, menuCases,
  * agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
  * selectionCases, rangeCases, dotCases, sectionCases) runs here (TS
@@ -90,9 +90,9 @@ class ChatsTest {
         assistant = (json["assistant"] as? JsonPrimitive)?.boolean ?: false,
     )
 
-    private fun groupKey(wire: String) = SessionTree.ThreadsGroupKey.entries.first { it.wire == wire }
+    private fun groupKey(wire: String) = SessionTree.ChatsGroupKey.entries.first { it.wire == wire }
 
-    private fun listRow(json: JsonObject) = SessionTree.ThreadsListRow(
+    private fun listRow(json: JsonObject) = SessionTree.ChatsListRow(
         sessionId = json.str("sessionId")!!,
         teamId = json.str("teamId")!!,
         title = json.str("title")!!,
@@ -159,7 +159,7 @@ class ChatsTest {
         for (case in cases("listCases")) {
             val input = case.getValue("input").jsonObject
             val groups = input.list("groups").map { group ->
-                SessionTree.ThreadsListGroup(
+                SessionTree.ChatsListGroup(
                     key = groupKey(group.str("key")!!),
                     title = group.str("title")!!,
                     rows = group.list("rows").map(::listRow),
@@ -169,7 +169,7 @@ class ChatsTest {
                 states.jsonArray.map { it.jsonPrimitive.content }
             }
             val words = (input["words"] as? JsonObject).orEmpty().mapValues { (_, word) ->
-                SessionTree.ThreadRowWord.entries.first { it.wire == word.jsonPrimitive.content }
+                SessionTree.ChatRowWord.entries.first { it.wire == word.jsonPrimitive.content }
             }
             val actual = Chats.chatList(
                 groups = groups,
@@ -236,7 +236,7 @@ class ChatsTest {
     fun `every menu case matches the fixture`() {
         for (case in cases("menuCases")) {
             val input = case.getValue("input").jsonObject
-            val actual = Chats.threadMenuEntries(input.str("rootStatus")!!, input.bool("canSteer"), input.bool("canDelete"))
+            val actual = Chats.chatMenuEntries(input.str("rootStatus")!!, input.bool("canSteer"), input.bool("canDelete"))
             assertEquals(
                 case.str("name"),
                 case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
@@ -255,7 +255,7 @@ class ChatsTest {
     }
 
     private fun groups(input: JsonObject) = input.list("groups").map { group ->
-        SessionTree.ThreadsListGroup(
+        SessionTree.ChatsListGroup(
             key = groupKey(group.str("key")!!),
             title = group.str("title")!!,
             rows = group.list("rows").map(::listRow),
@@ -386,7 +386,7 @@ class ChatsTest {
     }
 
     @Test
-    fun `every digest case matches the fixture (thread e4a04d22)`() {
+    fun `every digest case matches the fixture (session e4a04d22)`() {
         for (case in cases("digestCases")) {
             val sessionId = case.str("sessionId")!!
             // Decoded the way the list reads it: the row's JSON text.
@@ -492,7 +492,7 @@ class ChatsTest {
         assertEquals(menu.str("newConversation"), Chats.Copy.MENU_NEW_CONVERSATION)
         assertEquals(menu.str("settings"), Chats.Copy.MENU_SETTINGS)
         assertEquals(4, menu.size)
-        for (entry in Chats.ThreadMenuEntry.entries) assertEquals(menu.str(entry.wire), Chats.threadMenuLabel(entry))
+        for (entry in Chats.ChatMenuEntry.entries) assertEquals(menu.str(entry.wire), Chats.chatMenuLabel(entry))
         for (entry in Chats.AgentMenuEntry.entries) assertEquals(menu.str(entry.wire), Chats.agentMenuLabel(entry))
         val confirm = copy.getValue("confirmDelete").jsonObject
         assertEquals(confirm.str("title"), Chats.Copy.CONFIRM_DELETE_TITLE)

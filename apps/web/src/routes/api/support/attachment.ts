@@ -11,11 +11,11 @@ import {
 import { getObject, toResponseBody } from "@/lib/storage"
 import { isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 
-// SLOP-4: the reporter page's picture bytes. Same posture as thread.ts —
+// SLOP-4: the reporter page's picture bytes. Same posture as conversation.ts —
 // POST with the token in the JSON body (the page loads each picture into
 // an object URL, so a GET with the token in the query string would land
 // the credential in proxy logs and browser history). Serves ONLY what
-// thread.ts lists: the issue's attachments with no uploader (the
+// conversation.ts lists: the issue's attachments with no uploader (the
 // reporter's own screenshot + pictures) of an image type — never a
 // member's upload, never a comment attachment. Private, uncached.
 const UUID_RE =

@@ -10,7 +10,7 @@ import {
   type ChatRow as ChatRowModel,
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
-import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/session-tree"
+import { CHAT_ROW_WORDS, CHATS_LIST_COPY } from "@exp/domain-contract/session-tree"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
 import { ExponentialLogo } from "./exponential-logo"
@@ -22,7 +22,7 @@ import { conceptIcon } from "./icons.generated"
 import { menuProps } from "./menu"
 import { SkeletonRows } from "./skeleton"
 
-// Thread 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
+// Chat 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
 // screen's pieces, shared by the web-mobile page and the styleguide so they
 // cannot drift. The model is the contract's (`chatList`, `chatSections`);
 // these only paint it. iOS ExpUI `ChatRow`, Android `ui/components` `ChatRow`
@@ -43,7 +43,7 @@ import { SkeletonRows } from "./skeleton"
 //                    (the Archived entry = first under Chats); the Archived
 //                    page is flat. Or the skeleton / the empty state.
 
-const ChatsIcon = conceptIcon(`nav-threads`)
+const ChatsIcon = conceptIcon(`nav-chats`)
 /** S-3 (`shell.chatLead`): a chat row's plain lead glyph. */
 const ChatLeadIcon = conceptIcon(CHATS_SHELL.chatLead as Parameters<typeof conceptIcon>[0])
 const PrOpenIcon = conceptIcon(`pr-open`)
@@ -216,7 +216,7 @@ function ChatRowText({
 }) {
   const unread = unreadCount > 0
   const { prefix, rest } = previewParts(preview)
-  const word = wordKey ? (THREAD_ROW_WORDS[wordKey] ?? null) : null
+  const word = wordKey ? (CHAT_ROW_WORDS[wordKey] ?? null) : null
   const row = { title, time, needsYou, unreadCount, preview, word: wordKey }
   return (
       <span
@@ -283,7 +283,7 @@ const ROW_CLASS = `flex w-full items-center gap-4 text-left outline-none transit
 
 /** One chat (a ROOT session) as the flat list row. Right-click / long-press
  *  opens its menu through the platform's ONE menu host
- *  (`menuProps('thread', sessionId)`). A SELECTABLE row (#EXP-1388,
+ *  (`menuProps('chat', sessionId)`). A SELECTABLE row (#EXP-1388,
  *  `onSelectToggle`) is the issue row's on md+: the Checkbox column leads
  *  every row (shown on hover, always while selecting; a click toggles),
  *  the row fills on hover. Phones never shift (owner on #1286): a selected
@@ -323,7 +323,7 @@ export function ChatRow({
       data-session-id={row.sessionId}
       data-selected={selecting ? selected : undefined}
       aria-pressed={selecting ? selected : undefined}
-      {...menuProps(`thread`, row.sessionId)}
+      {...menuProps(`chat`, row.sessionId)}
       {...props}
       // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed as
       // a whole at `shell.dimOpacity`.
@@ -561,7 +561,7 @@ export function ChatList({
   className?: string
 }) {
   if (loading) return <SkeletonRows rowHeight={76} />
-  const empty = <EmptyState icon={ChatsIcon} title={emptyTitle ?? THREADS_LIST_COPY.empty} size="page" />
+  const empty = <EmptyState icon={ChatsIcon} title={emptyTitle ?? CHATS_LIST_COPY.empty} size="page" />
   if (rows.length === 0 && archived === 0 && agentRows.length === 0 && !entry) return empty
   const aligned = Boolean(onSelectToggle) || selection !== null
   const paint = (row: ChatRowModel) => (

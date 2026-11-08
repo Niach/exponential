@@ -1,6 +1,6 @@
 import Foundation
 
-// Mirrors apps/web/src/lib/trpc/sessions.ts (EXP-1291 Threads v2). A thread
+// Mirrors apps/web/src/lib/trpc/sessions.ts ( EXP-1291). A chat
 // IS a root session, children are sub-sessions, and (NEW-2) a team agent is
 // a definition (`AgentsApi`) whose conversations are roots with `agent_id` —
 // and ONE entrypoint starts and messages them all: `sessions.send`. The database is the bus: a new session is a `queued` row
@@ -198,7 +198,7 @@ public final class SessionsApi: Sendable {
         self.trpc = trpc
     }
 
-    /// THE entrypoint: start a thread or a child, or message a session or an
+    /// THE entrypoint: start a chat or a child, or message a session or an
     /// agent. A refusal throws `TrpcError.httpError`, whose description is
     /// the server's message.
     @discardableResult
@@ -236,7 +236,7 @@ public final class SessionsApi: Sendable {
         )
     }
 
-    /// Thread 58cb32df (chats.json): delete a ROOT chat (not an agent
+    /// Session 58cb32df (chats.json): delete a ROOT chat (not an agent
     /// conversation, not an app session); the server ends what is live, then
     /// deletes the tree and its messages. FORBIDDEN / NOT_FOUND / BAD_REQUEST
     /// throw like any refusal.
@@ -254,7 +254,7 @@ public final class SessionsApi: Sendable {
         )
     }
 
-    /// Link issues to a thread (always lands on the ROOT; the header "+").
+    /// Link issues to a chat (always lands on the ROOT; the header "+").
     public func linkIssues(accountId: String, sessionId: String, issueIds: [String]) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
@@ -329,8 +329,8 @@ public final class SessionsApi: Sendable {
         )
     }
 
-    /// EXP-1323: stamp the viewer's read of a session (a thread root on
-    /// open, a session view on open) — the Threads list's bold + dot.
+    /// EXP-1323: stamp the viewer's read of a session (a chat root on
+    /// open, a session view on open) — the Chats list's bold + dot.
     public func markRead(accountId: String, sessionId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "sessions.markRead", input: SessionIdInput(sessionId: sessionId)
@@ -421,7 +421,7 @@ public final class SessionsApi: Sendable {
     }
 
     /// EXP-1323: File as issue — the item becomes an issue linked to the
-    /// thread.
+    /// chat.
     public func fileSuggestion(accountId: String, messageId: String, itemId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,

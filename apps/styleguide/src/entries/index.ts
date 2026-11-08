@@ -39,10 +39,10 @@ import { entry as deviceAttention } from "./device-attention.tsx"
 import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
 import { entry as runStatusRow } from "./run-status-row.tsx"
-import { entry as sessionThread } from "./session-thread.tsx"
+import { entry as sessionChat } from "./session-chat.tsx"
 import { entry as composerAgentRow } from "./composer-agent-row.tsx"
 import { entry as workCard } from "./work-card.tsx"
-import { entry as threadParts } from "./thread-parts.tsx"
+import { entry as chatParts } from "./chat-parts.tsx"
 import { entry as sessionXref } from "./session-xref.tsx"
 import { entry as askDock } from "./ask-dock.tsx"
 import { entry as dockCard } from "./dock-card.tsx"
@@ -161,10 +161,10 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   resultsGuide,
   mcpAppViews,
   runStatusRow,
-  sessionThread,
+  sessionChat,
   composerAgentRow,
   workCard,
-  threadParts,
+  chatParts,
   askDock,
   dockCard,
   planCard,

@@ -98,8 +98,8 @@ pub(crate) struct DraftSave {
     pub(crate) assignee_agent_id: Option<String>,
     pub(crate) label_ids: Vec<String>,
     pub(crate) due_date: Option<NaiveDate>,
-    /// EXP-1284: the thread the draft files into (stored on the row).
-    pub(crate) thread_id: Option<String>,
+    /// EXP-1284: the chat the draft files into (stored on the row).
+    pub(crate) chat_id: Option<String>,
 }
 
 impl DraftSave {
@@ -124,9 +124,9 @@ impl DraftSave {
         input.due_date = self
             .due_date
             .map(|date| date.format("%Y-%m-%d").to_string());
-        // EXP-1284 → EXP-1291: the thread's session (`sessionId`); an
+        // EXP-1284 → EXP-1291: the chat's session (`sessionId`); an
         // absent key keeps the row's.
-        input.session_id = self.thread_id.clone();
+        input.session_id = self.chat_id.clone();
         input
     }
 }
@@ -151,7 +151,7 @@ impl DraftSave {
             due_date: self
                 .due_date
                 .map(|date| date.format("%Y-%m-%d").to_string()),
-            session_id: self.thread_id.clone(),
+            session_id: self.chat_id.clone(),
             created_at: None,
             updated_at: None,
         }
@@ -298,9 +298,9 @@ mod tests {
             assignee_agent_id: None,
             label_ids: vec!["l-1".into()],
             due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
-            thread_id: Some("th-1".into()),
+            chat_id: Some("th-1".into()),
         };
-        // EXP-1284: the thread rides the wire and reads back.
+        // EXP-1284: the chat rides the wire and reads back.
         assert_eq!(save.to_input().session_id.as_deref(), Some("th-1"));
         let row = save.as_row();
         assert_eq!(row.session_id.as_deref(), Some("th-1"));
@@ -330,7 +330,7 @@ mod tests {
             assignee_agent_id: Some("g-1".into()),
             label_ids: Vec::new(),
             due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
-            thread_id: None,
+            chat_id: None,
         };
         let input = save.to_input();
         // The full replacement set rides even when empty — omitting it would

@@ -52,7 +52,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// Thread 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
+// Session 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
 // phone shell (the header is the shared [PageHeader]) — the section headers,
 // the flat WhatsApp row with its 52 lead disc, THE chat
 // menu sheet (long-press) + its delete confirm, and the transcript's divider
@@ -528,9 +528,9 @@ private fun ChatPreviewText(preview: Chats.ChatPreview, modifier: Modifier = Mod
     )
 }
 
-/** The row word (threadRowWord) with its glyph (`stack` wears the stack). */
+/** The row word (chatRowWord) with its glyph (`stack` wears the stack). */
 @Composable
-private fun ChatRowWord(word: SessionTree.ThreadRowWord) {
+private fun ChatRowWord(word: SessionTree.ChatRowWord) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -539,7 +539,7 @@ private fun ChatRowWord(word: SessionTree.ThreadRowWord) {
     ) {
         // #EXP-1469: only `stack` wears a glyph ×4 (web ChatRowText, iOS
         // ChatsView, desktop word_glyph); the lead disc already shows the PR.
-        val icon = if (word == SessionTree.ThreadRowWord.Stack) ExpIcons.prStack else null
+        val icon = if (word == SessionTree.ChatRowWord.Stack) ExpIcons.prStack else null
         if (icon != null) Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
         Text(word.text.orEmpty(), style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1)
     }
@@ -634,8 +634,8 @@ data class ChatMenuItem(
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */
-fun chatMenuIcon(entry: Chats.ThreadMenuEntry): ImageVector = when (entry) {
-    Chats.ThreadMenuEntry.Delete -> ExpIcons.uiDelete
+fun chatMenuIcon(entry: Chats.ChatMenuEntry): ImageVector = when (entry) {
+    Chats.ChatMenuEntry.Delete -> ExpIcons.uiDelete
 }
 
 /** The icon CONCEPT of an agent menu entry (`agentMenuCases`). */
@@ -725,14 +725,14 @@ fun ChatMenuSheetFace(title: String, items: List<ChatMenuItem>, modifier: Modifi
     }
 }
 
-/** The chat menu's entries for a chat row: [Chats.threadMenuEntries] with
+/** The chat menu's entries for a chat row: [Chats.chatMenuEntries] with
  *  their copy and icon; Delete asks first ([onDelete]). S-3: no Stop. */
 fun chatMenuItems(
-    entries: List<Chats.ThreadMenuEntry>,
+    entries: List<Chats.ChatMenuEntry>,
     onDelete: () -> Unit,
 ): List<ChatMenuItem> = entries.map { entry ->
     ChatMenuItem(
-        label = Chats.threadMenuLabel(entry),
+        label = Chats.chatMenuLabel(entry),
         icon = chatMenuIcon(entry),
         onClick = onDelete,
         destructive = true,
@@ -784,7 +784,7 @@ fun ChatDeleteConfirm(
 }
 
 /**
- * A transcript divider (session-thread.json `divider` row): a person's `/new`
+ * A transcript divider (session-chat.json `divider` row): a person's `/new`
  * or `/compact` line painted as the centred glass pill
  * `copy.dividers.<kind> · HH:mm` (icon ui-clean / coding-compact), never a
  * bubble. EXP-1459: kind `locked-noKey` | `locked-unreadable` = the same pill

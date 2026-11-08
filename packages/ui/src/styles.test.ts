@@ -37,7 +37,7 @@ describe(`@exp/ui styles.css`, () => {
   })
 
   it(`carries the round mention pill, unscoped`, () => {
-    // Thread e4a04d22: `<MentionPill>` (chat text) and the editors' `@email`
+    // Chat e4a04d22: `<MentionPill>` (chat text) and the editors' `@email`
     // decoration share this box; it must reach text outside the editor.
     const block = css.slice(css.indexOf(`\n.mention-pill {`))
     expect(css.indexOf(`\n.mention-pill {`)).toBeGreaterThan(-1)

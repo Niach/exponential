@@ -1,5 +1,5 @@
 //! The ONE main view (masterplan-v3 §4.2, reworked — EXP-288/EXP-851): a
-//! TAB-BASED area whose tabs are DETAIL VIEWS ONLY (issue detail, a thread
+//! TAB-BASED area whose tabs are DETAIL VIEWS ONLY (issue detail, a chat
 //! or a session of it, an agent's channel, terminal). Everything else is a
 //! plain
 //! full-width screen: the LIST screens (a board, the Inbox,
@@ -13,7 +13,7 @@
 //! …) stay single instances re-pointed on tab switch; EXP-894: what a switch
 //! would lose there (comment/reply drafts, scroll) is stashed per tab by the
 //! view itself (`crate::tab_state` documents why not one view per tab), and
-//! a thread / session / agent tab keeps its own view outright. Closing the
+//! a chat / session / agent tab keeps its own view outright. Closing the
 //! active tab activates its
 //! neighbor; closing the last shows the empty state. A
 //! team switch drops all tabs (they are team-scoped). Tabs that don't fit
@@ -129,18 +129,18 @@ pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
     }
 }
 
-/// EXP-1294 — the strip's "+": Home, the composer every new thread starts
+/// EXP-1294 — the strip's "+": Home, the composer every new chat starts
 /// from (the New session tab and its duplicate-tab hand-off are gone).
 pub(crate) fn open_home(window: &mut Window, cx: &mut App) {
     crate::navigation::navigate_to_chat(window, cx, crate::navigation::ChatSeed::default());
 }
 
-/// EXP-1316 (1b): the THREAD root a session opens inside (its tree's root
-/// when that root is a thread); `None` = its own session screen (an agent
+/// EXP-1316 (1b): the CHAT root a session opens inside (its tree's root
+/// when that root is a chat); `None` = its own session screen (an agent
 /// channel's session, or a row not synced yet).
 pub(crate) fn in_place_root(session_id: &str, cx: &App) -> Option<String> {
     crate::session_data::root_of(session_id, cx)
-        .filter(|root| root.is_root() && root.is_thread())
+        .filter(|root| root.is_root() && root.is_chat())
         .map(|root| root.id)
 }
 
@@ -168,10 +168,10 @@ pub(crate) fn build_screen_content(
                 crate::session_screen::SessionScreenView::remote(session_id.clone(), window, cx)
             })
             .into(),
-        // EXP-1294: a thread and an agent's channel are never undocked
+        // EXP-1294: a chat and an agent's channel are never undocked
         // either; kept total with their real views.
-        Screen::Thread { session_id } => cx
-            .new(|cx| crate::thread_screen::ThreadScreenView::new(session_id.clone(), window, cx))
+        Screen::Chat { session_id } => cx
+            .new(|cx| crate::session_chat::SessionChatScreenView::new(session_id.clone(), window, cx))
             .into(),
         Screen::Agent { agent_id } => cx
             .new(|cx| crate::agent_screen::AgentScreenView::new(agent_id.clone(), window, cx))
@@ -197,8 +197,8 @@ pub(crate) fn build_screen_content(
         Screen::Home => cx
             .new(|cx| crate::chat_screen::ChatScreenView::new(window, cx))
             .into(),
-        Screen::Threads => cx
-            .new(|cx| crate::threads_view::ThreadsView::new(window, cx))
+        Screen::Chats => cx
+            .new(|cx| crate::chats_view::ChatsView::new(window, cx))
             .into(),
         // VAPP-110: an editor and (VAPP-242) a run view are never undocked
         // (the editor owns the member's live editor session).
@@ -233,10 +233,10 @@ impl Render for NeverUndocked {
 /// (EXP-288/EXP-851; EXP-1192: the second sidebar beside it). `None` =
 /// opened from a board, the rail or a context-free page: nothing beside it.
 ///
-/// EXP-1294: a thread and the sessions of its tree are ONE tab. `screen` is
-/// what the tab shows right now (the thread, or a session opened from one of
-/// its cards — Back returns to the thread), `root_id` the tree's root, so a
-/// session never gets a tab of its own beside its thread. An agent's channel
+/// EXP-1294: a chat and the sessions of its tree are ONE tab. `screen` is
+/// what the tab shows right now (the chat, or a session opened from one of
+/// its cards — Back returns to the chat), `root_id` the tree's root, so a
+/// session never gets a tab of its own beside its chat. An agent's channel
 /// is keyed the same way (its root is the agent).
 #[derive(Clone)]
 struct TabEntry {
@@ -248,7 +248,7 @@ struct TabEntry {
 impl TabEntry {
     fn new(screen: Screen, origin: Option<TabOrigin>, root_id: Option<String>) -> Self {
         let root_id = root_id.or_else(|| match &screen {
-            Screen::Thread { session_id } | Screen::Agent { agent_id: session_id } => {
+            Screen::Chat { session_id } | Screen::Agent { agent_id: session_id } => {
                 Some(session_id.clone())
             }
             _ => None,
@@ -276,14 +276,14 @@ impl TabEntry {
     }
 
     /// Whether `screen` is this tab's — the screen on show, or (EXP-1294) the
-    /// root it belongs to: its thread or its agent. A SESSION of the tree is
+    /// root it belongs to: its chat or its agent. A SESSION of the tree is
     /// matched by its root ([`Self::holds_root`]), which needs the synced row.
     fn holds(&self, screen: &Screen) -> bool {
         if &self.screen == screen {
             return true;
         }
         match screen {
-            Screen::Thread { session_id } | Screen::Agent { agent_id: session_id } => {
+            Screen::Chat { session_id } | Screen::Agent { agent_id: session_id } => {
                 self.holds_root(session_id)
             }
             _ => false,
@@ -296,12 +296,12 @@ impl TabEntry {
     }
 }
 
-/// EXP-1294: the tree root a thread / session / agent screen belongs to — the
+/// EXP-1294: the tree root a chat / session / agent screen belongs to — the
 /// screen's own id for a root, the row's `root_id` for a session (`None`
 /// while that row has not synced, and for every other screen).
 fn screen_root(screen: &Screen, cx: &App) -> Option<String> {
     match screen {
-        Screen::Thread { session_id } => Some(session_id.clone()),
+        Screen::Chat { session_id } => Some(session_id.clone()),
         // NEW-6: the caller's conversation with the agent (the agent id
         // until the first message creates it).
         Screen::Agent { agent_id } => Some(crate::agent_screen::agent_screen_root(agent_id, cx)),
@@ -313,7 +313,7 @@ fn screen_root(screen: &Screen, cx: &App) -> Option<String> {
 }
 
 /// EXP-923 — the work the rail's Running section opened with NO tab: a
-/// live thread (EXP-1294: the tree, so a session opened from its cards stays
+/// live chat (EXP-1294: the tree, so a session opened from its cards stays
 /// tab-less too). It has to be remembered, not decided per navigation: Back
 /// inside it carries no marker at all.
 #[derive(Clone, Debug, PartialEq)]
@@ -337,7 +337,7 @@ impl TablessWork {
 ///
 /// Pure, because the halves come from opposite ends of `sync_tabs` and
 /// getting any of them wrong is silent: miss the marker and every rail click
-/// grows the strip; miss `existing` and clicking a thread that is open
+/// grows the strip; miss `existing` and clicking a chat that is open
 /// leaves the chip behind unhighlighted; miss `step_inside` and a session
 /// card inside it grows the chip the rail click did not.
 fn opens_no_tab(
@@ -455,7 +455,7 @@ enum DockClose {
 
 
 // EXP-288: which tabs get a chip, in strip order — the rest collapse into
-// the trailing "+N" dropdown (also the terminal dock, EXP-497, and the thread
+// the trailing "+N" dropdown (also the terminal dock, EXP-497, and the chat
 // strip, EXP-1334); it lives in the domain crate now. `widths`, `gap` and
 // `overflow_w` are measured against the window (EXP-326, see
 // [`ScreensPanel::measure_chip_width`]), so "fits" means fits.
@@ -508,7 +508,7 @@ enum ChipLead {
     Status(domain::statuses::ResolvedStatus),
     /// EXP-746: a steady tone dot — a session chip whose row has not synced.
     Dot(gpui::Hsla),
-    /// EXP-1294: a tinted concept glyph — a thread / session chip's live
+    /// EXP-1294: a tinted concept glyph — a chat / session chip's live
     /// state mark (`fixtures/session-card.json` icon + tone of the root's
     /// state) and an agent chip's own icon in its colour.
     Tinted(ExpIcon, gpui::Hsla),
@@ -541,7 +541,7 @@ fn rich_tab_status(lead: &ChipLead, cx: &App) -> crate::surface::RichTabStatus {
     }
 }
 
-/// D8: a thread / session / agent chip whose row has not synced yet.
+/// D8: a chat / session / agent chip whose row has not synced yet.
 fn loading_chip(cx: &App) -> ChipContent {
     ChipContent {
         lead: ChipLead::Dot(cx.theme().muted_foreground.opacity(0.5)),
@@ -557,18 +557,18 @@ fn state_lead(root: &domain::rows::SessionRow, cx: &App) -> ChipLead {
     state_lead_of(domain::session_tree::session_state(root), cx)
 }
 
-/// A thread / session chip's lead for `state` (`session-card.json` icon +
+/// A chat / session chip's lead for `state` (`session-card.json` icon +
 /// tone).
 fn state_lead_of(state: domain::session_tree::SessionState, cx: &App) -> ChipLead {
     ChipLead::Tinted(
-        registry::concept_by_name(state.icon()).unwrap_or(registry::NAV_THREADS),
+        registry::concept_by_name(state.icon()).unwrap_or(registry::NAV_CHATS),
         crate::work_card::session_tone_color(state.tone(), cx),
     )
 }
 
-/// EXP-1294 — a thread tab's chip: the root's live state mark and the
-/// thread's title (`domain::session_title`, EXP-1341).
-fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
+/// EXP-1294 — a chat tab's chip: the root's live state mark and the
+/// chat's title (`domain::session_title`, EXP-1341).
+fn chat_chip_content(root_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::session(root_id, cx) else {
         return loading_chip(cx);
     };
@@ -576,7 +576,7 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
         lead: state_lead(&root, cx),
         identifier: None,
         title: Some(screen_title(
-            &Screen::Thread {
+            &Screen::Chat {
                 session_id: root_id.to_string(),
             },
             cx,
@@ -585,9 +585,9 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
     }
 }
 
-/// EXP-1294 — a session chip (the tab of its thread, showing the session):
+/// EXP-1294 — a session chip (the tab of its chat, showing the session):
 /// the root's state mark and the tab's title ([`screen_title`]: the
-/// thread's, EXP-1676, like web's thread tab).
+/// chat's, EXP-1676, like web's chat tab).
 fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::root_of(session_id, cx) else {
         return loading_chip(cx);
@@ -667,7 +667,7 @@ fn terminal_chip_content(tab: terminal::TabId, cx: &App) -> ChipContent {
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     match screen {
         Screen::Session { session_id } => return session_chip_content(session_id, cx),
-        Screen::Thread { session_id } => return thread_chip_content(session_id, cx),
+        Screen::Chat { session_id } => return chat_chip_content(session_id, cx),
         Screen::Agent { agent_id } => return agent_chip_content(agent_id, cx),
         Screen::Terminal { tab } => return terminal_chip_content(*tab, cx),
         _ => {}
@@ -734,8 +734,8 @@ pub struct ScreensPanel {
     /// HOME (EXP-772's Chat page — the centred prompt box; the same tab-less
     /// full-page mode).
     chat: Entity<crate::chat_screen::ChatScreenView>,
-    /// EXP-1294: the Threads page (the same tab-less full-page mode).
-    threads_page: Entity<crate::threads_view::ThreadsView>,
+    /// EXP-1294: the Chats page (the same tab-less full-page mode).
+    chats_page: Entity<crate::chats_view::ChatsView>,
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     eui_core: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
@@ -748,12 +748,12 @@ pub struct ScreensPanel {
     /// `sessions` row id. Not a shared single instance like the views above:
     /// each one owns a feed (a relay socket, or the local engine's drain), so
     /// it is created on first show and shut down when its tab moves off it
-    /// (EXP-1294: Back to the thread) or closes.
+    /// (EXP-1294: Back to the chat) or closes.
     sessions: HashMap<String, Entity<crate::session_screen::SessionScreenView>>,
-    /// EXP-1294: one thread screen per OPEN thread tab, keyed by the root
+    /// EXP-1294: one chat screen per OPEN chat tab, keyed by the root
     /// session id — kept while the tab shows one of the tree's sessions, so
     /// Back lands on the same view (its reply draft, its scroll).
-    threads: HashMap<String, Entity<crate::thread_screen::ThreadScreenView>>,
+    chats: HashMap<String, Entity<crate::session_chat::SessionChatScreenView>>,
     /// EXP-1294: one agent channel per OPEN agent tab, keyed by the agent's
     /// root session id.
     agents: HashMap<String, Entity<crate::agent_screen::AgentScreenView>>,
@@ -771,7 +771,7 @@ pub struct ScreensPanel {
     /// and (EXP-1294) by tree root (re-opening focuses + refreshes the
     /// origin).
     tabs: Vec<TabEntry>,
-    /// EXP-923: the live thread this window is showing WITHOUT a tab — opened
+    /// EXP-923: the live chat this window is showing WITHOUT a tab — opened
     /// from the rail's Running section ([`TablessWork`]).
     tabless: Option<TablessWork>,
     /// The team the strip's tabs belong to ([`crate::navigation::tabs_team_id`]).
@@ -963,7 +963,7 @@ impl ScreensPanel {
         let issue_draft =
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
-        let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
+        let chats_page = cx.new(|cx| crate::chats_view::ChatsView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
         let list = cx.new(|cx| ListPanel::new(window, cx));
@@ -1009,7 +1009,7 @@ impl ScreensPanel {
             },
         ));
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
-        // EXP-1294: the thread / session / agent chips read their state mark
+        // EXP-1294: the chat / session / agent chips read their state mark
         // and title off the session collections.
         subscriptions.extend(crate::session_data::observe_session_collections(cx));
         // EXP-698 round 5: the "No boards yet" center renders the
@@ -1051,12 +1051,12 @@ impl ScreensPanel {
             needs_you,
             issue_draft,
             chat,
-            threads_page,
+            chats_page,
             eui_core: None,
             app_editor: None,
             exponential_ui_specimen: None,
             sessions: HashMap::new(),
-            threads: HashMap::new(),
+            chats: HashMap::new(),
             agents: HashMap::new(),
             list,
             history,
@@ -1268,9 +1268,9 @@ impl ScreensPanel {
             root.as_deref()
                 .and_then(|root| self.tabs.iter().position(|tab| tab.holds_root(root)))
         });
-        // EXP-923: a live thread opened from the rail's Running section gets
+        // EXP-923: a live chat opened from the rail's Running section gets
         // NO tab of its own, and that decision outlives the click: a step
-        // INSIDE the tree (a session card, Back to the thread) stays
+        // INSIDE the tree (a session card, Back to the chat) stays
         // tab-less. An EXISTING tab for the same work is still reused and
         // still goes active.
         let in_tabless = |root: Option<&str>| {
@@ -1298,8 +1298,8 @@ impl ScreensPanel {
                 if self.tabs[ix].root_id.is_none() {
                     self.tabs[ix].root_id = root.clone();
                 }
-                // EXP-1294: a session opened from its thread's card (or Back
-                // to the thread) rebinds the SAME tab.
+                // EXP-1294: a session opened from its chat's card (or Back
+                // to the chat) rebinds the SAME tab.
                 self.show_in_tab(ix, screen.clone(), cx);
             }
             None if opens_no_tab => {}
@@ -1330,18 +1330,18 @@ impl ScreensPanel {
                         })
                     })
                     .clone();
-                // EXP-1316 (1b): a session of a THREAD opens in place — the
-                // thread's view hosts its transcript under the thread's own
+                // EXP-1316 (1b): a session of a CHAT opens in place — the
+                // chat's view hosts its transcript under the chat's own
                 // header + strip (an agent channel's keeps its own screen).
                 if let Some(root_id) = in_place_root(&session_id, cx) {
-                    let thread = self
-                        .threads
+                    let chat = self
+                        .chats
                         .entry(root_id.clone())
                         .or_insert_with(|| {
-                            cx.new(|cx| crate::thread_screen::ThreadScreenView::new(root_id, window, cx))
+                            cx.new(|cx| crate::session_chat::SessionChatScreenView::new(root_id, window, cx))
                         })
                         .clone();
-                    thread.update(cx, |thread, cx| thread.set_focus(Some((session_id, view)), cx));
+                    chat.update(cx, |chat, cx| chat.set_focus(Some((session_id, view)), cx));
                 }
             }
             Screen::Terminal { tab } => {
@@ -1353,16 +1353,16 @@ impl ScreensPanel {
                 }
             }
             // EXP-1294: entry-or-insert like a session, kept per tree root.
-            Screen::Thread { session_id } => {
-                let thread = self
-                    .threads
+            Screen::Chat { session_id } => {
+                let chat = self
+                    .chats
                     .entry(session_id.clone())
                     .or_insert_with(|| {
-                        cx.new(|cx| crate::thread_screen::ThreadScreenView::new(session_id, window, cx))
+                        cx.new(|cx| crate::session_chat::SessionChatScreenView::new(session_id, window, cx))
                     })
                     .clone();
-                // EXP-1316 (1b): back on the thread itself.
-                thread.update(cx, |thread, cx| thread.set_focus(None, cx));
+                // EXP-1316 (1b): back on the chat itself.
+                chat.update(cx, |chat, cx| chat.set_focus(None, cx));
             }
             Screen::Agent { agent_id } => {
                 self.agents.entry(agent_id.clone()).or_insert_with(|| {
@@ -1377,7 +1377,7 @@ impl ScreensPanel {
             | Screen::NeedsYou
             | Screen::IssueDraft { .. }
             | Screen::Home
-            | Screen::Threads
+            | Screen::Chats
             | Screen::AppRun { .. }
             | Screen::App { .. }
             | Screen::ExponentialUiKitchenSink
@@ -1393,7 +1393,7 @@ impl ScreensPanel {
     }
 
     /// EXP-1294: tab `ix` now shows `screen`. A session it showed before
-    /// loses its view (its feed) — the thread / agent view of the tree stays
+    /// loses its view (its feed) — the chat / agent view of the tree stays
     /// for as long as the tab does, so Back lands on it unchanged.
     fn show_in_tab(&mut self, ix: usize, screen: Screen, cx: &mut gpui::Context<Self>) {
         let Some(tab) = self.tabs.get_mut(ix) else {
@@ -1466,7 +1466,7 @@ impl ScreensPanel {
     /// rewrite the tab's remembered origin.
     ///
     /// EXP-769: a terminal tab just shows its screen — it has no meaningful
-    /// origin at all. EXP-818: a thread tab restores its origin like an
+    /// origin at all. EXP-818: a chat tab restores its origin like an
     /// issue tab does (the list it was opened from sits beside it).
     fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(entry) = self.tabs.get(ix).cloned() else {
@@ -1501,7 +1501,7 @@ impl ScreensPanel {
     /// session row rides on it since EXP-773. The manager's
     /// `TabClosed` echo then finds the entry already gone.
     ///
-    /// EXP-923: EVERY tab closes — a live thread is a row in the rail's
+    /// EXP-923: EVERY tab closes — a live chat is a row in the rail's
     /// Running section for as long as it runs, so closing the chip cannot
     /// lose it; closing a tab is never stopping a session.
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -1642,13 +1642,13 @@ impl ScreensPanel {
         cx.notify();
     }
 
-    /// #FEED-191: clears the per-visit plan (`kept`) of every thread view
+    /// #FEED-191: clears the per-visit plan (`kept`) of every chat view
     /// (an agent's included) that is not the chat at `here`.
     fn leave_other_chats(&mut self, here: Option<&str>, cx: &mut gpui::Context<Self>) {
-        let mut left: Vec<Entity<crate::thread_screen::ThreadScreenView>> =
-            self.threads.iter().filter(|(root, _)| Some(root.as_str()) != here).map(|(_, view)| view.clone()).collect();
+        let mut left: Vec<Entity<crate::session_chat::SessionChatScreenView>> =
+            self.chats.iter().filter(|(root, _)| Some(root.as_str()) != here).map(|(_, view)| view.clone()).collect();
         left.extend(self.agents.values().filter_map(|agent| {
-            let (root, view) = agent.read(cx).thread_view()?;
+            let (root, view) = agent.read(cx).chat_view()?;
             (Some(root.as_str()) != here).then(|| view.clone())
         }));
         for view in left {
@@ -1665,12 +1665,12 @@ impl ScreensPanel {
     }
 
     /// A tab leaving the strip — the views it owned go with it (EXP-1294:
-    /// its tree's thread or agent view and the session it showed). The
+    /// its tree's chat or agent view and the session it showed). The
     /// sessions themselves are never touched: closing a tab is not stopping.
     fn forget_tab(&mut self, tab: &TabEntry, cx: &mut gpui::Context<Self>) {
         if let Some(root_id) = &tab.root_id {
-            // The thread view flushes its embedded issue's pending edits.
-            if let Some(view) = self.threads.remove(root_id) {
+            // The chat view flushes its embedded issue's pending edits.
+            if let Some(view) = self.chats.remove(root_id) {
                 view.update(cx, |view, cx| view.shutdown(cx));
             }
             // NEW-6: agent views are keyed by the AGENT id; the tab's root
@@ -1703,15 +1703,15 @@ impl ScreensPanel {
     }
 
     /// Every per-tab view at once (the team switch, which parks the strip
-    /// wholesale): the session feeds shut down, the thread and agent views
+    /// wholesale): the session feeds shut down, the chat and agent views
     /// drop and rebuild when their tab comes back.
     fn shutdown_all_tab_views(&mut self, cx: &mut gpui::Context<Self>) {
         let views: Vec<_> = self.sessions.drain().map(|(_, view)| view).collect();
         for view in views {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
-        let threads: Vec<_> = self.threads.drain().map(|(_, view)| view).collect();
-        for view in threads {
+        let chats: Vec<_> = self.chats.drain().map(|(_, view)| view).collect();
+        for view in chats {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
         self.agents.clear();
@@ -1808,9 +1808,9 @@ impl ScreensPanel {
         self.tabs.iter().any(|tab| tab.holds(screen))
     }
 
-    /// EXP-1347: the open thread view of `root_id` in this window.
-    pub(crate) fn thread_view(&self, root_id: &str) -> Option<Entity<crate::thread_screen::ThreadScreenView>> {
-        self.threads.get(root_id).cloned()
+    /// EXP-1347: the open chat view of `root_id` in this window.
+    pub(crate) fn chat_view(&self, root_id: &str) -> Option<Entity<crate::session_chat::SessionChatScreenView>> {
+        self.chats.get(root_id).cloned()
     }
 
     /// Show `screen`: activate its tab when one is open (origin restore and
@@ -2547,12 +2547,12 @@ impl crate::resize_edge::ResizeHost for ScreensPanel {
 }
 
 impl ScreensPanel {
-    /// EXP-1316 (1b): the thread view hosting `session_id` in place, its
+    /// EXP-1316 (1b): the chat view hosting `session_id` in place, its
     /// focus (re)pointed at this session. Activation (`sync_tabs`) sets the
     /// focus once, but a root row that syncs AFTER it never re-ran that —
-    /// the panel then showed the thread's Conversation (or the bare session
+    /// the panel then showed the chat's Conversation (or the bare session
     /// screen) instead of the opened session; render settles it.
-    fn in_place_thread(
+    fn in_place_chat(
         &mut self,
         session_id: &str,
         window: &mut Window,
@@ -2560,16 +2560,16 @@ impl ScreensPanel {
     ) -> Option<gpui::AnyElement> {
         let root_id = in_place_root(session_id, cx)?;
         let view = self.sessions.get(session_id).cloned()?;
-        let thread = self
-            .threads
+        let chat = self
+            .chats
             .entry(root_id.clone())
-            .or_insert_with(|| cx.new(|cx| crate::thread_screen::ThreadScreenView::new(root_id, window, cx)))
+            .or_insert_with(|| cx.new(|cx| crate::session_chat::SessionChatScreenView::new(root_id, window, cx)))
             .clone();
-        if thread.read(cx).focus_id() != Some(session_id) {
+        if chat.read(cx).focus_id() != Some(session_id) {
             let session_id = session_id.to_string();
-            thread.update(cx, |thread, cx| thread.set_focus(Some((session_id, view)), cx));
+            chat.update(cx, |chat, cx| chat.set_focus(Some((session_id, view)), cx));
         }
-        Some(thread.into_any_element())
+        Some(chat.into_any_element())
     }
 }
 
@@ -2584,9 +2584,9 @@ impl Render for ScreensPanel {
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
             // EXP-746: built by `sync_tabs` on activation — the fallback only
             // shows for the frame between a navigation and that observer.
-            // EXP-1316 (1b): a thread's session renders inside its thread.
+            // EXP-1316 (1b): a chat's session renders inside its chat.
             Some(Screen::Session { session_id }) => self
-                .in_place_thread(session_id, window, cx)
+                .in_place_chat(session_id, window, cx)
                 .or_else(|| {
                     self.sessions
                         .get(session_id)
@@ -2615,7 +2615,7 @@ impl Render for ScreensPanel {
             Some(Screen::NeedsYou) => self.needs_you.clone().into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
-            Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
+            Some(Screen::Chats) => self.chats_page.clone().into_any_element(),
             // VAPP-110 + VAPP-242: built by `sync_app_editor` on entry.
             Some(Screen::App { .. } | Screen::AppRun { .. }) => self
                 .app_editor
@@ -2623,8 +2623,8 @@ impl Render for ScreensPanel {
                 .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
             // EXP-1294: built by `sync_tabs` on activation, like a session.
-            Some(Screen::Thread { session_id }) => self
-                .threads
+            Some(Screen::Chat { session_id }) => self
+                .chats
                 .get(session_id)
                 .cloned()
                 .map(gpui::IntoElement::into_any_element)
@@ -2913,27 +2913,27 @@ mod tests {
         );
     }
 
-    /// EXP-1294: a thread and the sessions of its tree share ONE tab — the
-    /// tab holds its thread by root, a session by its resolved root, and
+    /// EXP-1294: a chat and the sessions of its tree share ONE tab — the
+    /// tab holds its chat by root, a session by its resolved root, and
     /// nothing of another tree; an agent's channel is keyed the same way.
     #[test]
-    fn a_session_shares_its_thread_s_tab() {
-        let thread = Screen::Thread {
+    fn a_session_shares_its_chat_s_tab() {
+        let chat = Screen::Chat {
             session_id: "t1".into(),
         };
         let session = Screen::Session {
             session_id: "s2".into(),
         };
-        let mut tab = TabEntry::new(thread.clone(), None, None);
+        let mut tab = TabEntry::new(chat.clone(), None, None);
         assert_eq!(tab.root_id.as_deref(), Some("t1"));
-        assert!(tab.holds(&thread));
+        assert!(tab.holds(&chat));
         assert!(tab.holds_root("t1"));
         // A session of the tree is found by its root, then rebinds the tab.
         assert!(!tab.holds(&session));
         tab.screen = session.clone();
         assert!(tab.holds(&session));
-        assert!(tab.holds(&thread), "Back to the thread lands on the same tab");
-        assert!(!tab.holds(&Screen::Thread {
+        assert!(tab.holds(&chat), "Back to the chat lands on the same tab");
+        assert!(!tab.holds(&Screen::Chat {
             session_id: "t2".into()
         }));
         assert!(!tab.holds_root("t2"));
@@ -2948,7 +2948,7 @@ mod tests {
             None,
         );
         assert!(agent.holds_root("a1"));
-        assert!(!agent.holds(&thread));
+        assert!(!agent.holds(&chat));
         // An issue tab owns no tree.
         let issue = issue_tab("i1", None);
         assert_eq!(issue.root_id, None);
@@ -2975,13 +2975,13 @@ mod tests {
         assert_eq!(neighbor_in_strip(&[false, true], 1, false), Some(0));
     }
 
-    /// EXP-923: EVERY tab closes — a live thread is a row in the rail's
+    /// EXP-923: EVERY tab closes — a live chat is a row in the rail's
     /// Running section for as long as it runs, so closing its chip cannot
     /// lose it, and the bulk closes take the same tabs the × would.
     #[test]
     fn every_tab_is_closable() {
         let live = TabEntry::new(
-            Screen::Thread {
+            Screen::Chat {
                 session_id: "t1".into(),
             },
             None,
@@ -3019,14 +3019,14 @@ mod tests {
     }
 
     /// EXP-923: a click in the rail's Running section opens NO tab — unless
-    /// the thread already has one, which is reused (and goes active) rather
+    /// the chat already has one, which is reused (and goes active) rather
     /// than duplicated. Every OTHER navigation still opens its tab.
     #[test]
     fn a_rail_running_click_opens_no_tab_but_reuses_one() {
         assert!(opens_no_tab(Some(&PendingOrigin::LiveRail), None, false));
         assert!(
             !opens_no_tab(Some(&PendingOrigin::LiveRail), Some(2), false),
-            "the thread's tab already holds this work: reuse it"
+            "the chat's tab already holds this work: reuse it"
         );
         // Every other MARKER opens a tab as before.
         assert!(!opens_no_tab(Some(&PendingOrigin::Rail), None, false));
@@ -3036,13 +3036,13 @@ mod tests {
             None,
             false
         ));
-        // EXP-1294: a session card INSIDE the tab-less thread stays tab-less
+        // EXP-1294: a session card INSIDE the tab-less chat stays tab-less
         // (`sync_tabs` only calls it a step inside when the window was on
         // that tree), while a rail or list open of it gets its tab.
         assert!(opens_no_tab(Some(&PendingOrigin::Derive), None, true));
         assert!(!opens_no_tab(Some(&PendingOrigin::Rail), None, true));
 
-        // A Back inside a tab-less thread carries no marker at all — the
+        // A Back inside a tab-less chat carries no marker at all — the
         // remembered work is what keeps the chip away.
         assert!(opens_no_tab(None, None, true));
         assert!(
@@ -3052,7 +3052,7 @@ mod tests {
         assert!(!opens_no_tab(None, Some(0), true));
     }
 
-    /// EXP-923/EXP-1294: the remembered tab-less work is a TREE — its thread
+    /// EXP-923/EXP-1294: the remembered tab-less work is a TREE — its chat
     /// and every session of it (each resolved to its root), nothing else.
     #[test]
     fn tabless_work_holds_its_tree() {

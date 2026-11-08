@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { AttachmentFileLink } from "./attachment-thumb"
 import { cn } from "./cn"
 
-// EXP-1245: the run OWNER's own message in the Run face's thread of turns:
+// EXP-1245: the run OWNER's own message in the Run face's chat of turns:
 // right-aligned, at most 70% of the column, the neutral glass bubble the
 // transcript's human turn wears, an optional image thumb under the text and
 // a muted caption under the bubble (`<name> · <time> · from <device>`).
@@ -44,7 +44,7 @@ export function UserMessageBubble({
   variant = `transcript`,
   className,
 }: {
-  /** Thread 58cb32df (chats.json TRANSCRIPT): `chat` = the phones' chat
+  /** Chat 58cb32df (chats.json TRANSCRIPT): `chat` = the phones' chat
    *  bubble, at most 80% of the column with its `time` bottom-right inside. */
   variant?: `transcript` | `chat`
   /** The `chat` bubble's `HH:mm`. */
@@ -54,7 +54,7 @@ export function UserMessageBubble({
   renderText?: (text: string) => ReactNode
   /** The first image the message carried, drawn as a thumb. */
   imageSrc?: string | null
-  /** Wave D: the files the message carried, as the comment thread's file
+  /** Wave D: the files the message carried, as a comment's file
    *  chips (glyph + name, opening the attachment). */
   files?: readonly { name: string; url: string }[]
   caption?: string | null

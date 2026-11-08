@@ -75,10 +75,10 @@ public enum TeamsScope: Sendable, Equatable {
 /// The forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
 /// the current board's team).
 public enum SessionsSendInput: Sendable, Equatable {
-    /// A new THREAD root: the composer, Start on an issue (`issueIds`), a
+    /// A new CHAT root: the composer, Start on an issue (`issueIds`), a
     /// saved prompt run (NEW-2 `promptId`: its body plus `text` = the first
     /// message). Needs `text`, `issueIds` or a `promptId`.
-    case newThread(
+    case newChat(
         teamId: String,
         deviceId: String,
         options: SessionLaunchOptions = SessionLaunchOptions(),
@@ -109,7 +109,7 @@ public enum SessionsSendInput: Sendable, Equatable {
         text: String? = nil
     )
     /// A message into an existing session (resumes it when idle; an ended
-    /// thread revives server-side, the same row). Needs text or files.
+    /// chat revives server-side, the same row). Needs text or files.
     /// #EXP-1715: `scope` = the Assistant's Teams pick, into its
     /// conversation root only (nil = not sent).
     case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil, scope: TeamsScope? = nil)
@@ -157,7 +157,7 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.skillIds.flatMap { $0.isEmpty ? nil : $0 }, forKey: .skillIds)
         }
         switch self {
-        case let .newThread(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):
+        case let .newChat(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):
             try c.encode(teamId, forKey: .teamId)
             try c.encode(deviceId, forKey: .deviceId)
             try encodeOptions(options)

@@ -10,7 +10,7 @@ import {
   FloatingComposer,
   PhoneHeaderTitle,
   SkeletonRows,
-  ThreadDock,
+  ChatDock,
   useIsMobile,
 } from "@exp/ui"
 import { isAssistant } from "@exp/domain-contract/agent-settings"
@@ -20,31 +20,31 @@ import {
   HEADER_BUTTON_CLASS,
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { renderChatText } from "@/components/chat/chat-markdown"
 import {
-  ThreadScreen,
-  validateThreadSearch,
-  type ThreadScreenAgent,
-} from "@/components/thread/thread-screen"
-import { AgentHeaderMenu } from "@/components/thread/chat-menu"
+  ChatScreen,
+  validateChatSearch,
+  type ChatScreenAgent,
+} from "@/components/chat/chat-screen"
+import { AgentHeaderMenu } from "@/components/chat/chat-menu"
 import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } from "@/components/voice-call"
 import { useAgentRow, useMyAgentConversation } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
-import { useSessionThread } from "@/hooks/use-session-tree"
+import { useSessionChat } from "@/hooks/use-session-tree"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
-import { THREADS_LIST_COPY } from "@/lib/session-tree"
+import { CHATS_LIST_COPY } from "@/lib/session-tree"
 import { useSessionNav } from "@/hooks/use-session-nav"
-import { BackStackButton } from "@/components/thread/session-body"
+import { BackStackButton } from "@/components/chat/session-body"
 
 // EXP-1293 / NEW-2 / S-3 (chats.json CHAT MODE): a team agent's chat. The
-// route id IS the `agents` row; the page is THE thread screen
-// (`components/thread/thread-screen.tsx`, the same component a thread
+// route id IS the `agents` row; the page is THE chat screen
+// (`components/chat/chat-screen.tsx`, the same component a chat
 // renders) over the CALLER's own conversation session with it (a root with
-// that `agentId`, `userId` = me), in chat mode `bubbles` (`threadChatMode`):
+// that `agentId`, `userId` = me), in chat mode `bubbles` (`chatMode`):
 // its header carries the agent's disc + name (the Assistant: THE brand
-// mark), the call button and THE agent menu; the composer is the thread's
+// mark), the call button and THE agent menu; the composer is the chat's
 // with the + menu of surface `agent`. The only wrapper of its own is for an
 // agent with NO conversation yet: the same header, an empty body, and the
 // same composer whose first send is `sessions.send({agentId})`.
@@ -55,8 +55,8 @@ const AgentsIcon = conceptIcon(`settings-agents`)
 const SYNC_GRACE_MS = 4_000
 
 export const Route = createFileRoute(`/t/$teamSlug/agents/$agentId`)({
-  head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.agents) }] }),
-  validateSearch: validateThreadSearch,
+  head: () => ({ meta: [{ title: pageTitle(CHATS_LIST_COPY.agents) }] }),
+  validateSearch: validateChatSearch,
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -83,18 +83,18 @@ function AgentChannelPage() {
   const agent =
     agentRow && (isAssistant(agentRow) ? agentRow.ownerId === me : agentRow.teamId === team?.id) ? agentRow : null
   const conversation = useMyAgentConversation(agentId, me)
-  const thread = useSessionThread(
+  const chat = useSessionChat(
     conversation?.id ?? null,
     search.tab === `session` ? (search.session ?? null) : null
   )
   const { users } = useTeamUsers(team?.id)
-  // S-3: the back stack while no conversation exists yet (the thread screen
+  // S-3: the back stack while no conversation exists yet (the chat screen
   // keeps its own once it does).
   const nav = useSessionNav({ teamSlug, here: null, back: search.back })
   // NEW-70 (voice-call.json): THE telephone left of `…`, the call card over the chat.
   const callAvailability = useVoiceCallAvailability()
   const voiceCall = useVoiceCall(agentId)
-  usePageTitle(agent?.name ? pageTitle(agent.name, THREADS_LIST_COPY.agents) : undefined)
+  usePageTitle(agent?.name ? pageTitle(agent.name, CHATS_LIST_COPY.agents) : undefined)
 
   const [graceOver, setGraceOver] = useState(false)
   useEffect(() => {
@@ -137,7 +137,7 @@ function AgentChannelPage() {
       )}
     </span>
   )
-  const parts: ThreadScreenAgent = {
+  const parts: ChatScreenAgent = {
     name,
     glyph: disc(`size-8`, `size-4`),
     mobileTitle: (
@@ -174,18 +174,18 @@ function AgentChannelPage() {
     ),
   }
 
-  if (conversation && thread.view && thread.root) {
+  if (conversation && chat.view && chat.root) {
     return (
-      <ThreadScreen
-        key={thread.root.id}
+      <ChatScreen
+        key={chat.root.id}
         team={team}
         teamSlug={teamSlug}
-        view={thread.view}
-        root={thread.root}
-        rows={thread.rows}
-        titles={thread.titles}
-        pullRequests={thread.pullRequests}
-        messagePage={thread.messagePage}
+        view={chat.view}
+        root={chat.root}
+        rows={chat.rows}
+        titles={chat.titles}
+        pullRequests={chat.pullRequests}
+        messagePage={chat.messagePage}
         search={search}
         onNavigate={(next, options) =>
           void navigate({
@@ -208,7 +208,7 @@ function AgentChannelPage() {
     )
   }
 
-  // No conversation yet: THE thread screen's header over an empty body, the
+  // No conversation yet: THE chat screen's header over an empty body, the
   // same composer (its first send opens the conversation).
   const composer = permissions.isMember ? (
     <SessionComposer
@@ -229,7 +229,7 @@ function AgentChannelPage() {
       {isMobile ? (
         <MobileDetailHeader
           title={parts.mobileTitle}
-          onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } }))}
+          onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } }))}
           menu={parts.headerMenu(HEADER_BUTTON_CLASS)}
         />
       ) : (
@@ -242,12 +242,12 @@ function AgentChannelPage() {
       )}
       {parts.overlay}
       <div className="relative min-h-0 flex-1">
-        <div data-testid="thread-scroll" className="h-full" />
+        <div data-testid="chat-scroll" className="h-full" />
         {composer && !isMobile && (
-          <ThreadDock
+          <ChatDock
             rows={[]}
             sessionName={() => null}
-            renderText={renderThreadText}
+            renderText={renderChatText}
             onAnswer={() => undefined}
             onDecide={() => undefined}
             composer={composer}

@@ -11,7 +11,7 @@ import SwiftUI
 /// queued session leads with its own card (`SessionTree.sessionBanner`,
 /// session-card.json `banner`). S-3: no paused strip, no interrupted card
 /// (an offline host is invisible); #EXP-1703: a session on a person because
-/// its device stayed away gets the `offline` card with Move. The session view and a thread's
+/// its device stayed away gets the `offline` card with Move. The session view and a chat's
 /// Conversation share it.
 @MainActor
 enum SessionDock {
@@ -27,7 +27,7 @@ enum SessionDock {
     }
 
     /// `tasks` = false: the host passes THE Queue itself (#EXP-1545: a
-    /// thread's ONE tasks card, `Dock.threadDockQueue`).
+    /// chat's ONE tasks card, `Dock.chatDockQueue`).
     static func sources(_ model: AgentSessionModel, session: SessionEntity, tasks: Bool = true) -> [Dock.Source] {
         var out: [Dock.Source] = []
         if !model.isOver {

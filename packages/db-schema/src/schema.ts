@@ -149,7 +149,7 @@ export const issueRelationSourceEnum = pgEnum(
 )
 
 
-// EXP-1291 Threads v2: the session tree's vocabulary.
+// EXP-1291: the session tree's vocabulary.
 export const sessionStatusEnum = pgEnum(`session_status`, sessionStatusValues)
 export const sessionIssueSourceEnum = pgEnum(
   `session_issue_source`,
@@ -800,8 +800,8 @@ export const comments = pgTable(
     // root must not delete a teammate's reply (EXP-398 — nobody deletes
     // someone else's words), and the same goes for the account-deletion
     // cascade off `author_id`. An orphaned reply FLATTENS to a top-level card:
-    // every client's thread helper already renders a reply whose parent is
-    // missing as top-level (lib/comment-threads.ts, iOS CommentThreads,
+    // every client's nesting helper already renders a reply whose parent is
+    // missing as top-level (lib/comment-replies.ts, iOS CommentReplies,
     // Android TimelineCollapse, desktop timeline.rs).
     parentId: uuid(`parent_id`).references((): AnyPgColumn => comments.id, {
       onDelete: `set null`,
@@ -1050,7 +1050,7 @@ export interface DeviceAgentLaunchDefaults {
   /** EXP-981: claude only; absent = contract deviceAgentDefaults.subagentModel
    * (never the CLI's own default: every model is explicit). */
   subagentModel?: string
-  /** The dispatcher root's model (threads + team agents); absent = contract
+  /** The dispatcher root's model (chats + team agents); absent = contract
    * deviceAgentDefaults.threadModel / codexThreadModel. */
   threadModel?: string
   ultracode?: boolean
@@ -1113,7 +1113,7 @@ export const deviceLaunchDefaultsSchema = z.object({
         effort: z.string().max(64).nullish(),
         // EXP-981: claude only — the model its subagents run on.
         subagentModel: z.string().max(64).nullish(),
-        // The dispatcher root's model (threads + team agents).
+        // The dispatcher root's model (chats + team agents).
         threadModel: z.string().max(64).nullish(),
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
@@ -2034,10 +2034,10 @@ export const pins = pgTable(
 // ---------------------------------------------------------------------------
 // NEW-1: ONE session tree, root = worker
 // ---------------------------------------------------------------------------
-// A thread IS a root session (`parent_id` NULL); children are sub-sessions
+// A chat IS a root session (`parent_id` NULL); children are sub-sessions
 // on any device. Every session does its own work (the composer's model and
 // plan mode, a worktree when `repository_id` is set) and spawns children
-// only when it fans out; there is no dispatcher. The thread facets live on
+// only when it fans out; there is no dispatcher. The chat facets live on
 // the root (`title`, `guide`; its issues = the UNION of the tree's
 // `session_issues`, its PRs via `pull_requests`). Every start and message
 // is `sessions.send` and the DATABASE is the bus: a new session is a
@@ -2086,11 +2086,11 @@ export const sessions = pgTable(
     }),
     // NEW-2: the agent this is a conversation session OF (a root; one per
     // (agent, user_id)); its children carry nothing (they resolve through
-    // the root). NULL = a thread.
+    // the root). NULL = a chat.
     agentId: uuid(`agent_id`).references((): AnyPgColumn => agents.id, {
       onDelete: `cascade`,
     }),
-    // #EXP-1383: a ROOT a team agent's session started (a thread its
+    // #EXP-1383: a ROOT a team agent's session started (a chat its
     // conversation spawned): the tree acts as that agent and stays in its
     // team like the conversation itself (acting agent = `agent_id ??
     // started_by_agent_id`). SYNCED.
@@ -2179,11 +2179,11 @@ export const sessions = pgTable(
     endedAt: timestamp(`ended_at`, { withTimezone: true }),
     // ── visibility ── (stamped at creation, never changes)
     shared: boolean().notNull().default(false),
-    // ── thread facets (roots) ──
+    // ── chat facets (roots) ──
     // Set by a person or the agent; NULL = derived for display
     // (session-title.json). On a child: the CLI's auto-name (EXP-905).
     title: varchar({ length: 255 }),
-    // The thread's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
+    // The chat's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
     guide: jsonb().$type<GuideEntry[]>(),
     // #EXP-1383: when this session's device last fetched its brief
     // (`sessions.brief` stamps it): the agent instructions it runs on are
@@ -2876,8 +2876,8 @@ export const messages = pgTable(
   ]
 )
 
-// EXP-1323: per-user read state of a session (a thread = its root's row).
-// Opening a thread or a session upserts `read_at` (`sessions.markRead`); a
+// EXP-1323: per-user read state of a session (a chat = its root's row).
+// Opening a chat or a session upserts `read_at` (`sessions.markRead`); a
 // list row is bold while its tree's newest agent message is newer. Synced
 // like `pins`: a STATIC per-user shape (`user_id = me`), never trash-scoped;
 // a row renders only beside a synced session.
@@ -2906,7 +2906,7 @@ export const sessionReads = pgTable(
   ]
 )
 
-// A thread's pull requests (n: a tree, a stack or independent). All PR and
+// A chat's pull requests (n: a tree, a stack or independent). All PR and
 // branch state lives here, never on `issues`. Team-visible (an issue's PR
 // badge is team data; GitHub shows it anyway). `base_pull_request_id` = the
 // open PR this one is stacked on (native GitHub stacks).
@@ -3196,9 +3196,9 @@ export const issueDrafts = pgTable(
       .notNull()
       .default(sql`'{}'::uuid[]`),
     dueDate: date(`due_date`),
-    // EXP-1284: the thread a "New issue in this thread" draft files into
+    // EXP-1284: the chat a "New issue in this chat" draft files into
     // (`issues.create` consuming the draft links the issue there). SET NULL:
-    // a deleted thread leaves a plain draft.
+    // a deleted chat leaves a plain draft.
     sessionId: uuid(`session_id`).references(() => sessions.id, {
       onDelete: `set null`,
     }),
@@ -3878,7 +3878,7 @@ export const widgetSubmissions = pgTable(
       withTimezone: true,
     }),
     // SLOP-4: when the reporter last opened their magic-link page (stamped
-    // by /api/support/thread, best-effort) — the card's read receipt.
+    // by /api/support/conversation, best-effort) — the card's read receipt.
     lastReporterSeenAt: timestamp(`last_reporter_seen_at`, {
       withTimezone: true,
     }),

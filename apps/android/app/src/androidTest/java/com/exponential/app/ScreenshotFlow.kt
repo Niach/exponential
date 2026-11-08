@@ -75,7 +75,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         const val STARTER_EMAIL = "starter@exponential.at"
         const val STARTER_PASSWORD = "screenshots-starter"
 
-        /** APP-5 — the seeded showcase issue (description + the only comment thread). */
+        /** APP-5 — the seeded showcase issue (description + the only comment list). */
         const val SHOWCASE_ISSUE_TITLE = "Reduce cold start below 800 ms"
 
         /**

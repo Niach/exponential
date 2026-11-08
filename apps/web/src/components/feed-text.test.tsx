@@ -4,7 +4,7 @@ import { FeedText } from "@/components/feed-text"
 import { attachmentImageSize, entityTokens, linkBareUrls, proseSegments } from "@/components/read-markdown"
 
 // #VAPP-258: a chat's text is genUI's Markdown with the app as its host: a
-// resolved `@<email>` is a mention chip (thread e4a04d22), a resolved
+// resolved `@<email>` is a mention chip (chat e4a04d22), a resolved
 // `#IDENT` (and, in agent prose, a bare one) an issue chip, a bare URL a link.
 
 const issues: Record<string, { identifier: string; title: string; statusIcon: string; statusColor: string }> = {

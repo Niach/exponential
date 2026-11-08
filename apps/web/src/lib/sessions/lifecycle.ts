@@ -346,7 +346,7 @@ export async function deleteSession(args: { userId: string; sessionId: string })
 /** The device reported its process gone: the row ends like an explicit End
  *  of that one session (its live children keep running and report into an
  *  ended parent, pre-consumed). Returns whether THIS call ended it. Only a
- *  CHILD gets here: a thread's root and an agent's conversation survive
+ *  CHILD gets here: a chat's root and an agent's conversation survive
  *  their process (`sessions.report` turns their `ended` into `idle`,
  *  FEED-134) and a message resumes the same row. */
 export async function endDeadSessionInTx(tx: Tx, session: TreeRow): Promise<boolean> {
@@ -357,7 +357,7 @@ export async function endDeadSessionInTx(tx: Tx, session: TreeRow): Promise<bool
 /**
  * EXP-445: the consent behind a hosted run is going away (the host unshares
  * the box, leaves the team, or a team owner drops the share): every live
- * THREAD session someone else started in `teamId` on the machines in
+ * CHAT session someone else started in `teamId` on the machines in
  * `deviceIds` that `hostUserId` HOSTS. Agents never end: `pauseDeviceAgents`
  * disarms them. FEED-148: only the sessions `hostUserId` hosts (the resolved
  * host, `hostedByCondition`), never every session on a machine id they

@@ -15,7 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Thread 58cb32df: the chat-list styleguide specimen draws THE FIXTURE ×4 —
+ * Session 58cb32df: the chat-list styleguide specimen draws THE FIXTURE ×4 —
  * chats.json `listCases[0].expected`, what the
  * web entry and the desktop twin render. The app has no fixture at runtime,
  * so [ChatListSpecimen] spells it and this proves it equal.

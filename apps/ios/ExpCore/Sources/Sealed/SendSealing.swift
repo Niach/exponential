@@ -51,13 +51,13 @@ public enum SealedAttachmentLines {
 /// `sessions.send`'s input plus the sealed-content fields.
 public struct SealedSendInput: Encodable, Equatable, Sendable {
     public let input: SessionsSendInput
-    public let seal: NewThreadSeal?
+    public let seal: NewChatSeal?
     public let mentionUserIds: [String]?
     /// F21: the sender's idempotency key: a retry naming it posts nothing
     /// new (a new root's start carries none server-side).
     public var clientMessageId: String?
 
-    public init(input: SessionsSendInput, seal: NewThreadSeal? = nil, mentionUserIds: [String]? = nil, clientMessageId: String? = nil) {
+    public init(input: SessionsSendInput, seal: NewChatSeal? = nil, mentionUserIds: [String]? = nil, clientMessageId: String? = nil) {
         self.input = input
         self.seal = seal
         self.mentionUserIds = mentionUserIds
@@ -79,7 +79,7 @@ extension SessionsSendInput {
     /// The message text this form carries (nil for the no-text forms).
     public var text: String? {
         switch self {
-        case let .newThread(_, _, _, text, _, _, _, _): text
+        case let .newChat(_, _, _, text, _, _, _, _): text
         case let .agent(_, text, _, _, _): text
         case let .app(_, _, text, _): text
         case let .child(_, _, _, text): text
@@ -91,7 +91,7 @@ extension SessionsSendInput {
     /// The claimed uploads of this send.
     public var attachmentIds: [String] {
         switch self {
-        case let .newThread(_, _, _, _, ids, _, _, _): ids ?? []
+        case let .newChat(_, _, _, _, ids, _, _, _): ids ?? []
         case let .agent(_, _, ids, _, _): ids ?? []
         case let .app(_, _, _, ids): ids ?? []
         case let .message(_, _, ids, _): ids ?? []
@@ -102,8 +102,8 @@ extension SessionsSendInput {
     /// The same form with `text` replaced.
     public func with(text: String?) -> SessionsSendInput {
         switch self {
-        case let .newThread(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
-            .newThread(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
+        case let .newChat(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
+            .newChat(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
         case let .agent(agentId, _, attachmentIds, issueIds, scope):
             .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope)
         case let .app(appId, deviceId, _, attachmentIds):
@@ -175,7 +175,7 @@ public struct SendSealing: Sendable {
         var teamId: String?
         var steerDevice: String?
         switch input {
-        case let .newThread(team, device, _, _, _, _, _, _):
+        case let .newChat(team, device, _, _, _, _, _, _):
             teamId = team
             steerDevice = device
         case let .app(_, device, _, _):
@@ -184,7 +184,7 @@ public struct SendSealing: Sendable {
             break
         }
         do {
-            let (seal, key) = try await holder.newThreadSeal(
+            let (seal, key) = try await holder.newChatSeal(
                 accountId: accountId,
                 teamId: teamId,
                 deviceIds: deviceIds(steerDevice),
@@ -200,7 +200,7 @@ public struct SendSealing: Sendable {
 
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
-        // A new thread / first conversation answers with its new root.
+        // A new chat / first conversation answers with its new root.
         guard let key = prepared.newKey else { return }
         await holder.adopt(rootId: result.sessionId, key: key)
     }

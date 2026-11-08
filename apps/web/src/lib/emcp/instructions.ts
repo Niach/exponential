@@ -7,7 +7,7 @@
 // its own inside 512 chars, because Codex reads only that much. Claude Code
 // truncates at 2KB, so the whole string stays under 2000 chars.
 //
-// EXP-1291 (Threads v2): one session verb (`exponential_sessions_send`);
+// EXP-1291: one session verb (`exponential_sessions_send`);
 // S-3: `exponential_show` replaced the Guide; people are pinged by an
 // `@email` mention in a message (no notify tool). The close-out wording is
 // per caller (gates.ts): an unattended session ends itself LAST, an attended
@@ -29,13 +29,13 @@ export function mcpServerInstructions(gates: {
   const paragraphs = [
     // NEW-4 → EXP-1657: 22 tools, one per noun (+ 2 verbs), each with an `op`; statuses change
     // AUTOMATICALLY on PR open/merge; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and results. 22 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, screenshots as results, exponential_pr {op: "open"}, then end your turn. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (roots, children, team agents) with PRs and results. 22 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, screenshots as results, exponential_pr {op: "open"}, then end your turn. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
     // S-3: a launched session (the header) also carries the runbook, which
     // says this at length; only an outside client needs the verb spelled out.
     ...(gates.inSession
       ? [`Ping a person with @email.`]
       : [
-          `exponential_sessions_send is the one session verb: sessionId messages a session (stop: true interrupts it), agentId a team agent (your conversation), parentId starts a child, neither starts a thread. exponential_sessions {op: "get"} (no id) reads your thread. Ping a person with @email. exponential_pr ops take pullRequestId, issueId or repositoryId + prNumber (default: your newest open PR); merge a tree root first.`,
+          `exponential_sessions_send is the one session verb: sessionId messages a session (stop: true interrupts it), agentId a team agent (your conversation), parentId starts a child, neither starts a new root session. exponential_sessions {op: "get"} (no id) reads your tree. Ping a person with @email. exponential_pr ops take pullRequestId, issueId or repositoryId + prNumber (default: your newest open PR); merge a tree root first.`,
         ]),
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
@@ -48,7 +48,7 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && gates.agent) {
     paragraphs.push(
-      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start threads with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else end your turn silently; update your card (exponential_show replace: true) rather than posting again.`
+      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start root sessions with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else end your turn silently; update your card (exponential_show replace: true) rather than posting again.`
     )
   }
   if (gates.inSession && !gates.agent && gates.unattended) {

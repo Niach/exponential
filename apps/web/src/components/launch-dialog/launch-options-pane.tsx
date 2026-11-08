@@ -105,10 +105,10 @@ type AgentOptionsFieldsProps = {
    * a surface that does not edit it (a trigger). */
   subagentModel?: string
   onSubagentModelChange?: (model: string) => void
-  /** The dispatcher root's model (threads + team agents); the device
+  /** The dispatcher root's model (chats + team agents); the device
    * settings edit it, right under Model. */
   threadModel?: string
-  onThreadModelChange?: (model: string) => void
+  onChatModelChange?: (model: string) => void
   effortValue: string
   onEffortChange: (effort: string) => void
   /**
@@ -137,7 +137,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     subagentModel,
     onSubagentModelChange,
     threadModel,
-    onThreadModelChange,
+    onChatModelChange,
     effortValue,
     onEffortChange,
     device,
@@ -194,17 +194,17 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         models={modelOptions}
         disabled={!pinned}
       />
-      {onThreadModelChange && pinned && (
-        /* Owner 2026-10-15: the model a thread's or team agent's DISPATCHER
+      {onChatModelChange && pinned && (
+        /* Owner 2026-10-15: the model a chat's or team agent's DISPATCHER
            root runs on, right under Model, the same row component. */
         <ModelPicker
           triggerVariant="row"
           width="md"
           mobileTitle="Chat model"
           value={threadModel || null}
-          onChange={onThreadModelChange}
+          onChange={onChatModelChange}
           models={modelOptions}
-          data-testid={`${idPrefix}-thread-model`}
+          data-testid={`${idPrefix}-root-model`}
         />
       )}
       {onSubagentModelChange && agentSupportsSubagentModel(agent) && (

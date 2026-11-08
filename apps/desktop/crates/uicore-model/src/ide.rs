@@ -65,7 +65,7 @@ pub struct IdeSidebarInput {
     pub screen: String,
     pub needs_you: usize,
     pub drafts: usize,
-    pub threads_dot: Option<IdeDot>,
+    pub chats_dot: Option<IdeDot>,
     pub owner: bool,
     pub pins: Vec<IdePinInput>,
     pub agents: Vec<IdeAgentInput>,
@@ -167,7 +167,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     if input.needs_you > 0 || screen == "needs-you" {
         rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", Some(input.needs_you.to_string()), None));
     }
-    rows.push(nav("threads", "nav-threads", screen == "threads", None, input.threads_dot));
+    rows.push(nav("chats", "nav-chats", screen == "chats", None, input.chats_dot));
     rows.push(nav("devices", "nav-devices", screen == "devices", None, None));
     if input.drafts > 0 || screen == "drafts" {
         rows.push(nav("drafts", "nav-drafts", screen == "drafts", Some(input.drafts.to_string()), None));
@@ -186,7 +186,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
             rows: input.boards.iter().map(|b| IdeRow { id: b.id.clone(), title: b.name.clone(), icon: b.icon.clone(), selected: on("board", &b.id), dot: None, gear: input.owner }).collect(),
             empty: input.boards.is_empty(),
         },
-        active: input.active.iter().map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("thread", &a.id) || a.session_ids.iter().any(|id| on("session", id)), unread: a.unread }).collect(),
+        active: input.active.iter().map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("chat", &a.id) || a.session_ids.iter().any(|id| on("session", id)), unread: a.unread }).collect(),
     }
 }
 

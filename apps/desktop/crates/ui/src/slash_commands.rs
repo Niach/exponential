@@ -227,7 +227,7 @@ mod tests {
     fn an_empty_query_lists_the_agents_whole_catalog_in_contract_order() {
         assert_eq!(names("/", SessionAgent::Claude), vec!["compact", "new", "model", "effort"]);
         assert_eq!(names("/", SessionAgent::Codex), vec!["compact", "new", "model", "effort"]);
-        // Thread 58cb32df: `/new` (a fresh conversation) takes no argument.
+        // Session 58cb32df: `/new` (a fresh conversation) takes no argument.
         let new = menu_matches("/new", SessionAgent::Claude).remove(0);
         assert_eq!(insertion(&new), "/new");
         assert!(names("/clear", SessionAgent::Claude).is_empty());

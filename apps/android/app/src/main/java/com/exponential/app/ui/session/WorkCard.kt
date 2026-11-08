@@ -64,10 +64,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // (and a subagent card) opens that lane's transcript through the host's
 // callbacks; a task row does nothing. Web `@exp/ui` `WorkCard`.
 
-/** The run thread's card shell (web `rounded-lg border-glass-stroke-card
+/** The run chat's card shell (web `rounded-lg border-glass-stroke-card
  *  bg-glass-card-opaque`), shared by the Work, Script, Comment, session and
  *  suggestions cards. N-12: ONE gray ×4, the opaque card composite. */
-internal fun Modifier.threadCard(): Modifier {
+internal fun Modifier.chatCard(): Modifier {
     val shape = RoundedCornerShape(DesignTokens.Radius.Lg)
     return this
         .clip(shape)
@@ -80,7 +80,7 @@ internal fun Modifier.threadCard(): Modifier {
  *  (a folded `Review · Verify`, a script's tool group) is never bold; a
  *  card's header asks for Medium itself. */
 @Composable
-internal fun threadCardTextStyle(): TextStyle = MaterialTheme.typography.labelMedium.copy(
+internal fun chatCardTextStyle(): TextStyle = MaterialTheme.typography.labelMedium.copy(
     fontSize = DesignTokens.Transcript.ToolSize.sp,
     lineHeight = DesignTokens.Transcript.ToolLineHeight.sp,
     fontWeight = FontWeight.Normal,
@@ -88,10 +88,10 @@ internal fun threadCardTextStyle(): TextStyle = MaterialTheme.typography.labelMe
 )
 
 @Composable
-internal fun threadCardMuted(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+internal fun chatCardMuted(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
 
 /** The rose a failure reads in (the semantic red the failed tool rows use). */
-internal val ThreadCardRose: Color = DesignTokens.Semantic.Red
+internal val ChatCardRose: Color = DesignTokens.Semantic.Red
 
 /** A running lane's dot (web `emerald-400`). */
 private val LaneGreen = Color(0xFF34D399)
@@ -111,13 +111,13 @@ fun WorkCardView(
      *  warning); never report text. */
     footer: @Composable ColumnScope.() -> Unit = {},
 ) {
-    val style = threadCardTextStyle()
+    val style = chatCardTextStyle()
     val subagentOpens = card.kind == WorkCardKind.Subagent && onOpenSubagent != null
     val phases = remember(card) { if (card.kind == WorkCardKind.Workflow) rowPhases(card) else emptyList() }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .threadCard()
+            .chatCard()
             .testTag(WorkCardSpec.TEST_ID_CARD),
     ) {
         if (subagentOpens) {
@@ -158,7 +158,7 @@ fun WorkCardView(
                                     .clip(CircleShape)
                                     .background(
                                         if (segment.state == WorkState.Failed) {
-                                            ThreadCardRose
+                                            ChatCardRose
                                         } else {
                                             MaterialTheme.colorScheme.onSurface
                                         },
@@ -195,7 +195,7 @@ fun WorkCardView(
 
 @Composable
 private fun WorkCardHeader(card: WorkCard, style: TextStyle) {
-    val muted = threadCardMuted()
+    val muted = chatCardMuted()
     val trailing = listOfNotNull(card.progress, card.elapsed).joinToString(WorkCardSpec.SEPARATOR)
     Row(
         modifier = Modifier
@@ -259,7 +259,7 @@ private fun CardRow(
 @Composable
 private fun StatusRow(label: String, style: TextStyle) {
     CardRow {
-        Text(label, style = style, color = threadCardMuted(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = style, color = chatCardMuted(), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -267,8 +267,8 @@ private fun StatusRow(label: String, style: TextStyle) {
 private fun StateGlyph(state: WorkState) {
     when (state) {
         WorkState.Running -> InlineSpinner(size = 12.dp)
-        WorkState.Done -> Icon(ExpIcons.uiCheck, null, Modifier.size(12.dp), tint = threadCardMuted())
-        WorkState.Failed -> Icon(ExpIcons.uiClose, null, Modifier.size(12.dp), tint = ThreadCardRose)
+        WorkState.Done -> Icon(ExpIcons.uiCheck, null, Modifier.size(12.dp), tint = chatCardMuted())
+        WorkState.Failed -> Icon(ExpIcons.uiClose, null, Modifier.size(12.dp), tint = ChatCardRose)
         WorkState.Pending -> Icon(
             ExpIcons.statusBacklog,
             null,
@@ -280,11 +280,11 @@ private fun StateGlyph(state: WorkState) {
 
 @Composable
 private fun LaneDot(state: String) {
-    val muted = threadCardMuted()
+    val muted = chatCardMuted()
     val modifier = Modifier.size(6.dp).clip(CircleShape)
     when (state) {
         "running" -> Box(modifier.background(LaneGreen))
-        "error" -> Box(modifier.background(ThreadCardRose))
+        "error" -> Box(modifier.background(ChatCardRose))
         "queued" -> Box(modifier.border(1.dp, muted, CircleShape))
         else -> Box(modifier.background(muted))
     }
@@ -292,7 +292,7 @@ private fun LaneDot(state: String) {
 
 @Composable
 private fun LaneRow(lane: WorkCardLane, style: TextStyle, onOpen: (() -> Unit)?) {
-    val muted = threadCardMuted()
+    val muted = chatCardMuted()
     val failed = lane.state == "error"
     Row(
         modifier = Modifier
@@ -305,7 +305,7 @@ private fun LaneRow(lane: WorkCardLane, style: TextStyle, onOpen: (() -> Unit)?)
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         LaneDot(lane.state)
-        LeadText(lane.label, style = style, color = if (failed) ThreadCardRose else MaterialTheme.colorScheme.onSurface) {
+        LeadText(lane.label, style = style, color = if (failed) ChatCardRose else MaterialTheme.colorScheme.onSurface) {
             lane.model?.let { Text(it, style = style, color = muted, maxLines = 1) }
         }
         if (lane.state == "running") {
@@ -327,7 +327,7 @@ private fun FoldedRow(
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     val expandable = phases.isNotEmpty()
-    val muted = threadCardMuted()
+    val muted = chatCardMuted()
     val turn by animateFloatAsState(if (open) 90f else 0f, Motion.fast(), label = "work-card-fold")
     Column(modifier = Modifier.fillMaxWidth().testTag(WorkCardSpec.TEST_ID_FOLDED)) {
         CardRow(
@@ -389,7 +389,7 @@ private fun PhaseRow(
     onOpenLane: ((WorkCardLaneTarget) -> Unit)?,
     style: TextStyle,
 ) {
-    val muted = threadCardMuted()
+    val muted = chatCardMuted()
     Column(modifier = Modifier.fillMaxWidth()) {
         CardRow {
             StateGlyph(row.state)

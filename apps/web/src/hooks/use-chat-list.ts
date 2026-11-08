@@ -6,20 +6,20 @@ import {
   type ChatList,
   type ChatListView,
 } from "@exp/domain-contract/chats"
-import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
+import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
 import { useNow } from "@/hooks/use-now"
 import {
   useAgents,
   useDigestMessages,
   useSessionReads,
   useTeamSessions,
-  useThreadsList,
+  useChatsList,
 } from "@/hooks/use-session-tree"
-import { type ThreadRowWord } from "@/lib/session-tree"
+import { type ChatRowWord } from "@/lib/session-tree"
 
-// Thread 58cb32df (#EXP-1373, fixture `chats.json`): the Chats
+// Chat 58cb32df (#EXP-1373, fixture `chats.json`): the Chats
 // screen's model (every form factor since #EXP-1380) for the ONE active team — the contract's `chatList` over
-// `partitionThreads`, filter `all` (#FEED-191: no chips, `chatSections` groups
+// `partitionChats`, filter `all` (#FEED-191: no chips, `chatSections` groups
 // it), and (S-3) the pinned `agentChatRows`; `listAgents`
 // reads each agent's `role`/`ownerId` (the agents shape syncs both), so
 // another member's Assistant never shows. Pure reads over synced shapes; nothing here
@@ -43,7 +43,7 @@ export function useChatList(
   cliOf: (sessionId: string) => string | null
   isReady: boolean
 } {
-  const { groups, isReady } = useThreadsList(teamId)
+  const { groups, isReady } = useChatsList(teamId)
   const { rows, tree } = useTeamSessions(teamId)
   const { agents } = useAgents(teamId, me)
   const reads = useSessionReads()
@@ -57,13 +57,13 @@ export function useChatList(
 
   const list = useMemo(() => {
     const prStates: Record<string, string[]> = {}
-    const words: Record<string, ThreadRowWord | null> = {}
+    const words: Record<string, ChatRowWord | null> = {}
     for (const group of groups) {
       for (const row of group.rows) {
         if (row.depth > 0) continue
         const own = prs.byRoot.get(row.sessionId) ?? []
         prStates[row.sessionId] = own.map((pr) => pr.state)
-        words[row.sessionId] = threadWordOf(row, own, prs.all)
+        words[row.sessionId] = chatWordOf(row, own, prs.all)
       }
     }
     return chatList({

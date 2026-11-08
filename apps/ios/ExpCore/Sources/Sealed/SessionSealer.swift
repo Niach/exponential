@@ -4,7 +4,7 @@ import GRDB
 // EXP-1459: what a person writes into a session is sealed to the tree's key
 // before it leaves the phone (contract addenda 1+2, 2026-10-30):
 // - `sessions.send` text = a body envelope; a root without a key (a new
-//   thread, a first agent conversation or app editor session) carries the
+//   chat, a first agent conversation or app editor session) carries the
 //   inline `seal {installId, publicKey, epoch: 1, wraps}`; an existing root
 //   without one gets it first (`sessionKeys.create`);
 // - `mentionUserIds` = the `@email` mentions resolved to user ids (metadata);
@@ -87,7 +87,7 @@ public final class SessionSealer: @unchecked Sendable {
                     SELECT * FROM "sessions" WHERE "app_id" = ? AND "user_id" = ? AND "parent_id" IS NULL
                     ORDER BY "created_at" DESC LIMIT 1
                     """, arguments: [appId, me])
-            case .newThread, .switchAccount, .moveDevice:
+            case .newChat, .switchAccount, .moveDevice:
                 return nil
             }
             guard let root else { return nil }

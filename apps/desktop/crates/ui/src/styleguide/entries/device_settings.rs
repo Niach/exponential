@@ -12,7 +12,7 @@
 //! band with the switch on and the Computer use model picker under it, NEW-59
 //! the Work screen picker under that, off
 //! the contract fixture's "computer use on" case), `AgentDefaultsGroup` with
-//! real selects (Model, then Thread model, then claude's Subagent model —
+//! real selects (Model, then Chat model, then claude's Subagent model —
 //! every model row the ONE `coding_selects::model_select` over all the
 //! agent's models, no default row), then Update and the Remove row. The dialog view
 //! itself is bound to a synced device row and the store, so the entry owns a
@@ -80,8 +80,8 @@ struct DeviceSettingsDemo {
     effort: ChoiceSelect,
     codex_model: ChoiceSelect,
     codex_effort: ChoiceSelect,
-    thread_model: ChoiceSelect,
-    codex_thread_model: ChoiceSelect,
+    chat_model: ChoiceSelect,
+    codex_chat_model: ChoiceSelect,
     subagent_model: ChoiceSelect,
     ultracode: bool,
     /// EXP-1236: the readiness block's Computer use switch + the model
@@ -107,7 +107,7 @@ impl DeviceSettingsDemo {
             is_default: true,
             agent_tab: settings.default_agent,
             model: model_select(CodingAgent::Claude, &settings.claude_model, window, cx),
-            thread_model: model_select(CodingAgent::Claude, &settings.claude_thread_model, window, cx),
+            chat_model: model_select(CodingAgent::Claude, &settings.claude_thread_model, window, cx),
             effort: choice_select(
                 effort_choices_for(CodingAgent::Claude),
                 &settings.claude_effort,
@@ -115,7 +115,7 @@ impl DeviceSettingsDemo {
                 cx,
             ),
             codex_model: model_select(CodingAgent::Codex, &settings.codex_model, window, cx),
-            codex_thread_model: model_select(
+            codex_chat_model: model_select(
                 CodingAgent::Codex,
                 &settings.codex_thread_model,
                 window,
@@ -192,12 +192,12 @@ impl DeviceSettingsDemo {
                 note: None,
             })
             .collect();
-        let (model, effort, thread) = match self.agent_tab {
-            CodingAgent::Claude => (self.model.clone(), self.effort.clone(), self.thread_model.clone()),
+        let (model, effort, chat_model) = match self.agent_tab {
+            CodingAgent::Claude => (self.model.clone(), self.effort.clone(), self.chat_model.clone()),
             CodingAgent::Codex => (
                 self.codex_model.clone(),
                 self.codex_effort.clone(),
-                self.codex_thread_model.clone(),
+                self.codex_chat_model.clone(),
             ),
         };
         let mut group = AgentDefaultsGroup::new(
@@ -215,7 +215,7 @@ impl DeviceSettingsDemo {
             effort,
         )
         .effort_disabled(self.agent_tab == CodingAgent::Claude && self.ultracode)
-        .thread(thread);
+        .chat_model(chat_model);
         if self.agent_tab.supports_subagent_model() {
             group = group.subagent(self.subagent_model.clone());
         }

@@ -81,7 +81,7 @@ export const askHidden = (
   origin: Pick<HubSession, `shared` | `userId`>
 ) => !origin.shared && (listener.shared || listener.userId !== origin.userId)
 
-/** Whether an AGENT's message may reuse this root thread: null = reuse, else the reason. */
+/** Whether an AGENT's message may reuse this root session: null = reuse, else the reason. */
 export function reuseRefusal(
   root: Pick<HubSession, `status` | `needsInput` | `endedAt` | `lastTurnAt` | `lastActivityAt` | `updatedAt`>,
   children: number,
@@ -271,7 +271,7 @@ function busRelayTurn(ctx: Ctx, child: HubSession, body: string, sealed: boolean
     hidden: { body: privateText(child.id, copy.privateReplyLead), card: null },
     waking: true,
     // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
-    // #FEED-194: unless it is the agent that started the thread.
+    // #FEED-194: unless it is the agent that started the root session.
     skip: (listener) =>
       listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId,
   })
@@ -408,11 +408,11 @@ interface SendData {
   shared?: boolean
   text?: string
   sealed?: boolean
-  /** #FEED-173: what a new thread works on when it has no text: issues, a prompt, attachments. */
+  /** #FEED-173: what a new root session works on when it has no text: issues, a prompt, attachments. */
   issueIds?: string[]
   promptId?: string
   attachmentIds?: string[]
-  /** The id a fresh thread or a continuation takes. */
+  /** The id a fresh root session or a continuation takes. */
   freshId?: string
   /** #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams). */
   teamId?: string
@@ -431,7 +431,7 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
   const callerRoot = caller ? (ctx.state.sessions[caller.rootId] ?? null) : null
   const deviceId = data.deviceId ?? (callerRoot && treeAgentId(callerRoot) ? callerRoot.deviceId : undefined)
   if (!deviceId) refuse(`invalid`, `Pick a device for the new session`)
-  // #FEED-173: a start with nothing to work on (no text, issues, prompt or attachments) is refused, never an empty thread.
+  // #FEED-173: a start with nothing to work on (no text, issues, prompt or attachments) is refused, never an empty session.
   if (!data.text?.trim() && !data.sealed && !data.issueIds?.length && !data.promptId && !data.attachmentIds?.length)
     refuse(`invalid`, copy.startNeedsWork)
   const id = data.id ?? data.freshId ?? ``
@@ -491,7 +491,7 @@ export function awaitsCaller(state: HubState, caller: HubSession, target: HubSes
   return from > -Infinity && from > to
 }
 
-function agentFreshThread(ctx: Ctx, data: SendData, caller: HubSession | null, target: HubSession): StepResult | null {
+function agentFreshSession(ctx: Ctx, data: SendData, caller: HubSession | null, target: HubSession): StepResult | null {
   if (!caller || caller.rootId === target.rootId) return null
   if (target.parentId !== null || target.agentId) return null
   if (!data.text?.trim() || data.sealed) return null
@@ -501,7 +501,7 @@ function agentFreshThread(ctx: Ctx, data: SendData, caller: HubSession | null, t
   const reason = reuseRefusal(target, children, ctx.now, awaitsCaller(ctx.state, caller, target))
   if (!reason) return null
   const outcome = startRoot(ctx, { ...data, id: data.freshId, deviceId: data.deviceId ?? target.deviceId }, caller)
-  return { ...outcome, warning: fill(copy.freshThread, { id: target.id, reason }) }
+  return { ...outcome, warning: fill(copy.freshSession, { id: target.id, reason }) }
 }
 
 function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepResult {
@@ -514,7 +514,7 @@ function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepR
     target.updatedAt = ctx.now
   }
   if (caller) {
-    const fresh = agentFreshThread(ctx, data, caller, target)
+    const fresh = agentFreshSession(ctx, data, caller, target)
     if (fresh) return fresh
   }
   const text = data.text ?? ``
@@ -524,7 +524,7 @@ function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepR
   }
   if (!text.trim()) refuse(`invalid`, copy.endedNeedsMessage)
   if (target.parentId === null) {
-    // An ended thread ROOT revives in place: the same row idles with the message pending.
+    // An ended ROOT revives in place: the same row idles with the message pending.
     Object.assign(target, {
       status: `idle`,
       endedAt: null,
@@ -661,7 +661,7 @@ function report(ctx: Ctx, data: ReportData): StepResult {
     })
     return { sessionId: row.id }
   }
-  // A thread ROOT that finished a turn and an agent's conversation survive their process (idle);
+  // A ROOT that finished a turn and an agent's conversation survive their process (idle);
   // a child, or a root that never finished a turn (a refused launch), ends.
   const status =
     data.status === `ended` && (row.agentId !== null || (row.parentId === null && row.lastTurnAt !== null))

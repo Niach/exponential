@@ -280,7 +280,7 @@ fn the_control_socket_carries_presence_and_session_commands() {
             unqueue: None,
             compact: Some(Arc::new(move |keep: Option<String>| {
                 let verdict = match keep.as_deref() {
-                    Some("open threads") => CompactVerdict::Accepted,
+                    Some("open questions") => CompactVerdict::Accepted,
                     _ => CompactVerdict::Refused(CompactRefusal::TooEarly),
                 };
                 asked_hook.lock().unwrap().push(keep);
@@ -296,11 +296,11 @@ fn the_control_socket_carries_presence_and_session_commands() {
     assert!(kills.lock().unwrap().is_empty());
 
     // ── compact → the hook's verdict, back up the control socket ─────────
-    let accepted = session_route(relay.port, SESSION_ID, "compact", r#","keep":"open threads""#).unwrap_or_default();
+    let accepted = session_route(relay.port, SESSION_ID, "compact", r#","keep":"open questions""#).unwrap_or_default();
     assert!(accepted.contains("\"delivered\":true") && accepted.contains("\"accepted\":true"), "{accepted}");
     let refused = session_route(relay.port, SESSION_ID, "compact", "").unwrap_or_default();
     assert!(refused.contains("\"accepted\":false") && refused.contains("\"refusedBecause\":\"too_early\""), "{refused}");
-    assert_eq!(asked.lock().unwrap().clone(), vec![Some("open threads".to_string()), None]);
+    assert_eq!(asked.lock().unwrap().clone(), vec![Some("open questions".to_string()), None]);
 
     // A session this device does not run is ignored: the relay's own timer
     // answers (`no_verdict`), and nothing here moves.

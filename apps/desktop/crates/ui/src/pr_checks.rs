@@ -1,6 +1,6 @@
-//! #EXP-1611 — CI on the thread's PR (pr-checks.json CHECKS LIST,
+//! #EXP-1611 — CI on the chat's PR (pr-checks.json CHECKS LIST,
 //! `domain::pr_checks`): the glyphs and tints, the Checks submenu of the
-//! thread header's `…` (one menu row per check, a pick opens its logs) and
+//! chat header's `…` (one menu row per check, a pick opens its logs) and
 //! the static panel the styleguide entry draws. #EXP-1710: the header's merge
 //! STATUS pill (`work_header::merge_status_pill`) opens the same rows.
 

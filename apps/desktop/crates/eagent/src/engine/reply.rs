@@ -68,7 +68,7 @@ impl serde::Serialize for ReplyCard {
 }
 
 /// EXP-1322: one option of a question card: its label and, when the feed
-/// option carries one, its description (the thread card shows it like the
+/// option carries one, its description (the chat card shows it like the
 /// session view's card). The answer names the option by its label.
 ///
 /// On the wire the card posts `options` as plain label strings and the

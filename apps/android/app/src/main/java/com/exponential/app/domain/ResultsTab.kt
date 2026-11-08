@@ -29,11 +29,11 @@ object ResultsTab {
         }
 
         object TestIds {
-            const val TAB = "thread-results-tab"
-            const val LIST = "thread-results"
+            const val TAB = "chat-results-tab"
+            const val LIST = "chat-results"
             const val SECTION = "result-section"
-            const val CHANGES = "thread-results-changes"
-            const val STACK = "thread-results-stack"
+            const val CHANGES = "chat-results-changes"
+            const val STACK = "chat-results-stack"
         }
 
         /** A section's geometry (dp); Android = the `phone` form factor. */

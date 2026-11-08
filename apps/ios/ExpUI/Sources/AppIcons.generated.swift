@@ -443,6 +443,7 @@ public enum AppIcons {
         "call-speaker": "volume-2",
         "call-speaker-off": "ear",
         "call-unmute": "mic-off",
+        "chat-results": "images",
         "ci-failed": "circle-x",
         "ci-passed": "circle-check",
         "ci-queued": "circle-dashed",
@@ -516,6 +517,7 @@ public enum AppIcons {
         "nav-apps": "layout-grid",
         "nav-boards": "folder-kanban",
         "nav-changelog": "megaphone",
+        "nav-chats": "list-tree",
         "nav-computer": "computer",
         "nav-create-issue": "square-pen",
         "nav-devices": "monitor",
@@ -536,7 +538,6 @@ public enum AppIcons {
         "nav-source-control": "git-merge",
         "nav-team-switcher": "chevrons-up-down",
         "nav-terminal": "square-terminal",
-        "nav-threads": "list-tree",
         "notification-agent-message": "bot",
         "notification-agent-signed-out": "log-out",
         "notification-issue-assigned": "user-plus",
@@ -610,7 +611,6 @@ public enum AppIcons {
         "status-todo": "circle",
         "support-open": "circle-dot",
         "support-resolved": "circle-check",
-        "thread-results": "images",
         "tool-script": "braces",
         "trace-background": "repeat",
         "trace-chevron": "chevron-right",
@@ -782,6 +782,8 @@ public enum AppIcons {
     public static let callSpeakerOff: String = "ear"
     /// Concept `call-unmute`.
     public static let callUnmute: String = "mic-off"
+    /// Concept `chat-results`.
+    public static let chatResults: String = "images"
     /// Concept `ci-failed`.
     public static let ciFailed: String = "circle-x"
     /// Concept `ci-passed`.
@@ -928,6 +930,8 @@ public enum AppIcons {
     public static let navBoards: String = "folder-kanban"
     /// Concept `nav-changelog`.
     public static let navChangelog: String = "megaphone"
+    /// Concept `nav-chats`.
+    public static let navChats: String = "list-tree"
     /// Concept `nav-computer`.
     public static let navComputer: String = "computer"
     /// Concept `nav-create-issue`.
@@ -968,8 +972,6 @@ public enum AppIcons {
     public static let navTeamSwitcher: String = "chevrons-up-down"
     /// Concept `nav-terminal`.
     public static let navTerminal: String = "square-terminal"
-    /// Concept `nav-threads`.
-    public static let navThreads: String = "list-tree"
     /// Concept `notification-agent-message`.
     public static let notificationAgentMessage: String = "bot"
     /// Concept `notification-agent-signed-out`.
@@ -1116,8 +1118,6 @@ public enum AppIcons {
     public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
-    /// Concept `thread-results`.
-    public static let threadResults: String = "images"
     /// Concept `tool-script`.
     public static let toolScript: String = "braces"
     /// Concept `trace-background`.

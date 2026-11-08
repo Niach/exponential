@@ -1,4 +1,4 @@
-// EXP-1293 Threads v2 (web): the session tree's view models are the
+// EXP-1293 (web): the session tree's view models are the
 // contract's (`@exp/domain-contract/session-tree`, fixture-locked ×4); this
 // re-exports them and maps the synced collection rows onto their inputs.
 

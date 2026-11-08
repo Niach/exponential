@@ -26,7 +26,7 @@ describe(`uiPlatformsOfPaths`, () => {
       uiPlatformsOfPaths([
         `apps/web/server-bun.ts`,
         `apps/desktop/crates/engine/src/session.rs`,
-        `packages/domain-contract/fixtures/session-thread.json`,
+        `packages/domain-contract/fixtures/session-chat.json`,
         `apps/desktop/crates/ui-extra/src/a.rs`,
         `CLAUDE.md`,
       ])
@@ -39,7 +39,7 @@ describe(`missingPlatformPictures`, () => {
 
   it(`a picture labelled with the platform word covers it; web-mobile counts for web`, () => {
     expect(
-      missingPlatformPictures([`web`, `ios`], [picture(`web-mobile thread`), picture(`iOS thread`)], null)
+      missingPlatformPictures([`web`, `ios`], [picture(`web-mobile chat`), picture(`iOS chat`)], null)
     ).toEqual([])
   })
 
@@ -47,7 +47,7 @@ describe(`missingPlatformPictures`, () => {
     expect(
       missingPlatformPictures(
         [`web`, `ios`, `desktop`],
-        [{ label: null, attachmentId: null }, picture(`website hero`), picture(`the ios thread`)],
+        [{ label: null, attachmentId: null }, picture(`website hero`), picture(`the ios chat`)],
         null
       )
     ).toEqual([`web`, `ios`, `desktop`])

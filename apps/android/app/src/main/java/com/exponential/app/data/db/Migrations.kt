@@ -213,7 +213,7 @@ val MIGRATION_115_116: Migration = object : Migration(115, 116) {
 
 /**
  * v117 (#EXP-1682): `messages.attachment_ids` (the files a message carries in
- * the clear; the thread row draws them as embeds). Only the messages shape
+ * the clear; the chat row draws them as embeds). Only the messages shape
  * refetches, so synced rows re-arrive carrying it.
  */
 val MIGRATION_116_117: Migration = object : Migration(116, 117) {

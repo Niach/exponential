@@ -176,12 +176,12 @@ class DockTest {
     }
 
     @Test
-    fun `thread queue cases`() {
-        val cases = array("threadQueueCases")
+    fun `chat queue cases`() {
+        val cases = array("chatQueueCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val candidates = case.getValue("candidates").jsonArray.map { it.jsonObject }.map { c ->
-                Dock.ThreadQueueCandidate(
+                Dock.ChatQueueCandidate(
                     sessionId = c.str("sessionId")!!,
                     name = c.str("name")!!,
                     root = c.getValue("root").jsonPrimitive.boolean,
@@ -190,7 +190,7 @@ class DockTest {
                     open = c.getValue("open").jsonPrimitive.boolean,
                 )
             }
-            val actual: JsonElement = Dock.threadDockQueue(candidates)?.let { q ->
+            val actual: JsonElement = Dock.chatDockQueue(candidates)?.let { q ->
                 buildJsonObject {
                     put("sessionId", q.sessionId)
                     put("sessionName", nullable(q.sessionName))
@@ -201,20 +201,20 @@ class DockTest {
     }
 
     @Test
-    fun `thread queue probe cases (EXP-1678 one child stream)`() {
+    fun `chat queue probe cases (EXP-1678 one child stream)`() {
         assertEquals(Dock.PROBE_DEADLINE_MS, fixture.getValue("probeDeadlineMs").jsonPrimitive.content.toLong())
         assertEquals(Dock.CLOSED_QUEUE_TTL_MS, fixture.getValue("closedQueueTtlMs").jsonPrimitive.content.toLong())
         val state = { wire: String? -> Dock.ChildQueueState.entries.first { it.wire == wire } }
-        val cases = array("threadQueueProbeCases")
+        val cases = array("chatQueueProbeCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val children = case.getValue("children").jsonArray.map { it.jsonObject }.map { c ->
-                Dock.ThreadQueueProbe(c.str("sessionId")!!, c.str("activeAt")?.toLong(), state(c.str("state")))
+                Dock.ChatQueueProbe(c.str("sessionId")!!, c.str("activeAt")?.toLong(), state(c.str("state")))
             }
             assertEquals(
                 case.str("name"),
                 case.str("expected"),
-                Dock.threadQueueProbe(case.getValue("rootOpen").jsonPrimitive.boolean, children),
+                Dock.chatQueueProbe(case.getValue("rootOpen").jsonPrimitive.boolean, children),
             )
         }
         val states = array("childStateCases")
@@ -227,7 +227,7 @@ class DockTest {
                     attachedMs = st.str("attachedMs")!!.toLong(),
                 )
             }
-            val got = Dock.threadQueueChildState(
+            val got = Dock.chatQueueChildState(
                 open = case.getValue("open").jsonPrimitive.boolean,
                 remembered = case.getValue("remembered").jsonPrimitive.boolean,
                 stream = stream,

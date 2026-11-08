@@ -21,9 +21,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-1291 Threads v2: the session tree is fixture-locked ×4 — every case of
- * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases)
- * and `threads-list.json` (cases +
+ * EXP-1291: the session tree is fixture-locked ×4 — every case of
+ * `session-card.json`, `session-chat.json` (cases + guidePullRequestCases)
+ * and `chat-list.json` (cases +
  * agentCases + markCases + unreadCases + recentCases + treeStateCases) runs here (TS `session-tree.test.ts`, desktop
  * `domain::session_tree`, iOS `SessionTreeTests`). Outputs are re-encoded in
  * the fixture's own JSON shape and compared as a WHOLE, so a field the port
@@ -35,8 +35,8 @@ class SessionTreeTest {
         Json.parseToJsonElement(contractFixtureJson(name)).jsonObject
 
     private val cardFixture by lazy { fixture("session-card.json") }
-    private val threadFixture by lazy { fixture("session-thread.json") }
-    private val listFixture by lazy { fixture("threads-list.json") }
+    private val chatFixture by lazy { fixture("session-chat.json") }
+    private val listFixture by lazy { fixture("chat-list.json") }
 
     // ── decode (the fixture's input shapes) ─────────────────────────────────
 
@@ -164,9 +164,9 @@ class SessionTreeTest {
         put("testId", card.testId)
     }
 
-    private fun encode(tab: SessionTree.ThreadTab): JsonObject = when (tab) {
-        SessionTree.ThreadTab.Conversation -> buildJsonObject { put("kind", "conversation") }
-        is SessionTree.ThreadTab.IssueTab -> buildJsonObject {
+    private fun encode(tab: SessionTree.ChatTab): JsonObject = when (tab) {
+        SessionTree.ChatTab.Conversation -> buildJsonObject { put("kind", "conversation") }
+        is SessionTree.ChatTab.IssueTab -> buildJsonObject {
             put("kind", "issue")
             put("issueId", tab.issueId)
             put("identifier", tab.identifier)
@@ -183,10 +183,10 @@ class SessionTreeTest {
                 ),
             )
         }
-        SessionTree.ThreadTab.Add -> buildJsonObject { put("kind", "add") }
-        SessionTree.ThreadTab.Results -> buildJsonObject { put("kind", "results") }
-        SessionTree.ThreadTab.Plan -> buildJsonObject { put("kind", "plan") }
-        is SessionTree.ThreadTab.SessionTab -> buildJsonObject {
+        SessionTree.ChatTab.Add -> buildJsonObject { put("kind", "add") }
+        SessionTree.ChatTab.Results -> buildJsonObject { put("kind", "results") }
+        SessionTree.ChatTab.Plan -> buildJsonObject { put("kind", "plan") }
+        is SessionTree.ChatTab.SessionTab -> buildJsonObject {
             put("kind", "session")
             put("sessionId", tab.sessionId)
             put("name", tab.name)
@@ -207,8 +207,8 @@ class SessionTreeTest {
         }
     }
 
-    private fun encode(row: SessionTree.ThreadRow): JsonObject = when (row) {
-        is SessionTree.ThreadRow.MessageRow -> buildJsonObject {
+    private fun encode(row: SessionTree.SessionChatRow): JsonObject = when (row) {
+        is SessionTree.SessionChatRow.MessageRow -> buildJsonObject {
             put("type", "message")
             put("id", row.id)
             put("author", row.author)
@@ -218,12 +218,12 @@ class SessionTreeTest {
             put("authorSessionId", nullable(row.authorSessionId))
             put("xref", encode(row.xref))
         }
-        is SessionTree.ThreadRow.SessionRow -> buildJsonObject {
+        is SessionTree.SessionChatRow.SessionRow -> buildJsonObject {
             put("type", "session")
             put("id", row.id)
             put("card", encode(row.card))
         }
-        is SessionTree.ThreadRow.Report -> buildJsonObject {
+        is SessionTree.SessionChatRow.Report -> buildJsonObject {
             put("type", "report")
             put("id", row.id)
             put("sessionId", row.sessionId)
@@ -231,7 +231,7 @@ class SessionTreeTest {
             put("summary", row.summary)
             put("xref", encode(row.xref))
         }
-        is SessionTree.ThreadRow.Suggestions -> buildJsonObject {
+        is SessionTree.SessionChatRow.Suggestions -> buildJsonObject {
             put("type", "suggestions")
             put("id", row.id)
             put("sessionId", row.sessionId)
@@ -254,7 +254,7 @@ class SessionTreeTest {
                 ),
             )
         }
-        is SessionTree.ThreadRow.Question -> buildJsonObject {
+        is SessionTree.SessionChatRow.Question -> buildJsonObject {
             put("type", "question")
             put("id", row.id)
             put("sessionId", row.sessionId)
@@ -276,7 +276,7 @@ class SessionTreeTest {
             put("answered", row.answered)
             row.dismissed?.let { put("dismissed", it) }
         }
-        is SessionTree.ThreadRow.Plan -> buildJsonObject {
+        is SessionTree.SessionChatRow.Plan -> buildJsonObject {
             put("type", "plan")
             put("id", row.id)
             put("sessionId", row.sessionId)
@@ -307,13 +307,13 @@ class SessionTreeTest {
             put("feedback", nullable(row.feedback))
             put("surfaceData", row.surfaceData ?: JsonNull)
         }
-        is SessionTree.ThreadRow.Subagent -> buildJsonObject {
+        is SessionTree.SessionChatRow.Subagent -> buildJsonObject {
             put("type", "subagent")
             put("id", row.id)
             put("title", row.title)
             put("status", row.status)
         }
-        is SessionTree.ThreadRow.Picture -> buildJsonObject {
+        is SessionTree.SessionChatRow.Picture -> buildJsonObject {
             put("type", "picture")
             put("id", row.id)
             put("attachmentId", row.attachmentId)
@@ -321,26 +321,26 @@ class SessionTreeTest {
             put("height", nullable(row.height))
             put("caption", nullable(row.caption))
         }
-        is SessionTree.ThreadRow.Event -> buildJsonObject {
+        is SessionTree.SessionChatRow.Event -> buildJsonObject {
             put("type", "event")
             put("id", row.id)
             put("event", row.event)
             put("text", row.text)
             put("sessionId", nullable(row.sessionId))
         }
-        is SessionTree.ThreadRow.Locked -> buildJsonObject {
+        is SessionTree.SessionChatRow.Locked -> buildJsonObject {
             put("type", "locked")
             put("id", row.id)
             put("reason", row.reason)
             put("author", row.author)
         }
-        is SessionTree.ThreadRow.Divider -> buildJsonObject {
+        is SessionTree.SessionChatRow.Divider -> buildJsonObject {
             put("type", "divider")
             put("id", row.id)
             put("kind", row.kind)
             put("at", row.at)
         }
-        is SessionTree.ThreadRow.Surface -> buildJsonObject {
+        is SessionTree.SessionChatRow.Surface -> buildJsonObject {
             put("type", "surface")
             put("id", row.id)
             put("sessionId", row.sessionId)
@@ -349,7 +349,7 @@ class SessionTreeTest {
         }
     }
 
-    private fun encode(option: SessionTree.ThreadRow.QuestionChoice): JsonObject = buildJsonObject {
+    private fun encode(option: SessionTree.SessionChatRow.QuestionChoice): JsonObject = buildJsonObject {
         put("label", option.label)
         put("description", nullable(option.description))
         put("attachmentId", nullable(option.attachmentId))
@@ -373,7 +373,7 @@ class SessionTreeTest {
         }
     } ?: JsonNull
 
-    private fun encode(view: SessionTree.ThreadView): JsonObject = buildJsonObject {
+    private fun encode(view: SessionTree.ChatView): JsonObject = buildJsonObject {
         put("rootId", view.rootId)
         put("title", view.title)
         put("private", view.private)
@@ -404,7 +404,7 @@ class SessionTreeTest {
         }
     } ?: JsonNull
 
-    private fun encode(group: SessionTree.ThreadsListGroup): JsonObject = buildJsonObject {
+    private fun encode(group: SessionTree.ChatsListGroup): JsonObject = buildJsonObject {
         put("key", group.key.wire)
         put("title", group.title)
         put(
@@ -472,12 +472,12 @@ class SessionTreeTest {
         }
     }
 
-    /** EXP-1459: sealed-content.json `placeholder.rowCases` over session-thread's first input. */
+    /** EXP-1459: sealed-content.json `placeholder.rowCases` over session-chat's first input. */
     @Test
     fun `a locked message is the locked row (sealed-content placeholder rowCases)`() {
         val cases = fixture("sealed-content.json").getValue("placeholder").jsonObject.list("rowCases")
         assertTrue(cases.isNotEmpty())
-        val input = threadFixture.list("cases").first().getValue("input").jsonObject
+        val input = chatFixture.list("cases").first().getValue("input").jsonObject
         val root = session(input.getValue("root").jsonObject)
         for (case in cases) {
             val m = case.getValue("message").jsonObject
@@ -492,7 +492,7 @@ class SessionTreeTest {
                     "createdAt" to kotlinx.serialization.json.JsonPrimitive("2026-10-13T10:05:00.000Z"),
                 ) + m,
             )
-            val view = SessionTree.buildSessionThread(
+            val view = SessionTree.buildSessionChat(
                 root = root,
                 sessions = input.list("sessions").map(::session),
                 sessionIssues = input.list("sessionIssues").map(::sessionIssue),
@@ -507,12 +507,12 @@ class SessionTreeTest {
     }
 
     @Test
-    fun `every session-thread case matches the fixture`() {
-        val cases = threadFixture.list("cases")
+    fun `every session-chat case matches the fixture`() {
+        val cases = chatFixture.list("cases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val actual = SessionTree.buildSessionThread(
+            val actual = SessionTree.buildSessionChat(
                 root = session(input.getValue("root").jsonObject),
                 sessions = input.list("sessions").map(::session),
                 sessionIssues = input.list("sessionIssues").map(::sessionIssue),
@@ -527,12 +527,12 @@ class SessionTreeTest {
     }
 
     @Test
-    fun `every threads-list case matches the fixture`() {
+    fun `every chats-list case matches the fixture`() {
         val cases = listFixture.list("cases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val actual = SessionTree.partitionThreads(
+            val actual = SessionTree.partitionChats(
                 sessions = input.list("sessions").map(::session),
                 sessionIssues = input.list("sessionIssues").map(::sessionIssue),
                 issues = input.list("issues").map(::issue),
@@ -551,7 +551,7 @@ class SessionTreeTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val groups = SessionTree.partitionThreads(
+            val groups = SessionTree.partitionChats(
                 sessions = input.list("sessions").map(::session),
                 sessionIssues = input.list("sessionIssues").map(::sessionIssue),
                 issues = input.list("issues").map(::issue),
@@ -560,7 +560,7 @@ class SessionTreeTest {
                 reads = input.list("reads").map(::read),
                 now = input.str("now"),
             )
-            val recent = groups.firstOrNull { it.key == SessionTree.ThreadsGroupKey.Recent }
+            val recent = groups.firstOrNull { it.key == SessionTree.ChatsGroupKey.Recent }
             val actual = recent?.rows.orEmpty().filter { it.depth == 0 }.map { it.sessionId }
             val expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.content }
             assertEquals(case.str("name"), expected, actual)
@@ -599,11 +599,11 @@ class SessionTreeTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val groups = case.list("groups").map { group ->
-                SessionTree.ThreadsListGroup(
-                    key = SessionTree.ThreadsGroupKey.entries.first { it.wire == group.str("key") },
+                SessionTree.ChatsListGroup(
+                    key = SessionTree.ChatsGroupKey.entries.first { it.wire == group.str("key") },
                     title = group.str("title")!!,
                     rows = group.list("rows").map { row ->
-                        SessionTree.ThreadsListRow(
+                        SessionTree.ChatsListRow(
                             sessionId = row.str("sessionId")!!,
                             teamId = row.str("teamId")!!,
                             title = row.str("title")!!,
@@ -619,7 +619,7 @@ class SessionTreeTest {
                     },
                 )
             }
-            assertEquals(case.str("name"), case.bool("expected"), SessionTree.threadsUnread(groups))
+            assertEquals(case.str("name"), case.bool("expected"), SessionTree.chatsUnread(groups))
         }
     }
 
@@ -657,24 +657,24 @@ class SessionTreeTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val actual = SessionTree.threadRowMarkState(input.bool("needsYou"), input.bool("busy"))
-            assertEquals(case.str("name"), case.str("expected"), SessionTree.threadRowMarkWire(actual))
+            val actual = SessionTree.chatRowMarkState(input.bool("needsYou"), input.bool("busy"))
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.chatRowMarkWire(actual))
         }
     }
 
     @Test
     fun `every chat mode case matches the fixture (S-3)`() {
-        val cases = threadFixture.list("chatModeCases")
+        val cases = chatFixture.list("chatModeCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val root = case.getValue("root").jsonObject
-            assertEquals(case.str("name"), case.str("expected"), SessionTree.threadChatMode(root.str("agentId")).wire)
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.chatMode(root.str("agentId")).wire)
         }
     }
 
     @Test
     fun `every guide pull request case matches the fixture`() {
-        val cases = threadFixture.list("guidePullRequestCases")
+        val cases = chatFixture.list("guidePullRequestCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val pulls = case.list("pullRequests").map { json ->
@@ -691,11 +691,11 @@ class SessionTreeTest {
 
     @Test
     fun `every strip mode case matches the fixture`() {
-        val cases = threadFixture.list("stripModeCases")
+        val cases = chatFixture.list("stripModeCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val mode = SessionTree.threadStripMode(
+            val mode = SessionTree.chatStripMode(
                 issues = input.getValue("issues").jsonPrimitive.int,
                 sessions = input.getValue("sessions").jsonPrimitive.int,
             )
@@ -705,14 +705,14 @@ class SessionTreeTest {
             }
             assertEquals(case.str("name"), case.getValue("expected"), actual)
         }
-        assertEquals(threadFixture.getValue("stripGroupMaxWidth").jsonPrimitive.int, SessionTree.ThreadCopy.STRIP_GROUP_MAX_WIDTH)
-        assertEquals(threadFixture.getValue("copy").jsonObject.str("stripGroup"), SessionTree.ThreadCopy.STRIP_GROUP)
-        assertEquals(threadFixture.getValue("testIds").jsonObject.str("group"), SessionTree.ThreadCopy.TEST_ID_GROUP)
+        assertEquals(chatFixture.getValue("stripGroupMaxWidth").jsonPrimitive.int, SessionTree.ChatCopy.STRIP_GROUP_MAX_WIDTH)
+        assertEquals(chatFixture.getValue("copy").jsonObject.str("stripGroup"), SessionTree.ChatCopy.STRIP_GROUP)
+        assertEquals(chatFixture.getValue("testIds").jsonObject.str("group"), SessionTree.ChatCopy.TEST_ID_GROUP)
     }
 
     @Test
     fun `every replies case matches the fixture`() {
-        val cases = threadFixture.list("repliesCases")
+        val cases = chatFixture.list("repliesCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
@@ -786,33 +786,33 @@ class SessionTreeTest {
     }
 
     @Test
-    fun `the thread copy equals the fixture`() {
-        val copy = threadFixture.getValue("copy").jsonObject
-        assertEquals(copy.str("untitled"), SessionTree.ThreadCopy.UNTITLED)
-        assertEquals(copy.str("placeholder"), SessionTree.ThreadCopy.PLACEHOLDER)
-        assertEquals(copy.str("conversation"), SessionTree.ThreadCopy.CONVERSATION)
-        assertEquals(copy.str("guide"), SessionTree.ThreadCopy.GUIDE)
+    fun `the chat copy equals the fixture`() {
+        val copy = chatFixture.getValue("copy").jsonObject
+        assertEquals(copy.str("untitled"), SessionTree.ChatCopy.UNTITLED)
+        assertEquals(copy.str("placeholder"), SessionTree.ChatCopy.PLACEHOLDER)
+        assertEquals(copy.str("conversation"), SessionTree.ChatCopy.CONVERSATION)
+        assertEquals(copy.str("guide"), SessionTree.ChatCopy.GUIDE)
         val events = copy.getValue("events").jsonObject
-        assertEquals(events.keys, SessionTree.ThreadCopy.EVENTS.keys)
-        for ((key, value) in events) assertEquals(value.jsonPrimitive.content, SessionTree.ThreadCopy.EVENTS[key])
+        assertEquals(events.keys, SessionTree.ChatCopy.EVENTS.keys)
+        for ((key, value) in events) assertEquals(value.jsonPrimitive.content, SessionTree.ChatCopy.EVENTS[key])
         // S-3: device_offline and session_interrupted draw nothing.
         assertEquals(
             DomainContract.messageEventKindValues.toSet() - setOf("device_offline", "session_interrupted"),
-            SessionTree.ThreadCopy.EVENTS.keys,
+            SessionTree.ChatCopy.EVENTS.keys,
         )
-        val testIds = threadFixture.getValue("testIds").jsonObject
-        assertEquals(testIds.str("tabs"), SessionTree.ThreadCopy.TEST_ID_TABS)
-        assertEquals(testIds.str("conversation"), SessionTree.ThreadCopy.TEST_ID_CONVERSATION)
-        assertEquals(testIds.str("composer"), SessionTree.ThreadCopy.TEST_ID_COMPOSER)
-        assertEquals(testIds.str("guideStack"), SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK)
-        assertEquals(testIds.str("guideMerge"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE)
-        assertEquals(testIds.str("guideMenu"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU)
-        assertEquals(copy.str("stack"), SessionTree.ThreadCopy.STACK)
-        assertEquals(copy.str("report"), SessionTree.ThreadCopy.REPORT)
+        val testIds = chatFixture.getValue("testIds").jsonObject
+        assertEquals(testIds.str("tabs"), SessionTree.ChatCopy.TEST_ID_TABS)
+        assertEquals(testIds.str("conversation"), SessionTree.ChatCopy.TEST_ID_CONVERSATION)
+        assertEquals(testIds.str("composer"), SessionTree.ChatCopy.TEST_ID_COMPOSER)
+        assertEquals(testIds.str("guideStack"), SessionTree.ChatCopy.TEST_ID_GUIDE_STACK)
+        assertEquals(testIds.str("guideMerge"), SessionTree.ChatCopy.TEST_ID_GUIDE_MERGE)
+        assertEquals(testIds.str("guideMenu"), SessionTree.ChatCopy.TEST_ID_GUIDE_MENU)
+        assertEquals(copy.str("stack"), SessionTree.ChatCopy.STACK)
+        assertEquals(copy.str("report"), SessionTree.ChatCopy.REPORT)
         val xref = copy.getValue("xref").jsonObject
-        assertEquals(xref.keys, SessionTree.ThreadCopy.XREF.keys)
-        for ((key, value) in xref) assertEquals(value.jsonPrimitive.content, SessionTree.ThreadCopy.XREF[key])
-        assertEquals(testIds.str("xref"), SessionTree.ThreadCopy.TEST_ID_XREF)
+        assertEquals(xref.keys, SessionTree.ChatCopy.XREF.keys)
+        for ((key, value) in xref) assertEquals(value.jsonPrimitive.content, SessionTree.ChatCopy.XREF[key])
+        assertEquals(testIds.str("xref"), SessionTree.ChatCopy.TEST_ID_XREF)
         val suggestions = copy.getValue("suggestions").jsonObject
         val embedded = mapOf(
             "one" to SessionTree.SuggestionsCopy.ONE,
@@ -847,12 +847,12 @@ class SessionTreeTest {
         assertEquals(copy.str("rail"), SessionTree.ListCopy.RAIL)
         val words = copy.getValue("words").jsonObject
         // EXP-1339: `merged` carries no text (it only turns the lead violet).
-        assertEquals(words.keys, SessionTree.ThreadRowWord.entries.filter { it.text != null }.map { it.wire }.toSet())
-        assertEquals(null, SessionTree.ThreadRowWord.Merged.text)
-        for (word in SessionTree.ThreadRowWord.entries) assertEquals(words.str(word.wire), word.text)
+        assertEquals(words.keys, SessionTree.ChatRowWord.entries.filter { it.text != null }.map { it.wire }.toSet())
+        assertEquals(null, SessionTree.ChatRowWord.Merged.text)
+        for (word in SessionTree.ChatRowWord.entries) assertEquals(words.str(word.wire), word.text)
         val groups = copy.getValue("groups").jsonObject
-        assertEquals(groups.keys, SessionTree.ThreadsGroupKey.entries.map { it.wire }.toSet())
-        for (key in SessionTree.ThreadsGroupKey.entries) {
+        assertEquals(groups.keys, SessionTree.ChatsGroupKey.entries.map { it.wire }.toSet())
+        for (key in SessionTree.ChatsGroupKey.entries) {
             assertEquals(groups.str(key.wire), SessionTree.ListCopy.GROUPS[key])
         }
         val defaults = listFixture.getValue("agentDefaults").jsonObject
@@ -931,12 +931,12 @@ class SessionTreeTest {
                 id = "m1", sessionId = "r1", authorKind = "user", authorId = "me", body = "", card = card,
                 answeredAt = null, consumedAt = null, createdAt = "2027-01-15T08:00:00.000Z", authorSessionId = null,
             )
-            val view = SessionTree.buildSessionThread(
+            val view = SessionTree.buildSessionChat(
                 root = root, sessions = listOf(root), sessionIssues = emptyList(), issues = emptyList(),
                 messages = listOf(message), pullRequests = listOf(SessionTree.PullRequest("pr1", 12, "open")),
                 now = "2027-01-15T09:00:00.000Z",
             )
-            return view.rows.filterIsInstance<SessionTree.ThreadRow.Event>().singleOrNull()?.text
+            return view.rows.filterIsInstance<SessionTree.SessionChatRow.Event>().singleOrNull()?.text
         }
         assertEquals("Merged PR #12", line("merged"))
         assertEquals("Conflict on PR #12", line("conflict"))

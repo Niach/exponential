@@ -1,7 +1,7 @@
 import ExpCore
 import SwiftUI
 
-// Thread 58cb32df (chats.json, ×4: web `ChatRow`, Android `ChatRow.kt`): the phone Chats list's pieces. Content only: the host wraps
+// Session 58cb32df (chats.json, ×4: web `ChatRow`, Android `ChatRow.kt`): the phone Chats list's pieces. Content only: the host wraps
 // a row in its own tap + long-press (THE menu's sheet) and hands the lead in
 // (the run mark, a PR glyph), sized here to the 52pt muted disc.
 

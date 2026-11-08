@@ -1,6 +1,6 @@
 import Foundation
 
-/// Thread 58cb32df (owner 2026-10-23, #EXP-1373): Chats, the phone app's
+/// Session 58cb32df (owner 2026-10-23, #EXP-1373): Chats, the phone app's
 /// WhatsApp-like list, the context menus ×4, the transcript
 /// dividers and the surface card's reply. Pure and byte-locked by
 /// `packages/domain-contract/fixtures/chats.json` (its `$comment` holds the
@@ -234,7 +234,7 @@ public enum Chats {
             public var icon: String? {
                 switch self {
                 case .board: "nav-issues"
-                case .chats: "nav-threads"
+                case .chats: "nav-chats"
                 case .apps: "nav-apps"
                 case .team: nil
                 }
@@ -243,7 +243,7 @@ public enum Chats {
 
         public static let tabs: [Tab] = Tab.allCases
         public static let tabIcons: [String: String] = [
-            "board": "nav-issues", "chats": "nav-threads", "apps": "nav-apps",
+            "board": "nav-issues", "chats": "nav-chats", "apps": "nav-apps",
         ]
 
         /// `shell.bar`: the capsule takes the width beside the new chat / new
@@ -427,7 +427,7 @@ public enum Chats {
         public let teamId: String
         public let title: String
         public let deviceId: String?
-        /// The partitionThreads group (`needs_you` | `running` | `recent`).
+        /// The partitionChats group (`needs_you` | `running` | `recent`).
         public let group: String
         public let lead: ChatLead
         public let preview: ChatPreview
@@ -438,7 +438,7 @@ public enum Chats {
         public let unreadCount: Int
         public let needsYou: Bool
         public let busy: Bool
-        public let word: ThreadRowWord?
+        public let word: ChatRowWord?
         /// S-3: the chat is DONE (every PR of the root merged, nothing works
         /// or needs you): it stays in the list at `Shell.dimOpacity`.
         public let dim: Bool
@@ -556,7 +556,7 @@ public enum Chats {
         }
     }
 
-    public enum ThreadMenuEntry: String, Equatable, Sendable, CaseIterable {
+    public enum ChatMenuEntry: String, Equatable, Sendable, CaseIterable {
         case delete
 
         public var label: String { Copy.Menu.delete }
@@ -797,14 +797,14 @@ public enum Chats {
     }
 
     /// The phone Chats list (`listCases`): the ROOT rows of
-    /// `partitionThreads` (active team) flattened and sorted by activity desc
+    /// `partitionChats` (active team) flattened and sorted by activity desc
     /// (ties by id), each with its lead, preview, time and unread count.
     public static func chatList(
-        groups: [ThreadsListGroup],
+        groups: [ChatsListGroup],
         messages: [TreeMessage],
         reads: [TreeSessionRead] = [],
         prStates: [String: [String]] = [:],
-        words: [String: ThreadRowWord] = [:],
+        words: [String: ChatRowWord] = [:],
         view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int,
@@ -815,14 +815,14 @@ public enum Chats {
         let wantArchived = view == .archived
         let rows: [ChatRow] = groups.flatMap { group in
             group.rows.filter { $0.depth == 0 }.map { row -> ChatRow in
-                let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
+                let mark = SessionTree.chatRowMarkState(needsYou: row.needsYou, busy: row.busy)
                 let rowPrStates = prStates[row.sessionId] ?? []
                 let lead: ChatLead
                 switch mark {
                 case .needsYou: lead = .needsYou
                 case .working: lead = .working
                 case .waiting:
-                    switch SessionTree.threadRowLeadPr(prStates: rowPrStates) {
+                    switch SessionTree.chatRowLeadPr(prStates: rowPrStates) {
                     case .open: lead = .open
                     case .merged: lead = .merged
                     case nil: lead = .waiting
@@ -866,7 +866,7 @@ public enum Chats {
 
     /// #EXP-1388 (`dotCases`): the Chats nav dot = an unread root outside
     /// the archive (a chat that needs you is never archived).
-    public static func chatsUnread(groups: [ThreadsListGroup], reads: [TreeSessionRead] = []) -> Bool {
+    public static func chatsUnread(groups: [ChatsListGroup], reads: [TreeSessionRead] = []) -> Bool {
         let archived = Set(reads.filter { ($0.archivedAt ?? "").isEmpty == false }.map(\.sessionId))
         return groups.contains { group in
             group.rows.contains { row in
@@ -891,8 +891,8 @@ public enum Chats {
     /// rest by activity; empty sections absent.
     public static func chatSections(_ rows: [ChatRow]) -> [ChatSection] {
         func keyOf(_ row: ChatRow) -> ChatSectionKey {
-            if row.group == ThreadsListGroup.Key.needsYou.rawValue { return .needsYou }
-            if row.group == ThreadsListGroup.Key.running.rawValue { return .working }
+            if row.group == ChatsListGroup.Key.needsYou.rawValue { return .needsYou }
+            if row.group == ChatsListGroup.Key.running.rawValue { return .working }
             return row.unreadCount > 0 ? .unread : .chats
         }
         return ChatSectionKey.allCases.compactMap { key in
@@ -989,7 +989,7 @@ public enum Chats {
     /// anywhere: Delete for a viewer who can steer the chat and may delete
     /// it (the chat's starter or a team owner, the server's
     /// `sessions.delete` rule, which ends what is live first); else nothing.
-    public static func threadMenuEntries(rootStatus: String, canSteer: Bool, canDelete: Bool) -> [ThreadMenuEntry] {
+    public static func chatMenuEntries(rootStatus: String, canSteer: Bool, canDelete: Bool) -> [ChatMenuEntry] {
         canSteer && canDelete ? [.delete] : []
     }
 
@@ -1020,7 +1020,7 @@ public enum Chats {
     }
 }
 
-// MARK: - Digest (thread e4a04d22)
+// MARK: - Digest (session e4a04d22)
 
 extension Chats {
     /// `digestMessages` (chats.json `digestCases`, TS `chats.ts`): a

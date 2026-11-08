@@ -7,8 +7,8 @@
 
 pub(crate) const INBOX: &str = "All caught up";
 pub(crate) const DRAFTS: &str = "No drafts";
-// EXP-1294: the Threads page (the empty-state.json `threads` state).
-pub(crate) const THREADS: &str = "No sessions yet";
+// EXP-1294: the Chats page (the empty-state.json `chats` state).
+pub(crate) const CHATS: &str = "No sessions yet";
 pub(crate) const BOARDS: &str = "No boards yet";
 pub(crate) const BOARDS_DESCRIPTION: &str = "Create a board to start tracking work.";
 pub(crate) const BOARDS_ACTION: &str = "Create a board";
@@ -32,10 +32,10 @@ pub(crate) const PASSKEYS: &str = "No passkeys yet";
 pub(crate) const ATTACHMENTS: &str = "No attachments yet";
 pub(crate) const CHANGED_FILES: &str = "No changed files";
 pub(crate) const ACTIVITY: &str = "No activity yet";
-// EXP-1284: the thread page whose thread is not (or no longer) there.
-pub(crate) const THREAD_NOT_FOUND: &str = "Chat not found";
-pub(crate) const THREAD_NOT_FOUND_DESCRIPTION: &str = "It may still be syncing, or it was deleted.";
-pub(crate) const THREAD_NOT_FOUND_ACTION: &str = "Go to Agent";
+// EXP-1284: the chat page whose chat is not (or no longer) there.
+pub(crate) const CHAT_NOT_FOUND: &str = "Chat not found";
+pub(crate) const CHAT_NOT_FOUND_DESCRIPTION: &str = "It may still be syncing, or it was deleted.";
+pub(crate) const CHAT_NOT_FOUND_ACTION: &str = "Go to Agent";
 
 #[cfg(test)]
 mod tests {
@@ -59,7 +59,7 @@ mod tests {
         let titles: &[(&str, &str)] = &[
             ("inbox", INBOX),
             ("drafts", DRAFTS),
-            ("threads", THREADS),
+            ("chats", CHATS),
             ("boards", BOARDS),
             ("issues", ISSUES),
             ("no-team", NO_TEAM),
@@ -78,7 +78,7 @@ mod tests {
             ("attachments", ATTACHMENTS),
             ("changed-files", CHANGED_FILES),
             ("activity", ACTIVITY),
-            ("thread-not-found", THREAD_NOT_FOUND),
+            ("chat-not-found", CHAT_NOT_FOUND),
         ];
         for (id, title) in titles {
             assert_eq!(field(id, "title").as_deref(), Some(*title), "{id} title");
@@ -87,23 +87,23 @@ mod tests {
             ("boards", BOARDS_DESCRIPTION),
             ("issues", ISSUES_DESCRIPTION),
             ("no-team", NO_TEAM_DESCRIPTION),
-            ("thread-not-found", THREAD_NOT_FOUND_DESCRIPTION),
+            ("chat-not-found", CHAT_NOT_FOUND_DESCRIPTION),
         ];
         for (id, description) in descriptions {
             assert_eq!(field(id, "description").as_deref(), Some(*description), "{id}");
         }
         assert_eq!(field("boards", "action").as_deref(), Some(BOARDS_ACTION));
         assert_eq!(field("issues", "action").as_deref(), Some(ISSUES_ACTION));
-        assert_eq!(field("thread-not-found", "action").as_deref(), Some(THREAD_NOT_FOUND_ACTION));
+        assert_eq!(field("chat-not-found", "action").as_deref(), Some(CHAT_NOT_FOUND_ACTION));
         // The page state's glyph is the `work-faces` concept (registry).
-        assert_eq!(field("thread-not-found", "icon").as_deref(), Some("work-faces"));
+        assert_eq!(field("chat-not-found", "icon").as_deref(), Some("work-faces"));
     }
 
     /// The states the IDE draws as titles only carry no description in the
     /// fixture either: a stray one there would go undrawn here.
     #[test]
     fn title_only_states_have_no_description() {
-        for id in ["inbox", "my-issues", "drafts", "threads", "no-selection-issue"] {
+        for id in ["inbox", "my-issues", "drafts", "chats", "no-selection-issue"] {
             assert!(field(id, "description").is_none(), "{id}");
         }
     }

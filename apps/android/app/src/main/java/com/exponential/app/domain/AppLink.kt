@@ -4,7 +4,7 @@ import java.io.ByteArrayOutputStream
 
 /**
  * EXP-1188: what a tapped markdown link in agent prose (narration, Guide,
- * thread) opens. Locked ×4 against the contract fixture `app-link.json` (web
+ * chat) opens. Locked ×4 against the contract fixture `app-link.json` (web
  * `lib/app-link.ts`, desktop `domain::app_link`, iOS ExpCore `AppLink.swift`).
  * Hand-parsed — no `android.net.Uri` — so the rule runs in JVM unit tests.
  */
@@ -24,11 +24,8 @@ sealed interface AppLink {
     /** #EXP-1674: THE plan page, `/t/{team}/sessions/{id}/plan/{messageId}`. */
     data class Plan(val teamSlug: String, val sessionId: String, val messageId: String) : AppLink
 
-    /** EXP-1284: a thread on this instance. */
-    data class Thread(val teamSlug: String, val threadId: String) : AppLink
-
-    /** #EXP-1674: the chats list, `/t/{team}/threads`. */
-    data class Threads(val teamSlug: String) : AppLink
+    /** #EXP-1674: the chats list, `/t/{team}/chats`. */
+    data class Chats(val teamSlug: String) : AppLink
 
     /** #EXP-1674: an agent's chat, `/t/{team}/agents/{id}`. */
     data class Agent(val teamSlug: String, val agentId: String) : AppLink
@@ -109,8 +106,7 @@ fun appLinkTeam(link: AppLink): String? = when (link) {
     is AppLink.Board -> link.teamSlug
     is AppLink.Session -> link.teamSlug
     is AppLink.Plan -> link.teamSlug
-    is AppLink.Thread -> link.teamSlug
-    is AppLink.Threads -> link.teamSlug
+    is AppLink.Chats -> link.teamSlug
     is AppLink.Agent -> link.teamSlug
     is AppLink.AgentHome -> link.teamSlug
     is AppLink.Inbox -> link.teamSlug
@@ -201,8 +197,7 @@ private fun inAppLink(path: String): AppLink {
             return AppLink.Plan(teamSlug, a, c)
         }
         if (kind == "sessions" && a != null && n == 4) return AppLink.Session(teamSlug, a)
-        if (kind == "threads" && a != null && n == 4) return AppLink.Thread(teamSlug, a)
-        if (kind == "threads" && n == 3) return AppLink.Threads(teamSlug)
+        if (kind == "chats" && n == 3) return AppLink.Chats(teamSlug)
         if (kind == "agents" && a != null && n == 4) return AppLink.Agent(teamSlug, a)
         if (kind == "agent" && n == 3) return AppLink.AgentHome(teamSlug)
         if (kind == "inbox" && n == 3) return AppLink.Inbox(teamSlug)

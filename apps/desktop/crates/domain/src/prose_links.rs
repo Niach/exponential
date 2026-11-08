@@ -58,7 +58,6 @@ fn chip_of(url: &str, origin: &str, team: &str, resolve: &dyn Fn(ProseChipKind, 
         }
         AppLink::Board { team_slug, board_slug } => (team_slug, ProseChipKind::Board, board_slug),
         AppLink::Session { team_slug, session_id } => (team_slug, ProseChipKind::Session, session_id),
-        AppLink::Thread { team_slug, thread_id } => (team_slug, ProseChipKind::Session, thread_id),
         AppLink::Agent { team_slug, agent_id } => (team_slug, ProseChipKind::Agent, agent_id),
         _ => return None,
     };

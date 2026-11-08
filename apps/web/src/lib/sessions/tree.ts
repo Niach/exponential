@@ -17,7 +17,7 @@ import { SHARING_ORDER } from "@/lib/sessions/host"
 import { messageSessionId } from "@/lib/sessions/messages"
 
 // EXP-1291/NEW-1/NEW-2: the session tree as one read (MCP `sessions_get`)
-// and the thread list (MCP `sessions_list`: thread roots; an agent's
+// and the chat list (MCP `sessions_list`: chat roots; an agent's
 // conversation sessions are listed through `agents_list`). Same visibility
 // rule as the shapes; the server-only facets (`mcp_server_ids`, `skill_ids`, `wake_on`)
 // never leave here. A root's issues = the UNION over its tree's rows (each
@@ -171,7 +171,7 @@ export async function getSessionTree(
 export interface SessionListRow {
   id: string
   teamId: string
-  /** NEW-2: the agent this is a conversation of (null = a thread). */
+  /** NEW-2: the agent this is a conversation of (null = a chat). */
   agentId: string | null
   title: string
   status: Session[`status`]
@@ -191,7 +191,7 @@ export interface SessionListRow {
   updatedAt: Date
 }
 
-/** Roots the caller may see, most recently active first: threads, or with
+/** Roots the caller may see, most recently active first: chats, or with
  *  `agentId` the caller's conversations with that agent. `live` = not
  *  ended. */
 export async function listSessions(

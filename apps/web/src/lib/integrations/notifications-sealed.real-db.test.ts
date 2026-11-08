@@ -48,7 +48,7 @@ async function user(teamId: string): Promise<{ id: string; email: string }> {
   return { id, email }
 }
 
-async function sharedThread() {
+async function sharedChat() {
   const team = await db.execute<{ id: string }>(sql`
     INSERT INTO teams (name, slug) VALUES ('Sealed', ${`sealed-${id8()}`}) RETURNING id`)
   const teamId = team.rows[0]!.id
@@ -77,7 +77,7 @@ async function sharedThread() {
 
 describe.skipIf(!ready.ok)(`EXP-1458: session message notifications`, () => {
   it(`a sealed message notifies its mention_user_ids with generic copy`, async () => {
-    const t = await sharedThread()
+    const t = await sharedChat()
     pushes.length = 0
     await notifySessionMessage(await t.post(sealedBody, [t.ada.id]))
     expect(await t.inbox(t.ada.id)).toEqual([SEALED_MESSAGE_NOTIFY_BODY])
@@ -87,13 +87,13 @@ describe.skipIf(!ready.ok)(`EXP-1458: session message notifications`, () => {
   })
 
   it(`a sealed message without mention_user_ids notifies nobody`, async () => {
-    const t = await sharedThread()
+    const t = await sharedChat()
     await notifySessionMessage(await t.post(sealedBody, null))
     expect(await t.inbox(t.ada.id)).toEqual([])
   })
 
   it(`a plaintext message: parsed @emails plus mention_user_ids, previewed`, async () => {
-    const t = await sharedThread()
+    const t = await sharedChat()
     const body = `Ping @${t.ada.email} about it`
     await notifySessionMessage(await t.post(body, [t.bob.id]))
     expect(await t.inbox(t.ada.id)).toEqual([body])
@@ -108,7 +108,7 @@ describe.skipIf(!ready.ok)(`VAPP-45: a sealed question push`, () => {
     const SECRET = `Rotate the prod database password tonight?`
     const tree = generateTreeKey()
     const sealedAskText = sealBody(tree.publicKey, 1, `Asks: ${SECRET}`)
-    const t = await sharedThread()
+    const t = await sharedChat()
     pushes.length = 0
     await notifySessionAsk({
       sessionId: t.sessionId,

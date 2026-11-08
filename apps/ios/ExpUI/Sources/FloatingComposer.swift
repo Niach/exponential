@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// EXP-1316: THE phone reply box ×3 (Android `FloatingComposer.kt`, web
-/// phone `FloatingComposer`) — used by a thread's Conversation AND the
+/// phone `FloatingComposer`) — used by a chat's Conversation AND the
 /// session view. Collapsed, it is the floating bar's capsule reading the
 /// placeholder (`Reply…`), nothing beside it (EXP-1676: the usage ring lives
 /// IN the card, next to send, ×4); a tap expands it into THE composer card the

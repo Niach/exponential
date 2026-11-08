@@ -11,11 +11,11 @@ final class SessionsApiWireTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    func testNewThreadCarriesTheRootFacetsAndOmitsEveryNil() throws {
-        let bare = try json(SessionsSendInput.newThread(teamId: "t-1", deviceId: "dev-1", text: "Go"))
+    func testNewChatCarriesTheRootFacetsAndOmitsEveryNil() throws {
+        let bare = try json(SessionsSendInput.newChat(teamId: "t-1", deviceId: "dev-1", text: "Go"))
         XCTAssertEqual(bare.keys.sorted(), ["deviceId", "teamId", "text"])
 
-        let full = try json(SessionsSendInput.newThread(
+        let full = try json(SessionsSendInput.newChat(
             teamId: "t-1",
             deviceId: "dev-1",
             options: SessionLaunchOptions(
@@ -43,13 +43,13 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(full["computerUse"] as? Bool, false)
 
         // A blank model is never sent (absent = blank on the server).
-        let blank = try json(SessionsSendInput.newThread(
+        let blank = try json(SessionsSendInput.newChat(
             teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(model: "", effort: ""), text: "Go"
         ))
         XCTAssertEqual(blank.keys.sorted(), ["deviceId", "effort", "teamId", "text"])
 
         // #EXP-1661: an empty skill pick never rides the wire.
-        let noSkills = try json(SessionsSendInput.newThread(
+        let noSkills = try json(SessionsSendInput.newChat(
             teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(skillIds: []), text: "Go"
         ))
         XCTAssertEqual(noSkills.keys.sorted(), ["deviceId", "teamId", "text"])

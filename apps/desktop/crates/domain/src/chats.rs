@@ -1,10 +1,10 @@
-//! Thread 58cb32df (#EXP-1373): CHATS, the desktop twin of
+//! Chat 58cb32df (#EXP-1373): CHATS, the desktop twin of
 //! `packages/domain-contract/src/chats.ts` (iOS ExpCore `Chats.swift`,
 //! Android `domain/Chats.kt`), replaying EVERY case group (#EXP-1380: the
 //! IDE's Chats page paints the same list): the list ([`chat_list`],
 //! [`chat_preview`], [`chat_time_label`],
 //! [`unread_count`]), the context menus ×4
-//! ([`thread_menu_entries`], [`agent_menu_entries`]), the transcript's
+//! ([`chat_menu_entries`], [`agent_menu_entries`]), the transcript's
 //! command dividers ([`command_divider`]) + its window ([`TranscriptSpec`],
 //! [`transcript_window_start`]),
 //! the surface card's reply rule ([`surface_reply`]) + its ENTER motion
@@ -23,8 +23,8 @@ use serde_json::Value;
 
 use crate::rows::{MessageRow, SessionReadRow, SessionRow};
 use crate::session_tree::{
-    iso_ms, thread_row_lead_pr, thread_row_mark_state, AgentRow, PrLead, SessionState, ThreadRowWord, ThreadsListGroup,
-    ThreadsListKey,
+    iso_ms, chat_row_lead_pr, chat_row_mark_state, AgentRow, PrLead, SessionState, ChatRowWord, ChatsListGroup,
+    ChatsListKey,
 };
 
 const CHATS_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/chats.json");
@@ -407,13 +407,13 @@ pub struct AgentHintSpec {
 
 pub static CHATS: LazyLock<ChatsSpec> = LazyLock::new(|| serde_json::from_str(CHATS_JSON).expect("chats.json parses"));
 
-/// A thread row's context-menu entry (S-3: Delete only).
+/// A chat row's context-menu entry (S-3: Delete only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ThreadMenuEntry {
+pub enum ChatMenuEntry {
     Delete,
 }
 
-impl ThreadMenuEntry {
+impl ChatMenuEntry {
     /// The fixture key (`delete`).
     pub fn key(self) -> &'static str {
         match self {
@@ -444,13 +444,13 @@ impl ThreadMenuEntry {
     }
 }
 
-/// A thread row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28) no
+/// A chat row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28) no
 /// Stop/End anywhere: Delete for a viewer who can steer the chat and may
 /// delete it (the chat's starter or a team owner, the server's
 /// `sessions.delete` rule, which ends what is live first); else nothing.
-pub fn thread_menu_entries(_root_status: &str, can_steer: bool, can_delete: bool) -> Vec<ThreadMenuEntry> {
+pub fn chat_menu_entries(_root_status: &str, can_steer: bool, can_delete: bool) -> Vec<ChatMenuEntry> {
     if can_steer && can_delete {
-        vec![ThreadMenuEntry::Delete]
+        vec![ChatMenuEntry::Delete]
     } else {
         Vec::new()
     }
@@ -641,7 +641,7 @@ pub struct ChatRow {
     pub team_id: String,
     pub title: String,
     pub device_id: Option<String>,
-    pub group: ThreadsListKey,
+    pub group: ChatsListKey,
     pub lead: ChatLead,
     pub preview: ChatPreview,
     pub activity_at: String,
@@ -650,7 +650,7 @@ pub struct ChatRow {
     pub unread_count: usize,
     pub needs_you: bool,
     pub busy: bool,
-    pub word: Option<ThreadRowWord>,
+    pub word: Option<ChatRowWord>,
     /// S-3: the chat is DONE (every PR of the root merged and nothing works
     /// or needs you): it stays in the list, dimmed (`shell.dimOpacity`).
     pub dim: bool,
@@ -902,13 +902,13 @@ pub fn unread_count(root_id: &str, messages: &[&MessageRow], reads: &[&SessionRe
 /// [`chat_list`]'s input.
 #[derive(Debug, Clone, Copy)]
 pub struct ChatListInput<'a> {
-    pub groups: &'a [ThreadsListGroup],
+    pub groups: &'a [ChatsListGroup],
     pub messages: &'a [&'a MessageRow],
     pub reads: &'a [&'a SessionReadRow],
     /// The ROOT's PR states by session id (absent = none).
     pub pr_states: &'a HashMap<String, Vec<String>>,
-    /// `thread_row_word` by session id (absent = none).
-    pub words: &'a HashMap<String, ThreadRowWord>,
+    /// `chat_row_word` by session id (absent = none).
+    pub words: &'a HashMap<String, ChatRowWord>,
     /// #EXP-1388: the chats (`List`) or the Archived page.
     pub view: ChatListView,
     pub now: &'a str,
@@ -917,7 +917,7 @@ pub struct ChatListInput<'a> {
     pub visible_session_ids: Option<&'a HashSet<&'a str>>,
 }
 
-/// The Chats list (`listCases`): the ROOT rows of `partition_threads`
+/// The Chats list (`listCases`): the ROOT rows of `partition_chats`
 /// (active team) flattened and sorted by activity desc (ties by id), each
 /// with its lead, preview, time and unread count.
 pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
@@ -937,14 +937,14 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
         .map(|(row, group)| {
             let own = by_session.get(row.session_id.as_str()).unwrap_or(&none);
             let pr_states: &[String] = input.pr_states.get(&row.session_id).map_or(&[], Vec::as_slice);
-            let mark = thread_row_mark_state(row.needs_you, row.busy);
+            let mark = chat_row_mark_state(row.needs_you, row.busy);
             let dim = mark == SessionState::Idle
                 && !pr_states.is_empty()
                 && pr_states.iter().all(|state| state == "merged");
             let lead = match mark {
                 SessionState::NeedsYou => ChatLead::NeedsYou,
                 SessionState::Working => ChatLead::Working,
-                _ => match thread_row_lead_pr(pr_states.iter().map(String::as_str)) {
+                _ => match chat_row_lead_pr(pr_states.iter().map(String::as_str)) {
                     Some(PrLead::Open) => ChatLead::Open,
                     Some(PrLead::Merged) => ChatLead::Merged,
                     None => ChatLead::Waiting,
@@ -1081,7 +1081,7 @@ fn archived_ids<'a>(reads: &[&'a SessionReadRow]) -> std::collections::HashSet<&
 
 /// #EXP-1388 (`dotCases`): the Chats nav dot = an unread depth-0 row whose
 /// root is not archived (a row that needs you counts anyway).
-pub fn chats_unread(groups: &[ThreadsListGroup], reads: &[&SessionReadRow]) -> bool {
+pub fn chats_unread(groups: &[ChatsListGroup], reads: &[&SessionReadRow]) -> bool {
     let archived = archived_ids(reads);
     groups.iter().any(|group| {
         group
@@ -1127,10 +1127,10 @@ pub struct ChatSection {
 /// by activity; empty sections absent.
 pub fn chat_sections(rows: &[ChatRow]) -> Vec<ChatSection> {
     let key_of = |row: &ChatRow| match row.group {
-        ThreadsListKey::NeedsYou => ChatSectionKey::NeedsYou,
-        ThreadsListKey::Running => ChatSectionKey::Working,
-        ThreadsListKey::Recent if row.unread_count > 0 => ChatSectionKey::Unread,
-        ThreadsListKey::Recent => ChatSectionKey::Chats,
+        ChatsListKey::NeedsYou => ChatSectionKey::NeedsYou,
+        ChatsListKey::Running => ChatSectionKey::Working,
+        ChatsListKey::Recent if row.unread_count > 0 => ChatSectionKey::Unread,
+        ChatsListKey::Recent => ChatSectionKey::Chats,
     };
     ChatSectionKey::ALL
         .into_iter()
@@ -1285,7 +1285,7 @@ pub fn transcript_window_start(
     base.saturating_sub(loaded_steps.saturating_mul(spec.window_step))
 }
 
-// ── #EXP-1380 / thread e4a04d22: the list's per-conversation DIGEST ────────
+// ── #EXP-1380 / chat e4a04d22: the list's per-conversation DIGEST ────────
 // The lists never read a transcript: the server keeps, on each conversation
 // row (`conversations.digest`, trigger-written), exactly the messages the
 // list's rules read; [`digest_messages`] turns it back into the keyed
@@ -1493,13 +1493,13 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let got: Vec<&str> = thread_menu_entries(
+            let got: Vec<&str> = chat_menu_entries(
                 input["rootStatus"].as_str().unwrap(),
                 input["canSteer"].as_bool().unwrap(),
                 input["canDelete"].as_bool().unwrap(),
             )
             .into_iter()
-            .map(ThreadMenuEntry::key)
+            .map(ChatMenuEntry::key)
             .collect();
             let want: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
             assert_eq!(got, want, "{}", case["name"]);
@@ -1668,14 +1668,14 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let groups: Vec<ThreadsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
+            let groups: Vec<ChatsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
             let all = messages(&input["messages"]);
             let refs: Vec<&MessageRow> = all.iter().collect();
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
             let pr_states: HashMap<String, Vec<String>> =
                 serde_json::from_value(input["prStates"].clone()).unwrap_or_default();
-            let words: HashMap<String, ThreadRowWord> =
+            let words: HashMap<String, ChatRowWord> =
                 serde_json::from_value(input["words"].clone()).unwrap_or_default();
             let view = match input["view"].as_str() {
                 Some("archived") => ChatListView::Archived,
@@ -1798,7 +1798,7 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let groups: Vec<ThreadsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
+            let groups: Vec<ChatsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
             assert_eq!(Some(chats_unread(&groups, &read_refs)), case["expected"].as_bool(), "{}", case["name"]);

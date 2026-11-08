@@ -90,7 +90,7 @@ class SessionTurnEventsTest {
         assertNull(turns.turns[1].endedAt)
         assertEquals(
             listOf("second"),
-            turns.turns[1].items.map { (it as ThreadItem.Text).text },
+            turns.turns[1].items.map { (it as StreamItem.Text).text },
         )
     }
 

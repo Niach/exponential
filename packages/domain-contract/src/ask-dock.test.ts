@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/ask-dock.json" with { type: "json" }
-import { anchorSessionCards, askDockTitle, planDecisionLabel, sessionCards, threadPendingAsks, threadSessionNames } from "./ask-dock"
+import { anchorSessionCards, askDockTitle, planDecisionLabel, sessionCards, chatPendingAsks, chatSessionNames } from "./ask-dock"
 
 describe(`askDockTitle`, () => {
   for (const entry of fixture.titleCases) {
@@ -20,19 +20,19 @@ describe(`planDecisionLabel`, () => {
   }
 })
 
-describe(`threadPendingAsks`, () => {
-  for (const entry of fixture.threadCases) {
+describe(`chatPendingAsks`, () => {
+  for (const entry of fixture.chatCases) {
     test(entry.name, () => {
       const names = entry.sessionNames as Record<string, string>
-      expect(threadPendingAsks(entry.rows as never, (id) => names[id] ?? null)).toEqual(entry.expected as never)
+      expect(chatPendingAsks(entry.rows as never, (id) => names[id] ?? null)).toEqual(entry.expected as never)
     })
   }
 })
 
-describe(`threadSessionNames`, () => {
+describe(`chatSessionNames`, () => {
   for (const entry of fixture.sessionNameCases) {
     test(entry.name, () => {
-      const name = threadSessionNames(entry.tabs as never)
+      const name = chatSessionNames(entry.tabs as never)
       for (const [id, expected] of Object.entries(entry.lookups)) expect(name(id)).toBe(expected)
     })
   }

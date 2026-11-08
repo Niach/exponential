@@ -372,7 +372,7 @@ async function getSkillContext(id: string) {
 }
 
 // EXP-1291: the caller's own session (the X-Exp-Session-Id row) as the tools
-// need it: its thread root, whether that root is a team agent, and whether
+// need it: its root session, whether that root is a team agent, and whether
 // nobody is watching (a child, or a root another session spawned).
 interface CallerSession {
   id: string
@@ -1444,10 +1444,10 @@ export function registerExponentialTools(
             assertBoardGranted(access, parent.boardId, parent.teamId)
           }
         }
-        // EXP-1291: the thread the issue is filed into, checked BEFORE the
+        // EXP-1291: the root session the issue is filed into, checked BEFORE the
         // issue exists (so a bad id never leaves an issue filed nowhere the
         // agent meant). EXP-1377: linking is explicit: a named session, or
-        // `link: true` = the caller's own thread (of the board's team, never
+        // `link: true` = the caller's own root session (of the board's team, never
         // an agent channel); neither = an unlinked issue, so a follow-up
         // never rides the filer's PR into done.
         const own = await loadCallerSession()
@@ -1467,7 +1467,7 @@ export function registerExponentialTools(
         } else if (link) {
           if (!own) throw new Error(noSessionMessage(`exponential_issues_create`, `sessionId`))
           if (own.teamId !== board.teamId || own.rootAgentId !== null) {
-            throw new Error(`link: true needs a thread of this board's team; pass sessionId`)
+            throw new Error(`link: true needs a session of this board's team; pass sessionId`)
           }
           // NEW-1: the filer holds the issue (a row on the caller's session).
           rootId = own.id
@@ -2132,7 +2132,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_create`,
     {
-      description: `Comment on an issue (UUID or identifier, e.g. "MET-12") as the MCP user ("via MCP"); body = plain GFM. parentId (from exponential_comments_list) replies under that comment; threads are one level deep. audience "reporter" (top-level, a widget issue with a reporter email) also emails it; reporterEmailed says whether it went out.`,
+      description: `Comment on an issue (UUID or identifier, e.g. "MET-12") as the MCP user ("via MCP"); body = plain GFM. parentId (from exponential_comments_list) replies under that comment; replies are one level deep. audience "reporter" (top-level, a widget issue with a reporter email) also emails it; reporterEmailed says whether it went out.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1),
@@ -2409,9 +2409,9 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
-  // Sessions (EXP-1291 Threads v2: ONE session tree; the agent layer)
+  // Sessions (EXP-1291: ONE session tree; the agent layer)
   // -----------------------------------------------------------------------
-  // A thread is a ROOT session (kind thread), a team agent a root of kind
+  // A chat is a ROOT session (kind `thread`, the wire value), a team agent a root of kind
   // agent; children are sub-sessions. Every start and message is ONE call,
   // `exponential_sessions_send` (= `sessions.send`); the database is the bus.
   // Visibility, steering rights and the tree rules live in lib/sessions/**;
@@ -2484,7 +2484,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new thread (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn sessions wake you. attachmentIds = uploads or readable files (Image/File line ids); forwardAttachments = your current message's. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new root (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn sessions wake you. attachmentIds = uploads or readable files (Image/File line ids); forwardAttachments = your current message's. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2602,7 +2602,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Read a session tree: the root (thread or agent) with its facets (title, issues, PRs), its child sessions and the last messages (count = messages, default 20). id = any session in the tree; omitted = your own session's root.`,
+      description: `Read a session tree: the root (a root session or an agent) with its facets (title, issues, PRs), its child sessions and the last messages (count = messages, default 20). id = any session in the tree; omitted = your own session's root.`,
       inputSchema: strictInput({
         id: uuidString.optional(),
         messages: z.number().int().min(0).max(100).default(20),
@@ -2637,7 +2637,7 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List thread roots you can see, newest first (agentId = your conversations with that agent instead). teamId narrows to one team; live: true = not ended.`,
+      description: `List root sessions you can see, newest first (agentId = your conversations with that agent instead). teamId narrows to one team; live: true = not ended.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         agentId: uuidString.optional(),
@@ -2768,7 +2768,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_compact`,
       {
-        description: `Ask the host to compact this session's context at the next turn boundary. reason is logged on the session; keep names what the summary must preserve (open threads, decisions, file paths). Returns accepted, or refusedBecause: too_early (under half the context used), cooldown (compacted within the last 20 turns), not_own_session, unsupported_agent. Only your own session.`,
+        description: `Ask the host to compact this session's context at the next turn boundary. reason is logged on the session; keep names what the summary must preserve (open tasks, decisions, file paths). Returns accepted, or refusedBecause: too_early (under half the context used), cooldown (compacted within the last 20 turns), not_own_session, unsupported_agent. Only your own session.`,
         inputSchema: strictInput({
           reason: z.string().trim().min(1).max(500),
           keep: z.string().trim().min(1).max(2_000).optional(),
@@ -3005,7 +3005,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_unlink`,
     {
-      description: `Unlink an issue (UUID or identifier) from a session (sessionId, default your own; else from whichever session of its thread holds it). Its last worker dropping it sends it back to backlog.`,
+      description: `Unlink an issue (UUID or identifier) from a session (sessionId, default your own; else from whichever session of its tree holds it). Its last worker dropping it sends it back to backlog.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         sessionId: uuidString.optional(),
@@ -3024,7 +3024,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_unlink`,
     {
-      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its thread holds it). Errors when none held it. An already-open PR keeps it: exponential_pr {op: "unlink"}.`,
+      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its tree holds it). Errors when none held it. An already-open PR keeps it: exponential_pr {op: "unlink"}.`,
       inputSchema: strictInput({
         id: z.string().min(1),
         sessionId: uuidString.optional(),
@@ -3034,7 +3034,7 @@ export function registerExponentialTools(
       try {
         const result = await unlinkFromSession(ref, sessionIdArg, `exponential_issues_unlink`)
         if (!result.unlinked) {
-          throw new Error(`${ref} is not linked to session ${result.sessionId} or its thread`)
+          throw new Error(`${ref} is not linked to session ${result.sessionId} or its tree`)
         }
         return ok(result)
       } catch (e) {
@@ -3044,11 +3044,11 @@ export function registerExponentialTools(
   )
 
   // #EXP-1399: lift a waiting card into the team agent's conversation that
-  // manages its thread (THE same card there, one answer source).
+  // manages its tree (THE same card there, one answer source).
   server.registerTool(
     `exponential_sessions_escalate`,
     {
-      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its thread, so a person answers it there. The same card: an answer either side answers both. From inside that thread or from the agent's conversation. Idempotent. sealedCard: the card encrypted to the target tree (sessions.escalateTarget).`,
+      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its tree, so a person answers it there. The same card: an answer either side answers both. From inside that tree or from the agent's conversation. Idempotent. sealedCard: the card encrypted to the target tree (sessions.escalateTarget).`,
       inputSchema: strictInput({
         messageId: uuidString,
         // EXP-1458: a sealed origin card's copy for the target tree.
@@ -3134,7 +3134,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; a PR on another open PR's branch stacks on it). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; no share links none; issues a merged PR closed are left out). repositoryId when there are none. Body = a server summary + your result pictures. A UI diff needs a result picture per platform (exponential_show pictures, label starts web/web-mobile/ios/android/desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
+      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; a PR on another open PR's branch stacks on it). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the tree, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; no share links none; issues a merged PR closed are left out). repositoryId when there are none. Body = a server summary + your result pictures. A UI diff needs a result picture per platform (exponential_show pictures, label starts web/web-mobile/ios/android/desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         title: z.string().min(1).max(255),

@@ -2,10 +2,10 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-// Thread 58cb32df (chats.json): the iOS styleguide's chat entries (web
+// Session 58cb32df (chats.json): the iOS styleguide's chat entries (web
 // `apps/styleguide` entries `chat-list`, `phone-tab-bar`, `chat-transcript`,
 // `chat-menus`, `chat-selection`, the updated `schedule-picker`): the REAL views over specimen
-// values. Capture only: `-uiTestingStyleguide <id>` (`ThreadCardsScreen`).
+// values. Capture only: `-uiTestingStyleguide <id>` (`ChatCardsScreen`).
 
 /// `chat-list`: THE phone Chats screen over the bottom bar — the large
 /// "Chats" headline with the search + inbox circles, the Agents section, then
@@ -22,7 +22,7 @@ struct ChatListSpecimens: View {
         let time: String
         var unread = 0
         var needsYou = false
-        var word: ThreadRowWord?
+        var word: ChatRowWord?
         /// S-3: a DONE chat stays, dimmed (`listCases[0]` `dim`).
         var dim = false
     }
@@ -561,10 +561,10 @@ struct ChatMenuSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             captioned("A live chat") {
-                menu("Spike: offline queue", Chats.threadMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .thread($0) })
+                menu("Spike: offline queue", Chats.chatMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .chat($0) })
             }
             captioned("An ended chat") {
-                menu("#APP-16 Fix flaky scroll restore", Chats.threadMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .thread($0) })
+                menu("#APP-16 Fix flaky scroll restore", Chats.chatMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .chat($0) })
             }
             captioned("The agent menu (busy, owner)") {
                 menu("Triage", Chats.agentMenuEntries(busy: true, isOwner: true).map { .agent($0) })
@@ -640,7 +640,7 @@ struct SchedulePickerSpecimens: View {
     }
 }
 
-/// `mention-pill` (thread e4a04d22): a chat's `@email` renders as the
+/// `mention-pill` (session e4a04d22): a chat's `@email` renders as the
 /// comments' round name pill once it resolves to a team member; an address
 /// that is no member stays text. The real markdown path
 /// (`AgentIssueRefContext.mentionMembers`).
@@ -670,7 +670,7 @@ struct MentionPillSpecimens: View {
     }
 }
 
-/// S-3 (styleguide `session-xref`, session-thread.json): THE inter-session
+/// S-3 (styleguide `session-xref`, session-chat.json): THE inter-session
 /// link header, once per kind — an agent's tree carries its mark, a
 /// person's session the session glyph.
 struct SessionXrefSpecimens: View {
@@ -696,7 +696,7 @@ struct SessionXrefSpecimens: View {
 }
 
 /// #EXP-1662 `plan-page` capture (`-uiTestingStyleguide plan-page`, presented
-/// by the navigator beside `ThreadCardsScreen`).
+/// by the navigator beside `ChatCardsScreen`).
 struct PlanPageSpecimenScreen: View {
     static let kinds: Set<String> = ["plan-page"]
 
@@ -710,7 +710,7 @@ struct PlanPageSpecimenScreen: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-cards-screen")
+        .accessibilityIdentifier("chat-cards-screen")
     }
 }
 
@@ -803,18 +803,18 @@ struct ResultsTabSpecimens: View {
     }
 }
 
-/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the thread's
+/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the chat's
 /// title + strip with the plan chip active, the tab's body under them, waiting.
 private struct PlanPageSpecimen: View {
     let card: TreeMessageCard?
 
-    private var row: ThreadPlanRow? {
+    private var row: ChatPlanRow? {
         let message = TreeMessage(
             id: "plan-specimen", sessionId: "plan-specimen-session", authorKind: "agent", authorId: nil, body: "",
             card: card, answeredAt: nil, consumedAt: nil, createdAt: "1970-01-01T00:00:00.000Z",
             authorSessionId: "plan-specimen-session"
         )
-        if case let .plan(row)? = ThreadRow.askCard(message) { return row }
+        if case let .plan(row)? = SessionChatRow.askCard(message) { return row }
         return nil
     }
 
@@ -829,7 +829,7 @@ private struct PlanPageSpecimen: View {
                         .lineLimit(1)
                         .padding(.horizontal, 12)
                         .padding(.top, 4)
-                    ThreadStripTabs(
+                    ChatStripTabs(
                         tabs: [.conversation],
                         selection: .plan(nil),
                         onSelect: { _ in },
@@ -894,7 +894,7 @@ struct SealedLockedSpecimens: View {
                 ChatRowView(
                     title: "Open PR", time: "08:30",
                     preview: SealedPlaceholder.copy(.unreadable), previewItalic: true,
-                    unreadCount: 1, word: ThreadRowWord.readyToMerge.text
+                    unreadCount: 1, word: ChatRowWord.readyToMerge.text
                 ) { ChatLeadMark(lead: .open) }
             }
         }

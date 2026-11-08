@@ -68,7 +68,7 @@ export interface CommentCardProps {
 export interface RegularCommentRowProps extends CommentCardProps {
   /** The feed's LAST row draws no rail below it — see `TimelineRow`. */
   lineBelow?: boolean
-  /** EXP-741: this card's replies, in thread order (`threadComments`). */
+  /** EXP-741: this card's replies, in input order (`nestComments`). */
   replies?: CommentCardProps[]
   /** EXP-741: the inline reply composer is open under this card. */
   replying?: boolean
@@ -226,7 +226,7 @@ export function RegularCommentRow({
   // inside the card with the body, and the avatar rides the timeline gutter
   // (iOS `RegularCommentRow` / Android `RegularCommentRow.kt`).
   //
-  // EXP-741: the card is the THREAD — its replies sit indented under the body
+  // EXP-741: the card is the PARENT — its replies sit indented under the body
   // behind one hairline, each with a 20px avatar, and the "Leave a reply…" row
   // closes every top-level card (the composer opens in its place).
   return (
