@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-08-install-claude-code-in-the-app`,
+    date: `2026-11-08`,
+    title: `Install Claude Code from the app`,
+    summary: `When Claude Code is missing, Install in the desktop app runs Anthropic's own installer for you; then sign in as usual.`,
+    body: `- **Install Claude Code from the app**: on a device without Claude Code, Install in the device checklist runs Anthropic's official installer right there, instead of opening the docs. Sign in next, like always: Exponential never touches your login.
+- **Update installs it too**: asking a device without Claude Code to update installs it the same way.`,
+  },
+  {
     id: `2026-11-08-every-chat-a-group-chat`,
     date: `2026-11-08`,
     title: `Every chat reads like a group chat`,
