@@ -171,7 +171,7 @@ impl Ede {
         let pos = self.seat.get_pointer().unwrap().current_location();
         self.may_drive_at(pos)?;
         let source = if v120.is_some() { AxisSource::Wheel } else { AxisSource::Continuous };
-        let mut frame = AxisFrame::new(time).source(source);
+        let mut frame = AxisFrame::new(smithay::backend::input::InputTime::from_millis(time)).source(source);
         for (axis, value, discrete) in [(Axis::Horizontal, dx, v120.map(|v| v.0)), (Axis::Vertical, dy, v120.map(|v| v.1))] {
             if value != 0.0 {
                 frame = frame.value(axis, value);

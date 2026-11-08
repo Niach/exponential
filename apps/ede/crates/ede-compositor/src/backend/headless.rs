@@ -55,7 +55,7 @@ impl Headless {
     pub fn add_output(&mut self, state: &mut Ede, name: &str, size: (i32, i32)) -> Output {
         let output = Output::new(
             name.to_string(),
-            PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (headless)".into() },
+            PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (headless)".into(), serial_number: "Unknown".into() },
         );
         let mode = Mode { size: size.into(), refresh: 60_000 };
         let _global = output.create_global::<Ede>(&state.display_handle);
