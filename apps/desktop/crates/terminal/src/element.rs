@@ -138,6 +138,9 @@ pub struct TerminalView {
     last_clipboard_write: Option<Instant>,
     _wake_task: Task<()>,
     _blink_task: Task<()>,
+    /// DEC 2026: the one repaint armed for an open synchronized update's
+    /// deadline (re-arming drops the previous one).
+    sync_repaint: Option<Task<()>>,
 }
 
 impl TerminalView {
@@ -190,6 +193,7 @@ impl TerminalView {
             last_clipboard_write: None,
             _wake_task: wake_task,
             _blink_task: blink_task,
+            sync_repaint: None,
         }
     }
 
@@ -261,6 +265,17 @@ impl TerminalView {
         }
         // Fresh output re-shows the cursor (standard blink behavior).
         self.blink_visible = true;
+        // DEC 2026: no frame mid synchronized update; the closing output
+        // wakes us again, the deadline repaints a child that never closes it.
+        let term = self.session.borrow().term();
+        if let Some(deadline) = crate::emulator::sync_update_hold(&term, Instant::now()) {
+            self.sync_repaint = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(deadline.saturating_duration_since(Instant::now())).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            }));
+            return;
+        }
+        self.sync_repaint = None;
         cx.notify();
     }
 
