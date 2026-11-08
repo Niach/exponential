@@ -372,11 +372,16 @@ fn document(ink: &Ink) -> Value {
     // with the `text_xs` primary Retry link under it.
     let mut retry = ink.text("failed_retry_text", json!(crate::feedback::RETRY), XS, &ink.primary);
     retry["style"]["cursor"] = json!("pointer");
+    // `text_center` on the column: each run centres inside its box, which
+    // gpui rounds up to a whole pixel.
+    retry["style"]["textAlign"] = json!("center");
+    let mut title = ink.text("failed_title", json!(NO_PREFERENCES), SM, &ink.muted);
+    title["style"]["textAlign"] = json!("center");
     let failed = json!({"id": "failed", "component": "Box", "visible": path("/pane/failed"),
         "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(1.5), "width": "100%"},
         "children": [
             {"id": "failed_icon", "component": "Icon", "props": {"name": "settings-notifications"}, "style": {"width": 20, "height": 20, "color": ink.muted_glyph, "opacity": GLYPH_ALPHA}},
-            ink.text("failed_title", json!(NO_PREFERENCES), SM, &ink.muted),
+            title,
             {"id": "failed_retry", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "retry"}}}, "children": [retry]},
         ]});
 
