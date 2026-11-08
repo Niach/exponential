@@ -65,7 +65,7 @@ entries of the XDG data directories, filtered as the person types),
 again by the shell): `ede_launch {command}`, `ede_focus {window}`,
 `ede_close {window}`, `ede_minimize {window}`, `ede_lock`, `ede_logout`,
 `ede_power {action: suspend|reboot|poweroff}`, `ede_select {window}` (the
-switcher), and the model's: `ede_pin {app}` / `ede_unpin {app}` (kept in
+switcher), `ede_alt_tab_select {window}` (a hovered Alt-Tab tile selects it), and the model's: `ede_pin {app}` / `ede_unpin {app}` (kept in
 `~/.config/exponential-desktop/shell.json`), `ede_taskbar {app}` (Mint's
 click: launch, focus, minimize, or the previews of a group),
 `ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
