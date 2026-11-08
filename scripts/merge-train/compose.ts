@@ -90,7 +90,17 @@ export function compose(input: ComposeInput): ComposeResult {
       if (!(e instanceof UnitConflict)) throw e
       git.must(`reset`, `--quiet`, `--hard`, before)
       git.must(`clean`, `-fdq`)
-      units.push({ prs, outcome: `conflict`, files: e.files, resolved: [] })
+      // #EXP-1711: behind earlier units, does it compose on the base alone?
+      // Then only a sibling that has not landed is in its way: no bounce.
+      const alone = before !== input.baseSha && composesAlone(git, input.baseSha, unit, config, run, () => {
+        if (setupDone || !config.setup) return true
+        setupDone = true
+        return run(config.setup, input.dir)
+      })
+      git.must(`checkout`, `--quiet`, `--detach`, before)
+      git.must(`reset`, `--quiet`, `--hard`, before)
+      git.must(`clean`, `-fdq`)
+      units.push({ prs, outcome: `conflict`, files: e.files, resolved: [], ...(alone ? { against: `batch` as const } : {}) })
     }
   }
 
@@ -105,6 +115,33 @@ export function compose(input: ComposeInput): ComposeResult {
   return {
     outcome: { train: input.trainId, base_sha: input.baseSha, head, checks, units, error: null },
     dispatch: checks === `dispatched` ? workflows : [],
+  }
+}
+
+/** #EXP-1711: the unit squashed onto the bare base, thrown away after. */
+function composesAlone(
+  git: Git,
+  baseSha: string,
+  unit: TrainPipelineUnit,
+  config: TrainRepoConfig,
+  run: (command: string, dir: string) => boolean,
+  setup: () => boolean
+): boolean {
+  git.must(`checkout`, `--quiet`, `--detach`, baseSha)
+  git.must(`reset`, `--quiet`, `--hard`, baseSha)
+  try {
+    for (const pr of unit.prs) {
+      squash(git, pr.head_sha, config, run, setup)
+      if (git.run(`diff`, `--cached`, `--quiet`).ok) continue
+      git.must(`commit`, `--quiet`, `--no-verify`, `-m`, `probe #${pr.number}`)
+    }
+    return true
+  } catch (e) {
+    if (e instanceof UnitConflict) return false
+    throw e
+  } finally {
+    git.must(`reset`, `--quiet`, `--hard`)
+    git.must(`clean`, `-fdq`)
   }
 }
 

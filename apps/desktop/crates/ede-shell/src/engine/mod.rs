@@ -133,6 +133,7 @@ pub fn launcher_entry(app: &EngineApp) -> apps::App {
         name: app.name.clone(),
         comment: app.description.clone(),
         exec: String::new(),
+        exec_url: None,
         icon: None,
         keywords: format!("{} {}", app.name, app.id).to_lowercase(),
         categories: vec!["Utility".into()],

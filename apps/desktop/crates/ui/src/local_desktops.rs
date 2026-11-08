@@ -36,8 +36,12 @@ fn ensure(cx: &mut App) -> bool {
         return true;
     }
     let Some(root) = root(cx) else { return false };
-    match Desktops::open(root) {
-        Ok(desktops) => {
+    // #EDE-65: the machine's one index, eDE's desktops from before imported once.
+    match Desktops::open_importing(root, elocal::ede_legacy_root().as_deref()) {
+        Ok((desktops, imported)) => {
+            if !imported.ids.is_empty() {
+                log::info!("[exp-desktop] local desktops: imported eDE's {:?}", imported.ids);
+            }
             cx.set_global(LocalDesktops { desktops, open: None, runs: None });
             true
         }
@@ -90,6 +94,8 @@ pub(crate) fn entries(cx: &mut App) -> Vec<(String, String, bool)> {
     if !ensure(cx) {
         return Vec::new();
     }
+    // The index is eDE's too (#EDE-65): its new or renamed desktops show.
+    cx.global_mut::<LocalDesktops>().desktops.reload();
     let locals = cx.global::<LocalDesktops>();
     let open = locals.open.as_ref().map(|d| d.entry.id.clone());
     locals.desktops.active().into_iter().map(|e| (e.id.clone(), e.name.clone(), Some(&e.id) == open.as_ref())).collect()
