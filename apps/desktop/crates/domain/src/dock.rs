@@ -173,7 +173,7 @@ pub enum DockSource {
         id: String,
         /// The plan (markdown).
         text: String,
-        /// The asking session's name in a thread; `None` in the session view.
+        /// The asking session's name in a chat; `None` in the session view.
         session_name: Option<String>,
         /// How many questions the card asks.
         questions: usize,
@@ -184,7 +184,7 @@ pub enum DockSource {
     Question { id: String, text: String, session_name: Option<String>, created_at: i64 },
     #[serde(rename_all = "camelCase")]
     Tasks {
-        /// #EXP-1545: a thread's Live child carrying the card (its name leads
+        /// #EXP-1545: a chat's Live child carrying the card (its name leads
         /// the caption); `None` = the root / the session view.
         #[serde(default)]
         session_name: Option<String>,
@@ -365,12 +365,12 @@ fn tasks_caption(session_name: Option<&str>, completed: Option<&str>) -> Option<
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+/// #EXP-1545: a session of a chat's tree that may carry the Dock's ONE
 /// `tasks` card. `active_at` = epoch ms of its last turn (else its start),
 /// `None` = no activity yet; `open` = its Queue has a todo item to show.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadQueueCandidate {
+pub struct ChatQueueCandidate {
     pub session_id: String,
     pub name: String,
     pub root: bool,
@@ -379,10 +379,10 @@ pub struct ThreadQueueCandidate {
     pub open: bool,
 }
 
-/// Whose Queue a thread's Dock shows ([`thread_dock_queue`]).
+/// Whose Queue a chat's Dock shows ([`chat_dock_queue`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadDockQueue {
+pub struct ChatDockQueue {
     pub session_id: String,
     /// `None` for the root, else the child's name.
     pub session_name: Option<String>,
@@ -391,12 +391,12 @@ pub struct ThreadDockQueue {
 /// #EXP-1545: the root's Queue while it is open, else the most recently
 /// active Live child's (no activity = oldest, ties by id ascending), else
 /// none. An ended session contributes nothing.
-pub fn thread_dock_queue(candidates: &[ThreadQueueCandidate]) -> Option<ThreadDockQueue> {
+pub fn chat_dock_queue(candidates: &[ChatQueueCandidate]) -> Option<ChatDockQueue> {
     let live = || candidates.iter().filter(|c| c.open && !c.ended);
     if let Some(root) = live().find(|c| c.root) {
-        return Some(ThreadDockQueue { session_id: root.session_id.clone(), session_name: None });
+        return Some(ChatDockQueue { session_id: root.session_id.clone(), session_name: None });
     }
-    let mut best: Option<&ThreadQueueCandidate> = None;
+    let mut best: Option<&ChatQueueCandidate> = None;
     for candidate in live() {
         let better = match best {
             None => true,
@@ -409,14 +409,14 @@ pub fn thread_dock_queue(candidates: &[ThreadQueueCandidate]) -> Option<ThreadDo
             best = Some(candidate);
         }
     }
-    best.map(|b| ThreadDockQueue { session_id: b.session_id.clone(), session_name: Some(b.name.clone()) })
+    best.map(|b| ChatDockQueue { session_id: b.session_id.clone(), session_name: Some(b.name.clone()) })
 }
 
 /// dock.json `probeDeadlineMs` / `closedQueueTtlMs` (#EXP-1678).
 pub const PROBE_DEADLINE_MS: u64 = 15_000;
 pub const CLOSED_QUEUE_TTL_MS: u64 = 60_000;
 
-/// #EXP-1678 (dock.json ONE CHILD STREAM): what a thread knows of one Live
+/// #EXP-1678 (dock.json ONE CHILD STREAM): what a chat knows of one Live
 /// child's Queue before it pays for that child's stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -428,7 +428,7 @@ pub enum ChildQueueState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadQueueProbe {
+pub struct ChatQueueProbe {
     pub session_id: String,
     pub active_at: Option<i64>,
     pub state: ChildQueueState,
@@ -453,20 +453,20 @@ pub struct ChildStream {
     pub attached_ms: u64,
 }
 
-/// #EXP-1678: the ONE Live child a thread holds a stream on: none while the
-/// root's Queue is open, else the first child in [`thread_dock_queue`]'s
+/// #EXP-1678: the ONE Live child a chat holds a stream on: none while the
+/// root's Queue is open, else the first child in [`chat_dock_queue`]'s
 /// order (latest activeAt, none = oldest, ties by id) not known closed.
-pub fn thread_queue_probe(root_open: bool, children: &[ThreadQueueProbe]) -> Option<String> {
+pub fn chat_queue_probe(root_open: bool, children: &[ChatQueueProbe]) -> Option<String> {
     if root_open {
         return None;
     }
-    let mut ordered: Vec<&ThreadQueueProbe> = children.iter().collect();
+    let mut ordered: Vec<&ChatQueueProbe> = children.iter().collect();
     ordered.sort_by(|a, b| b.active_at.cmp(&a.active_at).then_with(|| a.session_id.cmp(&b.session_id)));
     ordered.into_iter().find(|c| c.state != ChildQueueState::Closed).map(|c| c.session_id.clone())
 }
 
-/// #EXP-1678 (`childStateCases`): one Live child's state for [`thread_queue_probe`].
-pub fn thread_queue_child_state(open: bool, remembered: bool, stream: Option<ChildStream>) -> ChildQueueState {
+/// #EXP-1678 (`childStateCases`): one Live child's state for [`chat_queue_probe`].
+pub fn chat_queue_child_state(open: bool, remembered: bool, stream: Option<ChildStream>) -> ChildQueueState {
     if open {
         return ChildQueueState::Open;
     }
@@ -622,13 +622,13 @@ mod tests {
     }
 
     #[test]
-    fn thread_queue_matches_the_fixture() {
+    fn chat_queue_matches_the_fixture() {
         let fixture = fixture();
-        let cases = fixture["threadQueueCases"].as_array().unwrap();
+        let cases = fixture["chatQueueCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
-            let candidates: Vec<ThreadQueueCandidate> = serde_json::from_value(case["candidates"].clone()).unwrap();
-            let got = thread_dock_queue(&candidates);
+            let candidates: Vec<ChatQueueCandidate> = serde_json::from_value(case["candidates"].clone()).unwrap();
+            let got = chat_dock_queue(&candidates);
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
         }
     }
@@ -638,18 +638,18 @@ mod tests {
         let fixture = fixture();
         assert_eq!(fixture["probeDeadlineMs"], PROBE_DEADLINE_MS);
         assert_eq!(fixture["closedQueueTtlMs"], CLOSED_QUEUE_TTL_MS);
-        let cases = fixture["threadQueueProbeCases"].as_array().unwrap();
+        let cases = fixture["chatQueueProbeCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
-            let children: Vec<ThreadQueueProbe> = serde_json::from_value(case["children"].clone()).unwrap();
-            let got = thread_queue_probe(case["rootOpen"].as_bool().unwrap(), &children);
+            let children: Vec<ChatQueueProbe> = serde_json::from_value(case["children"].clone()).unwrap();
+            let got = chat_queue_probe(case["rootOpen"].as_bool().unwrap(), &children);
             assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
         }
         let states = fixture["childStateCases"].as_array().unwrap();
         assert!(!states.is_empty());
         for case in states {
             let stream: Option<ChildStream> = serde_json::from_value(case["stream"].clone()).unwrap();
-            let got = thread_queue_child_state(case["open"].as_bool().unwrap(), case["remembered"].as_bool().unwrap(), stream);
+            let got = chat_queue_child_state(case["open"].as_bool().unwrap(), case["remembered"].as_bool().unwrap(), stream);
             let want: ChildQueueState = serde_json::from_value(case["state"].clone()).unwrap();
             assert_eq!(got, want, "{}", case["name"]);
         }

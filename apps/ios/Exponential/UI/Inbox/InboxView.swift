@@ -75,8 +75,8 @@ struct InboxListContent: View {
 
     /// #EXP-1456 (inbox-route.json): an issue-less row's tap marks it read
     /// first, then opens its session by `InboxRoute.sessionTarget` (the
-    /// viewer's own agent conversation = the agent's page, a thread = the
-    /// thread, else the session); #EXP-1534: a device target opens the
+    /// viewer's own agent conversation = the agent's page, a chat = the
+    /// chat, else the session); #EXP-1534: a device target opens the
     /// Devices page with that device's settings open; no target = only mark
     /// read.
     private func sessionRowButton<Label: View>(

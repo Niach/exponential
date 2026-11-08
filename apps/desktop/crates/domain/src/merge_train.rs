@@ -1,6 +1,6 @@
 //! #EXP-1710 — THE MERGE TRAIN on the clients (`packages/domain-contract/
 //! fixtures/merge-train.json`, its `$comment` is the spec; TS reference
-//! `packages/domain-contract/src/merge-train.ts`): the thread header's merge
+//! `packages/domain-contract/src/merge-train.ts`): the chat header's merge
 //! STATUS pill ([`status_pill`], [`ordinal`]), the header `…`'s rows
 //! ([`merge_menu_entries`]), the Needs you row of a stuck PR ([`stuck_row`])
 //! and the `pr_merge` event lines ([`event_line`]). Pure: the IDE feeds it the
@@ -334,7 +334,7 @@ impl MergeMenuEntry {
     }
 }
 
-/// `mergeMenuEntries` (the thread header's `…`): the
+/// `mergeMenuEntries` (the chat header's `…`): the
 /// Checks submenu (any viewer, the PR has rows), Merge now (owners; a live
 /// PR not draft, merged or conflict), Hold | Resume auto-merge (members; a
 /// live PR not draft or merged: Resume while held), Close PR (members, live
@@ -468,7 +468,7 @@ pub fn stuck_row(
 // ── pr_merge LINES ─────────────────────────────────────────────────────────
 
 /// A `pr_merge` event card's template by its `mergeOutcome` (`copy.events`);
-/// None = unknown or missing (the caller keeps session-thread's fallback).
+/// None = unknown or missing (the caller keeps session-chat's fallback).
 pub fn event_line(outcome: Option<&str>) -> Option<&'static str> {
     MERGE_TRAIN.copy.events.get(outcome?).map(String::as_str)
 }

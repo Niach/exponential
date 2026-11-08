@@ -126,8 +126,8 @@ object FeedbackStates {
     fun errorTitle(verb: String, thing: String): String =
         ERROR_TITLE_PATTERN.replace("{verb}", verb).replace("{thing}", thing)
 
-    /** `errors.mergeRefusal.handoff`: ends the server's message once the refusal went into the thread. */
-    const val MERGE_HANDOFF = "Sent to the thread."
+    /** `errors.mergeRefusal.handoff`: ends the server's message once the refusal went into the chat. */
+    const val MERGE_HANDOFF = "Sent to the chat."
 
     /**
      * Where a failure renders, by who started the work (the fixture's `kind`

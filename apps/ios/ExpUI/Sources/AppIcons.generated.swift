@@ -443,6 +443,7 @@ public enum AppIcons {
         "call-speaker": "volume-2",
         "call-speaker-off": "ear",
         "call-unmute": "mic-off",
+        "chat-results": "images",
         "ci-failed": "circle-x",
         "ci-passed": "circle-check",
         "ci-queued": "circle-dashed",
@@ -516,6 +517,7 @@ public enum AppIcons {
         "nav-apps": "layout-grid",
         "nav-boards": "folder-kanban",
         "nav-changelog": "megaphone",
+        "nav-chats": "list-tree",
         "nav-computer": "computer",
         "nav-create-issue": "square-pen",
         "nav-devices": "monitor",
@@ -782,6 +784,8 @@ public enum AppIcons {
     public static let callSpeakerOff: String = "ear"
     /// Concept `call-unmute`.
     public static let callUnmute: String = "mic-off"
+    /// Concept `chat-results`.
+    public static let chatResults: String = "images"
     /// Concept `ci-failed`.
     public static let ciFailed: String = "circle-x"
     /// Concept `ci-passed`.
@@ -928,6 +932,8 @@ public enum AppIcons {
     public static let navBoards: String = "folder-kanban"
     /// Concept `nav-changelog`.
     public static let navChangelog: String = "megaphone"
+    /// Concept `nav-chats`.
+    public static let navChats: String = "list-tree"
     /// Concept `nav-computer`.
     public static let navComputer: String = "computer"
     /// Concept `nav-create-issue`.

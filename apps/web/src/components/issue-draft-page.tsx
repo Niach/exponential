@@ -45,7 +45,7 @@ import { FilesSectionView } from "@/components/issue-files-section"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { PropertiesTrayCard } from "@/components/issue-properties-tray"
 import { IssueTitleInput } from "@/components/issue-title-field"
-import { DraftThreadRow } from "@/components/thread/issue-threads-row"
+import { DraftChatRow } from "@/components/chat/issue-chats-row"
 import {
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
@@ -91,8 +91,8 @@ export interface IssueDraftPageProps {
   initialStatusId?: string
   /** The `?from=` origin — Back returns there, Create keeps it. */
   from?: string
-  /** EXP-1284: `New issue in this thread` — Create links the issue into it. */
-  threadId?: string
+  /** EXP-1284: `New issue in this chat` — Create links the issue into it. */
+  chatId?: string
   /** EXP-1635: opened from the Share to page: Back returns there, a filed
    *  issue ends the share. */
   fromShare?: boolean
@@ -111,7 +111,7 @@ export function IssueDraftPage({
   initialBoardId,
   initialStatusId,
   from,
-  threadId,
+  chatId,
   fromShare = false,
   share = null,
 }: IssueDraftPageProps) {
@@ -121,11 +121,11 @@ export function IssueDraftPage({
   // Land on an issue — the page's own Create and a create elsewhere
   // (EXP-1231) both REPLACE the draft entry, keep `?from=`, and pass the
   // leave blocker (the draft is consumed; there is nothing to ask about).
-  // EXP-1284 (review T11): a thread draft lands back on its thread, the new
+  // EXP-1284 (review T11): a chat draft lands back on its chat, the new
   // issue's tab selected (`draftLandingNavigation`). The editor holds the
-  // thread (a reopened draft keeps its own), read through a ref because the
+  // chat (a reopened draft keeps its own), read through a ref because the
   // editor is created below.
-  const threadIdRef = useRef<string | null>(threadId ?? null)
+  const chatIdRef = useRef<string | null>(chatId ?? null)
   const land = (landing: ReturnType<typeof draftLandingNavigation>) => {
     if (fromShare) void clearPendingShare()
     void navigate({ ...landing, replace: true, ignoreBlocker: true })
@@ -134,7 +134,7 @@ export function IssueDraftPage({
     land(
       draftLandingNavigation({
         teamSlug,
-        threadId: threadIdRef.current,
+        chatId: chatIdRef.current,
         boardSlug:
           boards.find((row) => row.id === issue.boardId)?.slug ??
           boards[0]?.slug ??
@@ -161,14 +161,14 @@ export function IssueDraftPage({
     initialStatusId,
     initialTitle: prefill?.title,
     initialDescription: prefill?.description,
-    threadId,
+    chatId,
     draft,
     boards,
     labels,
     users,
     onConsumedElsewhere,
   })
-  threadIdRef.current = editor.threadId
+  chatIdRef.current = editor.chatId
   const board =
     boards.find((row) => row.id === editor.boardId) ??
     boards.find((row) => row.id === initialBoardId) ??
@@ -228,7 +228,7 @@ export function IssueDraftPage({
     land(
       draftLandingNavigation({
         teamSlug,
-        threadId: editor.threadId,
+        chatId: editor.chatId,
         boardSlug: created.boardSlug ?? board?.slug ?? ``,
         issueId: created.id,
         identifier: created.identifier,
@@ -498,10 +498,10 @@ export function IssueDraftPage({
     />
   )
 
-  // EXP-1284: where a "New issue in this thread" draft files.
-  const threadRow = (
-    <DraftThreadRow
-      threadId={editor.threadId}
+  // EXP-1284: where a "New issue in this chat" draft files.
+  const chatRow = (
+    <DraftChatRow
+      chatId={editor.chatId}
       teamId={teamId}
       teamSlug={teamSlug}
       className="px-5 pt-1 pb-2"
@@ -650,7 +650,7 @@ export function IssueDraftPage({
           style={{ paddingTop: mobileHeaderSize.height }}
         >
           <div ref={titleRef}>{titleInput}</div>
-          {threadRow}
+          {chatRow}
           {tray}
           <div className="pt-2">{descriptionEditor}</div>
           {filesSection}
@@ -691,7 +691,7 @@ export function IssueDraftPage({
               >
                 {titleInput}
               </div>
-              {threadRow}
+              {chatRow}
             </div>
             {/* EXP-1191: the tray stays in view, like the issue's. */}
             <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>

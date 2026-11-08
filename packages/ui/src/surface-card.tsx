@@ -10,9 +10,9 @@ import { conceptIcon } from "./icons.generated"
 import { paintedCard, planCardHost, useCardLinks } from "./plan-card"
 import { userMessageTime } from "./user-message-bubble"
 
-// Thread 58cb32df (fixtures/chats.json TRANSCRIPT + SURFACE CARD ×4; iOS
+// Chat 58cb32df (fixtures/chats.json TRANSCRIPT + SURFACE CARD ×4; iOS
 // `SurfaceCard` / `TranscriptDivider` / `ChatBubble`, Android the same names
-// in ui/thread, desktop `surface_card.rs`): the chat transcript's new pieces.
+// in ui/chat, desktop `surface_card.rs`): the chat transcript's new pieces.
 //
 //   SurfaceCard        an agent's inline Exponential UI preview (message card
 //                      `surface`), painted by THE plan card's renderer

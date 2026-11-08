@@ -1,6 +1,6 @@
 package com.exponential.app.domain
 
-// EXP-1341/NEW-2: ONE session model ×4. A thread and an agent's conversation
+// EXP-1341/NEW-2: ONE session model ×4. A chat and an agent's conversation
 // run the same way; a conversation session (a root with `agentId`) is just
 // `persistent` (never ends, revived on its device's return). Branch on these
 // traits, never on the kind string: [SessionKind.sessionKindOf] derives the

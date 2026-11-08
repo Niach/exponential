@@ -30,7 +30,7 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     /// EXP-981: claude only — the model its subagents run on; absent = the
     /// contract default.
     public let subagentModel: String?
-    /// The dispatcher root's model (threads + team agents) on this agent;
+    /// The dispatcher root's model (chats + team agents) on this agent;
     /// absent = the contract default (`deviceAgentDefaults*ThreadModel`).
     public let threadModel: String?
     public let effort: String?

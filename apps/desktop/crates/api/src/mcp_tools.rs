@@ -249,7 +249,7 @@ pub struct RemoteSession {
     pub id: String,
     #[serde(default)]
     pub team_id: Option<String>,
-    /// `None` on a root (a thread or a team agent's channel).
+    /// `None` on a root (a chat or a team agent's channel).
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
@@ -258,7 +258,7 @@ pub struct RemoteSession {
     #[serde(default)]
     pub depth: u32,
     /// NEW-2: the agent DEFINITION a conversation session runs (`None` = a
-    /// thread); the kind derives from it (NEW-8: never the legacy `kind`).
+    /// chat); the kind derives from it (NEW-8: never the legacy `kind`).
     #[serde(default)]
     pub agent_id: Option<String>,
     /// The row's title (a list row: the derived one).
@@ -337,12 +337,12 @@ where
     Ok(<Option<Vec<T>> as Deserialize>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-/// `exponential_sessions_list` filters: the thread roots the caller may see
+/// `exponential_sessions_list` filters: the chat roots the caller may see
 /// (shared ones and their own), newest activity first.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionsQuery {
-    /// The caller's own conversations with this agent instead of threads
+    /// The caller's own conversations with this agent instead of chats
     /// (#1122 dropped the old `kind` filter: the server rejects it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
@@ -376,7 +376,7 @@ pub fn sessions_get(trpc: &TrpcClient, session_id: &str) -> Result<RemoteSession
 /// `exponential_sessions_send` input — the server's `sessionsSendInputSchema`
 /// (web `@exp/db-schema/domain`): message an existing session (`session_id`;
 /// an idle one resumes), start a CHILD (`parent_id`), or start a new ROOT
-/// thread (neither; `issue_ids` / `prompt_id` / `repository_id`); NEW-2:
+/// chat (neither; `issue_ids` / `prompt_id` / `repository_id`); NEW-2:
 /// `agent_id` messages a team agent (the caller's conversation with it).
 /// A new session names its `device_id`; absent runner pickers = that
 /// device's own launch defaults. Every absent field stays off the wire.
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn a_send_omits_absent_options() {
-        // A new root thread on an issue, run on a named device.
+        // A new root session on an issue, run on a named device.
         let input = SessionsSendInput {
             device_id: Some("d1".into()),
             issue_ids: Some(vec!["i1".into()]),
@@ -645,7 +645,7 @@ mod tests {
             r#"{"agentId":"a1","live":true,"limit":50}"#
         );
         // EXP-1473: the server's strict input rejects any `kind` key.
-        let threads = SessionsQuery { limit: 200, ..Default::default() };
-        assert_eq!(serde_json::to_string(&threads).unwrap(), r#"{"limit":200}"#);
+        let chats = SessionsQuery { limit: 200, ..Default::default() };
+        assert_eq!(serde_json::to_string(&chats).unwrap(), r#"{"limit":200}"#);
     }
 }

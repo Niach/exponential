@@ -10,7 +10,7 @@ import SwiftUI
 /// selection its own slot and makes leaving selection mode read as the tab bar
 /// coming back.
 ///
-/// A reference box in the environment rather than a binding threaded through
+/// A reference box in the environment rather than a binding passed through
 /// every screen: `IssueListView` renders at two depths (the Issues root and a
 /// pushed `.board`) and both must reach the same flag.
 @Observable

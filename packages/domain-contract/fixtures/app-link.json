@@ -1,5 +1,5 @@
 {
-  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, thread) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session, ['t',team,'threads',id] → thread (EXP-1284), otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt. VAPP-218: ['t',team,'apps',app,screen] (exactly 5 segments) → appScreen {teamSlug, appSlug, screen, params}: params = the query's `k=v` pairs (split on '&' then the first '='; a key without '=' has the value ''; each side percent-decoded as a whole (a side with any bad escape or invalid UTF-8 is kept entirely as written), no '+' rewriting; empty keys dropped; a repeated key keeps the LAST), minus the editor's own keys apps.json `screens.reserved` (tab, frame); the hash dropped. It opens THE RUN VIEW showing that screen (apps.json `screens`, VAPP-242: never the editor). #EXP-1674: ONE LINK SYSTEM (L1). `classifyAppLink(href, origin, team)` takes the SURFACE'S team slug (the team of the message, issue or app holding the link; null/absent = none). THE TEAM SHORTHAND: `~/x` = `/t/<percent-encoded team>/x`, then the in-app path rule; without a team, anything starting with `~` but not `~/`, `~//…`, or a path with a `.` or `..` segment (after percent-decoding) → ignore. THE ROUTES (`routes`, in matching order; exact segment counts; anything else under `/t/` stays `app`): each row's `path` after `/t/<team>/` → its `kind`. `issueRef` = an issue by identifier alone (agents and packages rarely know the board; web redirects to the board URL). `settings` {teamSlug, section}: `section` = the segment, '' for the Settings root; `settings/devices` = `devices` (its page has its own route); a deeper settings path stays `app`. `appHome` = the app's first screen in THE RUN VIEW (apps.json). OPENING (`linkOpenOutcome`, `openCases`, the ONE rule ×4, unreadable looks exactly like missing): `noAccess` when the viewer is not a member of the link's team (home + toast `copy.noAccess`); `browser` when the target is a web-only page on this client (billing, admin, any page a client has no screen for); `notFound` when the target is missing or not readable by the viewer (a settings row whose settings-nav.json `visible` hides it from this viewer included) (the client's existing not-found state, else toast `copy.noAccess`); `switchTeam` when it is found in another team of the viewer's (switch without asking, then open); else `open`. Checked in that order. A link only navigates: it opens on a person's tap, and no route writes on open. #EXP-1674 (L3): `~/x` on a surface's links expands in the eUI URL policy (`linkBase` = `/t/<team>`, catalog/host.json `urls`): the host's opener gets the absolute URL. A LINK FROM ANOTHER APP: when an eApp's surface opens `appScreen` or `appHome` of a different app, eUI `crossAppTarget` over that app's published package (host-router.json `crossApp`) decides first: the target screen must be `exposed` with its required params, only declared params arrive; a refusal, a missing or unpublished app included, = toast `copy.noAccess`. It pushes, so back returns to the first app. A person's URL or an agent's chat link opens any declared screen.",
+  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, chat) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session (a root session opens as its chat, EXP-1733), otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt. VAPP-218: ['t',team,'apps',app,screen] (exactly 5 segments) → appScreen {teamSlug, appSlug, screen, params}: params = the query's `k=v` pairs (split on '&' then the first '='; a key without '=' has the value ''; each side percent-decoded as a whole (a side with any bad escape or invalid UTF-8 is kept entirely as written), no '+' rewriting; empty keys dropped; a repeated key keeps the LAST), minus the editor's own keys apps.json `screens.reserved` (tab, frame); the hash dropped. It opens THE RUN VIEW showing that screen (apps.json `screens`, VAPP-242: never the editor). #EXP-1674: ONE LINK SYSTEM (L1). `classifyAppLink(href, origin, team)` takes the SURFACE'S team slug (the team of the message, issue or app holding the link; null/absent = none). THE TEAM SHORTHAND: `~/x` = `/t/<percent-encoded team>/x`, then the in-app path rule; without a team, anything starting with `~` but not `~/`, `~//…`, or a path with a `.` or `..` segment (after percent-decoding) → ignore. THE ROUTES (`routes`, in matching order; exact segment counts; anything else under `/t/` stays `app`): each row's `path` after `/t/<team>/` → its `kind`. `issueRef` = an issue by identifier alone (agents and packages rarely know the board; web redirects to the board URL). `settings` {teamSlug, section}: `section` = the segment, '' for the Settings root; `settings/devices` = `devices` (its page has its own route); a deeper settings path stays `app`. `appHome` = the app's first screen in THE RUN VIEW (apps.json). OPENING (`linkOpenOutcome`, `openCases`, the ONE rule ×4, unreadable looks exactly like missing): `noAccess` when the viewer is not a member of the link's team (home + toast `copy.noAccess`); `browser` when the target is a web-only page on this client (billing, admin, any page a client has no screen for); `notFound` when the target is missing or not readable by the viewer (a settings row whose settings-nav.json `visible` hides it from this viewer included) (the client's existing not-found state, else toast `copy.noAccess`); `switchTeam` when it is found in another team of the viewer's (switch without asking, then open); else `open`. Checked in that order. A link only navigates: it opens on a person's tap, and no route writes on open. #EXP-1674 (L3): `~/x` on a surface's links expands in the eUI URL policy (`linkBase` = `/t/<team>`, catalog/host.json `urls`): the host's opener gets the absolute URL. A LINK FROM ANOTHER APP: when an eApp's surface opens `appScreen` or `appHome` of a different app, eUI `crossAppTarget` over that app's published package (host-router.json `crossApp`) decides first: the target screen must be `exposed` with its required params, only declared params arrive; a refusal, a missing or unpublished app included, = toast `copy.noAccess`. It pushes, so back returns to the first app. A person's URL or an agent's chat link opens any declared screen.",
   "origin": "https://app.exponential.at",
   "cases": [
     {
@@ -150,29 +150,29 @@
       }
     },
     {
-      "name": "a thread on this instance opens in the app",
-      "href": "https://app.exponential.at/t/acme/threads/5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13",
+      "name": "a chat (a root session) on this instance opens as a session",
+      "href": "https://app.exponential.at/t/acme/sessions/5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13",
       "link": {
-        "kind": "thread",
+        "kind": "session",
         "teamSlug": "acme",
-        "threadId": "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
+        "sessionId": "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
       }
     },
     {
-      "name": "a relative thread path with a child query opens the thread",
-      "href": "/t/acme/threads/abc?child=guide",
+      "name": "a relative session path with a child query opens the session",
+      "href": "/t/acme/sessions/abc?child=guide",
       "link": {
-        "kind": "thread",
+        "kind": "session",
         "teamSlug": "acme",
-        "threadId": "abc"
+        "sessionId": "abc"
       }
     },
     {
-      "name": "a thread path with an extra segment is an app path",
-      "href": "/t/acme/threads/abc/extra",
+      "name": "a session path with an extra segment is an app path",
+      "href": "/t/acme/sessions/abc/extra",
       "link": {
         "kind": "app",
-        "path": "/t/acme/threads/abc/extra"
+        "path": "/t/acme/sessions/abc/extra"
       }
     },
     {
@@ -350,9 +350,9 @@
     },
     {
       "name": "the chats list",
-      "href": "/t/acme/threads",
+      "href": "/t/acme/chats",
       "link": {
-        "kind": "threads",
+        "kind": "chats",
         "teamSlug": "acme"
       }
     },
@@ -542,12 +542,8 @@
       "kind": "session"
     },
     {
-      "path": "threads/:threadId",
-      "kind": "thread"
-    },
-    {
-      "path": "threads",
-      "kind": "threads"
+      "path": "chats",
+      "kind": "chats"
     },
     {
       "path": "agents/:agentId",

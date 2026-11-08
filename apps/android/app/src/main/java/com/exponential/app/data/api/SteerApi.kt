@@ -60,7 +60,7 @@ data class AgentLaunchDefaults(
      */
     @SerialName("subagentModel") val subagentModel: String? = null,
     /**
-     * The DISPATCHER root's model (threads + team agents), per agent, from
+     * The DISPATCHER root's model (chats + team agents), per agent, from
      * that agent's model vocabulary. Absent = contract
      * `deviceAgentDefaultsThreadModel` / `deviceAgentDefaultsCodexThreadModel`.
      */

@@ -3,7 +3,7 @@ import ExpUI
 import Foundation
 
 // Rendering helpers for the issue activity timeline (status/assignee/label/PR
-// events), shared by CommentThreadView. Relocated out of the deleted agent Plan
+// events), shared by CommentChatView. Relocated out of the deleted agent Plan
 // Panel; SwiftUI-free so they can live next to the views that use them.
 
 /// Human-readable verb for an issue event type (the generic fallback used when

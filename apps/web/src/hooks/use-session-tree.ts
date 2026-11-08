@@ -17,20 +17,20 @@ import {
 } from "@/lib/collections"
 import { sessionTitles } from "@exp/domain-contract/session-title"
 import { CHATS_TRANSCRIPT, digestMessages, type ConversationDigest } from "@exp/domain-contract/chats"
-import { sessionWaitingCard } from "@exp/domain-contract/thread-row-action"
+import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
 import {
-  buildSessionThread,
+  buildSessionChat,
   conversationSessions,
   keyMessageRows,
   listAgents,
   type AgentLike,
-  partitionThreads,
+  partitionChats,
   sessionCard,
   sessionConversationIds,
-  threadAskRow,
-  type ThreadRow,
+  chatAskRow,
+  type SessionChatRow,
   toTreeIssue,
   toTreeMessages,
   toTreePullRequest,
@@ -43,9 +43,9 @@ import {
   type SessionCard,
   type SessionIssueRow,
   type SessionRow,
-  type SessionThreadView,
+  type SessionChatView,
   type SyncedMessageRow,
-  type ThreadsListGroup,
+  type ChatsListGroup,
   type TreeIssue,
   type TreeMessage,
   type TreeSession,
@@ -53,9 +53,9 @@ import {
   type TreeSessionRead,
 } from "@/lib/session-tree"
 
-// EXP-1293 Threads v2 (web): ONE read layer over the session-tree shapes.
-// Every screen (Threads, the rail's Agents + Running, a thread, an agent's
-// channel, a session, an issue's Threads row) reads through these, and the
+// EXP-1293 (web): ONE read layer over the session-tree shapes.
+// Every screen (Chats, the rail's Agents + Running, a chat, an agent's
+// channel, a session, an issue's Chats row) reads through these, and the
 // view models are the contract's (fixture-locked ×4).
 
 /** Every synced session of the team(s) (roots + children), raw + tree form. */
@@ -80,7 +80,7 @@ export function useTeamSessions(teamId: string | readonly string[] | null | unde
   }, [data, isReady, key, keyVersion])
 }
 
-/** EXP-1316: a thread title may fall back past its issues (to the stored
+/** EXP-1316: a chat title may fall back past its issues (to the stored
  *  name, the first message) only once the shapes that could NAME an issue
  *  have reported ready: the links, then the linked issues (none linked = no
  *  wait), and the messages. Until then hosts hold the title (and the
@@ -231,9 +231,9 @@ export function unsettledTitleRoots(input: {
 /** Blank the title of the rows in `held` (their ladder still waits on a
  *  shape); every other row keeps its title. */
 export function holdTitles(
-  groups: ThreadsListGroup[],
+  groups: ChatsListGroup[],
   held: ReadonlySet<string>
-): ThreadsListGroup[] {
+): ChatsListGroup[] {
   if (held.size === 0) return groups
   return groups.map((group) => ({
     ...group,
@@ -320,11 +320,11 @@ export function useSessionReads(): TreeSessionRead[] {
 }
 
 /**
- * The Threads list (Needs you · Running · Recent) for the ACTIVE team
+ * The Chats list (Needs you · Running · Recent) for the ACTIVE team
  * (`teamId`; null/array = every listed team, phones band per team).
  */
-export function useThreadsList(teamId: string | readonly string[] | null | undefined): {
-  groups: ThreadsListGroup[]
+export function useChatsList(teamId: string | readonly string[] | null | undefined): {
+  groups: ChatsListGroup[]
   isReady: boolean
 } {
   const teamIds = teamScopeIds(teamId ?? undefined)
@@ -336,7 +336,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
   const now = useNow(60_000)
   const nowIso = now.toISOString()
   return useMemo(() => {
-    const groups = partitionThreads({
+    const groups = partitionChats({
       sessions: tree,
       sessionIssues: context.sessionIssues,
       issues: context.issues,
@@ -453,7 +453,7 @@ export function useTreeSessions(rootId: string | null | undefined) {
   }, [data, self, isReady, rootId, keyVersion])
 }
 
-/** The PRs a thread opened (`root_session_id`). */
+/** The PRs a chat opened (`root_session_id`). */
 export function useRootPullRequests(rootId: string | null | undefined): PullRequestRow[] {
   const { data } = useLiveQuery(
     (query) =>
@@ -622,7 +622,7 @@ function useNewestMessages(input: {
     [sessionKey]
   )
   // #FEED-191 (chats.json): EVERY waiting card (`waits`; an older digest =
-  // its `waiting`), so one beyond the loaded page still reaches the thread.
+  // its `waiting`), so one beyond the loaded page still reaches the chat.
   const waitingIds = [
     ...new Set(
       ((digests ?? []) as { digest: unknown }[]).flatMap((row) => {
@@ -649,13 +649,13 @@ function useNewestMessages(input: {
   }, [data, waiting, limit, isReady])
 }
 
-/** The thread screen's whole model (`buildSessionThread`, fixture-locked). */
-export function useSessionThread(
+/** The chat screen's whole model (`buildSessionChat`, fixture-locked). */
+export function useSessionChat(
   rootId: string | null | undefined,
   /** EXP-1316: the session open in place (its chips = that level). */
   focus: string | null = null
 ): {
-  view: SessionThreadView | null
+  view: SessionChatView | null
   root: SessionRow | null
   rows: SessionRow[]
   pullRequests: PullRequestRow[]
@@ -670,7 +670,7 @@ export function useSessionThread(
 } {
   const { rows, tree, isReady } = useTreeSessions(rootId)
   const root = rows.find((row) => row.id === rootId) ?? null
-  // NEW-1: a row sits on the session that HOLDS the issue; the thread's
+  // NEW-1: a row sits on the session that HOLDS the issue; the chat's
   // issues = the union over its tree (`treeIssues`).
   const treeIds = rootId
     ? [...new Set([rootId, ...rows.map((row) => row.id)])].sort()
@@ -702,14 +702,14 @@ export function useSessionThread(
     [issueKey]
   )
   // EXP-1334: the tree's messages (`root_id`): the root's own rows plus its
-  // children's question / plan cards (`buildSessionThread` picks them).
+  // children's question / plan cards (`buildSessionChat` picks them).
   // #EXP-1380: the NEWEST of them (`useNewestMessages`), Load earlier widens.
   const newest = useNewestMessages({ key: rootId, rootId, sessionIds: treeIds })
   const treeDigests = useDigestMessages({ sessionIds: treeIds })
   const messageRows = newest.rows
   const messageRowsReady = newest.isReady
   // NEW-8: keyed through their conversations; the title waits on both,
-  // and on the root's own conversation row (a brand-new thread's lags).
+  // and on the root's own conversation row (a brand-new chat's lags).
   const { conversations, isReady: conversationsReady } = useConversationSessions()
   const messagesReady =
     messageRowsReady &&
@@ -726,7 +726,7 @@ export function useSessionThread(
   // team's whole `parent` set (a filter on the linked ids would cut the
   // chain); what the view keys on is the FOLD below, which keeps its
   // identity while no linked issue's parent moved, so a relation elsewhere
-  // in the team never rebuilds the thread.
+  // in the team never rebuilds the chat.
   const { data: parentRelations } = useLiveQuery(
     (query) =>
       issueIds.length > 0
@@ -775,7 +775,7 @@ export function useSessionThread(
   const keyVersion = useKeyVersion()
   const view = useMemo(() => {
     if (!root) return null
-    return buildSessionThread({
+    return buildSessionChat({
       root: toTreeSession(root),
       sessions: linked.tree.length > 0 ? [...tree, ...linked.tree] : tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
@@ -816,7 +816,7 @@ export function useLinkedSessions(
 ): { tree: TreeSession[]; digests: TreeMessage[] } {
   const inTree = new Set(treeIds)
   // #EXP-1464: and every session a card names (a `thread_started` card, a
-  // report, an event line): an agent's threads are roots of their own.
+  // report, an event line): an agent's chats are roots of their own.
   const cardSessionId = (message: MessageRow): string | null => {
     const id = (message.card as { sessionId?: unknown } | null)?.sessionId
     return typeof id === `string` ? id : null
@@ -905,7 +905,7 @@ function useFoldedIssues(
 /** The messages of ONE session (an agent's channel, an opened child): its
  *  own conversation's (NEW-8, keyed through `conversations`), oldest first.
  *  #EXP-1380: its NEWEST ones (`useNewestMessages`; a root shares its
- *  thread's limit), its waiting card always. */
+ *  chat's limit), its waiting card always. */
 export function useSessionMessages(sessionId: string | null | undefined): MessageRow[] {
   const { conversations } = useConversationSessions()
   const conversationIds = sessionId ? sessionConversationIds(conversations, [sessionId]) : []
@@ -917,12 +917,12 @@ export function useSessionMessages(sessionId: string | null | undefined): Messag
   return useMemo(() => keyMessageRows(rows, conversations), [rows, conversations, keyVersion])
 }
 
-/** #EXP-1464 (thread-row-action.json): an expanded session row's waiting
+/** #EXP-1464 (chat-row-action.json): an expanded session row's waiting
  *  question / plan card (`sessionWaitingCard` over the session's newest
  *  messages + its digest's waiting card, any tree); undefined = loading. */
 export function useSessionWaitingCard(
   sessionId: string
-): Extract<ThreadRow, { type: `question` | `plan` }> | null | undefined {
+): Extract<SessionChatRow, { type: `question` | `plan` }> | null | undefined {
   const { conversations } = useConversationSessions()
   const conversationIds = sessionConversationIds(conversations, [sessionId])
   const sessionIds = useMemo(() => [sessionId], [sessionId])
@@ -933,14 +933,14 @@ export function useSessionWaitingCard(
     const messages = toTreeMessages(keyMessageRows(rows, conversations))
     const id = sessionWaitingCard(sessionId, messages)
     const message = id ? messages.find((row) => row.id === id) : undefined
-    if (message) return threadAskRow(message)
+    if (message) return chatAskRow(message)
     return isReady ? null : undefined
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, isReady, conversations, sessionId, keyVersion])
 }
 
 /** Every message of ONE tree (`root_id`): an agent's conversation shows
- *  its children's question / plan cards like a thread does. NEW-8: keyed
+ *  its children's question / plan cards like a chat does. NEW-8: keyed
  *  through `conversations`, oldest first. #EXP-1380: the NEWEST ones, the
  *  tree's waiting cards always; `more` + `loadEarlier` page further back. */
 export function useTreeMessages(rootId: string | null | undefined): MessageRow[] & {
@@ -972,7 +972,7 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
   )
 }
 
-/** #EXP-1399 (session-thread.json): the ORIGIN cards of the `ask` mirrors
+/** #EXP-1399 (session-chat.json): the ORIGIN cards of the `ask` mirrors
  *  among `rows` that live in another tree (an escalated card draws the
  *  origin message); a mirror whose origin is already loaded adds nothing.
  *  The shape's visibility rule decides: an origin the viewer cannot see
@@ -1084,10 +1084,10 @@ export function useSessionCard(row: SessionRow | null): SessionCard | null {
   }, [row, titles, now])
 }
 
-/** The threads (roots) one issue sits in, newest activity first. NEW-1: a
+/** The chats (roots) one issue sits in, newest activity first. NEW-1: a
  *  `session_issues` row sits on the session HOLDING the issue (a child as
  *  often as a root), so the holders resolve to their roots. */
-export function useThreadsOfIssue(issueId: string | null | undefined): SessionRow[] {
+export function useChatsOfIssue(issueId: string | null | undefined): SessionRow[] {
   const { data } = useLiveQuery(
     (query) =>
       issueId

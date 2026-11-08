@@ -78,7 +78,7 @@ struct DeviceSettingsSheet: View {
     /// picker sentinels resolved).
     private struct AgentDraft: Equatable {
         var model: String
-        /// The dispatcher root's model (threads + team agents).
+        /// The dispatcher root's model (chats + team agents).
         var threadModel: String
         /// EXP-981: claude's subagent model (claude only; ignored for codex).
         var subagentModel: String

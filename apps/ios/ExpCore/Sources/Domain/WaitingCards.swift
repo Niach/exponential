@@ -3,7 +3,7 @@ import Foundation
 /// #EXP-1561 / #EXP-1562: WAITING question and plan cards ×4
 /// (`packages/domain-contract/fixtures/waiting-cards.json`, TS reference
 /// `src/waiting-cards.ts`): a card's state (waiting / answered / dismissed /
-/// superseded) and the thread header's waiting chips. `WaitingCardsTests`
+/// superseded) and the chat header's waiting chips. `WaitingCardsTests`
 /// replays `stateCases` and `chipCases`, comparing the WHOLE value.
 public enum WaitingCards {
     public enum State: String, Equatable, Sendable {

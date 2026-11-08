@@ -30,12 +30,12 @@ export const entry: StyleguideEntry = {
     ios: {
       state: `ok`,
       symbol: `ChatHeader`,
-      file: `apps/ios/Exponential/UI/Thread/ThreadStripTabs.swift`,
+      file: `apps/ios/Exponential/UI/Chat/ChatStripTabs.swift`,
     },
     android: {
       state: `ok`,
       symbol: `ChatHeader`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ChatHeader.kt`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/chat/ChatHeader.kt`,
     },
   },
   island: () => <ChatHeaderSpecimen />,

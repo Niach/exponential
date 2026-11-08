@@ -323,7 +323,7 @@ export const commentKindValues = [`regular`] as const
 // MCP (`comments.create` stamps it from the MCP context; the card header
 // carries a "via MCP" caption), or (SLOP-4) the widget REPORTER through
 // their magic-link page (`author_id` NULL; the card names the submission's
-// reporter and carries a "reporter" caption). Threading is
+// reporter and carries a "reporter" caption). Nesting is
 // `comments.parent_id`: ONE level deep, a reply to a reply flattens to the
 // root.
 export const commentSourceValues = [`user`, `mcp`, `reporter`] as const
@@ -506,7 +506,7 @@ export const SESSION_RESULTS_FILES_TOTAL_MAX = 120
 export const SESSION_RESULT_CAPTION_MAX = 200
 export const SESSION_SHOW_DEFAULT_TOPIC = `Progress`
 // EXP-1251: a text entry's `prUrl` (the PR its topic belongs to) and every
-// entry's server write stamp `at` (epoch ms, EXP-1245: the thread's turns).
+// entry's server write stamp `at` (epoch ms, EXP-1245: the chat's turns).
 export const SESSION_RESULT_PR_URL_MAX = 300
 
 export interface GuideEntry {
@@ -536,10 +536,10 @@ export interface GuideEntry {
    *  never stamps the topic; absent = never tagged. */
   untagged?: boolean
   /** EXP-1284: the session that wrote the entry (stamped server-side on
-   *  every write): a thread's ONE Guide holds every session's entries, so
+   *  every write): a chat's ONE Guide holds every session's entries, so
    *  a session block shows its own (`sessionGuideEntries`), a moved session
    *  takes its own along, and a later session never overwrites another's
-   *  topic. Absent on entries filed before threads. */
+   *  topic. Absent on entries filed before chats. */
   sessionId?: string | null
 }
 
@@ -999,8 +999,8 @@ export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   threadModel: `haiku`,
 }
 
-// ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────
-// A thread IS a root session (`sessions.kind = thread`, `parent_id` NULL); a
+// ── EXP-1291: ONE session tree ──────────────────────────────────────────
+// A chat IS a root session (`sessions.kind = thread`, `parent_id` NULL); a
 // team agent is a root of kind `agent` (never ends: it idles and wakes on a
 // message or a trigger). Children are sub-sessions on any device (kind
 // `thread`). Every start, message, follow-up, action run, trigger firing and
@@ -1018,7 +1018,7 @@ export const sessionStatusValues = [`queued`, `running`, `idle`, `ended`] as con
 export type SessionStatus = (typeof sessionStatusValues)[number]
 export const sessionStatusSchema = z.enum(sessionStatusValues)
 
-/** Who linked an issue to a thread (session_issues.source). */
+/** Who linked an issue to a chat (session_issues.source). */
 export const sessionIssueSourceValues = [`user`, `agent`] as const
 export type SessionIssueSource = (typeof sessionIssueSourceValues)[number]
 export const sessionIssueSourceSchema = z.enum(sessionIssueSourceValues)
@@ -1055,7 +1055,7 @@ export const messageCardKindValues = [
   `suggestions`,
   `replies`,
   `ask`,
-  // Thread 58cb32df (chats.json): an agent's inline Exponential UI preview.
+  // Chat 58cb32df (chats.json): an agent's inline Exponential UI preview.
   `surface`,
 ] as const
 export type MessageCardKind = (typeof messageCardKindValues)[number]
@@ -1247,7 +1247,7 @@ export const questionCardSchema = z
 
 /** messages.card: what a non-text conversation row shows. `session` = ONE
  *  child session's card (the Work card header row, EXP-1240; opens that
- *  session), `thread_started` = an agent channel's "started ▸ Thread" card,
+ *  session), `thread_started` = an agent channel's "started ▸ Chat" card,
  *  `question`/`plan` answer IN the card (`answer` + messages.answered_at),
  *  `picture` = a Guide picture the session showed while it worked. */
 export type MessageCard =
@@ -1397,8 +1397,8 @@ export const messageCardSchema = z
   .object({ kind: z.string().max(32) })
   .passthrough()
 
-/** The Guide (ONE per thread, on the root): the PR body of every PR of the
- *  thread. Same entry shape and caps as the EXP-879/1154 results. */
+/** The Guide (ONE per chat, on the root): the PR body of every PR of the
+ *  chat. Same entry shape and caps as the EXP-879/1154 results. */
 
 // ── sessions.send (THE entrypoint) ──────────────────────────────────────────
 export const SESSIONS_SEND_TEXT_MAX = 16384
@@ -1473,9 +1473,9 @@ export type SessionAnswerInput = z.infer<typeof sessionAnswerSchema>
 
 /**
  * `sessions.send`: message an existing session (`sessionId`; resumes it when
- * idle, an ended THREAD continues in a new child), message an AGENT
+ * idle, an ended CHAT continues in a new child), message an AGENT
  * (`agentId`: the caller's own conversation session with it, NEW-2), start
- * a CHILD (`parentId`), or start a new ROOT (neither): a thread, optionally
+ * a CHILD (`parentId`), or start a new ROOT (neither): a chat, optionally
  * with `issueIds` / `promptId` / `repositoryId`. EXP-1341: `name` names a
  * NEW root or child (omitted = it names itself, session-title.json);
  * `issueIds` on a start are rows on it, on a message FORWARD to that
@@ -1550,7 +1550,7 @@ export const sessionsSendInputSchema = z
     // EXP-1458: the new session's name as a body envelope (written to
     // `sessions.sealed_title`; the plaintext title stays neutral).
     sealedName: z.string().min(1).max(sealedBodyMax(255)).refine((value) => value.startsWith(SEALED_BODY_PREFIX), `not sealed`).optional(),
-    // EXP-1458: the tree key of a root that has none yet (a new thread, an
+    // EXP-1458: the tree key of a root that has none yet (a new chat, an
     // agent conversation, an app editor), created in the send's own
     // transaction under `sessionKeys.create`'s rules: `installId` = the
     // caller's own install (wrapped among `wraps`), every wrap a reader.
@@ -1640,7 +1640,7 @@ export const sessionsSendInputSchema = z
     if (!input.text?.trim() && !input.issueIds && !input.promptId && !input.wakeOn)
       // #FEED-173: the same words as sessions.send's START_NEEDS_WORK (eagent `copy.startNeedsWork`).
       issue(
-        `Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session`
+        `Name the session to message (sessionId, agentId, appId or parentId), or give the new session a text or issues; wakeOn alone watches from your own session`
       )
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>

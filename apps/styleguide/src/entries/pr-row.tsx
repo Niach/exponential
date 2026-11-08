@@ -7,7 +7,7 @@ import type { StyleguideEntry } from "./types.ts"
 // linear STACK hangs off one rail down to its base branch, the current member
 // washed, and a hovered member offers the ghost "Merge through here" (pinned
 // on one row here). EXP-1293: one row per `pull_requests` row (the stack edge
-// = `base_pull_request_id`); a thread's Guide draws them.
+// = `base_pull_request_id`); a chat's Guide draws them.
 
 export const entry: StyleguideEntry = {
   id: `pr-row`,
@@ -20,7 +20,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `PrRow / PrList / StackRail / PrNode`,
       file: `packages/ui/src/pr-row.tsx`,
-      note: `a thread's Guide draws it, one row per pull_requests row`,
+      note: `a chat's Guide draws it, one row per pull_requests row`,
     },
     desktop: {
       state: `ok`,

@@ -471,7 +471,7 @@ export function DockSheetSpecimenFrame({
 
 /** AUTO-OPEN (dock.json): the plan or question that just arrived opens its
  *  sheet when the view is in front (`enabled` and the document visible).
- *  Until the host's data has loaded (`ready`: the relay live, the thread's
+ *  Until the host's data has loaded (`ready`: the relay live, the chat's
  *  rows in) and for `autoOpenGraceMs` after that, every card shown only
  *  seeds the memory, so what already waited never opens itself; every id
  *  seen is remembered so a card never re-opens. */

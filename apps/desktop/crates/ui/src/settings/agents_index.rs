@@ -303,7 +303,7 @@ impl AgentsIndexPane {
             let emitter = event_emitter_label(
                 &event,
                 |session_id| crate::session_data::session_title_of(session_id, cx),
-                |user_id| crate::thread_screen::member_name(Some(user_id), cx),
+                |user_id| crate::session_chat::member_name(Some(user_id), cx),
             );
             let at = event
                 .created_at

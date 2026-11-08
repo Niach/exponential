@@ -275,7 +275,7 @@ object MergeTrain {
     }
 
     /**
-     * The header `…` (the thread menu): checks
+     * The header `…` (the chat menu): checks
      * (any viewer, any PR with rows), Merge now (owners; a live PR not draft,
      * merged or conflict), Hold | Resume auto-merge (members; a live PR not
      * draft or merged: Resume while held), Close PR (members, live PR).

@@ -3,7 +3,7 @@ import { AgentBrandMark, CommentCallCard, IssueChip } from "@exp/ui"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1241 (EXP-1259 D14): the comment an `exponential_comments_create`
-// call posted, as the run thread draws it — the REAL `CommentCallCard`
+// call posted, as the run transcript draws it — the REAL `CommentCallCard`
 // ("Commented on <issue chip>" over the comment in the timeline's look). The
 // app renders the body through its markdown editor; the island passes plain
 // paragraphs.
@@ -37,7 +37,7 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `thread_comment_card`,
+      symbol: `chat_comment_card`,
       file: `apps/desktop/crates/ui/src/comments.rs`,
       note: `steer_viewer::render_comment_call; styleguide/entries/comment_card.rs`,
     },

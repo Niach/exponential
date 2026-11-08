@@ -5,7 +5,7 @@ import GRDB
 
 /// Backs the Devices tab (machines) AND the composer's pools (EXP-825:
 /// issues, boards, actions, open PRs and devices). EXP-1295: no session rows
-/// here — sessions live in the Threads list. The composer's pools stay bound
+/// here — sessions live in the Chats list. The composer's pools stay bound
 /// to the ACTIVE team.
 @MainActor @Observable
 final class AgentsViewModel {

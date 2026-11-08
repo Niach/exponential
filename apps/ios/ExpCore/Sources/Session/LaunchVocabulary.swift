@@ -29,7 +29,7 @@ public enum LaunchVocabulary {
     // MARK: - Option lists
 
     /// THE model list of an agent, for EVERY model pick (session model,
-    /// thread model, subagents, computer use): claude = contract
+    /// chat model, subagents, computer use): claude = contract
     /// `codingModel`, codex = `codexModel`. No default row.
     /// Parameterized because a seed validates an advertised value against the
     /// agent it belongs to, which isn't always the selected one yet (EXP-437).
@@ -55,7 +55,7 @@ public enum LaunchVocabulary {
             : DomainContract.deviceAgentDefaultsModel
     }
 
-    /// The dispatcher root's model (threads + team agents) a machine that
+    /// The dispatcher root's model (chats + team agents) a machine that
     /// never set one runs.
     public static func defaultThreadModel(for agent: String) -> String {
         agent == "codex"

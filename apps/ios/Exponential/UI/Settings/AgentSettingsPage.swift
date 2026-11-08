@@ -3,7 +3,7 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-// EXP-1291 Threads v2: the AGENT PAGE — Team settings → Agents, laid out
+// EXP-1291: the AGENT PAGE — Team settings → Agents, laid out
 // exactly like a board (fixture `agent-settings.json` `fields`, top to
 // bottom): the board form's ONE identity row (icon picker + colour swatch +
 // name), Device (required), Account (the device's logins), Triggers (one row
@@ -303,7 +303,7 @@ struct AgentSettingsPage: View {
 
     var body: some View {
         // S-3: an Assistant (only ever the viewer's own) opens THE Assistant
-        // page wherever an agent page is pushed (settings, chats, thread).
+        // page wherever an agent page is pushed (settings, chats, chat).
         if let agentId, agent?.isAssistant == true {
             AssistantSettingsPage(teamId: teamId, agentId: agentId)
         } else {

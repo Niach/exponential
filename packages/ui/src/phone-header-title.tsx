@@ -2,8 +2,8 @@ import type { ReactNode } from "react"
 import { BoardGlyph } from "./board-glyph"
 
 // NEW-15: the phone header's title block (moved from apps/web
-// components/thread/chat-header.tsx, which re-exports it), so the marketing
-// site's phone demos draw the agent header the app draws. Thread 58cb32df
+// components/chat/chat-header.tsx, which re-exports it), so the marketing
+// site's phone demos draw the agent header the app draws. Chat 58cb32df
 // (chats.json): a 40px DISC beside the title over ONE subtitle line.
 
 export const CHAT_HEADER_AGENT_SUBTITLE = `Agent`

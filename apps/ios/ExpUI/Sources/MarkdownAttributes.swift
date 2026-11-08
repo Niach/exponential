@@ -46,7 +46,7 @@ public enum MarkdownStyle {
     /// `.backgroundColor` run.
     public nonisolated(unsafe) static let chipBackground = PlatformColor.white.withAlphaComponent(0.08)
     public nonisolated(unsafe) static let chipBorder = PlatformColor.white.withAlphaComponent(0.16)
-    /// The mention pill (thread e4a04d22, web `.mention-pill` ×4): the
+    /// The mention pill (session e4a04d22, web `.mention-pill` ×4): the
     /// `--accent` fill, the `--border` hairline, `--accent-foreground` text
     /// at 13pt medium, fully round, 0.05rem × 0.4rem padding. Straight off
     /// the shared design tokens so it can never drift from web.

@@ -20,7 +20,7 @@ lists its ops. They appear as `exponential__exponential_*`.
   interactive list: status groups, priorities, PR numbers; a row opens the
   issue. Prefer it over `op: "list"` whenever the person will look at the
   result.
-- A thread's report (title, issues, PRs, Guide, latest messages):
+- A root session's report (title, issues, PRs, Guide, latest messages):
   `exponential_sessions {op: "get", id}` with an id from `op: "list"` (JSON;
   the session tools have no view).
 - The inbox and the person's machines also render as views:
@@ -45,12 +45,12 @@ lists its ops. They appear as `exponential__exponential_*`.
 ## Sessions and agents
 
 `exponential_sessions_send` is the one session verb: `{teamId, deviceId,
-issueIds, text}` starts a thread on one of the person's devices
+issueIds, text}` starts a new root session on one of the person's devices
 (`exponential_devices {op: "list"}` names them and their agent accounts),
 `{sessionId, text}` messages a running or idle one, `{agentId, text}`
 messages a team agent (the person's own conversation with it), `{sessionId,
 stop: true}` interrupts a turn. Every transition of a session (a reply, a
-question, a PR, its end) arrives as a message in its thread: read it with
+question, a PR, its end) arrives as a message in its root session: read it with
 `exponential_sessions {op: "get", id}`; never poll in a loop.
 
 ## Connection

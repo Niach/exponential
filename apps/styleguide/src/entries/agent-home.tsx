@@ -68,7 +68,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Agent home`,
-  blurb: `Home on every client (fixture \`composer-home.json\`). The dawn (FEED-100: the big brand mark's top half at 2.5% ink, standing on the card and fading toward it, no gap; 440px at most, ~69% of the column, phones 240px), then the composer ("${HOME_PLACEHOLDER}") and its options line. No greeting, no history button, nothing beneath it; a start opens its thread; a team with no board gets Getting started ${HOME_GEOMETRY.composerToGettingStarted}px below. Phones pin the composer to the bottom with the dawn on it, Getting started above the dawn, and no Running list.`,
+  blurb: `Home on every client (fixture \`composer-home.json\`). The dawn (FEED-100: the big brand mark's top half at 2.5% ink, standing on the card and fading toward it, no gap; 440px at most, ~69% of the column, phones 240px), then the composer ("${HOME_PLACEHOLDER}") and its options line. No greeting, no history button, nothing beneath it; a start opens its chat; a team with no board gets Getting started ${HOME_GEOMETRY.composerToGettingStarted}px below. Phones pin the composer to the bottom with the dawn on it, Getting started above the dawn, and no Running list.`,
   status: {
     web: {
       state: `ok`,

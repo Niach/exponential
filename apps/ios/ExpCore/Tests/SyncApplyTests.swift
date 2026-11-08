@@ -323,7 +323,7 @@ final class SyncApplyTests: XCTestCase {
     // kind whatever the legacy `kind` shim says; a native-scalar (tRPC /
     // fixture) row with the defaulted columns absent takes the schema
     // defaults rather than throwing, and a row without `agent_id` (a
-    // pre-NEW-2 server) is a thread even when its shim says `agent`.
+    // pre-NEW-2 server) is a chat even when its shim says `agent`.
     func testAgentSessionDecodesFacetsAndDefaults() throws {
         let json = """
             {"id":"ag1","team_id":"ws1","kind":"agent","agent_id":"def-1","user_id":"u1",
@@ -778,13 +778,13 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(patched?.dueDate, "2026-10-01")
     }
 
-    // EXP-1291: `issue_drafts.session_id` — a "New issue in this thread"
-    // draft keeps its thread across a partial that does not touch it, and a
-    // partial that nulls it (the thread was deleted: FK SET NULL) clears it.
+    // EXP-1291: `issue_drafts.session_id` — a "New issue in this chat"
+    // draft keeps its chat across a partial that does not touch it, and a
+    // partial that nulls it (the chat was deleted: FK SET NULL) clears it.
     func testIssueDraftSessionIdPersistsAndSurvivesPartials() async throws {
         let json = """
             {"id":"d2","user_id":"u1","team_id":"ws1","board_id":"b1",
-             "title":"In a thread","priority":"none","label_ids":"{}",
+             "title":"In a chat","priority":"none","label_ids":"{}",
              "session_id":"t1",
              "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
             """
@@ -881,9 +881,9 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(orphan?.title, "Orphan")
     }
 
-    // EXP-1291: the session-tree reads — roots per kind (threads by
+    // EXP-1291: the session-tree reads — roots per kind (chats by
     // activity, agents by their order), a tree shallowest first, a root's
-    // conversation and issues in order, the threads holding an issue, a
+    // conversation and issues in order, the chats holding an issue, a
     // root's and an issue's pull requests, and my live sessions.
     func testSessionQueries() async throws {
         let at = "2026-10-13T09:00:00Z"
@@ -914,7 +914,7 @@ final class SyncApplyTests: XCTestCase {
                 id: "ag-a", teamId: "ws1", userId: "u1", deviceId: "dev-1",
                 status: DomainContract.sessionStatusIdle, createdAt: at, updatedAt: at, agentId: "def-a"
             ).save(db)
-            // NEW-2: a row without `agent_id` is a thread; the kind derives
+            // NEW-2: a row without `agent_id` is a chat; the kind derives
             // from `agent_id` alone.
             try SessionEntity(
                 id: "t-legacy-kind", teamId: "ws3", userId: "u1",
@@ -946,12 +946,12 @@ final class SyncApplyTests: XCTestCase {
                 authorKind: DomainContract.messageAuthorKindUser, authorId: "u1", body: "Go",
                 createdAt: at, updatedAt: at
             ).save(db)
-            // A child's link is the thread's too (the strip's count ×4).
+            // A child's link is the chat's too (the strip's count ×4).
             try SessionIssueEntity(
                 id: "si-child", sessionId: "t-child", issueId: "i3", teamId: "ws1", sortOrder: 3,
                 createdAt: at, updatedAt: at
             ).save(db)
-            // i1 sits in BOTH ws1 threads; i2 only in t-new (linked first).
+            // i1 sits in BOTH ws1 chats; i2 only in t-new (linked first).
             try SessionIssueEntity(
                 id: "si-b", sessionId: "t-new", issueId: "i1", teamId: "ws1", sortOrder: 2,
                 createdAt: at, updatedAt: at

@@ -83,7 +83,7 @@ export function useOpenComposer(): (
       // where they were, and the dialog's headline says what pressing send
       // will do. Only a subjectless start (the Agent nav entry, a plain
       // chat) still travels to the page, which is where a chat lives.
-      // EXP-1293: the started session opens its thread, so the origin only
+      // EXP-1293: the started session opens its chat, so the origin only
       // matters to the page navigation below.
       if (seedHasSubject(seed)) {
         requestLaunchDialog({ ...seed, issueIds: seed.issueIds ?? [] })

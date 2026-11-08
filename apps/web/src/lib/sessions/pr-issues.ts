@@ -10,9 +10,9 @@ import { isSealedBody } from "@/lib/sessions/sealed"
 // session's issues are the rows it HOLDS; the PR belongs to ONE session of
 // the tree, so it closes its SUBTREE's share: the rows its subtree holds
 // plus the tree's issues its start message names as `#IDENT` (the root's
-// subtree = the whole thread; EXP-1706: the root's share is only the rows
+// subtree = the whole chat; EXP-1706: the root's share is only the rows
 // it holds that no other session holds). #EXP-1402 (FEED-166): a child with no share
-// links NOTHING, never the thread's other issues (merging would close
+// links NOTHING, never the chat's other issues (merging would close
 // them). Done work (an issue a merged PR closed) is never re-linked.
 // EXP-1458: a SEALED start message is never parsed; its clear
 // `ref_issue_ids` (the writer's `refIssueIds`) names the issues instead, and
@@ -20,7 +20,7 @@ import { isSealedBody } from "@/lib/sessions/sealed"
 // #EXP-1402: the share is the opener's LOGICAL session's (`logicalSessionIds`):
 // a continuation ("fix the lint") inherits what its ended predecessors held
 // and named in their briefs; a root in that lineage adds only its own rows,
-// never its subtree (the whole thread).
+// never its subtree (the whole chat).
 
 type Reader = Pick<typeof db, `select`>
 
@@ -50,7 +50,7 @@ export interface PrStart {
   refIssueIds?: readonly string[] | null
 }
 
-/** Pure: the PR's share of the thread's rows (link order, each issue once). */
+/** Pure: the PR's share of the chat's rows (link order, each issue once). */
 export function pickPrIssues(opts: {
   rootId: string
   sessionId: string | null
@@ -65,8 +65,8 @@ export function pickPrIssues(opts: {
 }): string[] {
   const unique = (ids: string[]) => [...new Set(ids)]
   if (!opts.sessionId || opts.sessionId === opts.rootId) {
-    // EXP-1706: never the whole thread: the root's own rows that no other
-    // session of the thread holds (a child's work goes with its PR).
+    // EXP-1706: never the whole chat: the root's own rows that no other
+    // session of the chat holds (a child's work goes with its PR).
     const elsewhere = new Set(
       opts.links.filter((link) => link.sessionId !== opts.rootId).map((link) => link.issueId)
     )
@@ -96,7 +96,7 @@ export function pickPrIssues(opts: {
   )
 }
 
-/** The default issue set of a PR opened by `sessionId` in thread `rootId`. */
+/** The default issue set of a PR opened by `sessionId` in chat `rootId`. */
 export async function prDefaultIssueIds(
   database: Reader,
   opts: { rootId: string; sessionId: string | null }

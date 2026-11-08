@@ -1,13 +1,13 @@
 //! EXP-1241 (EXP-1259 D14): `comment-call-card` (Special components): the comment
 //! an `exponential_comments_create` call posted, as the session view draws it —
-//! "Commented on" over the REAL thread comment card
-//! (`crate::comments::thread_comment_card`): the agent's mark, the author,
+//! "Commented on" over the REAL chat comment card
+//! (`crate::comments::chat_comment_card`): the agent's mark, the author,
 //! the muted meta, the body clamped to three lines with Show more.
 
 use gpui::{div, px, App, Div, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use crate::comments::{thread_comment_card, ThreadCommentProps};
+use crate::comments::{chat_comment_card, ChatCommentProps};
 
 pub(crate) const ID: &str = "comment-call-card";
 pub(crate) const OWNER: &str = "EXP-1241";
@@ -23,8 +23,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(Icon::from(crate::icons::ExpIcon::Logo).xsmall().text_color(muted))
         .child(SharedString::from(crate::steer_viewer::COMMENTED_ON_LABEL))
         .child(div().text_color(muted).child("VAPP-84"));
-    let card = thread_comment_card(
-        ThreadCommentProps {
+    let card = chat_comment_card(
+        ChatCommentProps {
             id: SharedString::from("styleguide-comment-card"),
             mark: crate::coding_selects::agent_mark(coding::CodingAgent::Claude)
                 .xsmall()

@@ -1,5 +1,5 @@
 //! EXP-879 — a coding run's PUBLISHED RESULTS: the pictures an agent files
-//! while it works. EXP-1294: read off a thread root's `sessions.guide` (the
+//! while it works. EXP-1294: read off a chat root's `sessions.guide` (the
 //! same entry shape, `GuideEntry` = the old results entry): the Guide reader.
 //!
 //! The column is a flat, ORDERED jsonb array of

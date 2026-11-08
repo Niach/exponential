@@ -33,9 +33,9 @@ enum AppRoute: Hashable {
     /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
     /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
-    /// EXP-1291: the Threads tab (it replaced Reviews) — the agents, then
-    /// the thread roots Needs you · Running · Recent.
-    case threads
+    /// EXP-1291: the Chats tab (it replaced Reviews) — the agents, then
+    /// the chat roots Needs you · Running · Recent.
+    case chats
     /// #EXP-1388: the Chats list's Archived page (the Archived entry row).
     case archivedChats(accountId: String)
     /// #FEED-191 (needs-you.json): THE list, pushed from the Chats list's
@@ -52,24 +52,24 @@ enum AppRoute: Hashable {
     /// autosaves to. `statusId` pre-picks a status; `parentId` files it as a
     /// sub-issue of that issue (the Sub-issues `+`, EXP-1097), which writes
     /// no draft row. Creating replaces this route with the issue it filed.
-    /// `threadId` (a root session's id) files it INTO that thread.
+    /// `chatId` (a root session's id) files it INTO that chat.
     case issueDraft(
         accountId: String,
         draftId: String,
         boardId: String,
         statusId: String? = nil,
         parentId: String? = nil,
-        threadId: String? = nil
+        chatId: String? = nil
     )
     /// EXP-1291: ONE session's raw work (`AgentSessionScreen` → today's
     /// steer view) — a session card's tap, a blocked-session push. A pushed
     /// destination (EXP-221), so it gets the native back + swipe-back.
     case agentSession(accountId: String, sessionId: String)
-    /// EXP-1291: a THREAD = a root session (`threadId` = its id): a thread,
-    /// or a team agent's channel — `ThreadScreen`, its strip as the pager.
+    /// EXP-1291: a CHAT = a root session (`chatId` = its id): a chat,
+    /// or a team agent's channel — `ChatScreen`, its strip as the pager.
     /// `child` opens it on one page (nil = the Conversation; #EXP-1662
     /// `.plan(messageId)` = its plan tab on that plan).
-    case thread(accountId: String, threadId: String, child: ThreadPage? = nil)
+    case chat(accountId: String, chatId: String, child: ChatPage? = nil)
     /// EXP-825: Home's composer pushed with a preselection (a play button's
     /// `seed`); an empty seed IS the Home tab.
     case agent(accountId: String, seed: AgentComposerSeed)
@@ -100,15 +100,15 @@ enum AppRoute: Hashable {
 extension AppRoute {
     /// #EXP-1456 (inbox-route.json `sessionTarget`, S-3): where a session
     /// opens — the viewer's own agent conversation root = the agent's page,
-    /// a thread root or child = the thread (on the child's page), anything
+    /// a chat root or child = the chat (on the child's page), anything
     /// else (a teammate's conversation, a child under an agent, an unsynced
     /// id) = the session on its own screen.
     static func opening(_ target: InboxRoute.SessionTarget, accountId: String) -> AppRoute {
         switch target {
         case let .agent(agentId):
             .agentChannel(accountId: accountId, agentId: agentId)
-        case let .thread(threadId, sessionId):
-            .thread(accountId: accountId, threadId: threadId, child: sessionId.map { .session($0) })
+        case let .chat(chatId, sessionId):
+            .chat(accountId: accountId, chatId: chatId, child: sessionId.map { .session($0) })
         case let .session(id):
             .agentSession(accountId: accountId, sessionId: id)
         }
@@ -116,7 +116,7 @@ extension AppRoute {
 
     /// #EXP-1493 → #EXP-1662 (plan-page.json WAYS IN): an inbox row / push
     /// naming a session with a waiting plan of its own
-    /// (`PlanPage.planPageFor`) opens its thread's plan tab; else
+    /// (`PlanPage.planPageFor`) opens its chat's plan tab; else
     /// `openingSession`.
     @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) -> AppRoute {
         if let messageId = planPageTarget(sessionId, accountId: accountId, deps: deps) {
@@ -125,7 +125,7 @@ extension AppRoute {
         return openingSession(sessionId, accountId: accountId, deps: deps)
     }
 
-    /// #EXP-1662: a plan opens as a tab of its session's root (a thread or an
+    /// #EXP-1662: a plan opens as a tab of its session's root (a chat or an
     /// agent's conversation); an unsynced session opens by `openingSession`.
     @MainActor static func openingPlan(
         _ sessionId: String, messageId: String, accountId: String, deps: AppDependencies
@@ -134,9 +134,9 @@ extension AppRoute {
             try SessionEntity.fetchOne(db, key: sessionId)
         }
         guard let session else { return openingSession(sessionId, accountId: accountId, deps: deps) }
-        return .thread(
+        return .chat(
             accountId: accountId,
-            threadId: session.rootId.isEmpty ? session.id : session.rootId,
+            chatId: session.rootId.isEmpty ? session.id : session.rootId,
             child: .plan(messageId)
         )
     }
@@ -159,13 +159,13 @@ extension AppRoute {
     }
 
     /// #FEED-191 (needs-you.json): where a row opens, by `opens`: a plan = its
-    /// thread's Plan tab on that plan; a card = the Conversation scrolled to
+    /// chat's Plan tab on that plan; a card = the Conversation scrolled to
     /// it; results = the Results tab; chat = the agent conversation.
     @MainActor static func openingNeedsYou(_ row: NeedsYou.Row, accountId: String, deps: AppDependencies) -> AppRoute {
         switch row.opens {
-        case .plan: .thread(accountId: accountId, threadId: row.rootId, child: .plan(row.messageId))
-        case .card: .thread(accountId: accountId, threadId: row.rootId, child: .card(row.messageId))
-        case .results: .thread(accountId: accountId, threadId: row.rootId, child: .results)
+        case .plan: .chat(accountId: accountId, chatId: row.rootId, child: .plan(row.messageId))
+        case .card: .chat(accountId: accountId, chatId: row.rootId, child: .card(row.messageId))
+        case .results: .chat(accountId: accountId, chatId: row.rootId, child: .results)
         case .chat: openingSession(row.rootId, accountId: accountId, deps: deps)
         }
     }
@@ -192,14 +192,14 @@ extension AppRoute {
 /// Apps · Team (Devices is a Team page row now); the agent home stays the
 /// chat arm's root.
 enum MainTab: Hashable {
-    case agent, issues, threads, apps, team
+    case agent, issues, chats, apps, team
 
     /// The bar tab this root lights (nil = the agent home).
     var shellTab: Chats.Shell.Tab? {
         switch self {
         case .agent: nil
         case .issues: .board
-        case .threads: .chats
+        case .chats: .chats
         case .apps: .apps
         case .team: .team
         }
@@ -208,7 +208,7 @@ enum MainTab: Hashable {
     init(_ tab: Chats.Shell.Tab) {
         switch tab {
         case .board: self = .issues
-        case .chats: self = .threads
+        case .chats: self = .chats
         case .apps: self = .apps
         case .team: self = .team
         }
@@ -356,12 +356,12 @@ struct AppNavigator: View {
         .fullScreenCover(isPresented: .constant(UITestingStyleguide.requested == "feedback-states")) {
             FeedbackStatesScreen()
         }
-        // EXP-1259 D12-D14: the run-thread cards (capture only,
+        // EXP-1259 D12-D14: the chat cards (capture only,
         // `-uiTestingStyleguide work-card|script-card|comment-call-card`).
         .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(ThreadCardsScreen.kinds.contains) == true
+            UITestingStyleguide.requested.map(ChatCardsScreen.kinds.contains) == true
         )) {
-            ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
+            ChatCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
         }
         // #EXP-1662: the `plan-page` specimen (capture only).
         .fullScreenCover(isPresented: .constant(
@@ -381,7 +381,7 @@ struct AppNavigator: View {
         )) {
             LiveActivitySpecimens(kind: UITestingStyleguide.requested ?? "os-live-activity")
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("thread-cards-screen")
+                .accessibilityIdentifier("chat-cards-screen")
         }
         // #EXP-1641: the expanded notification's actions (capture only, a mock).
         .fullScreenCover(isPresented: .constant(
@@ -389,7 +389,7 @@ struct AppNavigator: View {
         )) {
             NotificationActionsSpecimen()
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("thread-cards-screen")
+                .accessibilityIdentifier("chat-cards-screen")
         }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
@@ -475,8 +475,8 @@ struct MainNavigator: View {
     /// `onAppear`. Rebuilding it per body pass would invalidate every reader
     /// of `\.pushRoute` on every render.
     @State private var pushRouteAction = PushRouteAction()
-    /// EXP-1284 (T11/T-N9): lands a thread page already on the stack.
-    @State private var threadLanding = ThreadLanding()
+    /// EXP-1284 (T11/T-N9): lands a chat page already on the stack.
+    @State private var chatLanding = ChatLanding()
     /// EXP-1212: a New issue page with content holds every path change below.
     @State private var draftLeaveGuard = IssueDraftLeaveGuard()
     @State private var boardLoader: MultiAccountBoardLoader?
@@ -493,7 +493,7 @@ struct MainNavigator: View {
     /// The team id of every resolvable draft (one entry per draft); the
     /// Inbox dot counts the active team's (EXP-1272, web parity).
     @State private var draftTeamIds: [String] = []
-    /// EXP-1291: the session tree's lists — ONE observation for the Threads
+    /// EXP-1291: the session tree's lists — ONE observation for the Chats
     /// tab and its dot, Home's Running band, the launcher dot and the board
     /// switcher's per-team dots.
     @State private var sessionLists = SessionListsModel()
@@ -546,7 +546,7 @@ struct MainNavigator: View {
                 NavigationStack(path: $path) {
                     tabRoot
                         // Every root states its bar visible explicitly — the
-                        // roots swap inside ONE stack (EXP-1358: Threads wears the
+                        // roots swap inside ONE stack (EXP-1358: Chats wears the
                         // same inline bar as the others again).
                         .toolbar(.visible, for: .navigationBar)
                         // EXP-1554: every pushed page's back = the bare arrow;
@@ -574,7 +574,7 @@ struct MainNavigator: View {
         // the glass card), so they push through this instead.
         .environment(\.pushRoute, pushRouteAction)
         .environment(\.markdownLinkHandler, markdownLinks)
-        .environment(\.threadLanding, threadLanding)
+        .environment(\.chatLanding, chatLanding)
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         // #EXP-1384: every page header's inbox dot.
@@ -614,11 +614,11 @@ struct MainNavigator: View {
                 // (an entity chip, a getting-started card) switches to it.
                 if let target = Self.tab(for: route) {
                     selectTab(target)
-                } else if case let .thread(_, threadId, child) = route,
-                          let index = Self.threadIndex(threadId, in: path) {
+                } else if case let .chat(_, chatId, child) = route,
+                          let index = Self.chatIndex(chatId, in: path) {
                     // EXP-1284 (T-N9): never a second page of the same
-                    // thread — pop back to it and land the child there.
-                    navigate { landOnThread(at: index, threadId: threadId, page: child) }
+                    // chat — pop back to it and land the child there.
+                    navigate { landOnChat(at: index, chatId: chatId, page: child) }
                 } else {
                     navigate { path.append(route) }
                 }
@@ -943,7 +943,7 @@ struct MainNavigator: View {
     /// (EXP-1210); an empty-seed Home is the Home root itself.
     private static func tab(for route: AppRoute) -> MainTab? {
         switch route {
-        case .threads: return .threads
+        case .chats: return .chats
         case .apps: return .apps
         case .settings: return .team
         case let .agent(_, seed) where seed == .empty: return .agent
@@ -977,7 +977,7 @@ struct MainNavigator: View {
         case .apps:
             AppsListScreen()
                 .environment(\.accountId, accountId)
-        case .threads:
+        case .chats:
             ChatsView()
                 .environment(\.accountId, accountId)
         }
@@ -985,7 +985,7 @@ struct MainNavigator: View {
 
     /// Compose targets the board in view: a pushed board list wins, and every
     /// other bar-visible surface (Issues root, Devices, Inbox,
-    /// Threads) falls back to the CURRENT board — the one the Issues
+    /// Chats) falls back to the CURRENT board — the one the Issues
     /// tab is pointed at, resolved from the last-used board, else the first of
     /// the active team (EXP-973). Filing an issue is never route-dependent;
     /// only a team with no board at all leaves the arm with nowhere to go.
@@ -1035,7 +1035,7 @@ struct MainNavigator: View {
         }
     }
 
-    /// EXP-1284: the LAST stack position showing `threadId`, if any.
+    /// EXP-1284: the LAST stack position showing `chatId`, if any.
     /// #EXP-1674 (app-link.json): an app's run view opened from another one
     /// stays on the stack above it.
     private static func opensOverRun(_ route: AppRoute, on path: [AppRoute]) -> Bool {
@@ -1043,32 +1043,32 @@ struct MainNavigator: View {
         return true
     }
 
-    private static func threadIndex(_ threadId: String, in path: [AppRoute]) -> Int? {
+    private static func chatIndex(_ chatId: String, in path: [AppRoute]) -> Int? {
         path.lastIndex { route in
-            if case let .thread(_, id, _) = route { return id == threadId }
+            if case let .chat(_, id, _) = route { return id == chatId }
             return false
         }
     }
 
-    /// EXP-1284 (T11/T-N9): pop everything above the thread page at `index`
+    /// EXP-1284 (T11/T-N9): pop everything above the chat page at `index`
     /// and land it on `page` (nil = its Conversation).
-    private func landOnThread(at index: Int, threadId: String, page: ThreadPage?) {
+    private func landOnChat(at index: Int, chatId: String, page: ChatPage?) {
         if index + 1 < path.count {
             path.removeSubrange((index + 1)...)
         }
-        threadLanding.land(threadId: threadId, page: page ?? .conversation)
+        chatLanding.land(chatId: chatId, page: page ?? .conversation)
     }
 
-    /// EXP-1284 (T11/T-N7): the New issue page filed into a thread — it
-    /// leaves the stack (its OWN exit, never held), and the thread shows the
+    /// EXP-1284 (T11/T-N7): the New issue page filed into a chat — it
+    /// leaves the stack (its OWN exit, never held), and the chat shows the
     /// new issue's tab: the page below when it is on the stack, else a fresh
-    /// thread page.
-    private func landAfterThreadCreate(accountId: String, threadId: String, issueId: String) {
+    /// chat page.
+    private func landAfterChatCreate(accountId: String, chatId: String, issueId: String) {
         if case .issueDraft = path.last { path.removeLast() }
-        if let index = Self.threadIndex(threadId, in: path) {
-            landOnThread(at: index, threadId: threadId, page: .issue(issueId))
+        if let index = Self.chatIndex(chatId, in: path) {
+            landOnChat(at: index, chatId: chatId, page: .issue(issueId))
         } else {
-            path.append(.thread(accountId: accountId, threadId: threadId, child: .issue(issueId)))
+            path.append(.chat(accountId: accountId, chatId: chatId, child: .issue(issueId)))
         }
     }
 
@@ -1239,7 +1239,7 @@ extension MainNavigator {
     /// The sidebar entry a route NAMES (it selects, never pushes).
     private func sidebarItem(for route: AppRoute) -> SidebarItem? {
         switch route {
-        case .threads: .chats
+        case .chats: .chats
         case .apps: .apps
         case .settings: .settings
         case let .agent(_, seed) where seed == .empty: .agent
@@ -1292,7 +1292,7 @@ extension MainNavigator {
                 boardLoader: boardLoader,
                 onSelectBoard: { accountId, boardId in selectBoard(accountId: accountId, boardId: boardId) }
             ))
-        case .agent, .devices, .agentChannel, .app, .thread:
+        case .agent, .devices, .agentChannel, .app, .chat:
             return nil
         }
     }
@@ -1309,8 +1309,8 @@ extension MainNavigator {
             return AnyView(AgentChannelScreen(agentId: agentId).id(agentId).environment(\.accountId, accountId))
         case let .app(appId):
             return AnyView(AppRunScreen(appId: appId).id(appId).environment(\.accountId, accountId))
-        case let .thread(rootId):
-            return AnyView(ThreadScreen(rootId: rootId, initialPage: .conversation).id(rootId)
+        case let .chat(rootId):
+            return AnyView(ChatScreen(rootId: rootId, initialPage: .conversation).id(rootId)
                 .environment(\.accountId, accountId))
         case .needsYou, .chats, .drafts, .apps, .settings, .board:
             return nil
@@ -1350,7 +1350,7 @@ extension MainNavigator {
         case .myWork:
             InboxPage()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case .threads:
+        case .chats:
             ChatsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .archivedChats(accountId):
@@ -1373,18 +1373,18 @@ extension MainNavigator {
             IssueScreen(issueId: id, focusCommentId: commentId)
                 .id(id)
                 .environment(\.accountId, accountId)
-        case let .issueDraft(accountId, draftId, boardId, statusId, parentId, threadId):
+        case let .issueDraft(accountId, draftId, boardId, statusId, parentId, chatId):
             IssueDraftPageView(
                 draftId: draftId,
                 boardId: boardId,
                 statusId: statusId,
                 parentId: parentId,
-                threadId: threadId,
+                chatId: chatId,
                 onCreated: { createdId in
-                    if let threadId {
-                        // EXP-1284 (T11/T-N7): filed INTO a thread = back on
-                        // that thread with the new issue's tab selected.
-                        landAfterThreadCreate(accountId: accountId, threadId: threadId, issueId: createdId)
+                    if let chatId {
+                        // EXP-1284 (T11/T-N7): filed INTO a chat = back on
+                        // that chat with the new issue's tab selected.
+                        landAfterChatCreate(accountId: accountId, chatId: chatId, issueId: createdId)
                     } else {
                         replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
                     }
@@ -1401,11 +1401,11 @@ extension MainNavigator {
             AgentSessionScreen(sessionId: sessionId)
                 .id(sessionId)
                 .environment(\.accountId, accountId)
-        case let .thread(accountId, threadId, child):
-            // `.id(threadId)`: a root swapped in place rebuilds rather than
+        case let .chat(accountId, chatId, child):
+            // `.id(chatId)`: a root swapped in place rebuilds rather than
             // keeping the old one's state.
-            ThreadScreen(rootId: threadId, initialPage: child ?? .conversation)
-                .id(threadId)
+            ChatScreen(rootId: chatId, initialPage: child ?? .conversation)
+                .id(chatId)
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
             // Always a pushed detail (a play button's seed): Home is the
@@ -1547,7 +1547,7 @@ extension MainNavigator {
                 }
             } catch {}
         }
-        // EXP-1291: the session tree's lists (the Threads tab + its dot,
+        // EXP-1291: the session tree's lists (the Chats tab + its dot,
         // Home's Running band, the launcher and board switcher dots).
         sessionLists.bind(
             accountId: deps.auth.activeAccountId ?? "", userId: deps.auth.userId, db: deps.db
@@ -1758,7 +1758,7 @@ extension MainNavigator {
             }
         }
         // EXP-1373: the Inbox is a page pushed over the Chats tab.
-        landOnRoot(of: .threads)
+        landOnRoot(of: .chats)
         path.append(.myWork)
     }
 
@@ -1875,9 +1875,9 @@ extension MainNavigator {
         case let .push(route, target):
             // #EXP-1674: a link from a running app pushes: back returns to it.
             if let target, !Self.opensOverRun(route, on: path) { landOnRoot(of: target) }
-            // EXP-1288: a thread already on the stack is popped back to.
-            if case let .thread(_, threadId, child) = route, let index = Self.threadIndex(threadId, in: path) {
-                landOnThread(at: index, threadId: threadId, page: child)
+            // EXP-1288: a chat already on the stack is popped back to.
+            if case let .chat(_, chatId, child) = route, let index = Self.chatIndex(chatId, in: path) {
+                landOnChat(at: index, chatId: chatId, page: child)
             } else {
                 path.append(route)
             }

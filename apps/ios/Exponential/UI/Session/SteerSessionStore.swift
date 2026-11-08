@@ -52,8 +52,8 @@ final class SteerSessionStore {
     /// session is over and on sign-out.
     @ObservationIgnored private var dockMemory = SteerDockMemory()
 
-    /// #EXP-1623: the Live children a thread read with a closed Queue, with
-    /// the activity stamp they had then: the thread's probe skips them (no
+    /// #EXP-1623: the Live children a chat read with a closed Queue, with
+    /// the activity stamp they had then: the chat's probe skips them (no
     /// stream, no replay) until they are active again, or for
     /// `closedQueueTTL` at most (a Queue can open mid-turn).
     @ObservationIgnored private var closedQueues: [String: (activeAt: Double?, at: Date)] = [:]

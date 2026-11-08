@@ -6,7 +6,7 @@ import { devices, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // #FEED-173/#FEED-174 (packages/eagent/fixtures/incidents.json): a send
-// naming no session and carrying nothing to start never creates a thread.
+// naming no session and carrying nothing to start never creates a chat.
 // `{wakeOn}` alone registers the wake on the CALLING session; without it
 // the send is refused. Against the REAL migrated Postgres.
 
@@ -105,7 +105,7 @@ describe.skipIf(!ready.ok)(`#FEED-173/#FEED-174 sessions_send with no target`, (
     expect(await w.roots()).toBe(count)
   })
 
-  it(`{wakeOn} with a text still starts the thread (and watches it)`, async () => {
+  it(`{wakeOn} with a text still starts the chat (and watches it)`, async () => {
     const w = await world()
     const started = await sendSession({
       userId: w.owner,

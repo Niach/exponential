@@ -145,7 +145,7 @@ class FeedbackMarkTest {
         val errors = fixture.obj("errors")
         assertEquals(errors.string("titlePattern"), FeedbackStates.ERROR_TITLE_PATTERN)
         assertEquals(errors.string("retry"), FeedbackStates.RETRY)
-        // EXP-1391: the refusal posted into the thread ends with `handoff`.
+        // EXP-1391: the refusal posted into the chat ends with `handoff`.
         assertEquals(errors.obj("mergeRefusal").string("handoff"), FeedbackStates.MERGE_HANDOFF)
         for (element in errors.getValue("cases").jsonArray) {
             val case = element.jsonObject

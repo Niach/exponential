@@ -425,7 +425,7 @@ describe(`installation token minting (repo scoping)`, () => {
   }
 
   // A fixed far-future GitHub expiry so the resolved `expiresAt` (the real
-  // `expires_at`, threaded through verbatim) is deterministic to assert.
+  // `expires_at`, passed through verbatim) is deterministic to assert.
   const MINT_EXPIRES_AT = `2099-01-01T00:00:00.000Z`
 
   function tokenResponse(token: string) {

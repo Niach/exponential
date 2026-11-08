@@ -172,7 +172,7 @@ fn stale_ids(data_dir: &Path, account_id: &str) -> Vec<String> {
 /// running daemon protects its own runs through its in-process set.
 /// EXP-1487: every session the registry names, whichever process recorded
 /// it and still owned (an ended run's entry has no pid): runs that are not
-/// over (an idle thread waits for its next message).
+/// over (an idle chat waits for its next message).
 /// The scratch sweep keeps them.
 pub fn recorded_ids(data_dir: &Path) -> Vec<String> {
     let _guard = locked();
@@ -239,7 +239,7 @@ pub fn apply_end_outcome(
 /// EXP-746: install the process-wide [`coding::SessionEndObserver`] that
 /// applies [`apply_end_outcome`] to EVERY end the coding crate issues —
 /// desktop parity (`ui::session_registry::install_end_observer`). Call once
-/// at startup, before any session can launch: the engine ends a THREAD's row
+/// at startup, before any session can launch: the engine ends a CHAT's row
 /// through `coding::end_session`, so this is the ONE place the CLI's registry
 /// decision lives (an agent root's idle report reaches it through
 /// `session_host`'s exit hook instead — EXP-1292). First caller wins.

@@ -1,6 +1,6 @@
 //! EXP-1019/EXP-1249/EXP-1334 — the `composer-dialog` entry (3 Special
 //! components): THE launcher as a play button opens it, and THE composer of
-//! a thread and a session view: one card everywhere, case for case with the
+//! a chat and a session view: one card everywhere, case for case with the
 //! web entry. Drawn from the REAL parts the app composes
 //! ([`crate::composer::session_composer_box`]: the card with the "+" and
 //! its "+", Send ⇄ Stop; a session keeps only its context ring: S-3 removed
@@ -10,7 +10,7 @@
 //! Temporary session, a session = its surface: Account (#EXP-1535) and
 //! the model). The
 //! specimen ([`ComposerSpecimen`], [`plus_menu_open`]) is shared with the
-//! `session-thread` entry, like the web `composer-specimen.tsx`. The agent
+//! `session-chat` entry, like the web `composer-specimen.tsx`. The agent
 //! case keeps the home placeholder (the agent row above the card picks the
 //! recipient, styleguide `composer-agent-row`).
 
@@ -37,7 +37,7 @@ pub(crate) const ID: &str = "composer-dialog";
 pub(crate) const OWNER: &str = "EXP-1019";
 
 /// The composer's phase (web `ComposerPhase`): before a start, a running
-/// session, an idle thread (= its dispatcher session).
+/// session, an idle chat (= its dispatcher session).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Phase {
     Start,
@@ -59,9 +59,9 @@ pub(super) fn sample_model(phase: Phase) -> &'static str {
     }
 }
 
-/// The thread composer's placeholder, the fixture's (`Type / for commands`).
-pub(super) fn thread_placeholder() -> String {
-    domain::session_tree::THREAD.copy.placeholder.clone()
+/// The chat composer's placeholder, the fixture's (`Type / for commands`).
+pub(super) fn chat_placeholder() -> String {
+    domain::session_tree::SESSION_CHAT.copy.placeholder.clone()
 }
 
 /// The run's context window as the ring reads it: 42% running, 12% idle.
@@ -385,7 +385,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .child(Icon::new(registry::NAV_ACTIONS).xsmall().text_color(muted))
                 .child(div().text_xs().child("Triage new issues")),
         );
-    let placeholder = thread_placeholder();
+    let placeholder = chat_placeholder();
     let action_start = composer_specimen(
         "sg-composer-dialog-action-start",
         Phase::Start,
@@ -443,7 +443,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                         .gap_2()
                         .child(caption("A running session: Stop, model … the context ring under the card.", cx))
                         .child(running)
-                        .child(caption("An idle thread: the same composer (it messages the dispatcher).", cx))
+                        .child(caption("An idle chat: the same composer (it messages the dispatcher).", cx))
                         .child(idle),
                 )
                 .child(
@@ -517,6 +517,6 @@ mod tests {
         assert_eq!(crate::usage_bar::context_percent(Some(&sample_usage(Phase::Running))), Some(42));
         assert_eq!(crate::usage_bar::context_percent(Some(&sample_usage(Phase::Idle))), Some(12));
         assert_eq!(SAMPLE_DEVICE, "mint · This device");
-        assert_eq!(thread_placeholder(), "Type / for commands");
+        assert_eq!(chat_placeholder(), "Type / for commands");
     }
 }

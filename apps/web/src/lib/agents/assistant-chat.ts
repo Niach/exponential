@@ -110,7 +110,7 @@ export async function statusCardTarget(
 
 /** A scheduled check-in has something to look at: any of the member's
  *  OTHER sessions in its conversation's teams (#EXP-1720: the Assistant's
- *  scope; their threads, their agents' conversations and every child)
+ *  scope; their chats, their agents' conversations and every child)
  *  moved since `since`. */
 export async function memberChatsChanged(
   tx: Pick<Tx, `select`>,

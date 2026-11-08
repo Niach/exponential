@@ -253,7 +253,7 @@ internal fun annotateLine(
         // (REV2-42) — display-only, not tappable (there is nothing to open),
         // so they can never collide with a link annotation.
         //
-        // Thread e4a04d22: the web `.mention-pill` look — `--accent-foreground`
+        // Session e4a04d22: the web `.mention-pill` look — `--accent-foreground`
         // at 13 medium inside a painted round capsule ([drawIssueRefChips],
         // `pill = true`). The splice wraps the name in two [MENTION_PAD]
         // cells; letter-spaced to the web's `0.4rem`, they ARE the padding.
@@ -320,7 +320,7 @@ private fun proseChipMarks(text: String, marks: List<InlineMark>): List<InlineMa
     }
 
 /**
- * Thread e4a04d22: the cell opening and closing a mention pill's display text.
+ * Session e4a04d22: the cell opening and closing a mention pill's display text.
  * Letter-spaced up to the web pill's `0.4rem` side padding, it is the room
  * the painted capsule draws its padding in (a span cannot pad). Non-breaking,
  * like the spaces inside the name: the pill never wraps (web `nowrap`).

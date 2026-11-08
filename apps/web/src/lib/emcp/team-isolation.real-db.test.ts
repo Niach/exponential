@@ -113,7 +113,7 @@ async function world() {
   await db.insert(teamMembers).values({ teamId: teamB, userId: mate.id, role: `member` })
 
   // Team A: a board, an issue, an agent on U's personal machine, U's
-  // conversation with it (THE caller) and a plain thread of U's.
+  // conversation with it (THE caller) and a plain chat of U's.
   const boardA = await createTestBoard({ teamId: teamA, prefix: `ISA` })
   const [issueA] = await db
     .insert(issues)
@@ -127,7 +127,7 @@ async function world() {
   ])
   const [agentA] = await db.insert(agents).values({ teamId: teamA, name: `Alpha agent`, deviceId: personal, ownerId: u.id }).returning()
   const caller = (await db.transaction((tx) => conversationInTx(tx, agentA!, u.id))).session
-  const threadA = await sendSession({ userId: u.id, input: { teamId: teamA, deviceId: personal, text: `Alpha thread` } as never })
+  const chatA = await sendSession({ userId: u.id, input: { teamId: teamA, deviceId: personal, text: `Alpha chat` } as never })
 
   // Team B: everything a team has, each named with the marker.
   const repoB = await ensureTestRepository(teamB, { fullName: `iso-org/${MARK}-${id8()}` })
@@ -160,10 +160,10 @@ async function world() {
     .insert(events)
     .values({ teamId: teamB, name: `teamb.secret`, payload: { note: MARK }, emittedBy: `user`, userId: u.id })
     .returning({ id: events.id })
-  const threadB = await sendSession({ userId: u.id, input: { teamId: teamB, deviceId: bBox, text: `${MARK} thread` } as never })
+  const chatB = await sendSession({ userId: u.id, input: { teamId: teamB, deviceId: bBox, text: `${MARK} chat` } as never })
   // A waiting question card in B (what escalate lifts).
   const questionB = await db.transaction((tx) =>
-    insertMessage(tx, threadB.sessionId, {
+    insertMessage(tx, chatB.sessionId, {
       authorKind: `agent`,
       body: `${MARK} question`,
       card: { kind: `question`, question: `${MARK}?` },
@@ -231,7 +231,7 @@ async function world() {
     skillId: skillB!.id,
     agentId: agentB!.id,
     eventId: eventB!.id,
-    sessionId: threadB.sessionId,
+    sessionId: chatB.sessionId,
     messageId: questionB,
     appId: appB!.id,
     appSlug,
@@ -252,7 +252,7 @@ async function world() {
     personal,
     agentA: agentA!,
     callerId: caller.id,
-    threadA: threadA.sessionId,
+    chatA: chatA.sessionId,
     b,
   }
 }
@@ -438,7 +438,7 @@ const CASES: Record<string, Case> = {
   [`sessions_send B mcp server`]: wr(`sessions_send`, (w) => ({ deviceId: w.personal, mcpServerIds: [w.b.mcpServerId], text: `leak` })),
   // Answers (its own session) but watches nothing outside its team: below.
   [`sessions_send wakeOn B`]: r(`sessions_send`, (w) => ({ sessionId: w.callerId, wakeOn: [w.b.sessionId] })),
-  [`sessions_send move A thread to b-box`]: wr(`sessions_send`, (w) => ({ sessionId: w.threadA, deviceId: w.b.deviceId })),
+  [`sessions_send move A chat to b-box`]: wr(`sessions_send`, (w) => ({ sessionId: w.chatA, deviceId: w.b.deviceId })),
   // sessions
   [`sessions.get B`]: r(`sessions.get`, (w) => ({ op: `get`, id: w.b.sessionId, messages: 5 })),
   [`sessions.get own`]: r(`sessions.get`, () => ({ op: `get` })),
@@ -554,15 +554,15 @@ describe.skipIf(!ready.ok)(`an agent-tree caller of team A never reaches team B 
     expect(text).not.toContain(w.b.teamId)
   })
 
-  it(`sessions_send refuses a new thread on b-box and a move of an A thread to it, with the device message`, async () => {
+  it(`sessions_send refuses a new chat on b-box and a move of an A chat to it, with the device message`, async () => {
     const start = await tools(`sessions_send`)({ text: `On b-box`, deviceId: w.b.deviceId })
     expect(start.isError).toBe(true)
     expect(start.content[0]!.text).toContain(DEVICE_OTHER_TEAM_MESSAGE)
-    const move = await tools(`sessions_send`)({ sessionId: w.threadA, deviceId: w.b.deviceId })
+    const move = await tools(`sessions_send`)({ sessionId: w.chatA, deviceId: w.b.deviceId })
     expect(move.isError).toBe(true)
     expect(move.content[0]!.text).toContain(DEVICE_OTHER_TEAM_MESSAGE)
-    const [thread] = await db.select({ deviceId: sessions.deviceId }).from(sessions).where(eq(sessions.id, w.threadA))
-    expect(thread!.deviceId).toBe(w.personal)
+    const [chat] = await db.select({ deviceId: sessions.deviceId }).from(sessions).where(eq(sessions.id, w.chatA))
+    expect(chat!.deviceId).toBe(w.personal)
   })
 
   it(`wakeOn never watches a session of B`, async () => {
@@ -572,7 +572,7 @@ describe.skipIf(!ready.ok)(`an agent-tree caller of team A never reaches team B 
     expect(caller!.wakeOn ?? []).not.toContain(w.b.sessionId)
   })
 
-  it(`the personal machine still starts a thread in A`, async () => {
+  it(`the personal machine still starts a chat in A`, async () => {
     const started = await tools(`sessions_send`)({ text: `On my box`, deviceId: w.personal })
     expect(started.isError, started.content[0]?.text).toBeFalsy()
     const { sessionId } = JSON.parse(started.content[0]!.text!) as { sessionId: string }
@@ -594,12 +594,12 @@ describe.skipIf(!ready.ok)(`a person's own machine shared only with another team
     const refused = resolveSessionDevice(u.id, teamA, bBox)
     await expect(refused).rejects.toMatchObject({ code: `FORBIDDEN`, message: DEVICE_OTHER_TEAM_MESSAGE })
     await expect(resolveSessionDevice(u.id, teamB, bBox)).resolves.toMatchObject({ shared: true, ownerId: u.id })
-    // Without an agent tree, the move of a person's A thread is refused too.
+    // Without an agent tree, the move of a person's A chat is refused too.
     const personal = `a-box-${id8()}`
     await db.insert(devices).values({ userId: u.id, deviceId: personal, label: `a`, kind: `server` })
-    const thread = await sendSession({ userId: u.id, input: { teamId: teamA, deviceId: personal, text: `Mine` } as never })
+    const chat = await sendSession({ userId: u.id, input: { teamId: teamA, deviceId: personal, text: `Mine` } as never })
     await expect(
-      sendSession({ userId: u.id, input: { sessionId: thread.sessionId, deviceId: bBox } as never })
+      sendSession({ userId: u.id, input: { sessionId: chat.sessionId, deviceId: bBox } as never })
     ).rejects.toMatchObject({ code: `FORBIDDEN`, message: DEVICE_OTHER_TEAM_MESSAGE })
   })
 })

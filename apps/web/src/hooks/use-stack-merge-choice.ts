@@ -94,7 +94,7 @@ export function pullRequestStackView(
   return stackView(viewNode(pr), repositoryPrs.map(viewNode))
 }
 
-/** EXP-1306: the thread Guide's Stack card ×4 (session-thread.json): the
+/** EXP-1306: the chat Guide's Stack card ×4 (session-chat.json): the
  *  Guide PR's stack rail off its repository's open PRs and their issues. */
 export function usePullRequestStackView(
   pr: (StackViewPr & Pick<PullRequestRow, `repositoryId`>) | null

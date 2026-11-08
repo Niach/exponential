@@ -65,7 +65,7 @@ struct ShareSpecimens: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-cards-screen")
+        .accessibilityIdentifier("chat-cards-screen")
     }
 
     @ViewBuilder

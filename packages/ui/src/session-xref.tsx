@@ -1,9 +1,9 @@
-import { THREAD_COPY, THREAD_TEST_IDS, type SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
+import { CHAT_COPY, CHAT_TEST_IDS, type SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 import { UserAvatar, type UserAvatarAgent } from "./user-avatar"
 
-// S-3 inter-session links ×4 (`session-thread.json` `copy.xref`,
+// S-3 inter-session links ×4 (`session-chat.json` `copy.xref`,
 // `testIds.xref`; styleguide entry `session-xref`): a row that came from
 // ANOTHER session says so in ONE compact line = the muted lead
 // (`Message from` · `Report from` · `Started by` · `Reported to`), the
@@ -27,7 +27,7 @@ export function SessionXref({
   onOpen?: (sessionId: string) => void
   className?: string
 }) {
-  const lead = (THREAD_COPY.xref as Record<SessionXrefModel[`kind`], string>)[xref.kind]
+  const lead = (CHAT_COPY.xref as Record<SessionXrefModel[`kind`], string>)[xref.kind]
   const content = (
     <>
       <span className="shrink-0">{lead}</span>
@@ -46,7 +46,7 @@ export function SessionXref({
   )
   if (!onOpen) {
     return (
-      <div data-slot={THREAD_TEST_IDS.xref} data-testid={THREAD_TEST_IDS.xref} data-kind={xref.kind} className={base}>
+      <div data-slot={CHAT_TEST_IDS.xref} data-testid={CHAT_TEST_IDS.xref} data-kind={xref.kind} className={base}>
         {content}
       </div>
     )
@@ -54,8 +54,8 @@ export function SessionXref({
   return (
     <button
       type="button"
-      data-slot={THREAD_TEST_IDS.xref}
-      data-testid={THREAD_TEST_IDS.xref}
+      data-slot={CHAT_TEST_IDS.xref}
+      data-testid={CHAT_TEST_IDS.xref}
       data-kind={xref.kind}
       aria-label={`${lead} ${xref.name}`}
       className={cn(base, `text-left outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70`)}

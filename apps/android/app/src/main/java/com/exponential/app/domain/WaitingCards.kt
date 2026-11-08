@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * (fixtures/waiting-cards.json; TS reference
  * `packages/domain-contract/src/waiting-cards.ts`, desktop
  * `domain::waiting_cards`, iOS ExpCore `WaitingCards.swift`): a card's state,
- * the dismiss ×, and the thread header's waiting chips. `WaitingCardsTest`
+ * the dismiss ×, and the chat header's waiting chips. `WaitingCardsTest`
  * replays `stateCases` and `chipCases`, comparing whole values.
  */
 object WaitingCards {
@@ -109,7 +109,7 @@ object WaitingCards {
         return Chips(layout, chips.size, chips)
     }
 
-    /** A thread's chip inputs: ask-dock `threadPendingAsks` (Conversation order). */
+    /** A chat's chip inputs: ask-dock `chatPendingAsks` (Conversation order). */
     fun inputs(pending: List<AskDock.Pending>): List<Input> = pending.map { Input(it.id, it.kind, it.text) }
 
     /** The phone button's accessible name. */

@@ -11,7 +11,7 @@ function serverError(code: string, message: string): TRPCClientError<never> {
 
 describe(`mergeFailure`, () => {
   it(`a conflict is a refusal like any other (EXP-1391)`, () => {
-    const message = `Pull Request has merge conflicts with 'master'. Sent to the thread.`
+    const message = `Pull Request has merge conflicts with 'master'. Sent to the chat.`
     expect(mergeFailure(serverError(`PRECONDITION_FAILED`, message), `fallback`)).toEqual({ message })
     expect(mergeFailure(serverError(`CONFLICT`, message), `fallback`)).toEqual({ message })
   })

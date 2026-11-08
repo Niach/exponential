@@ -44,7 +44,7 @@ use crate::icons::ExpIcon;
 use crate::surface;
 
 /// The defaults row naming the model a dispatcher root runs on.
-pub(crate) const THREAD_MODEL_LABEL: &str = "Chat model";
+pub(crate) const CHAT_MODEL_LABEL: &str = "Chat model";
 
 /// The label the model/effort pickers show while nothing is pinned — the
 /// run then follows the agent CLI's own defaults, same wording as launch.
@@ -507,8 +507,8 @@ impl<V: Render> DefaultsToggle<V> {
 /// row a surface splices in:
 ///
 /// - [`Self::leading`] — between the tabs and Model (the CLI-path row).
-/// - [`Self::thread`] — right under Model: the model a DISPATCHER root
-///   (every new thread or team agent) runs on, per agent.
+/// - [`Self::chat_model`] — right under Model: the model a DISPATCHER root
+///   (every new chat or team agent) runs on, per agent.
 /// - [`Self::subagent`] — EXP-1020, under that: claude's subagent model, the
 ///   row the device settings had on web and nowhere else.
 ///
@@ -527,7 +527,7 @@ pub(crate) struct AgentDefaultsGroup<V: Render> {
     effort_disabled: bool,
     toggles: Vec<DefaultsToggle<V>>,
     leading: Vec<Div>,
-    thread: Option<ChoiceSelect>,
+    chat_model: Option<ChoiceSelect>,
     subagent: Option<ChoiceSelect>,
 }
 
@@ -552,7 +552,7 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled: false,
             toggles: Vec::new(),
             leading: Vec::new(),
-            thread: None,
+            chat_model: None,
             subagent: None,
         }
     }
@@ -574,15 +574,15 @@ impl<V: Render> AgentDefaultsGroup<V> {
         self
     }
 
-    /// The model a dispatcher root runs on (`Settings.*_thread_model`),
+    /// The model a dispatcher root runs on (`Settings.*_thread_model`, the wire `threadModel`),
     /// directly under Model — the same select component over the same list.
-    pub(crate) fn thread(mut self, select: ChoiceSelect) -> Self {
-        self.thread = Some(select);
+    pub(crate) fn chat_model(mut self, select: ChoiceSelect) -> Self {
+        self.chat_model = Some(select);
         self
     }
 
     /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on, under Model
-    /// (and Thread model) as on web. Callers pass it only where the agent supports one.
+    /// (and Chat model) as on web. Callers pass it only where the agent supports one.
     pub(crate) fn subagent(mut self, select: ChoiceSelect) -> Self {
         self.subagent = Some(select);
         self
@@ -600,7 +600,7 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled,
             toggles,
             leading,
-            thread,
+            chat_model,
             subagent,
         } = self;
         let mut rows: Vec<Div> = vec![agent_tabs_row(prefix, pills, active, on_select, cx)];
@@ -611,11 +611,11 @@ impl<V: Render> AgentDefaultsGroup<V> {
             surface::glass_picker_select(Select::new(&model), cx).into_any_element(),
             cx,
         ));
-        if let Some(thread) = thread {
+        if let Some(chat_model) = chat_model {
             rows.push(surface::glass_picker_row(
-                THREAD_MODEL_LABEL,
+                CHAT_MODEL_LABEL,
                 None,
-                surface::glass_picker_select(Select::new(&thread), cx).into_any_element(),
+                surface::glass_picker_select(Select::new(&chat_model), cx).into_any_element(),
                 cx,
             ));
         }

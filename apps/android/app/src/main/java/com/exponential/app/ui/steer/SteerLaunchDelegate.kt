@@ -36,9 +36,9 @@ sealed interface ActionRunState {
 }
 
 /**
- * EXP-1291 Threads v2: THE send helper — ONE `sessions.send` call for every
- * start and message (a new thread root, a new agent, a child, or a message
- * to an existing session). Stateless; the home composer, the thread
+ * EXP-1291: THE send helper — ONE `sessions.send` call for every
+ * start and message (a new chat root, a new agent, a child, or a message
+ * to an existing session). Stateless; the home composer, the chat
  * composer and the session view all go through it. Throws the tRPC error.
  */
 class SessionSender @Inject constructor(

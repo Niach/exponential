@@ -23,7 +23,7 @@ export function appUrl(path: string): string {
 }
 
 // A route's `head` title is static (params/search only). Pages whose name comes
-// from synced data (an issue, a board, a thread) set it here once it resolves;
+// from synced data (an issue, a board, a chat) set it here once it resolves;
 // until then the route's `head` fallback shows. The root `HeadContent` remounts
 // `<title>` whenever the route's head title changes, so the effect re-applies
 // on every change and, on unmount, hands back the head title only while ours

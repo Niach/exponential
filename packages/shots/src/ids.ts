@@ -4,7 +4,7 @@
  * The catalog is written against the seed but never hardcodes a uuid, because a
  * uuid only exists after `seed:screenshots` has run and changes on every reseed.
  * Desktop drives therefore carry PLACEHOLDERS — `issue:$APP-5`, `issue:$APP-14?face=changes`,
- * `session:$steeredSession`, `thread:$thread`, `$emptyBoard`,
+ * `session:$steeredSession`, `chat:$chat`, `$emptyBoard`,
  * `chat?issues=$issueA,$issueB` — and this module
  * is the lookup that turns them into the `EXP_DEV_*` values the app actually
  * parses.
@@ -45,17 +45,17 @@ export interface DemoIds {
   deviceId?: string
   /**
    * EXP-1293: the seeded session-tree rows. `$session` / `$steeredSession`
-   * (the old name, same id) = the cold-start thread's child session, the raw
-   * session view the `steering` and `session` views photograph; `$thread` =
-   * that thread's root; `$guideThread` = APP-15's thread with a Guide;
+   * (the old name, same id) = the cold-start chat's child session, the raw
+   * session view the `steering` and `session` views photograph; `$chat` =
+   * that chat's root; `$guideChat` = APP-15's chat with a Guide;
    * `$agent` = the Triage agent. Absent = the views naming them skip rather
    * than photographing the default screen under their filename.
    */
   sessionId?: string
   steeredSessionId?: string
-  threadId?: string
-  guideThreadId?: string
-  diffThreadId?: string
+  chatId?: string
+  guideChatId?: string
+  diffChatId?: string
   agentId?: string
 }
 
@@ -68,9 +68,9 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   device: (ids) => ids.deviceId,
   session: (ids) => ids.sessionId ?? ids.steeredSessionId,
   steeredSession: (ids) => ids.steeredSessionId ?? ids.sessionId,
-  thread: (ids) => ids.threadId,
-  guideThread: (ids) => ids.guideThreadId,
-  diffThread: (ids) => ids.diffThreadId,
+  chat: (ids) => ids.chatId,
+  guideChat: (ids) => ids.guideChatId,
+  diffChat: (ids) => ids.diffChatId,
   agent: (ids) => ids.agentId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
@@ -107,9 +107,9 @@ export function parseDemoIds(stdout: string): DemoIds {
     deviceId: parsed.deviceId,
     sessionId: parsed.sessionId,
     steeredSessionId: parsed.steeredSessionId,
-    threadId: parsed.threadId,
-    guideThreadId: parsed.guideThreadId,
-    diffThreadId: parsed.diffThreadId,
+    chatId: parsed.chatId,
+    guideChatId: parsed.guideChatId,
+    diffChatId: parsed.diffChatId,
     agentId: parsed.agentId,
   }
 }
@@ -133,7 +133,7 @@ export async function fetchDemoIds(): Promise<DemoIds> {
 /**
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
- * A handful of names (`$thread`, `$guideThread`, `$agent`, `$session`,
+ * A handful of names (`$chat`, `$guideChat`, `$agent`, `$session`,
  * `$steeredSession`, `$action`, `$device`, `$board`, `$emptyBoard`, `$team`,
  * `$issueA`, `$issueB`, `$prIssue`)
  * point at one well-known seeded row;

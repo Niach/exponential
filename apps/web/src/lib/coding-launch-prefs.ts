@@ -18,7 +18,7 @@ export interface CodingLaunchPrefs {
    * sets it as the CLI's env at launch). Always explicit (contract
    * `deviceAgentDefaults.subagentModel` when the device names none). */
   subagentModel?: string
-  /** The dispatcher root's model (threads + team agents), per agent; a
+  /** The dispatcher root's model (chats + team agents), per agent; a
    * device setting, never a launch-payload field. */
   threadModel?: string
   /** `""` = "CLI default" (omit the effort flag) — a valid value. */
@@ -114,7 +114,7 @@ export interface AgentLaunchDefaults {
   model?: string
   /** EXP-981: claude only. */
   subagentModel?: string
-  /** The dispatcher root's model (threads + team agents). */
+  /** The dispatcher root's model (chats + team agents). */
   threadModel?: string
   effort?: string
   ultracode?: boolean
@@ -176,9 +176,9 @@ export function defaultModelFor(agent: string): string {
     : contract.deviceAgentDefaults.model
 }
 
-/** The default dispatcher (thread) model for `agent` — contract
+/** The default dispatcher (chat) model for `agent` — contract
  * `deviceAgentDefaults` (claude `haiku`, codex `gpt-5.6-luna`). */
-export function defaultThreadModelFor(agent: string): string {
+export function defaultChatModelFor(agent: string): string {
   return agent === `codex`
     ? contract.deviceAgentDefaults.codexThreadModel
     : contract.deviceAgentDefaults.threadModel
@@ -210,7 +210,7 @@ export function agentSeed(
   const threadModel =
     typeof defaults?.threadModel === `string` && models.includes(defaults.threadModel)
       ? defaults.threadModel
-      : defaultThreadModelFor(agent)
+      : defaultChatModelFor(agent)
   const effort =
     typeof defaults?.effort === `string` &&
     (defaults.effort === `` || efforts.includes(defaults.effort))

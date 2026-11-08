@@ -40,7 +40,7 @@ internal data class SendTarget(val rootId: String?, val teamId: String?, val pub
  * - A tree with a key: the text is sealed with its public key + epoch.
  * - An existing root without one: a fresh tree key, `sessionKeys.create`
  *   with wraps for the readers this install resolves, then seal.
- * - A new root (a thread, a first message to an agent / app): the key rides
+ * - A new root (a chat, a first message to an agent / app): the key rides
  *   the send as `seal` (one server transaction) and is kept under the root
  *   the answer names.
  * - Mentions travel as `mentionUserIds`, `#IDENT`s as `refIssueIds`; attachment embeds go INSIDE the

@@ -17,10 +17,10 @@ const root = (over: Partial<Root> = {}): Root => ({
 
 describe(`S-3 agent session reuse`, () => {
   const rules = contract.sessionsSend
-  it(`reuses a live, recent, small thread`, () => {
+  it(`reuses a live, recent, small chat`, () => {
     expect(agentReuseRefusal(root(), 0, NOW)).toBeNull()
   })
-  it(`reuses a thread ended less than reuseMaxEndedHours ago`, () => {
+  it(`reuses a chat ended less than reuseMaxEndedHours ago`, () => {
     expect(agentReuseRefusal(root({ status: `ended`, endedAt: hoursAgo(rules.reuseMaxEndedHours - 1) }), 0, NOW)).toBeNull()
   })
   it(`refuses one ended longer ago`, () => {
@@ -36,7 +36,7 @@ describe(`S-3 agent session reuse`, () => {
     expect(agentReuseRefusal(root(), rules.reuseMaxChildren - 1, NOW)).toBeNull()
     expect(agentReuseRefusal(root(), rules.reuseMaxChildren, NOW)).toMatch(/sub-sessions/)
   })
-  it(`always reuses a thread waiting on an answer (the reply answers it)`, () => {
+  it(`always reuses a chat waiting on an answer (the reply answers it)`, () => {
     const waiting = root({ needsInput: true, lastTurnAt: hoursAgo(rules.reuseMaxIdleHours + 1) })
     expect(agentReuseRefusal(waiting, rules.reuseMaxChildren, NOW)).toBeNull()
   })

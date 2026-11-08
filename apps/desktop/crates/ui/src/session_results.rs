@@ -1,6 +1,6 @@
 //! EXP-879 — the Guide: the pictures a coding run published while it
-//! worked. EXP-1294: read off the thread root's `sessions.guide`, the
-//! thread's Guide tab.
+//! worked. EXP-1294: read off the chat root's `sessions.guide`, the
+//! chat's Guide tab.
 //!
 //! ONE scrolling page, byte-for-byte the web/iOS/Android shape: per topic a
 //! group band ([`crate::surface::glass_section_band`], the EXP-818 list
@@ -355,8 +355,8 @@ fn scroll_page(page: gpui::Div, scroll: Option<gpui::ScrollHandle>) -> AnyElemen
 }
 
 /// A topic's report text as read-only markdown, `#IDENT` / bare `ABC-12` /
-/// `@email` pills resolved against `team_id` (a Guide section = a thread
-/// text, [`crate::thread_screen::thread_text_resolver`], EXP-1309).
+/// `@email` pills resolved against `team_id` (a Guide section = a chat
+/// text, [`crate::session_chat::chat_text_resolver`], EXP-1309).
 fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>, team_id: Option<&str>) -> gpui::Div {
     // EXP-1188: a Guide link to a run or issue on this instance opens in
     // the app; bare URLs in the report link like the feed's.
@@ -370,7 +370,7 @@ fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>
     if let Some(team_id) = team_id {
         let team = team_id.to_string();
         view = view
-            .resolver(crate::thread_screen::thread_text_resolver(team_id))
+            .resolver(crate::session_chat::chat_text_resolver(team_id))
             .on_open_issue(move |identifier, window, cx| {
                 crate::description_editor::open_issue_by_identifier(&team, identifier, window, cx);
             });

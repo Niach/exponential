@@ -54,7 +54,7 @@ import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.thread.AgentGlyph
+import com.exponential.app.ui.chat.AgentGlyph
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 

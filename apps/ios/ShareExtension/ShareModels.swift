@@ -46,5 +46,5 @@ enum ShareChatDestination: Equatable, Sendable {
     /// An existing chat (direct share).
     case chat(MirroredSealRoot)
     /// A Temporary session on a device.
-    case newThread(teamId: String, deviceId: String, rowIds: [String])
+    case newChat(teamId: String, deviceId: String, rowIds: [String])
 }

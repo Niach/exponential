@@ -143,7 +143,7 @@ async function foldableTick(tx: Tx, agent: Agent): Promise<{ id: string; pending
   return later ? null : { id: row.id, pending: false }
 }
 
-/** S-3: whether anything moved in the agent's watched trees (the threads
+/** S-3: whether anything moved in the agent's watched trees (the chats
  *  it started, the sub-sessions of its conversations) since `since`. An
  *  agent with no tree at all always counts as changed (nothing to judge
  *  by: its schedule is its own work). */

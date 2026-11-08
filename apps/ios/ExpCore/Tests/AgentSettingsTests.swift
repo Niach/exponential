@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-1291 Threads v2: Team settings → Agents, locked ×4 (TS
+// EXP-1291: Team settings → Agents, locked ×4 (TS
 // `agent-settings.test.ts`, desktop `domain::agent_settings`, Android
 // `AgentSettingsTest`) against fixtures/agent-settings.json: the fields, the
 // copy, `summaryCases`, `validationCases` and (EXP-1306) `accountValueCases`

@@ -14,7 +14,7 @@ export type TeamLiveRunSession = Pick<
   `teamId` | `userId` | `status` | `needsInput` | `agentId` | `rootId`
 >
 
-/** A live session counts only when its ROOT is a thread: an agent's
+/** A live session counts only when its ROOT is a chat: an agent's
  *  conversation session (NEW-2: a root with an `agentId`) never ends, so it
  *  and every session under it (`agentRootIds`) stay out of the "something
  *  runs" dots. */

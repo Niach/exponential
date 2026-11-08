@@ -1,4 +1,4 @@
-// S-3 (chats.json CHAT MODE): a team agent's chat IS the thread screen over
+// S-3 (chats.json CHAT MODE): a team agent's chat IS the chat screen over
 // the viewer's conversation, with the agent's header parts; with no
 // conversation yet, the empty screen's composer (THE session composer)
 // opens one with `sessions.send({agentId})` — md+ inside the Dock, a phone
@@ -27,7 +27,7 @@ vi.mock(`@tanstack/react-router`, () => ({
 vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useIsMobile: () => mocks.isMobile.current,
-  ThreadDock: ({ composer, phoneClearance }: { composer?: ReactNode; phoneClearance?: boolean }) => (
+  ChatDock: ({ composer, phoneClearance }: { composer?: ReactNode; phoneClearance?: boolean }) => (
     <div data-testid="dock" data-clearance={String(!!phoneClearance)}>
       {composer}
     </div>
@@ -67,7 +67,7 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useTeamSessions: () => ({ rows: mocks.conversation.current ? [mocks.conversation.current] : [] }),
-  useSessionThread: (rootId: string | null) =>
+  useSessionChat: (rootId: string | null) =>
     rootId && mocks.conversation.current
       ? {
           view: { title: `x` },
@@ -79,11 +79,11 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
         }
       : { view: null, root: null, rows: [], titles: new Map(), pullRequests: [], messagePage: {} },
 }))
-vi.mock(`@/components/thread/thread-screen`, () => ({
-  validateThreadSearch: () => ({}),
-  ThreadScreen: (props: Record<string, unknown>) => {
+vi.mock(`@/components/chat/chat-screen`, () => ({
+  validateChatSearch: () => ({}),
+  ChatScreen: (props: Record<string, unknown>) => {
     mocks.screen.current = props
-    return <div data-testid="thread-screen" />
+    return <div data-testid="chat-screen" />
   },
 }))
 vi.mock(`@/hooks/use-follow-scroll`, () => ({
@@ -114,8 +114,8 @@ vi.mock(`@/components/session-composer`, () => ({
     />
   ),
 }))
-vi.mock(`@/components/thread/thread-markdown`, () => ({ renderThreadText: (text: string) => text }))
-vi.mock(`@/components/thread/chat-menu`, () => ({ AgentHeaderMenu: () => null }))
+vi.mock(`@/components/chat/chat-markdown`, () => ({ renderChatText: (text: string) => text }))
+vi.mock(`@/components/chat/chat-menu`, () => ({ AgentHeaderMenu: () => null }))
 vi.mock(`@/components/team/mobile-detail-header`, () => ({
   MobileDetailHeader: () => <div data-testid="mobile-header" />,
   HEADER_BUTTON_CLASS: ``,
@@ -150,11 +150,11 @@ beforeEach(() => {
   mocks.screen.current = null
 })
 
-describe(`the agent chat = THE thread screen`, () => {
-  it(`renders the thread screen over the conversation with the agent's header`, () => {
+describe(`the agent chat = THE chat screen`, () => {
+  it(`renders the chat screen over the conversation with the agent's header`, () => {
     mocks.conversation.current = conversationRow
     render(<Page />)
-    expect(screen.getByTestId(`thread-screen`)).toBeTruthy()
+    expect(screen.getByTestId(`chat-screen`)).toBeTruthy()
     const props = mocks.screen.current!
     expect((props.root as { id: string }).id).toBe(`c1`)
     expect((props.agent as { name: string }).name).toBe(`Triage`)

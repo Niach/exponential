@@ -83,7 +83,7 @@ public enum SessionTitle {
 
     /// EXP-1358: the lookups every title rung reads, built ONCE per list
     /// (the issue map, each session's links, each session's input messages
-    /// oldest first with their timestamps parsed once). `partitionThreads`
+    /// oldest first with their timestamps parsed once). `partitionChats`
     /// used to rebuild all of these for EVERY row — O(rows × messages) on
     /// the main actor on every sync tick.
     public struct Index: Sendable {

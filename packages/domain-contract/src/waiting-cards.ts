@@ -1,6 +1,6 @@
 // #EXP-1561 / #EXP-1562: WAITING question and plan cards ×4 — a card's
 // state (waiting / answered / dismissed / superseded), the dismissed card
-// the server stamps, and the thread header's waiting chips. TS reference;
+// the server stamps, and the chat header's waiting chips. TS reference;
 // desktop `domain::waiting_cards`, iOS ExpCore `WaitingCards.swift`,
 // Android `domain/WaitingCards.kt` replay `fixtures/waiting-cards.json`.
 

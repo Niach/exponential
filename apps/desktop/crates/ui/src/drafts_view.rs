@@ -1,7 +1,7 @@
 //! The Drafts center screen (EXP-878): the New issue pages this user left
 //! with something in them, most recently touched first.
 //!
-//! A tab-less full-page screen like Devices / Threads — context-free, so it
+//! A tab-less full-page screen like Devices / Chats — context-free, so it
 //! leaves the rail up and lends no list to what it opens. Clicking a row
 //! REOPENS its New issue page seeded from the row
 //! ([`crate::issue_draft_screen::open_existing`], EXP-1170);

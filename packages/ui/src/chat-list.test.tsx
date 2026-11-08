@@ -5,7 +5,7 @@ import type { AgentChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract
 import { CHAT_AGENT_ROW_TEST_ID, ChatList, ChatsHeader } from "./chat-list"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
-// Thread 58cb32df (chats.json): the phone Chats pieces paint the contract's
+// Chat 58cb32df (chats.json): the phone Chats pieces paint the contract's
 // model: the list case's rows.
 
 const rows = fixture.listCases[0]!.expected.rows as ChatRowModel[]
@@ -37,10 +37,10 @@ describe(`ChatList`, () => {
     expect(onOpen).toHaveBeenCalledWith(`c`)
   })
 
-  it(`opts every row into the thread menu`, () => {
+  it(`opts every row into the chat menu`, () => {
     render(<ChatList rows={rows} />)
     for (const row of screen.getAllByTestId(ids.chatRow)) {
-      expect(row.getAttribute(`data-menu`)).toBe(`thread`)
+      expect(row.getAttribute(`data-menu`)).toBe(`chat`)
       expect(row.getAttribute(`data-menu-id`)).toBe(row.getAttribute(`data-session-id`))
     }
   })

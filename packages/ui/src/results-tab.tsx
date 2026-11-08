@@ -20,7 +20,7 @@ import { SurfaceCard } from "./surface-card"
 //                  ONE row of thumbnails with a muted caption-or-label under
 //                  each, else THE surface card inline
 
-const ResultsIcon = conceptIcon(`thread-results`)
+const ResultsIcon = conceptIcon(`chat-results`)
 const TILE = RESULTS_TAB.tile
 
 /** `wide` = web md+ (and the IDE), `phone` = web-mobile (and the natives). */

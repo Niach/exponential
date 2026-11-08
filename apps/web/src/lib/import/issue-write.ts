@@ -12,7 +12,7 @@
 // - an unmapped comment author becomes the importer with ONE attribution
 //   line, markdown-native so every client renders it (comments.author_id is
 //   NOT NULL and an unmapped author has no row of their own);
-// - threads re-root to one level (a reply to a reply hangs off the root);
+// - replies re-root to one level (a reply to a reply hangs off the root);
 // - assets already fetched get their source URL rewritten to the canonical
 //   `/api/attachments/{id}`; unfetched ones keep the source URL and a
 //   warning;

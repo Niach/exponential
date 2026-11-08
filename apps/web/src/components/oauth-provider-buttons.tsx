@@ -106,7 +106,7 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
     }
   }
 
-  // withFirstTouchParams threads any ref/utm params the login page arrived
+  // withFirstTouchParams chats any ref/utm params the login page arrived
   // with through the provider round-trip (cookieless attribution, EXP-362) —
   // the post-OAuth load re-captures them and claims them for fresh accounts.
   const signInWithOidc = (providerId: string) =>

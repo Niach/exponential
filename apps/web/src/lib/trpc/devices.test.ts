@@ -1467,7 +1467,7 @@ describe(`devices.setLaunchDefaults`, () => {
   // under the same contract: a contract alias passes, an unknown one is
   // dropped (never an error), and a save that OMITS the key or sends null
   // clears it.
-  // Dispatch (owner 2026-10-15): the thread model is per agent, over THAT
+  // Dispatch (owner 2026-10-15): the chat model is per agent, over THAT
   // agent's vocabulary; blanks and foreign values are dropped.
   it(`clamps threadModel per agent to its own vocabulary`, async () => {
     h.state.selectQueue = deviceRow()

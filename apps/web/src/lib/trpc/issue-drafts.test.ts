@@ -326,23 +326,23 @@ describe(`issueDrafts.upsert`, () => {
   })
 })
 
-// EXP-1291: "New issue in this thread" — the draft persists its thread (the
+// EXP-1291: "New issue in this chat" — the draft persists its chat (the
 // ROOT session), so a draft reopened from Drafts still files into it. Absent
-// keeps the row's; null clears it; the thread must be the board's team's.
+// keeps the row's; null clears it; the chat must be the board's team's.
 describe(`issueDrafts.upsert sessionId`, () => {
-  const THREAD = `66666666-6666-4666-8666-666666666666`
+  const CHAT = `66666666-6666-4666-8666-666666666666`
   const CHILD = `77777777-7777-4777-8777-777777777777`
 
   beforeEach(() => {
     h.loadSessionForUser.mockReset()
-    h.loadSessionForUser.mockResolvedValue({ id: THREAD, rootId: THREAD, teamId: TEAM, kind: `thread` })
+    h.loadSessionForUser.mockResolvedValue({ id: CHAT, rootId: CHAT, teamId: TEAM, kind: `thread` })
   })
 
-  it(`stores the thread's root and re-sets it on conflict`, async () => {
-    h.loadSessionForUser.mockResolvedValue({ id: CHILD, rootId: THREAD, teamId: TEAM, kind: `thread` })
+  it(`stores the chat's root and re-sets it on conflict`, async () => {
+    h.loadSessionForUser.mockResolvedValue({ id: CHILD, rootId: CHAT, teamId: TEAM, kind: `thread` })
     await caller.upsert(input({ sessionId: CHILD }))
-    expect(state.inserted[0]).toMatchObject({ sessionId: THREAD })
-    expect(state.conflictSets[0]).toMatchObject({ sessionId: THREAD })
+    expect(state.inserted[0]).toMatchObject({ sessionId: CHAT })
+    expect(state.conflictSets[0]).toMatchObject({ sessionId: CHAT })
   })
 
   it(`clears it on null`, async () => {
@@ -352,19 +352,19 @@ describe(`issueDrafts.upsert sessionId`, () => {
     expect(state.conflictSets[0]).toMatchObject({ sessionId: null })
   })
 
-  it(`keeps the row's thread when the key is absent`, async () => {
+  it(`keeps the row's chat when the key is absent`, async () => {
     await caller.upsert(input())
     expect(state.inserted[0]).toMatchObject({ sessionId: null })
     expect(state.conflictSets[0]).not.toHaveProperty(`sessionId`)
   })
 
   it.each([
-    [`another team's thread`, { id: THREAD, rootId: THREAD, teamId: `other-team`, kind: `thread` }],
-    [`an agent`, { id: THREAD, rootId: THREAD, teamId: TEAM, kind: `agent`, agentId: THREAD }],
-    [`a missing thread`, null],
-  ])(`refuses %s before anything is written`, async (_name, thread) => {
-    h.loadSessionForUser.mockResolvedValue(thread)
-    await expect(caller.upsert(input({ sessionId: THREAD }))).rejects.toMatchObject({
+    [`another team's chat`, { id: CHAT, rootId: CHAT, teamId: `other-team`, kind: `thread` }],
+    [`an agent`, { id: CHAT, rootId: CHAT, teamId: TEAM, kind: `agent`, agentId: CHAT }],
+    [`a missing chat`, null],
+  ])(`refuses %s before anything is written`, async (_name, chat) => {
+    h.loadSessionForUser.mockResolvedValue(chat)
+    await expect(caller.upsert(input({ sessionId: CHAT }))).rejects.toMatchObject({
       code: `BAD_REQUEST`,
     })
     expect(state.inserted).toHaveLength(0)

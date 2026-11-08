@@ -3,7 +3,7 @@ import { ChatMenusSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// Thread 58cb32df (fixtures/chats.json MENUS ×4): THE chat menu and THE agent
+// Chat 58cb32df (fixtures/chats.json MENUS ×4): THE chat menu and THE agent
 // menu in both looks plus the delete confirm, `@exp/ui` `ChatMenusSpecimen`
 // (the app's `?dev=chat-menus` capture renders the same).
 
@@ -19,8 +19,8 @@ export const entry: StyleguideEntry = {
     web: {
       state: `ok`,
       symbol: `chatMenuRows / agentMenuRows`,
-      file: `packages/ui/src/threads-list.tsx`,
-      note: `apps/web/src/components/thread/chat-menu.tsx: kinds \`thread\` + \`agent\` in the team layout's MenuGestureHost, the header \`…\` menus, the Prompt confirm`,
+      file: `packages/ui/src/chats-list.tsx`,
+      note: `apps/web/src/components/chat/chat-menu.tsx: kinds \`chat\` + \`agent\` in the team layout's MenuGestureHost, the header \`…\` menus, the Prompt confirm`,
     },
     desktop: { state: `ok`, symbol: `chat_actions::chat_menu_items`, file: `apps/desktop/crates/ui/src/chat_actions.rs`, note: `PointerContextMenu; twin: styleguide/entries/chat_menus.rs` },
     ios: { state: `ok`, symbol: `ChatMenuSheet`, file: `apps/ios/Exponential/UI/Chats/ChatMenuSheet.swift`, note: `on ExpUI GlassLongPressMenu` },

@@ -13,7 +13,7 @@
  * So the rows those views print are SHIFTED forward by however much time has
  * passed since the seed, which keeps every age exactly what the seed wrote. The
  * elapsed time is read off one anchor the seed stamps at a known offset (the
- * ended APP-16 thread's `ended_at`, EXP-1293) and which only this shift moves, so the
+ * ended APP-16 chat's `ended_at`, EXP-1293) and which only this shift moves, so the
  * call is idempotent and cheap to repeat: the stand-in desktop runs it on every
  * heartbeat and `capture-views` before every view.
  *
@@ -36,19 +36,19 @@ import {
 import {
   DEMO_AGENT_COMMENT_ID,
   DEMO_EMAIL,
-  DEMO_THREAD_IDS,
+  DEMO_CHAT_IDS,
   DEMO_WIDGET_ISSUE_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
 
 /** The seed stamps `ended_at` of this session exactly this long before its clock. */
 export const DEMO_CLOCK_ANCHOR = {
-  sessionId: DEMO_THREAD_IDS.scrollRestore,
+  sessionId: DEMO_CHAT_IDS.scrollRestore,
   endedHoursAgo: 8,
 } as const
 
 /** The seeded ENDED sessions whose started/ended labels are photographed. */
-const ENDED_SESSION_IDS = [DEMO_THREAD_IDS.scrollRestore]
+const ENDED_SESSION_IDS = [DEMO_CHAT_IDS.scrollRestore]
 
 /** Below this the labels cannot have moved; skip the writes (and the sync churn). */
 const MIN_SHIFT_MS = 5_000

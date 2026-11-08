@@ -1,8 +1,8 @@
 //! `plan-page` (Special components): #EXP-1662 THE plan tab
 //! (`fixtures/plan-page.json` ×4), the IDE half of the entry the web page
 //! draws (`PlanPageSpecimen`). It paints `specimen` WIDE at 1280 × 720 with the
-//! REAL parts: the thread's title (`specimen.chatName`) + THE strip with the
-//! plan chip active ([`crate::thread_screen::thread_strip`]) over the REAL body
+//! REAL parts: the chat's title (`specimen.chatName`) + THE strip with the
+//! plan chip active ([`crate::session_chat::chat_strip`]) over the REAL body
 //! ([`crate::plan_page::plan_page`]): THE Outline with `specimen.activeSection`
 //! active, the document from its top (pictures = the committed samples,
 //! EXP-1654: [`crate::specimen_pictures`] seeds the entry's cache) and the
@@ -11,13 +11,13 @@
 
 use domain::plan_page::PLAN_PAGE;
 use domain::rows::MessageRow;
-use domain::session_tree::{SessionThreadRow, ThreadTab};
+use domain::session_tree::{SessionChatRow, ChatTab};
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::markdown::ImageCache;
 use crate::plan_page::PlanPageState;
-use crate::thread_screen::{StripPick, ThreadStrip, ThreadText};
+use crate::session_chat::{StripPick, ChatStrip, ChatText};
 
 pub(crate) const ID: &str = "plan-page";
 pub(crate) const OWNER: &str = "EXP-1493";
@@ -29,8 +29,8 @@ const SESSION_ID: &str = "plan-specimen-session";
 /// The specimen's size (`specimen.$comment`: wide = 1280 × 720).
 const WIDE: (f32, f32) = (1280., 720.);
 
-/// The specimen card as its thread row.
-pub(crate) fn row() -> SessionThreadRow {
+/// The specimen card as its chat row.
+pub(crate) fn row() -> SessionChatRow {
     let message = MessageRow {
         id: MESSAGE_ID.to_string(),
         conversation_id: "plan-specimen-conversation".to_string(),
@@ -53,10 +53,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .clone();
     let state = window.use_keyed_state("sg-plan-page-state", cx, |_, _| PlanPageState::default()).read(cx).clone();
     let row = row();
-    let strip = crate::thread_screen::thread_strip(
-        ThreadStrip {
+    let strip = crate::session_chat::chat_strip(
+        ChatStrip {
             prefix: "sg-plan-page",
-            tabs: vec![ThreadTab::Conversation],
+            tabs: vec![ChatTab::Conversation],
             issues: Default::default(),
             clis: Default::default(),
             open: StripPick::Plan,
@@ -65,7 +65,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             results: true,
             waiting: Vec::new(),
             on_waiting: None,
-            plan: crate::thread_screen::strip_plan_of(&row),
+            plan: crate::session_chat::strip_plan_of(&row),
         },
         window,
         cx,
@@ -76,13 +76,13 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .px_10()
         .pt_6()
         .gap_4()
-        .child(crate::thread_screen::title_row(&PLAN_PAGE.specimen.chat_name, false, cx))
+        .child(crate::session_chat::title_row(&PLAN_PAGE.specimen.chat_name, false, cx))
         .child(strip)
         .child(div().w_full().h(px(1.)).bg(cx.theme().border));
     let page = crate::plan_page::plan_page(
         crate::plan_page::PlanPageProps {
             row: &row,
-            text: &ThreadText::default(),
+            text: &ChatText::default(),
             images: &images,
             state: &state,
             active: Some(PLAN_PAGE.specimen.active_section.clone()),
@@ -114,7 +114,7 @@ mod tests {
     /// pictures (one group: THE Mosaic with "+1").
     #[test]
     fn the_plan_page_specimen_is_the_fixture_card() {
-        let SessionThreadRow::Plan { questions, decision: None, plan, .. } = row() else {
+        let SessionChatRow::Plan { questions, decision: None, plan, .. } = row() else {
             panic!("a waiting plan");
         };
         assert_eq!(questions.len(), 2);

@@ -342,12 +342,12 @@ describe(`issues.create with a draft (EXP-878)`, () => {
   })
 })
 
-// EXP-1291: a "New issue in this thread" draft persisted its session
+// EXP-1291: a "New issue in this chat" draft persisted its session
 // (`issue_drafts.session_id`); consuming it files the issue into that
-// session's thread (its root) unless the create names its own. A session that
+// session's chat (its root) unless the create names its own. A session that
 // vanished (or is another team's) since the draft was written is simply no
 // link — never a failure.
-describe(`issues.create with a draft's thread (EXP-1291)`, () => {
+describe(`issues.create with a draft's chat (EXP-1291)`, () => {
   const SESSION_ID = `55555555-5555-4555-8555-555555555555`
   const OTHER_SESSION = `66666666-6666-4666-8666-666666666666`
 
@@ -361,8 +361,8 @@ describe(`issues.create with a draft's thread (EXP-1291)`, () => {
     transaction.mockClear()
   })
 
-  it(`links the issue into the consumed draft's thread`, async () => {
-    await caller.create({ boardId: BOARD_ID, title: `From a thread draft`, draftId: DRAFT_ID })
+  it(`links the issue into the consumed draft's chat`, async () => {
+    await caller.create({ boardId: BOARD_ID, title: `From a chat draft`, draftId: DRAFT_ID })
     expect(h.linkIssues).toHaveBeenCalledWith(tx, {
       sessionId: SESSION_ID,
       issueIds: [ISSUE_ID],

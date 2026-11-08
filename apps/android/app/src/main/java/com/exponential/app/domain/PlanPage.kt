@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * #EXP-1493 → #EXP-1662 THE PLAN TAB ×4 (`packages/domain-contract/fixtures/plan-page.json`,
  * TS reference `src/plan-page.ts`, iOS ExpCore `PlanPage.swift`, desktop
  * `domain::plan_page`): the expanded form of THE plan card, a tab of its
- * thread. A plan's markdown split into blocks (the title, prose, h2 sections,
+ * chat. A plan's markdown split into blocks (the title, prose, h2 sections,
  * picture groups), its outline, its counts line, the plan the tab shows, its
  * row label and where a session's waiting plan opens.
  * `PlanPageTest` replays every `*Cases` array.
@@ -73,7 +73,7 @@ object PlanPage {
         const val CAROUSEL = "plan-carousel"
         const val OPEN_PLAN = "open-plan"
         const val OUTLINE_TOGGLE = "plan-outline-toggle"
-        const val TAB = "thread-tab-plan"
+        const val TAB = "chat-tab-plan"
     }
 
     const val ROUTE = "/t/\$teamSlug/sessions/\$sessionId/plan/\$messageId"
@@ -313,12 +313,12 @@ object PlanPage {
         return best?.id
     }
 
-    /** A thread's plan card, as the tab reads it. */
+    /** A chat's plan card, as the tab reads it. */
     data class TabPlan(val id: String, val decision: String?)
 
-    /** #EXP-1662 / #FEED-191 (`tabCases`): the plan the thread's tab shows
+    /** #EXP-1662 / #FEED-191 (`tabCases`): the plan the chat's tab shows
      *  ([plans] oldest first): the newest waiting one, else [kept] while it is
-     *  an approved or rejected plan of the thread (the plan the tab showed
+     *  an approved or rejected plan of the chat (the plan the tab showed
      *  during THIS visit of the chat; the screen clears it when the person
      *  leaves), else none: a decided plan leaves the strip. */
     fun planTabTarget(plans: List<TabPlan>, kept: String? = null): String? {
@@ -345,7 +345,7 @@ object PlanPage {
         return if (title.isEmpty()) Copy.TITLE else "${Copy.ROW_PREFIX}$title"
     }
 
-    /** The web path, which redirects to the thread's tab. */
+    /** The web path, which redirects to the chat's tab. */
     fun path(teamSlug: String, sessionId: String, messageId: String): String =
         ROUTE.replace("\$teamSlug", teamSlug)
             .replace("\$sessionId", sessionId)

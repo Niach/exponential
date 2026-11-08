@@ -87,7 +87,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Your Assistant works across all your teams, each team's owners can name a Coordinator agent that the team's work goes to, and plans on desktop no longer overlap.`,
     body: `- **One Assistant across teams**: your Assistant is found in every team you are in, and the composer's + menu lets you pick which teams it works with.
 - **Coordinator**: in Team settings › Agents, owners pick one team agent as the team's Coordinator; members' Assistants hand that team's work to it.
-- **Threads report back**: a thread an agent started reports to that agent again after it is revived.
+- **Chats report back**: a chat an agent started reports to that agent again after it is revived.
 - **Plans on desktop**: each plan block is as tall as its content, so blocks no longer overlap.
 - **Picks marked**: Teams, MCP servers and Skills picks show a check on iPhone and Android, like on the web and desktop.`,
   },
@@ -314,7 +314,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Teams can have their own image, phones get the team switcher, and device cards expand to show an account's plan and limits.`,
     body: `- **Team image**: owners can give a team its own image; it shows as the team mark everywhere, with the switcher caret beside it, and phones get the team switcher too.
 - **Device cards**: tap an account on a device card to expand it and see its email, plan and limits; the card remembers it. On phones the actions open as a bottom sheet.
-- **Sending into a locked thread**: a message sent into an idle end-to-end encrypted thread without a key now sets the key up instead of failing.`,
+- **Sending into a locked chat**: a message sent into an idle end-to-end encrypted chat without a key now sets the key up instead of failing.`,
   },
   {
     id: `2026-11-04-agent-chats-reach-agents`,
@@ -430,7 +430,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-11-03`,
     title: `Steadier live sessions, apps that work offline`,
     summary: `Live sessions on Android reconnect only what you are looking at, app edits made offline are sent when you are back, and apps can run automations and step records through states.`,
-    body: `- **Live sessions on Android**: coming back to the app reconnects only the screens you can see, a thread keeps one live stream for its queue, and a refused connection no longer retries in a loop.
+    body: `- **Live sessions on Android**: coming back to the app reconnects only the screens you can see, a chat keeps one live stream for its queue, and a refused connection no longer retries in a loop.
 - **Offline app edits**: records you add or change in an app without a connection are kept and sent once you are back online, exactly once.
 - **Automations**: an app can run actions on a schedule or when a record changes; its Settings tab lists them.
 - **States**: an app can move a record through states (open, in review, done) with rules for who may make each step.
@@ -615,7 +615,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Smooth on iOS**: live updates no longer re-render the whole chat or the composer, and long transcripts load without freezing.
 - **Back in seconds**: the connection to your machines recovers within seconds instead of waiting.
 - **Android in the background**: live sessions pause cleanly when you leave the app and reconnect when you return, instead of failing while Android freezes it.
-- **Desktop**: a thread's child sessions running on the same machine stream straight from it.`,
+- **Desktop**: a chat's child sessions running on the same machine stream straight from it.`,
   },
   {
     id: `2026-11-02-record-on-behalf`,
@@ -670,9 +670,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-01-ci-checks`,
     date: `2026-11-01`,
     title: `CI checks on the Merge pill`,
-    summary: `The thread's Merge pill shows the PR's CI: a spinner while checks run, Checks failing when one is red.`,
+    summary: `The chat's Merge pill shows the PR's CI: a spinner while checks run, Checks failing when one is red.`,
     body: `- **Merge pill**: a spinner while checks run, Merge PR when they pass, Checks failing when one is red; merging on red asks first.
-- **Checks**: the thread's … menu lists every check with its status, duration and a link to its logs.
+- **Checks**: the chat's … menu lists every check with its status, duration and a link to its logs.
 - **Everywhere**: on the web, desktop, iOS and Android.`,
   },
   {
@@ -708,9 +708,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-01-dismiss-cards`,
     date: `2026-11-01`,
     title: `Dismiss a question or plan`,
-    summary: `Close a question or plan card you don't want to answer; the thread header shows what's still waiting.`,
+    summary: `Close a question or plan card you don't want to answer; the chat header shows what's still waiting.`,
     body: `- **Dismiss**: every question and plan card has an ✕; the agent hears that you dismissed it and carries on.
-- **Waiting**: the thread header shows each question or plan still waiting; tap one to jump to it.`,
+- **Waiting**: the chat header shows each question or plan still waiting; tap one to jump to it.`,
   },
   {
     id: `2026-11-01-wide-tables-scroll`,
@@ -724,7 +724,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-01-smooth-long-plans-desktop`,
     date: `2026-11-01`,
     title: `Long plans scroll smoothly on desktop`,
-    summary: `A thread with a very long plan card scrolls without lag in the desktop app.`,
+    summary: `A chat with a very long plan card scrolls without lag in the desktop app.`,
     body: `- **Smooth scrolling**: the desktop app now lays out only the part of a long plan that is on screen, so scrolling past many sections, tables and pictures stays fluid.
 - **Same look**: plans look exactly as before.`,
   },
@@ -814,9 +814,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-11-01-thread-dock-child-tasks`,
     date: `2026-11-01`,
-    title: `A child's tasks in the thread`,
-    summary: `The Dock of a thread shows the tasks of a running child session when the root has none.`,
-    body: `- **Tasks card**: when the root session has no open tasks, the thread's Dock shows the tasks of the most recently active running child, named in the card.
+    title: `A child's tasks in the chat`,
+    summary: `The Dock of a chat shows the tasks of a running child session when the root has none.`,
+    body: `- **Tasks card**: when the root session has no open tasks, the chat's Dock shows the tasks of the most recently active running child, named in the card.
 - **Sheet**: opening the card shows that child's full task list.`,
   },
   {
@@ -841,9 +841,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-01-agent-logins-stay-signed-in`,
     date: `2026-11-01`,
     title: `Agent logins stay signed in`,
-    summary: `A thread moves to another signed-in account when its login signs out, and Import is gone.`,
+    summary: `A chat moves to another signed-in account when its login signs out, and Import is gone.`,
     body: `- **No more copied logins**: Import is removed; every account signs in on its own device, so one copy can no longer sign another out.
-- **Automatic switch**: a new or running thread whose login is signed out continues on another healthy account on that device.
+- **Automatic switch**: a new or running chat whose login is signed out continues on another healthy account on that device.
 - **Honest health**: a login whose refresh failed shows Needs re-login right away instead of OK.`,
   },
   {
@@ -1075,7 +1075,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `Stories step through every picture, and a steadier desktop`,
     summary: `Stories play picture by picture, the composer lists your prompts, pushes open on your phone and the desktop no longer crashes during computer use.`,
     body: `- **Stories, frame by frame**: every picture or card in a story is its own step with its own progress bar; on phones stories fill the screen, and on desktop the side arrows step instead of closing.
-- **One thread strip**: a session's strip shows the conversation, its issue or one session tree button with a count, then Stories.
+- **One chat strip**: a session's strip shows the conversation, its issue or one session tree button with a count, then Stories.
 - **Prompts in the composer**: the composer's + menu lists your team's prompts, and the account rows show your usage again.
 - **Notifications on your phone**: iOS and Android open encrypted pushes on the device and show the full message.
 - **Desktop crash fixed**: the desktop app no longer crashes when an agent using computer use switches to the Exponential window.
@@ -1187,11 +1187,11 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-10-28-sessions-never-stall`,
     date: `2026-10-28`,
     title: `Sessions that never stall, and a disk check on every device`,
-    summary: `A new thread always starts its first turn, a killed or restarted run says so and resumes, the model picker works on a session that hit its limit, and devices clean up old worktrees and warn when the disk runs low.`,
-    body: `- **First turns**: a new thread whose first turn failed or never ran starts again by itself instead of waiting for a nudge.
+    summary: `A new chat always starts its first turn, a killed or restarted run says so and resumes, the model picker works on a session that hit its limit, and devices clean up old worktrees and warn when the disk runs low.`,
+    body: `- **First turns**: a new chat whose first turn failed or never ran starts again by itself instead of waiting for a nudge.
 - **Interrupted runs**: a run killed by its machine (out of memory, a crash, a restart) reads interrupted and resumes; on Linux each run gets its own memory scope, so one heavy run no longer takes the others down.
 - **Model limits**: picking a model on a session that hit its limit switches it at once.
-- **Automerge**: a thread can no longer stay locked, a change arriving mid-merge is picked up, and draft PRs follow GitHub.
+- **Automerge**: a chat can no longer stay locked, a change arriving mid-merge is picked up, and draft PRs follow GitHub.
 - **Disk**: devices remove build output from finished worktrees, list the worktrees they kept and why, and warn when less than 10 GB is free.
 - **Live view**: a reconnecting run is never replaced by its replay, and a session without a transcript answers at once instead of spinning.`,
   },
@@ -1205,7 +1205,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Spoken replies (beta)**: German now starts speaking as fast as English.
 - **Proposal cards (beta)**: a voice agent proposes changes on a card and only acts after your yes.
 - **Sessions**: interruptions resume by themselves, queued sessions wait for their device, an idle session's transcript opens on every device, and plan and question cards reach the team agent's conversation and show inline on Android.
-- **Merges**: a refused merge lands in the thread with Retry, and automerge also runs when a turn or session ends or a PR opens.
+- **Merges**: a refused merge lands in the chat with Retry, and automerge also runs when a turn or session ends or a PR opens.
 - **Chats and Devices**: select chats to mark read, archive (just for you), stop or delete them; every check is the square checkbox; Devices shows one line per machine, and team owners can remove a shared machine.
 - **Privacy**: a private chat's text never shows up in a conversation that may not see it.
 - **Store builds**: the IDE and CLI 0.14.80 (an older 0.14.79 daemon cannot resume interrupted runs, please update), Android 0.14.72; iOS 0.14.70 is in TestFlight.`,
@@ -1253,9 +1253,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-27-merge-refusals-in-the-thread`,
     date: `2026-10-27`,
-    title: `A refused merge goes to the thread`,
-    summary: `When a merge is refused, the thread's session gets GitHub's reason and takes it from there, so the Fix conflicts run is gone.`,
-    body: `- **Into the thread**: a refused merge (checks, conflicts, anything else) appears as Merge of PR #N refused in the thread and wakes its session with the reason and what to do; the error says Sent to the thread.
+    title: `A refused merge goes to the chat`,
+    summary: `When a merge is refused, the chat's session gets GitHub's reason and takes it from there, so the Fix conflicts run is gone.`,
+    body: `- **Into the chat**: a refused merge (checks, conflicts, anything else) appears as Merge of PR #N refused in the chat and wakes its session with the reason and what to do; the error says Sent to the chat.
 - **Retry everywhere**: every refused merge offers Retry, and the error names what failed: Couldn't merge the PR or Couldn't merge the stack.
 - **Fix conflicts is gone** on web, the IDE, iPhone and Android: the session rebases and resolves conflicts itself.`,
   },
@@ -1276,7 +1276,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Proposal cards**: when you talk to your voice agent, creating or updating an issue, commenting, adding a label or a relation, or starting a subagent shows a card with what would change and what you said. Allow runs it, Deny (or "no") drops it, and a typed or spoken change ("yes, but priority high") is applied in one go, for that same change only. A card waits 15 minutes; a newer card for the same issue replaces the older one.
 - **Say yes for the big ones**: deleting, merging or closing a pull request, messaging another session, running a command or editing a file is read aloud and needs an explicit yes. Team settings, people, device sign-ins and scripts are never run from a voice conversation, and only you can answer its cards.
 - **Answer by voice**: with push to talk, "take two", "reject one", "accept all", "yes" or "no" answer the waiting cards instead of being sent as a message.
-- **Only your voice agent**: every other session, thread and agent conversation works exactly as before.
+- **Only your voice agent**: every other session, chat and agent conversation works exactly as before.
 - **Update the voice device**: the cards need desktop app 0.14.80 or later; an older desktop keeps running your voice conversation without asking.`,
   },
   {
@@ -1505,8 +1505,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-10-24-chats`,
     date: `2026-10-24`,
     title: `Chats: a WhatsApp-like phone app, stop and delete from the list, agents that compact and start over, and live previews in the chat`,
-    summary: `Threads are now Chats everywhere. Phones get a new bottom bar, a chat list with agent bubbles, chat bubbles and a Team tab; every platform can stop or delete a chat from its row, compact an agent or start it fresh, and agents can draw live previews right into the chat.`,
-    body: `- **Chats**: threads are called chats on every platform. On phones the bottom bar is Board · Devices · Chats · Team, and the Chats tab lists your active team's chats like a messenger: agents as bubbles on top (a ring when they need you or wrote something new), filter chips, and one row per chat with its last message, time and unread count.
+    summary: `One name, Chats, everywhere. Phones get a new bottom bar, a chat list with agent bubbles, chat bubbles and a Team tab; every platform can stop or delete a chat from its row, compact an agent or start it fresh, and agents can draw live previews right into the chat.`,
+    body: `- **Chats**: one name, chats, on every platform. On phones the bottom bar is Board · Devices · Chats · Team, and the Chats tab lists your active team's chats like a messenger: agents as bubbles on top (a ring when they need you or wrote something new), filter chips, and one row per chat with its last message, time and unread count.
 - **Stop and delete**: right-click a chat (long-press on phones) to Stop it or Stop and delete it; an ended chat offers Delete. The Stop button in a chat's header now ends the chat, and a stop the device never received says so.
 - **Agents**: Compact conversation and New conversation in an agent chat's menu, or type \`/compact\` and \`/new\`; both leave a marker in the chat.
 - **Live previews**: agents can draw an interactive preview (charts, stats, buttons) straight into the chat, and it animates in as it arrives.
@@ -1524,9 +1524,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-23-conversations-on-every-client`,
     date: `2026-10-23`,
-    title: `Every app reads threads through conversations, and actions are retired`,
-    summary: `Web, the IDE, iOS and Android now load a thread's messages through its conversation and stop syncing the retired actions, ready for the server cleanup that follows.`,
-    body: `- **Threads**: messages load through their conversation on every platform, so direct messages and channels can follow without another app update.
+    title: `Every app reads chats through conversations, and actions are retired`,
+    summary: `Web, the IDE, iOS and Android now load a chat's messages through its conversation and stop syncing the retired actions, ready for the server cleanup that follows.`,
+    body: `- **Chats**: messages load through their conversation on every platform, so direct messages and channels can follow without another app update.
 - **Actions**: the apps no longer sync actions (prompts replaced them); an action pinned in the sidebar disappears.
 - **Devices**: moving a session to another device takes effect at once; the Moving to pin and its cancel are gone.
 - **Session cards**: the old caption line under a session's name is gone.`,
@@ -1534,21 +1534,21 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-23-threads-follow-ups`,
     date: `2026-10-23`,
-    title: `Threads: the Conversation tab on every thread, filed issues stay where they are, and pickup after an update`,
-    summary: `Every thread's strip shows Conversation again, which on a one-session thread is that session's own work; an issue a session files keeps its status until a session takes it up; a session whose device updated itself under it picks up its waiting message; and the pull request tools find an issue's own pull request.`,
-    body: `- **Conversation tab**: every thread's strip starts with Conversation. On a thread with one session it is that session's work with its composer; the first child session turns it into the thread's conversation as before. On web, the IDE and Android; on iPhone in the TestFlight build.
-- **Filed issues**: an issue a session files is linked to its thread but keeps its status. It moves to In Progress only when a session takes it up: a start, a forward, a link or your message into the session that holds it.
-- **Pickup after an update**: a thread whose desktop app or daemon updated itself mid-turn picks up its waiting message instead of sitting idle with it.
+    title: `Chats: the Conversation tab on every chat, filed issues stay where they are, and pickup after an update`,
+    summary: `Every chat's strip shows Conversation again, which on a one-session chat is that session's own work; an issue a session files keeps its status until a session takes it up; a session whose device updated itself under it picks up its waiting message; and the pull request tools find an issue's own pull request.`,
+    body: `- **Conversation tab**: every chat's strip starts with Conversation. On a chat with one session it is that session's work with its composer; the first child session turns it into the chat's conversation as before. On web, the IDE and Android; on iPhone in the TestFlight build.
+- **Filed issues**: an issue a session files is linked to its chat but keeps its status. It moves to In Progress only when a session takes it up: a start, a forward, a link or your message into the session that holds it.
+- **Pickup after an update**: a chat whose desktop app or daemon updated itself mid-turn picks up its waiting message instead of sitting idle with it.
 - **Pull request tools**: an issue's pull request resolves to the one opened by the session that holds the issue, so the MCP pr tools no longer refuse a choice they can make.`,
   },
   {
     id: `2026-10-23-release-train`,
     date: `2026-10-23`,
     title: `Release 2026-10-23: the Dock, Apps and the inline pickers on every platform, with the train's fixes`,
-    summary: `This release ships the Dock, the Apps editor, the inline pickers and the Exponential UI layout components to web, the IDE, Android and TestFlight, plus the fixes the release review found: a refused launch ends its thread, a closed Dock sheet stays closed, editor sessions stay out of issue threads, and the app host's private-range filter covers CGNAT and the IPv6 forms that embed an IPv4.`,
-    body: `- **Threads**: a thread whose launch was refused ends instead of waiting idle and nudging its device every minute; a message to an ended thread still resumes the same session.
+    summary: `This release ships the Dock, the Apps editor, the inline pickers and the Exponential UI layout components to web, the IDE, Android and TestFlight, plus the fixes the release review found: a refused launch ends its chat, a closed Dock sheet stays closed, editor sessions stay out of issue chats, and the app host's private-range filter covers CGNAT and the IPv6 forms that embed an IPv4.`,
+    body: `- **Chats**: a chat whose launch was refused ends instead of waiting idle and nudging its device every minute; a message to an ended chat still resumes the same session.
 - **The Dock**: a sheet you closed stays closed when its card comes back later (the Tasks sheet no longer reopens on the next run's first todo); on phones the transcript keeps its room above the composer. Android's Connection lost banner has its Reconnect button.
-- **Apps**: an app survives its creator leaving the team (ownership passes to the owners), a trashed app's slug can be reused, and a version written from the editor session names its author. An app editor session no longer shows up as an issue thread or in the IDE's Running list.
+- **Apps**: an app survives its creator leaving the team (ownership passes to the owners), a trashed app's slug can be reused, and a version written from the editor session names its author. An app editor session no longer shows up as an issue chat or in the IDE's Running list.
 - **App host**: the private-range URL filter also denies carrier-grade NAT (100.64/10) and the IPv4-compatible, NAT64 and 6to4 IPv6 forms, and the web renderers re-check a redirect's target before reading it.
 - **Store builds**: Android 0.14.68 and the IDE 0.14.76 are live; iOS 0.14.66 is in TestFlight.`,
   },
@@ -1567,7 +1567,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-10-22`,
     title: `Exponential apps: build small apps with the editor session, previewed live and kept in versions`,
     summary: `A team's Apps are declarative Exponential UI packages rendered inside every client; the editor shows your chat with the app's own session beside a live preview, every published package is a version you can view and restore, and agents publish apps over the new exponential_apps tool.`,
-    body: `- **Apps**: the sidebar gains an Apps section drawn like Agents and Boards, the built-in Devices app first; the plus names a new app and opens the editor, the hover gear opens its settings page under Settings → Apps. Phones keep the Apps list behind the Threads header button.
+    body: `- **Apps**: the sidebar gains an Apps section drawn like Agents and Boards, the built-in Devices app first; the plus names a new app and opens the editor, the hover gear opens its settings page under Settings → Apps. Phones keep the Apps list behind the Chats header button.
 - **The editor**: your chat with the app's editor session sits beside the live preview; the first message starts the session on your device, leaving the editor ends it, the next message continues it. Phones switch between Chat, Preview and Versions.
 - **Versions**: every package the session publishes is a version with a note; open Versions to preview an older one and restore it as the new head. No git involved.
 - **MCP**: the sixteenth tool, exponential_apps, lists, reads, publishes and deletes apps and hands an agent the catalog of components, bindings and host functions a package may use.
@@ -1588,32 +1588,32 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-22-threads-survive-a-quit`,
     date: `2026-10-22`,
-    title: `A thread survives an app quit, and a message to an ended thread resumes it`,
-    summary: `Quitting the desktop app or losing a thread's process no longer ends the thread: it waits, and your next message resumes the same session with its context. A thread you ended on purpose resumes the same way instead of starting a copy.`,
-    body: `- **Threads survive their process**: a thread's own session goes idle when the app quits, the daemon stops or the agent crashes, exactly like an agent's conversation; only End or the agent's own close ends it. Sub-sessions still end with their process and report to their parent.
-- **Resume, not copy**: a message to an ended thread resumes that same session (its branch, title, issues and context) instead of starting a one-turn copy that ended after its reply, left your answer unread and showed an identically named session waiting forever.
+    title: `A chat survives an app quit, and a message to an ended chat resumes it`,
+    summary: `Quitting the desktop app or losing a chat's process no longer ends the chat: it waits, and your next message resumes the same session with its context. A chat you ended on purpose resumes the same way instead of starting a copy.`,
+    body: `- **Chats survive their process**: a chat's own session goes idle when the app quits, the daemon stops or the agent crashes, exactly like an agent's conversation; only End or the agent's own close ends it. Sub-sessions still end with their process and report to their parent.
+- **Resume, not copy**: a message to an ended chat resumes that same session (its branch, title, issues and context) instead of starting a one-turn copy that ended after its reply, left your answer unread and showed an identically named session waiting forever.
 - **Desktop quit**: ⌘Q suspends the sessions it hosts the way the daemon already did on stop; their worktrees stay where the agent left them for the resume.`,
   },
   {
     id: `2026-10-22-new-session-system`,
     date: `2026-10-22`,
     title: `Release 2026-10-22: the new session system, agents with their own conversations, prompts instead of actions, and 15 MCP tools`,
-    summary: `Every thread is one session that works itself and is woken by messages; agents are definitions that run as a conversation per member with server-fired triggers and an events stream; prompts replace actions in the / menu and Settings; the MCP surface is 15 noun tools with one runbook; devices re-claim their sessions after a restart and clean up their worktrees.`,
-    body: `- **A thread is its session**: the root works the task itself, no dispatcher; children are started only when the work calls for them, every child transition lands in the parent as a waking message, and a one-minute watchdog flags a session that stalls. The plan card asks one question at a time, with a stepper.
+    summary: `Every chat is one session that works itself and is woken by messages; agents are definitions that run as a conversation per member with server-fired triggers and an events stream; prompts replace actions in the / menu and Settings; the MCP surface is 15 noun tools with one runbook; devices re-claim their sessions after a restart and clean up their worktrees.`,
+    body: `- **A chat is its session**: the root works the task itself, no dispatcher; children are started only when the work calls for them, every child transition lands in the parent as a waking message, and a one-minute watchdog flags a session that stalls. The plan card asks one question at a time, with a stepper.
 - **Agents**: an agent is a definition (name, icon, instructions, device, model) and runs as its own conversation per member; triggers fire from the server on a schedule or on team events, and the Agents page shows the Events stream. Message an agent from the Home composer's + menu; the reply opens in your DM with it.
 - **Prompts replace actions**: a prompt is a name, an icon and a body; it lives in the / menu of every composer and under Settings → Prompts. Inputs, picks and per-action triggers are gone (triggers belong to agents). Existing actions were converted.
 - **15 MCP tools**: one tool per noun (issues, comments, sessions, pr, ...) taking an op, plus sessions_send and guide_write; one runbook under 6 KB written around the bus (end your turn, you are woken by messages). An op you lack errors instead of vanishing.
 - **Devices**: a restarted daemon or IDE re-claims every session its dead process left behind and continues a turn that was cut mid-way; a session's worktree is removed when it ends (uncommitted work becomes a WIP commit on an exp/leftover branch); repo-less runs are confined to their scratch folder; the dispatcher checkout and the handoff package are gone.
-- **Phones**: Android and iPhone follow with the same screens (threads, agents with DMs, Events, Settings → Prompts, prompts in the / menus). The iPhone build you have keeps working until the new one is live; the Android update is required.`,
+- **Phones**: Android and iPhone follow with the same screens (chats, agents with DMs, Events, Settings → Prompts, prompts in the / menus). The iPhone build you have keeps working until the new one is live; the Android update is required.`,
   },
   {
     id: `2026-10-21-release-train-pre-cleanup`,
     date: `2026-10-21`,
     title: `Release 2026-10-21: a faster iPhone app, moves that clean up after themselves, an unlink tool for pull requests, and the review fixes`,
     summary: `The iPhone app stops syncing while idle and does far less work per keystroke, a moved session's source cleans up its worktree once the target has restored it, agents can detach a mislinked issue from a pull request, and the release review hardened computer use and the move flow.`,
-    body: `- **iPhone, faster**: the idle sync drumbeat is gone, lists, the session view and the editors do far less work per keystroke and per sync tick, and the Threads title sits in the sticky bar like every other tab.
+    body: `- **iPhone, faster**: the idle sync drumbeat is gone, lists, the session view and the editors do far less work per keystroke and per sync tick, and the Chats title sits in the sticky bar like every other tab.
 - **Moves clean up**: the source device keeps a moved session's worktree and branch until the target reports the restore, then removes them; a move keeps its index, drops the unpacked package on any outcome and consumes owed messages once.
-- **Unlink from a pull request**: the exponential_pr_unlink tool detaches one mislinked issue from a pull request; the issue's status stays as is and the thread keeps the issue.
+- **Unlink from a pull request**: the exponential_pr_unlink tool detaches one mislinked issue from a pull request; the issue's status stays as is and the chat keeps the issue.
 - **Android capture lanes** bundle the Exponential UI FFI, so the plan card's Preview renders in the store and gallery shots.
 - **Review fixes**: the computer-use Esc abort is answered only by your next message, never by a turn the agent opens itself, the X11 backend keeps an Escape on a keymap without one and reads back wheel releases, the Windows hook start no longer waits forever, a week-old package no longer expires a move you just requested, a restore marker from a later move no longer deletes the first source's recovery copy, a moved package with staged changes still restores on a device that has not updated yet, a board that is still syncing no longer flashes the "Syncing team" banner on iPhone, and a renamed status reaches the #EXP chips at once.`,
   },
@@ -1632,11 +1632,11 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-10-19`,
     title: `Release 2026-10-19: sessions with real names, the Ask dock and plan card, moving a session between devices, and the review fixes`,
     summary: `Every session carries a real name on every device, a waiting question or plan takes the composer's place, a running session moves to another of your devices with its worktree, quick replies sit above the composer, and the release review fixed what those changes left open on older apps.`,
-    body: `- **Sessions name themselves**: every session, tab and row shows a real name instead of "Session 2", and a thread's dispatcher groups related issues into one session, on web, IDE, iPhone and Android.
+    body: `- **Sessions name themselves**: every session, tab and row shows a real name instead of "Session 2", and a chat's dispatcher groups related issues into one session, on web, IDE, iPhone and Android.
 - **Ask dock and plan card**: a waiting question or plan sits where the composer was, several stack up and open one at a time, and a plan reads as one rich card with pictures, choice questions and an inline Exponential UI surface, answered in the card on every platform.
 - **Move a session**: the Device pin in a session's options moves a running session, with its worktree and conversation, to another of your online devices; the source keeps its worktree and branch as the recovery point until the move is fully restored.
 - **Quick replies**: short answers the agent suggests sit above the composer and send with one tap.
-- **Threads**: thread rows drop the private lock and the merged word, the Threads tab carries the live dot, the Inbox tab shows a dot while you have drafts on phones, and the session page lives inside its thread with one Stop in the header that hands queued messages back to the composer.
+- **Chats**: chat rows drop the private lock and the merged word, the Chats tab carries the live dot, the Inbox tab shows a dot while you have drafts on phones, and the session page lives inside its chat with one Stop in the header that hands queued messages back to the composer.
 - **Issues and pull requests**: follow-up work moves an issue back to In Progress and its end returns it to In Review, issue-targeted PR tools resolve to the issue's own PR, and a Guide remove reaches the caller's subtree.
 - **Accounts**: switching accounts keeps the model, shows itself in the session, and names accounts by email.
 - **Review fixes**: a move keeps the source's worktree and branch until the target has restored it, a re-targeted or cancelled move never loses the uploaded package, a plan approved with a fresh context starts fresh even after the daemon restarted, a refused Stop puts the queued text back exactly once, the session transcript on iPhone shows the agent's own plan and question cards, a plan card's links and media open nothing, moving to a device on an older build is refused with an update note on every platform, and an agent on an older desktop build asks inline instead of posting a card it could never see answered.`,
@@ -1654,8 +1654,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-10-18`,
     title: `Follow-up work moves an issue back to In Progress`,
     summary: `When a session starts follow-up work on an issue in review, the issue moves back to In Progress, and returns to In Review once the work ends with its pull request still open.`,
-    body: `- **Back to In Progress**: a new sub-session, or a message to a working sub-session, in a thread whose pull request is open moves its In Review issues back to In Progress.
-- **Back to In Review**: once no session in the thread is still working and the pull request is still open, the issue returns to In Review on its own.
+    body: `- **Back to In Progress**: a new sub-session, or a message to a working sub-session, in a chat whose pull request is open moves its In Review issues back to In Progress.
+- **Back to In Review**: once no session in the chat is still working and the pull request is still open, the issue returns to In Review on its own.
 - **Your status wins**: an issue you set by hand is never moved, and a status you change while the work runs stays where you put it.
 - **Same switch**: a team that turned off the pull request opened automation gets neither move.`,
   },
@@ -1664,7 +1664,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-10-17`,
     title: `Quick replies above the composer`,
     summary: `When an agent finishes a step it can offer its likely next messages as one-tap replies above the composer; tap one to send it, the others stay.`,
-    body: `- **One tap instead of typing**: an agent offers a few likely next messages, like "Raise the version numbers" or "Open the PR", as small buttons right above the composer of the session or thread.
+    body: `- **One tap instead of typing**: an agent offers a few likely next messages, like "Raise the version numbers" or "Open the PR", as small buttons right above the composer of the session or chat.
 - **Sends at once**: a tap sends that reply as your next message, even while the agent is still working; the other replies stay, so you can queue another right away.
 - **Stays until replaced**: the replies stay across turns until the agent offers new ones; the × dismisses them.
 - **Everywhere**: the same row on the web, the desktop app, iOS and Android.`,
@@ -1687,35 +1687,35 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `A running session moves to another of your devices with its worktree and conversation, and continuing or stopping a session no longer loses its place.`,
     body: `- **Move to device**: the Device pin in a session's options moves it to another online device that can run its agent. It moves after its current turn, taking its worktree, unpushed commits and conversation along; logins stay on each device, and the session keeps the same account when the other device has it.
 - **Moving…**: while a move waits, the pin reads "Moving to Studio…" with the other device's name; pick the current device again to cancel.
-- **Continue where it ended**: a message to an ended sub-session continues it next to the original, on the same branch with the same issues, instead of starting over from the thread.
+- **Continue where it ended**: a message to an ended sub-session continues it next to the original, on the same branch with the same issues, instead of starting over from the chat.
 - **Stop always frees a session**: a session whose device went away no longer stays busy forever; Stop sets it idle, and its account shows in the session list.`,
   },
   {
     id: `2026-10-17-ask-dock`,
     date: `2026-10-17`,
     title: `Questions and plans take the composer's place`,
-    summary: `A waiting question or plan replaces the composer in a session and a thread alike, several stack up and open one at a time, and every plan offers the same three answers.`,
-    body: `- **One place to answer**: a question or plan waiting on you now sits where the composer was, in a session and in a thread alike, so a thread with one waiting card looks exactly like the session that asked.
+    summary: `A waiting question or plan replaces the composer in a session and a chat alike, several stack up and open one at a time, and every plan offers the same three answers.`,
+    body: `- **One place to answer**: a question or plan waiting on you now sits where the composer was, in a session and in a chat alike, so a chat with one waiting card looks exactly like the session that asked.
 - **Several at once**: when sub-sessions wait on you together, their cards stack above each other with the plan's first line and the session that asked; tap one to open it in place, answer it, or go back to the stack with the arrow.
 - **Long plans**: a plan never stretches the conversation any more; it scrolls inside its card.
-- **The same plan answers everywhere**: Yes, Yes and start with a fresh context, or No, keep planning with a note, from a thread as well as a session, on every device.`,
+- **The same plan answers everywhere**: Yes, Yes and start with a fresh context, or No, keep planning with a note, from a chat as well as a session, on every device.`,
   },
   {
     id: `2026-10-17-session-names-grouped-work`,
     date: `2026-10-17`,
     title: `Sessions name themselves, and the dispatcher groups the work`,
-    summary: `Every session has a real name, never "Session 2", and a thread's dispatcher groups related issues into one session.`,
+    summary: `Every session has a real name, never "Session 2", and a chat's dispatcher groups related issues into one session.`,
     body: `- **Session names**: every session, tab and row shows a real name: the one it was started with, else the name the agent gives its own conversation, else its issues ("#EXP-12 Login fails on Safari + 1"), else its action, else the first line of its request. "Session 2" is gone everywhere.
-- **Grouped work**: a thread's dispatcher hands related or dependent issues to ONE session and independent ones to separate sessions, and names each one. A newly linked issue goes to the session already doing related work, or to a new one.
+- **Grouped work**: a chat's dispatcher hands related or dependent issues to ONE session and independent ones to separate sessions, and names each one. A newly linked issue goes to the session already doing related work, or to a new one.
 - **Pull requests**: a session's pull request closes exactly the issues handed to it.
 - **Agents**: a team agent that was running when its device went away starts again when the device comes back.`,
   },
   {
     id: `2026-10-17-threads-live-dot`,
     date: `2026-10-17`,
-    title: `Threads: the live dot on the phone`,
-    summary: `On the phone the running-session dot sits on Threads, not the chat launcher.`,
-    body: `- **Threads dot**: on Android, iOS and the mobile web the green running-session dot now sits on the Threads tab, like the sidebar on web and desktop; the chat launcher no longer wears one.`,
+    title: `Chats: the live dot on the phone`,
+    summary: `On the phone the running-session dot sits on Chats, not the chat launcher.`,
+    body: `- **Chats dot**: on Android, iOS and the mobile web the green running-session dot now sits on the Chats tab, like the sidebar on web and desktop; the chat launcher no longer wears one.`,
   },
   {
     id: `2026-10-17-account-switch-keeps-model`,
@@ -1730,12 +1730,12 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-17-thread-header-one-composer`,
     date: `2026-10-17`,
-    title: `Threads: a header that never scrolls, one composer, and options mid-session`,
-    summary: `A thread header that never scrolls, one composer, and options that change mid-session.`,
-    body: `- **Thread header**: nothing scrolls any more. "+" and Conversation sit on the left, Guide on the right, and issues then sessions fill the middle, shortening to identifiers and folding into "+N" when space runs out. Sub-issues fold under their parent issue and deeper sessions under their top-level session; click a folded chip to open its tree.
-- **Link an issue**: the "+" left of Conversation offers Link an issue and New issue on every device; linking posts "Link #IDENT" so the thread hands it to the right session.
-- **The thread is its dispatcher**: no extra session chip or card for it, and a sub-session's question or plan appears in the thread's conversation, answered right there.
-- **One composer**: the thread, a session and a new start share one composer, "Type / for commands", with image, file, # and emoji in the box and the model, Plan and usage under it.
+    title: `Chats: a header that never scrolls, one composer, and options mid-session`,
+    summary: `A chat header that never scrolls, one composer, and options that change mid-session.`,
+    body: `- **Chat header**: nothing scrolls any more. "+" and Conversation sit on the left, Guide on the right, and issues then sessions fill the middle, shortening to identifiers and folding into "+N" when space runs out. Sub-issues fold under their parent issue and deeper sessions under their top-level session; click a folded chip to open its tree.
+- **Link an issue**: the "+" left of Conversation offers Link an issue and New issue on every device; linking posts "Link #IDENT" so the chat hands it to the right session.
+- **The chat is its dispatcher**: no extra session chip or card for it, and a sub-session's question or plan appears in the chat's conversation, answered right there.
+- **One composer**: the chat, a session and a new start share one composer, "Type / for commands", with image, file, # and emoji in the box and the model, Plan and usage under it.
 - **Options mid-session**: plan mode switches at once; effort, ultracode, computer use and MCP servers apply from the next message, in the same session.
 - **Issue status**: linking an issue moves it to In progress; a pull request moves only its own session's issues to In review and, once merged into the default branch, to Done; a parent issue waits for its linked sub-issues.`,
   },
@@ -1743,32 +1743,32 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-10-16-release-train-trace-queue`,
     date: `2026-10-16`,
     title: `Release 2026-10-16: the transcript as trace lines, the Queue, and the review fixes`,
-    summary: `A session's work reads as one trace line per step with its output as a code block, the bottom of a session shows what is left to do and what is done, /btw works on web, Android gains Auto-rotate accounts, and the release review kept thread renames working on older apps.`,
+    summary: `A session's work reads as one trace line per step with its output as a code block, the bottom of a session shows what is left to do and what is done, /btw works on web, Android gains Auto-rotate accounts, and the release review kept chat renames working on older apps.`,
     body: `- **Trace transcript**: every step in a session is one line, "Ran bun test", "Thought for 5s", "Ran the Explore agent" with its duration, shimmering while it runs and red when it failed; a command's output opens under its line as a code block with a copy button, coloured like its terminal output.
 - **Failed tests**: a command whose output is a failing test run reads as its result, "Failed: 1 of 12 tests", instead of the command.
 - **The Queue**: the bottom of a session shows what is left to do and what is done as two folds, the running work first, with a background task's elapsed time ticking.
 - **Issue activity**: event lines on an issue use the same trace line, with the time on the right.
-- **Review fixes**: /btw on web asks its side question as a short fork instead of sending it to the session, and a /btw fork can no longer change issues or pull requests; the thread's model switch is off once the thread ended on iPhone; Android gains the Auto-rotate accounts toggle; parallel tool calls read as running until each one settles; a sub-session's report lands exactly once; a shared thread is not marked unread for everyone the moment this release lands; and renaming a thread keeps working from Android 0.14.61 and the desktop 0.14.68 until they update.`,
+- **Review fixes**: /btw on web asks its side question as a short fork instead of sending it to the session, and a /btw fork can no longer change issues or pull requests; the chat's model switch is off once the chat ended on iPhone; Android gains the Auto-rotate accounts toggle; parallel tool calls read as running until each one settles; a sub-session's report lands exactly once; a shared chat is not marked unread for everyone the moment this release lands; and renaming a chat keeps working from Android 0.14.61 and the desktop 0.14.68 until they update.`,
   },
   {
     id: `2026-10-15-session-tree-talk`,
     date: `2026-10-15`,
     title: `Sessions talk back: reports, suggestions, live status and /btw`,
-    summary: `A sub-session's end lands as a report in its parent's conversation, agents propose follow-ups you start with one tap, every running session shows what it is doing right now, unread threads stand out and /btw asks a side question without interrupting.`,
+    summary: `A sub-session's end lands as a report in its parent's conversation, agents propose follow-ups you start with one tap, every running session shows what it is doing right now, unread chats stand out and /btw asks a side question without interrupting.`,
     body: `- **Reports**: when a sub-session ends, a Report line in its parent's conversation opens it, and the parent picks the summary up as its next turn.
 - **Suggestions**: an agent can propose follow-up tasks as one card. Start one as a sub-session, do it in the same session, file it as an issue or dismiss it, or start them all at once.
-- **Live status**: a running session's card shows its current step under the name, and sub-sessions nest under their thread in the Threads list.
-- **Unread**: a thread with agent messages you have not read yet shows its title in bold, on every device.
+- **Live status**: a running session's card shows its current step under the name, and sub-sessions nest under their chat in the Chats list.
+- **Unread**: a chat with agent messages you have not read yet shows its title in bold, on every device.
 - **/btw**: ask a running claude session a side question; the answer comes from a short fork and the session keeps working.`,
   },
   {
     id: `2026-10-15-thread-dispatcher`,
     date: `2026-10-15`,
-    title: `Threads hand work to their own sessions`,
-    summary: `A thread now runs a small dispatcher on the thread model (Haiku by default): it answers quick questions itself and starts a session for real work, with the same reply box and model switch as a session. Every model pick is explicit.`,
-    body: `- **Threads**: starting a thread or a new agent runs a dispatcher on the thread model (agents created before this release keep running on their own model). Quick questions get answered in the thread, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
-- **Reply box**: the thread and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
-- **Thread model**: device settings gain a Thread model under Model for each agent, Haiku for Claude by default.
+    title: `Chats hand work to their own sessions`,
+    summary: `A chat now runs a small dispatcher on the chat model (Haiku by default): it answers quick questions itself and starts a session for real work, with the same reply box and model switch as a session. Every model pick is explicit.`,
+    body: `- **Chats**: starting a chat or a new agent runs a dispatcher on the chat model (agents created before this release keep running on their own model). Quick questions get answered in the chat, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
+- **Reply box**: the chat and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
+- **Chat model**: device settings gain a Chat model under Model for each agent, Haiku for Claude by default.
 - **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents.`,
   },
   {
@@ -1783,14 +1783,14 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-10-15-release-train-described-options`,
     date: `2026-10-15`,
     title: `Release 2026-10-15: described options everywhere, the phone dawn, and the review fixes`,
-    summary: `An agent's question options can carry a short description on web, IDE, iPhone and Android, Home on phones puts the composer on the dawn, a walled session switches accounts again, and the release review fixed sending from Safari and thread renames on older apps.`,
+    summary: `An agent's question options can carry a short description on web, IDE, iPhone and Android, Home on phones puts the composer on the dawn, a walled session switches accounts again, and the release review fixed sending from Safari and chat renames on older apps.`,
     body: `- **Described options**: when an agent asks a question, each option can carry a short description under its label, on every device. Older phones and desktops still see the plain labels.
 - **Phones**: Home puts the composer on the dawn at the bottom, and the floating reply box no longer folds away when you tap Send in Safari.
-- **IDE**: New agent opens the Settings page like on web, animations repaint only on their own step, a thread never carries the Inbox beside it and pictures in thread messages load.
-- **Accounts**: a session that hits its usage limit can switch to another signed-in account from its wall on every device, and switching on its own now also covers threads without a repository.
+- **IDE**: New agent opens the Settings page like on web, animations repaint only on their own step, a chat never carries the Inbox beside it and pictures in chat messages load.
+- **Accounts**: a session that hits its usage limit can switch to another signed-in account from its wall on every device, and switching on its own now also covers chats without a repository.
 - **Members**: adding a person without an invite and inviting them at the same time no longer fails on the invite side.
 - **Sign-in**: a personal API key the server rejects answers with a plain sign-in error instead of a server failure.
-- **Older apps**: renaming a thread by hand keeps working from Android 0.14.61 and the desktop 0.14.69 until they update.`,
+- **Older apps**: renaming a chat by hand keeps working from Android 0.14.61 and the desktop 0.14.69 until they update.`,
   },
   {
     id: `2026-10-15-add-without-inviting`,
@@ -1803,39 +1803,39 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-14-threads-consistency`,
     date: `2026-10-14`,
-    title: `Threads look the same everywhere: titles, header chips, lists and the Guide's pictures`,
-    summary: `A thread is named after its work, its header chips stand as tall as its tabs, lists drop their dividers, the Guide's pictures open with their notes and phones get a floating reply box.`,
-    body: `- **Thread titles**: a thread is named after its work, like Implement EXP-12 or Run Triage, or the name the agent gave it. Threads are no longer renamed by hand.
-- **Header chips**: the issue chips in a thread's header are the same height as Conversation and Guide, and an issue opened in a thread shows only the issue, without its own Start button or bar.
-- **Questions**: a question in a thread is the same card as in the session, so you can type your own answer there too, and a queued message has an X to take it back.
-- **Lists**: every list shows its rows without dividers, and the rail's Active section keeps threads that wait on a merge.
+    title: `Chats look the same everywhere: titles, header chips, lists and the Guide's pictures`,
+    summary: `A chat is named after its work, its header chips stand as tall as its tabs, lists drop their dividers, the Guide's pictures open with their notes and phones get a floating reply box.`,
+    body: `- **Chat titles**: a chat is named after its work, like Implement EXP-12 or Run Triage, or the name the agent gave it. Chats are no longer renamed by hand.
+- **Header chips**: the issue chips in a chat's header are the same height as Conversation and Guide, and an issue opened in a chat shows only the issue, without its own Start button or bar.
+- **Questions**: a question in a chat is the same card as in the session, so you can type your own answer there too, and a queued message has an X to take it back.
+- **Lists**: every list shows its rows without dividers, and the rail's Active section keeps chats that wait on a merge.
 - **Pictures and phones**: a picture in the Guide opens next to its topic's notes with arrows to the next one, and on phones the reply box floats over the conversation.`,
   },
   {
     id: `2026-10-13-threads-v2`,
     date: `2026-10-13`,
-    title: `Threads v2: one list of your work, team agents, and one way to start`,
-    summary: `Threads replace Reviews and the session history: every piece of work is one conversation with its sessions as cards, team agents look after a board from their own device, and everything starts from the same composer.`,
-    body: `- **Threads**: the rail's Threads page lists your work as Needs you, Running and Recent. Reviews and the Agent page's history are gone.
-- **One conversation**: a thread shows the people, the agent's replies and one card per session. Tap a card to see the session's raw work. Reply in the same composer you start sessions with.
-- **Private or shared**: a thread started on a device shared with the team is visible to the whole team, who can reply, answer and stop it. A thread on your own device stays yours.
-- **Team agents**: Settings → Agents adds agents like boards: a name, an icon, a color, a device, an account, a schedule and instructions. An agent waits for messages or its schedule and starts a thread for each piece of work. Agents sit in the rail above Boards.
+    title: `Chats v2: one list of your work, team agents, and one way to start`,
+    summary: `Chats replace Reviews and the session history: every piece of work is one conversation with its sessions as cards, team agents look after a board from their own device, and everything starts from the same composer.`,
+    body: `- **Chats**: the rail's Chats page lists your work as Needs you, Running and Recent. Reviews and the Agent page's history are gone.
+- **One conversation**: a chat shows the people, the agent's replies and one card per session. Tap a card to see the session's raw work. Reply in the same composer you start sessions with.
+- **Private or shared**: a chat started on a device shared with the team is visible to the whole team, who can reply, answer and stop it. A chat on your own device stays yours.
+- **Team agents**: Settings → Agents adds agents like boards: a name, an icon, a color, a device, an account, a schedule and instructions. An agent waits for messages or its schedule and starts a chat for each piece of work. Agents sit in the rail above Boards.
 - **One start**: the composer, Start on an issue, an action, an agent's schedule and a follow-up all start a session the same way, in the team you have open.
 - **Actions are saved prompts**: an action is a name, an icon, a prompt and the things it asks for. Schedules moved to team agents.
-- **Pull requests**: a thread can open several pull requests, and each one's body is the thread's Guide. Merging no longer ends a session.`,
+- **Pull requests**: a chat can open several pull requests, and each one's body is the chat's Guide. Merging no longer ends a session.`,
   },
   {
     id: `2026-10-12-threads`,
     date: `2026-10-12`,
-    title: `Threads: one place for a piece of work, its issues and its sessions`,
-    summary: `A thread holds the issues and sessions of one piece of work. The agent links the issues it files or picks up, the thread shows every session and link as one conversation, and lists show threads instead of single sessions.`,
-    body: `- **Threads**: every session starts in a thread. A session on an issue joins that issue's thread, a resume continues its thread, and anything else opens a new one.
-- **The agent links its work**: the agent files new issues into its thread, links existing ones and detaches what does not belong. Each link shows as a row in the conversation.
+    title: `Chats: one place for a piece of work, its issues and its sessions`,
+    summary: `A chat holds the issues and sessions of one piece of work. The agent links the issues it files or picks up, the chat shows every session and link as one conversation, and lists show chats instead of single sessions.`,
+    body: `- **Chats**: every session starts in a chat. A session on an issue joins that issue's chat, a resume continues its chat, and anything else opens a new one.
+- **The agent links its work**: the agent files new issues into its chat, links existing ones and detaches what does not belong. Each link shows as a row in the conversation.
 - **One page**: the tabs across the top read Conversation, each linked issue, a plus button and Guide. On phones they are the pager.
 - **Many sessions**: resumes continue the conversation, ended sessions fold to one line with Show work, and sessions one session started side by side share one card.
-- **One PR, one Guide**: a thread's PR covers every issue in it by default, and its Guide is the PR body.
-- **Menus**: link an issue, file a new issue into the thread, start a session in it or unlink an issue from the plus button or an issue's menu.
-- **Lists**: Running and Recent show threads with their issue and session counts, and an issue names the threads it sits in.`,
+- **One PR, one Guide**: a chat's PR covers every issue in it by default, and its Guide is the PR body.
+- **Menus**: link an issue, file a new issue into the chat, start a session in it or unlink an issue from the plus button or an issue's menu.
+- **Lists**: Running and Recent show chats with their issue and session counts, and an issue names the chats it sits in.`,
   },
   {
     id: `2026-10-12-home-and-feedback`,
@@ -1848,8 +1848,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Getting started**: one checklist of eight steps in the order you need them, with a Docs button. The next step opens with one sentence on why and a button to do it. It shows on an empty board and on the Agent page of a team without boards; done steps stay clickable. Action suggestions are gone.
 - **Starting a session**: after Start the composer shows the Exponential mark and where the session is starting until it lands. A session started from another device, a teammate or an agent no longer takes over the desktop app; it appears in Running with a toast to open it.
 - **Loading and errors**: skeleton rows replace loading text, buttons show a spinner while they work, and a failed action is a toast with Retry. Mistakes in a form still show under the field. The team prompt saves as you type.
-- **Session threads**: workflows, task lists and subagents share one Work card, a code-mode script shows the tools it called, and a comment the agent posted shows the real comment and opens it on the issue.
-- **Polish**: the session thread's fades no longer tint or blur the card border, the desktop diff page scrolls as one page, and menus, popovers and buttons follow one set of motion rules.
+- **Session chats**: workflows, task lists and subagents share one Work card, a code-mode script shows the tools it called, and a comment the agent posted shows the real comment and opens it on the issue.
+- **Polish**: the session chat's fades no longer tint or blur the card border, the desktop diff page scrolls as one page, and menus, popovers and buttons follow one set of motion rules.
 - **Sessions**: what used to be called a run is a session everywhere: tabs, menus, toasts and the docs.`,
   },
   {
@@ -1911,8 +1911,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `Links in agent replies: sources, runs and issues`,
     summary: `Agents cite sources as links in their replies and Guides, a link to a run or issue on your instance opens inside the app, and a placeholder link opens nothing.`,
     body: `- **Sources**: agents now cite documentation and references as inline links, and a link to another run opens it.
-- **In-app links**: on web, desktop, iOS and Android a link in a run's thread, transcript or Guide that points at a run or issue on your instance opens it in the app instead of a browser tab. On iOS and Android every other web link opens in the in-app browser; on web and desktop in your browser.
-- **Bare URLs**: plain URLs in the desktop transcript and the iOS thread and Guide are now clickable, and the iOS Guide shows issue pills.`,
+- **In-app links**: on web, desktop, iOS and Android a link in a run's chat, transcript or Guide that points at a run or issue on your instance opens it in the app instead of a browser tab. On iOS and Android every other web link opens in the in-app browser; on web and desktop in your browser.
+- **Bare URLs**: plain URLs in the desktop transcript and the iOS chat and Guide are now clickable, and the iOS Guide shows issue pills.`,
   },
   {
     id: `2026-10-09-guide`,
@@ -1920,7 +1920,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `The Guide, runs as a conversation, and one Merge stack button`,
     summary: `Changes and Results become one Guide with a diff per section, a run reads turn by turn with your messages, a stacked pull request merges with one Merge stack control, and the composer, lists and menus get quieter.`,
     body: `- **Guide**: an issue's Changes and Results faces are now one Guide face on every client. Each section of the agent's report ends in a Changes row (files and line counts) that opens just that section's diff with a back button, files no section names land in Other changes, and Show complete diff sits at the bottom.
-- **Runs as a conversation**: the run thread reads turn by turn, with a status row per turn and your own messages in between. Teammates still see the single status row.
+- **Runs as a conversation**: the run chat reads turn by turn, with a status row per turn and your own messages in between. Teammates still see the single status row.
 - **Merge stack**: a pull request in an open stack has one Merge stack control that lands the whole chain, and hovering a member offers Merge through here. Merging a stack member on its own is refused with the list of what would land.
 - **GitHub stacks**: an agent's pull request opened on another open pull request's branch joins its native GitHub stack, and the base is picked for it when the agent leaves it out.
 - **Composer**: the + button opens one menu (implement an issue, run an action, add a file, effort, subagents, ultracode, MCP servers) with computer use switchable per run. Add file or image takes any file up to 50 MB beside up to four images, in a start and while steering, and the message shows it as a file link. Suggestions are quiet text rows under the box, and the Agent page shows a faint brand mark.
@@ -1941,9 +1941,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-07-release-train`,
     date: `2026-10-07`,
-    title: `Runs open as a thread, drafts stay in step, and team actions bring their own MCP servers`,
+    title: `Runs open as a chat, drafts stay in step, and team actions bring their own MCP servers`,
     summary: `A run opens as a status row over its results with Show work for the transcript, a draft created or discarded on another device follows you, an action carries the team MCP servers every run connects to, Agent leads the navigation, and Codex needs no CLI install.`,
-    body: `- **Runs read as a thread**: on web, desktop, iOS and Android a run opens as a status row (Building on your machine, elapsed time, the last tool line) over its results in publish order, with the agent's open question in place. Show work expands the full transcript and remembers your choice.
+    body: `- **Runs read as a chat**: on web, desktop, iOS and Android a run opens as a status row (Building on your machine, elapsed time, the last tool line) over its results in publish order, with the agent's open question in place. Show work expands the full transcript and remembers your choice.
 - **Drafts in step**: an issue created from a draft on another tab or device lands on that issue here, and a draft discarded elsewhere closes with a note, on every client.
 - **Team actions with MCP servers**: an action lists the team MCP servers every run of it connects to. A member can share their own connection with the team (Share with team / Stop sharing in Settings, MCP servers), and the server spends it only for that action's runs.
 - **Navigation**: Agent is the first entry on web, matching the desktop rail.
@@ -2045,7 +2045,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `One path for feedback`,
     summary: `Every widget submission is an issue, you reply to the reporter from the comment composer, and their answers come back as comments and Inbox rows. The helpdesk and its Support inbox are gone.`,
     body: `- **Widget submissions are issues**: whatever a visitor sends through the widget lands as an issue on the widget's board, with their screenshot, page context and contact attached. The widget has no modes any more.
-- **Reply to the reporter**: the comment composer on such an issue carries a Reply to reporter toggle. Switch it on and your comment is emailed to the reporter, marked "to reporter" in the thread.
+- **Reply to the reporter**: the comment composer on such an issue carries a Reply to reporter toggle. Switch it on and your comment is emailed to the reporter, marked "to reporter" in the chat.
 - **Reporter answers**: the reporter answers from the emailed link. Their reply shows up as a comment on the issue, marked "reporter", and reaches you as an Inbox row and a notification. A reply on a done issue reopens it.
 - **Helpdesk removed**: the helpdesk, its Support inbox and the Support entries in the sidebar are gone. Old conversations were moved to issues on a Support board so nothing is lost.`,
   },
@@ -2862,9 +2862,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-09-threaded-comments`,
     date: `2026-09-05`,
-    title: `Threaded comments`,
+    title: `Chated comments`,
     summary: `Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP.`,
-    body: `- **Replies**: every comment card ends with a Leave a reply row. On web and desktop the reply composer opens right there; on iOS and Android the docked composer switches to Replying to, with an x to go back to a plain comment. Replies sit under their comment with a smaller avatar, edit and delete like any comment, and threads stay one level deep.
+    body: `- **Replies**: every comment card ends with a Leave a reply row. On web and desktop the reply composer opens right there; on iOS and Android the docked composer switches to Replying to, with an x to go back to a plain comment. Replies sit under their comment with a smaller avatar, edit and delete like any comment, and chats stay one level deep.
 - **Replies for agents**: the MCP comments tool takes a parentId, and listed comments carry it.
 - **Via MCP**: a comment an agent posted over MCP says so in its header on every client, so it never reads as its key owner's words.
 - **Desktop dock as a bubble**: the terminal and steering dock can collapse into a floating bubble instead of the bottom strip; switch from the dock header, and the choice sticks per device.`,
@@ -3037,7 +3037,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Faster catch up after sleep**: the desktop app notices when the machine has been asleep and restarts its sync straight away, with a small spinner next to your account while it catches up, so you can tell stale data from live data.
 - **Fix conflicts when it helps**: the recovery run is now offered only for a real merge conflict. A stale base branch, a branch protection rule or a dropped connection no longer hand you a button that cannot fix them.
 - **Screenshot after a delay**: the feedback widget's capture button gains an Off, 3s and 5s hold with a countdown, so a reporter can open a menu or a popup and still catch it in the shot.
-- **More agent tools**: agents reach the rest of the product over MCP now that tools are looked up on demand: custom statuses, coding sessions (list, start, kill), your machines, automations, and helpdesk threads on teams that have the helpdesk turned on.`,
+- **More agent tools**: agents reach the rest of the product over MCP now that tools are looked up on demand: custom statuses, coding sessions (list, start, kill), your machines, automations, and helpdesk chats on teams that have the helpdesk turned on.`,
   },
   {
     id: `2026-08-agent-usage-and-accounts`,
@@ -3208,7 +3208,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `iOS @, # and : menus are back`,
     summary: `Typing @, # or : in an iOS issue description opens its picker again instead of doing nothing.`,
     body: `- The candidate menu now rides above the keyboard on every iOS editor. It used to hang off the end of the description, which put it behind the keyboard for anything longer than a couple of lines, so typing \`#\` looked like it did nothing at all.
-- Editing a comment far down a long thread had the same problem, and is fixed with it.`,
+- Editing a comment far down a long chat had the same problem, and is fixed with it.`,
   },
   {
     id: `2026-08-ios-feed-pin-and-list-edge`,
@@ -3880,7 +3880,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `Browser AI agents can now work your boards`,
     summary: `The web app speaks WebMCP: in-browser AI agents can read your boards, file and update issues, comment, and navigate for you.`,
     body: `- **WebMCP support**: the web app now registers page tools via the emerging WebMCP browser standard, so AI agents running in your browser (Chrome's built-in agent, MCP browser extensions) can work with what's on screen.
-- **Read and act as you**: agents can look up your boards, list and search issues, read full issue threads, check your inbox, create and update issues, comment, manage labels and subscriptions, and jump to any view, always as your signed-in user and only in teams you're a member of.
+- **Read and act as you**: agents can look up your boards, list and search issues, read full issue chats, check your inbox, create and update issues, comment, manage labels and subscriptions, and jump to any view, always as your signed-in user and only in teams you're a member of.
 - **Nothing new is exposed**: tools reuse the exact same permissions and APIs as clicking the UI yourself.`,
   },
   {
@@ -3890,7 +3890,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `A reworked issue screen on iOS and Android, start coding from your phone, and live support conversations.`,
     body: `- **Reworked issue detail on mobile**: iOS and Android get a cleaner issue screen with a bottom action bar, tidier property and label pickers, due-date and assignee sheets, and a collapsible activity timeline.
 - **Start coding from iOS**: kick off a coding session on a connected desktop straight from the iOS app.
-- **Live support chat**: when a reporter has their support thread open, replies appear live and we hold back the email notification while they're watching.
+- **Live support chat**: when a reporter has their support conversation open, replies appear live and we hold back the email notification while they're watching.
 - **Resizable web terminal**: drag to resize the agent panel on the web, and it remembers your height.
 - **Desktop IDE tabs**: closing, middle-click, and right-click on editor tabs now feel like a real IDE.
 - **More reliable email**: hardened transactional email with automatic bounce and complaint handling.`,

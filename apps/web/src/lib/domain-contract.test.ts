@@ -372,7 +372,7 @@ describe(`steer command catalog`, () => {
 
   // NEW-2 (owner 2026-10-21): the builtins are compact, model and effort,
   // on every agent, none confirm-gated; `/clear` and `/btw` are gone.
-  // Thread 58cb32df: `/new` = a fresh conversation in the same session.
+  // Chat 58cb32df: `/new` = a fresh conversation in the same session.
   it(`is exactly compact, new, model and effort, for every agent`, () => {
     expect(commands.map((c) => c.name)).toEqual([`compact`, `new`, `model`, `effort`])
     for (const command of commands) {

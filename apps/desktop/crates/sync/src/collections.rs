@@ -442,7 +442,7 @@ pub struct Collections {
     /// EXP-1294 pull request ↔ issue links.
     pub pull_request_issues: Entity<Collection<PullRequestIssueRow>>,
     /// #EXP-1610 CI checks at each PR's head (the 33rd shape): the Merge
-    /// pill and the thread header's Checks submenu (#EXP-1611).
+    /// pill and the chat header's Checks submenu (#EXP-1611).
     pub pull_request_checks: Entity<Collection<PullRequestCheckRow>>,
     /// EXP-314 per-team custom issue statuses (the 16th shape).
     pub issue_statuses: Entity<Collection<IssueStatusRow>>,
@@ -461,7 +461,7 @@ pub struct Collections {
     /// rows whose board still resolves.
     pub issue_drafts: Entity<Collection<IssueDraftRow>>,
     /// EXP-1323 the viewer's session read marks (the 26th shape) — per-user
-    /// and static like `pins`; unread titles + the Threads nav dot.
+    /// and static like `pins`; unread titles + the Chats nav dot.
     pub session_reads: Entity<Collection<SessionReadRow>>,
     /// NEW-2 the team's agent DEFINITIONS (the 27th shape).
     pub agents: Entity<Collection<AgentDefRow>>,

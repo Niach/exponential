@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/dock.json" with { type: "json" }
 import toastFixture from "../fixtures/toast-stack.json" with { type: "json" }
-import { dock, dockAutoOpen, dockRows, suggestionSources, threadDockQueue, threadQueueChildState, threadQueueProbe, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource, type ThreadQueueCandidate, type ThreadQueueChildState, type ThreadQueueProbe } from "./dock"
+import { dock, dockAutoOpen, dockRows, suggestionSources, chatDockQueue, chatQueueChildState, chatQueueProbe, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource, type ChatQueueCandidate, type ChatQueueChildState, type ChatQueueProbe } from "./dock"
 
 describe(`dockRows`, () => {
   for (const entry of fixture.rowCases) {
@@ -40,23 +40,23 @@ describe(`dockAutoOpen`, () => {
   }
 })
 
-describe(`threadDockQueue`, () => {
-  for (const entry of fixture.threadQueueCases) {
+describe(`chatDockQueue`, () => {
+  for (const entry of fixture.chatQueueCases) {
     test(entry.name, () => {
-      expect(threadDockQueue(entry.candidates as ThreadQueueCandidate[])).toEqual(entry.expected)
+      expect(chatDockQueue(entry.candidates as ChatQueueCandidate[])).toEqual(entry.expected)
     })
   }
 })
 
-describe(`threadQueueProbe (#EXP-1678: one child stream)`, () => {
-  for (const entry of fixture.threadQueueProbeCases) {
+describe(`chatQueueProbe (#EXP-1678: one child stream)`, () => {
+  for (const entry of fixture.chatQueueProbeCases) {
     test(entry.name, () => {
-      expect(threadQueueProbe(entry.rootOpen, entry.children as ThreadQueueProbe[])).toBe(entry.expected)
+      expect(chatQueueProbe(entry.rootOpen, entry.children as ChatQueueProbe[])).toBe(entry.expected)
     })
   }
   for (const entry of fixture.childStateCases) {
     test(`child state: ${entry.name}`, () => {
-      expect(threadQueueChildState(entry as Parameters<typeof threadQueueChildState>[0])).toBe(entry.state as ThreadQueueChildState)
+      expect(chatQueueChildState(entry as Parameters<typeof chatQueueChildState>[0])).toBe(entry.state as ChatQueueChildState)
     })
   }
 })

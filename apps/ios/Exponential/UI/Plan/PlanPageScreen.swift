@@ -4,7 +4,7 @@ import SwiftUI
 
 /// #EXP-1493 → #EXP-1662 THE PLAN TAB's body, phone form (fixtures/plan-page.json;
 /// web packages/ui plan-page.tsx, Android ui/plan/PlanPage.kt): under the
-/// thread's own header + strip, on its ground, no composer, no page header. ONE
+/// chat's own header + strip, on its ground, no composer, no page header. ONE
 /// scroll: the big title, then the blocks (`PlanPage.blocks`): prose through THE
 /// chat markdown renderer, a section = its h2 (the outline's anchor), a picture
 /// group = THE carousel. A press on a picture opens THE lightbox (EXP-1586 THE
@@ -13,14 +13,14 @@ import SwiftUI
 /// right) opens THE eUI Drawer's phone form. The questions float over the foot
 /// (`PlanQuestionsPanel`); the document pads by the panel's height.
 struct PlanPageBody: View {
-    let card: ThreadPlanRow
+    let card: ChatPlanRow
     /// The card's `pictures` (their sizes give a carousel its aspect).
     var pictureSizes: [ExpCore.PlanCardPicture] = []
     /// A member of the team decides; anyone else reads.
     var canAnswer = true
     /// The answer in flight (its controls wait).
     var busy = false
-    let onSubmit: (ThreadCardAnswer) -> Void
+    let onSubmit: (ChatCardAnswer) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -205,12 +205,12 @@ struct PlanPageBody: View {
 /// decided or superseded = the closed card (the picks, `planDecisionLabel`, the
 /// feedback line). A decision goes through THE card-answer path.
 struct PlanQuestionsPanel: View {
-    let card: ThreadPlanRow
+    let card: ChatPlanRow
     let canAnswer: Bool
     let busy: Bool
     let draft: PlanCardDraft
     let maxHeight: CGFloat
-    let onSubmit: (ThreadCardAnswer) -> Void
+    let onSubmit: (ChatCardAnswer) -> Void
 
     @State private var step = 0
     @State private var rejecting = false
@@ -306,7 +306,7 @@ struct PlanQuestionsPanel: View {
         }
     }
 
-    private func questionBlock(_ question: ThreadPlanQuestion, editable: Bool) -> some View {
+    private func questionBlock(_ question: ChatPlanQuestion, editable: Bool) -> some View {
         PlanCardQuestionBlock(
             questionId: question.id,
             prompt: question.prompt,
@@ -333,7 +333,7 @@ struct PlanQuestionsPanel: View {
         if approved, blocked { return }
         let answers = draft.planAnswers(card.questions)
         let typed = approved ? "" : draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
-        onSubmit(ThreadCardAnswer(
+        onSubmit(ChatCardAnswer(
             messageId: card.id,
             decision: approved ? .approved : .rejected,
             fresh: approved && option.fresh,
