@@ -2203,9 +2203,20 @@ export const sessions = pgTable(
     // turn (the composer's Teams row); NULL = every team they belong to. The
     // gate clamps the tree to the pick ∩ their teams. SYNCED (the picker).
     scopeTeamIds: uuid(`scope_team_ids`).array(),
+    // #EXP-1731 (eagent subagents.json): non-null = a CLI SUBAGENT row the
+    // device writes (`sessions.subagent`): the CLI's own id of it (Claude's
+    // Task/Agent tool id, Codex's spawned thread). It shares its parent's
+    // device, worktree and branch, takes no messages (a send goes to its
+    // parent) and holds no tree slot. Unique per parent.
+    subagentKey: text(`subagent_key`),
     ...timestamps,
   },
   (table) => [
+    // #EXP-1731: one row per (parent, subagent key): two racing first edges
+    // make one row (ON CONFLICT).
+    uniqueIndex(`uniq_sessions_subagent_key`)
+      .on(table.parentId, table.subagentKey)
+      .where(sql`subagent_key IS NOT NULL`),
     // One conversation per (agent, member).
     uniqueIndex(`uniq_sessions_agent_conversation`)
       .on(table.agentId, table.userId)
@@ -3561,11 +3572,6 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   // simply stops being found (the page reads None).
   voiceDeviceId: varchar(`voice_device_id`, { length: 128 }),
   agentId: uuid(`agent_id`).references(() => agents.id, { onDelete: `set null` }),
-  // S-3: retired, read and written by nobody (speak-back is always on, push
-  // to talk = a bound `ptt_shortcut`). Kept only because the migration
-  // replay tests (0201, 0208) still name them.
-  speakReplies: boolean(`speak_replies`).notNull().default(false),
-  pushToTalk: boolean(`push_to_talk`).notNull().default(false),
   // S-3: the push-to-talk binding in `voice.json` `shortcutGrammar`'s
   // canonical text; empty = no key bound = push to talk off.
   pttShortcut: varchar(`ptt_shortcut`, { length: 32 }).notNull().default(``),
