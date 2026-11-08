@@ -1038,19 +1038,14 @@ impl AppScreenView {
     }
 
     /// #EXP-1732 THE header (session-screen.json, kind `app`): the app's
-    /// glyph + the version pill, the name (VAPP-235: the outbox glyph while
-    /// record writes wait) over the subtitle, Publish, THE gear (the app's
-    /// settings), the `…` (Export, Delete); THE Segmented under it.
+    /// glyph, the name + the version pill (web's order; VAPP-235: the outbox
+    /// glyph while record writes wait) over the subtitle, Publish, THE gear
+    /// (the app's settings), the `…` (Export, Delete); THE Segmented under it.
     fn render_header(&self, app: &AppEntry, screen: &SessionScreen, cx: &mut gpui::Context<Self>) -> AnyElement {
         use crate::session_chat::{screen_header, screen_tabs, OnPress, OnTabPick, ScreenHeader};
         let show_publish = self.can_write(cx) && domain::apps::can_publish(app.versions());
         let head = app.head_version;
-        let avatar = h_flex()
-            .gap_2()
-            .items_center()
-            .child(app.icon().with_size(px(HEADER_GLYPH_PX)))
-            .child(version_pill("app-editor-version", app, cx))
-            .into_any_element();
+        let avatar = app.icon().with_size(px(HEADER_GLYPH_PX)).into_any_element();
         let muted = cx.theme().muted_foreground;
         let foreground = cx.theme().foreground;
         let title = h_flex()
@@ -1066,6 +1061,7 @@ impl AppScreenView {
                     .text_color(foreground)
                     .child(SharedString::from(app.name.clone())),
             )
+            .child(div().flex_shrink_0().child(version_pill("app-editor-version", app, cx)))
             // VAPP-235 (app-records.json `outbox`): while the running app has
             // record writes waiting to sync, the muted `ui-offline` glyph.
             .when_some(crate::app_outbox::pending_label_for(&app.id, cx), |row, label| {
