@@ -1566,7 +1566,7 @@
           "description": "Pins the header while rows scroll."
         },
         "totals": {
-          "description": "A last row: each number and currency column's sum."
+          "description": "Sum row."
         }
       },
       "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
@@ -3110,16 +3110,16 @@
           "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         "columns": {
-          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+          "description": "Field names or columns; default all."
         },
         "search": {
-          "description": "A search field over the text columns."
+          "description": "Search field."
         },
         "filter": {
-          "description": "An enum field: a Select narrows the rows to one value."
+          "description": "Enum field to filter by."
         },
         "totals": {
-          "description": "Table's totals over the shown rows."
+          "description": "Sum row."
         },
         "add": {
           "description": "Shows the Add button."
@@ -3504,7 +3504,7 @@
           "description": "One line with an ellipsis; cells wrap otherwise."
         },
         "format": {
-          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "description": "One table column."

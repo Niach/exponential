@@ -9721,7 +9721,7 @@
         },
         "totals": {
           "type": "boolean",
-          "description": "A last row: each number and currency column's sum.",
+          "description": "Sum row.",
           "default": false
         },
         "slots": {
@@ -15019,20 +15019,20 @@
         "columns": {
           "type": "array",
           "items": {},
-          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+          "description": "Field names or columns; default all."
         },
         "search": {
           "type": "boolean",
-          "description": "A search field over the text columns.",
+          "description": "Search field.",
           "default": false
         },
         "filter": {
           "type": "string",
-          "description": "An enum field: a Select narrows the rows to one value."
+          "description": "Enum field to filter by."
         },
         "totals": {
           "type": "boolean",
-          "description": "Table's totals over the shown rows.",
+          "description": "Sum row.",
           "default": false
         },
         "add": {
@@ -24943,7 +24943,7 @@
         },
         "format": {
           "type": "string",
-          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "required": [

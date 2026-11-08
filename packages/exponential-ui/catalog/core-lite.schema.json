@@ -19668,7 +19668,7 @@
         },
         "format": {
           "type": "string",
-          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "required": [

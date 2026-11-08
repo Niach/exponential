@@ -4463,7 +4463,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "A last row: each number and currency column's sum."
+          "description": "Sum row."
         }
       ],
       "accessibility": {
@@ -8255,7 +8255,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+          "description": "Field names or columns; default all."
         },
         {
           "name": "search",
@@ -8264,7 +8264,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "A search field over the text columns."
+          "description": "Search field."
         },
         {
           "name": "filter",
@@ -8272,7 +8272,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "An enum field: a Select narrows the rows to one value."
+          "description": "Enum field to filter by."
         },
         {
           "name": "totals",
@@ -8281,7 +8281,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Table's totals over the shown rows."
+          "description": "Sum row."
         },
         {
           "name": "add",
