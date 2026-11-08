@@ -574,3 +574,40 @@ fn checkbox_cases_resolve_mixed_like_the_reference() {
         }
     }
 }
+
+/// #EXP-1739 overlayAnchor: an open anchored Popover closes once its anchor
+/// scrolls (`scroll` on the container), moves (a node inserted above it) or
+/// leaves the tree; the core raises the close through `take_events` and the
+/// next pass drops the layer. A pass that moves nothing keeps it.
+#[test]
+fn overlay_anchor_cases_close_on_scroll_move_and_removal_like_the_reference() {
+    let f = fixture();
+    let fx = &f["overlayAnchor"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let base = fx["surface"].clone();
+        let mut s = surface(base.clone());
+        let mut m = fixed();
+        let open = |s: &mut Surface, m: &mut FixedMeasure| s.layout(m).layers.iter().any(|l| l.owner == "pop");
+        assert!(open(&mut s, &mut m), "{name}: opens against its anchor");
+        assert!(open(&mut s, &mut m), "{name}: a second pass keeps it");
+        let step = &c["step"];
+        let mut tree = base.clone();
+        let children = tree["children"].as_array_mut().unwrap();
+        if step["insertAbove"] == json!(true) {
+            children.insert(0, fx["above"].clone());
+        }
+        if step["removeAnchor"] == json!(true) {
+            children.retain(|child| child["id"] != json!("target"));
+        }
+        if tree != base {
+            s.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap());
+        }
+        if let Some(container) = step["scroll"].as_str() {
+            s.scroll(container, step["y"].as_f64().unwrap() as f32);
+        }
+        s.layout(&mut m);
+        let _ = s.take_events();
+        assert_eq!(open(&mut s, &mut m), c["after"].as_bool().unwrap(), "{name}");
+    }
+}

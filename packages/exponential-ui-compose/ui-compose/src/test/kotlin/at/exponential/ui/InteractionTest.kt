@@ -405,6 +405,36 @@ class InteractionTest {
     }
 
     /**
+     * fixtures/interactions-round1.json `overlayAnchor` (#EXP-1739): an open
+     * anchored Popover closes once its anchor scrolls, moves or leaves the
+     * tree. The core raises the close during the pass; the model drains it
+     * (like iOS and the desktop) and the next pass drops the layer.
+     */
+    @Test
+    fun overlayAnchorCasesCloseOnScrollMoveAndRemoval() {
+        val fx = Fixtures.json("interactions-round1.json")["overlayAnchor"]!!
+        val base = fx["surface"]!!.obj!!
+        val cases = fx["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val m = SurfaceModel("anchor", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(JsonValue.Obj(base).json)
+            m.setViewport(390f, 800f)
+            assertTrue("$name: opens against its anchor", m.layers.any { it.owner == "pop" })
+            val step = c["step"]!!
+            var children = base["children"]!!.array!!
+            if (step["insertAbove"]?.bool == true) children = listOf(fx["above"]!!) + children
+            if (step["removeAnchor"]?.bool == true) children = children.filter { it["id"]?.string != "target" }
+            if (children != base["children"]!!.array!!) m.setNested(JsonValue.Obj(base + ("children" to JsonValue.Arr(children))).json)
+            step["scroll"]?.string?.let { m.scroll(it, (step["y"]?.number ?: 0.0).toFloat()) }
+            if (step["relayout"]?.bool == true) m.setViewport(390f, 800f)
+            assertEquals(name, c["after"]?.bool, m.layers.any { it.owner == "pop" })
+        }
+    }
+
+    /**
      * fixtures/interactions-round1.json `boxHover` (#EDE-65): the pointer
      * entering a Box fires its `on.hover` (no payload), leaving fires
      * nothing, a pressable Box still presses; [boxHover] is what the

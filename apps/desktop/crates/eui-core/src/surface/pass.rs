@@ -4,7 +4,7 @@
 //! scroll containers reported, `%` radii resolved against the boxes.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use taffy::prelude::*;
@@ -123,6 +123,9 @@ impl Surface {
     /// The measurer check, the rebuild and the restyle every pass starts with.
     fn prepare(&mut self, measurer: u64) {
         self.ensure_reduced();
+        for owner in std::mem::take(&mut self.lost_overlays) {
+            self.close_lost_overlay(&owner);
+        }
         if self.last_measurer.is_some_and(|m| m != measurer) {
             self.invalidate_measures();
         }
@@ -575,6 +578,42 @@ impl Surface {
         (placement, position, anchor_frame, aligned, hosted)
     }
 
+    /// #EXP-1739 (overlayAnchor): an anchored overlay closes once its anchor
+    /// MOVES: the first finished pass it shows in fixes its anchor's frame, a
+    /// later one with another frame (the anchor moved, or went and the
+    /// overlay fell back to its wrapper) closes it. Scrolls are
+    /// [`Surface::close_overlays_in`].
+    fn check_anchor_frames(&mut self, layers: &[Layer]) {
+        let anchored = |l: &Layer| l.placement.is_some() && l.position != "point" && l.class == crate::layout_tree::LayerClass::Overlay;
+        let mut seen = HashMap::new();
+        let mut lost = Vec::new();
+        for (spec, layer) in self.layers.iter().zip(layers).filter(|(_, l)| anchored(l)) {
+            let Some(frame) = layer.anchor_frame else { continue };
+            // Which node it hangs off: the anchor, or its wrapper once the
+            // anchor is gone (the same place is not the same anchor).
+            let LayerPlacement::Anchored { anchor, .. } = spec.placement else { continue };
+            let current = (self.nodes[anchor as usize].id.clone(), frame);
+            // By the layer's root: a submenu shares its menu's owner.
+            let key = self.nodes[layer.root as usize].id.clone();
+            match self.anchor_frames.get(&key) {
+                Some((id, opened)) if *id != current.0 || !same_frame(opened, &frame) => lost.push(layer.owner.clone()),
+                Some(opened) => {
+                    seen.insert(key, opened.clone());
+                }
+                None => {
+                    seen.insert(key, current);
+                }
+            }
+        }
+        self.anchor_frames = seen;
+        if !lost.is_empty() {
+            self.lost_overlays.extend(lost);
+            if !self.pending.iter().any(|e| matches!(e, super::OutEvent::Relayout)) {
+                self.pending.push(super::OutEvent::Relayout);
+            }
+        }
+    }
+
     /// Lay a popup out at its natural width, clamped to the view (and at
     /// least `min_width`).
     fn shrink_to_content(&mut self, root: u32, view: View, pad: f32, min_width: Option<f32>, guesses: &RefCell<Vec<HeightRequest>>) -> OSize {
@@ -767,6 +806,7 @@ impl Surface {
             drawn.extend(order);
             layers.push(Layer { layer: spec.layer, kind: spec.kind.clone(), owner: spec.owner.clone(), root: spec.root, anchor_frame, placement, align, hosted, position, class: spec.class, modal: spec.modal, dismissible: spec.dismissible, frames: frames_out });
         }
+        self.check_anchor_frames(&layers);
         // `%` radii against the laid-out boxes.
         for &i in &drawn {
             let s = &self.node_state[i as usize];
@@ -921,4 +961,11 @@ impl Surface {
             layout_ns,
         }
     }
+}
+
+/// Two anchor frames are the same place (sub-pixel noise aside). Only the
+/// origin counts: a trigger restyled as open (pressed, selected) may change
+/// size without going anywhere.
+fn same_frame(a: &Frame, b: &Frame) -> bool {
+    (a.x - b.x).abs() < 0.5 && (a.y - b.y).abs() < 0.5
 }
