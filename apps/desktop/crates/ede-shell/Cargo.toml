@@ -71,6 +71,8 @@ ede-theme = { path = "../../../ede/crates/ede-theme" }
 
 [dev-dependencies]
 tempfile = "3"
+# The sealed-content fixture's hex keys.
+data-encoding = "2"
 # The factory documents, to check their headers against the functions this shell matches.
 uicore-docs = { path = "../uicore-docs" }
 

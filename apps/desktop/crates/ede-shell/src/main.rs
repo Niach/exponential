@@ -77,6 +77,7 @@ mod local_runs;
 mod settings;
 mod settings_pages;
 mod share;
+mod sealed;
 mod system;
 mod team_chat;
 mod thumbs;
@@ -305,6 +306,8 @@ struct Shell {
     chat_agent: Option<String>,
     /// The chat on a team: its account, team and open session.
     chat_team: Option<team_chat::TeamChat>,
+    /// The team chat's opener over the app's keyring (its account's).
+    chat_opener: Option<(String, Arc<sync::sealed::Opener>)>,
     /// The chat document's literal composer props (placeholder, busy) as drawn.
     chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
@@ -1732,11 +1735,18 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
         chat.session_id = open.session_id.clone();
     }
     shell.borrow_mut().chat_team = Some(chat.clone());
-    let rows = team_chat::TeamRows {
+    let mut rows = team_chat::TeamRows {
         account: inbox::AccountRows::read(&account_id, &account.user_id, &store),
         messages: inbox::read_rows(&store, "messages"),
         users: inbox::read_rows(&store, "users"),
     };
+    // Sealed chats open with the keys the Exponential app holds.
+    let opener = match shell.borrow().chat_opener.clone().filter(|(id, _)| *id == account_id) {
+        Some((_, opener)) => opener,
+        None => Arc::new(sealed::opener(&account_id)),
+    };
+    shell.borrow_mut().chat_opener = Some((account_id, opener.clone()));
+    sealed::open(&opener, &mut rows.account.sessions, &mut rows.messages);
     Some((chat, rows))
 }
 
@@ -2571,6 +2581,7 @@ fn main() {
             chat_local: None,
             chat_agent: None,
             chat_team: None,
+            chat_opener: None,
             chat_composer: Value::Null,
             engine: None,
             launches: system::LaunchGuard::default(),
