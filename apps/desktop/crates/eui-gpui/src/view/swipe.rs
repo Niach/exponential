@@ -209,7 +209,7 @@ impl SurfaceView {
         let Some(s) = self.wheel_swipe.as_mut() else { return false };
         let mut started = false;
         if s.lock == "pending" {
-            s.lock = swipe_lock(s.dx, s.dy);
+            s.lock = swipe_lock(s.dx.into(), s.dy.into());
             started = s.lock == "horizontal";
         }
         if s.lock != "horizontal" {

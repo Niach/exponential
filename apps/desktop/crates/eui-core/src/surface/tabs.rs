@@ -234,12 +234,12 @@ impl Surface {
         self.subtree_pending.insert(owner_id.to_string());
         match phase {
             "start" | "move" => {
-                self.local.tab_swipe.insert(owner_id.to_string(), swipe_offset(index, values.len(), offset, width, rtl));
+                self.local.tab_swipe.insert(owner_id.to_string(), swipe_offset(index, values.len(), offset.into(), width.into(), rtl) as f32);
                 vec![OutEvent::Relayout]
             }
             "end" => {
                 self.local.tab_swipe.remove(owner_id);
-                let to = swipe_settle(index, values.len(), offset, velocity, width, rtl);
+                let to = swipe_settle(index, values.len(), offset.into(), velocity.into(), width.into(), rtl);
                 let mut out = vec![];
                 if to != index {
                     let value = values[to].clone();

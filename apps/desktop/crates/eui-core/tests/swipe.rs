@@ -14,12 +14,12 @@ fn cases<'a>(f: &'a Value, group: &str) -> &'a Vec<Value> {
     f[group].as_array().expect(group)
 }
 
-fn n(v: &Value) -> f32 {
-    v.as_f64().unwrap() as f32
+fn n(v: &Value) -> f64 {
+    v.as_f64().unwrap() 
 }
 
-fn near(a: f32, b: f32) -> bool {
-    (a - b).abs() < 1e-4
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
 }
 
 #[test]

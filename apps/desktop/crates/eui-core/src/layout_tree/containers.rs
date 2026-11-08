@@ -86,9 +86,12 @@ impl Builder<'_, '_> {
         let drag = self.ctx.local.tab_swipe.get(&owner.id).copied();
         let (x, w) = match drag {
             Some(offset) => {
-                let target = at as i64 + crate::swipe::swipe_step(offset, pager.rtl);
+                let target = at as i64 + crate::swipe::swipe_step(f64::from(offset), pager.rtl);
                 match usize::try_from(target).ok().and_then(|t| pager.spans.get(t).copied().flatten()) {
-                    Some((tx, _, tw, _)) => crate::swipe::swipe_indicator((x0, w0), (tx, tw), crate::swipe::swipe_progress(offset, pager.width)),
+                    Some((tx, _, tw, _)) => {
+                        let (x, w) = crate::swipe::swipe_indicator((x0.into(), w0.into()), (tx.into(), tw.into()), crate::swipe::swipe_progress(offset.into(), pager.width.into()));
+                        (x as f32, w as f32)
+                    }
                     None => (x0, w0),
                 }
             }

@@ -932,21 +932,21 @@ pub fn segmented_badge_text(count: Option<f64>) -> Option<String> {
 /// that moved (`dx`, `dy`): `pending`, `horizontal` or `vertical`.
 #[uniffi::export]
 pub fn swipe_lock(dx: f64, dy: f64) -> String {
-    shield("swipe_lock", || "pending".to_string(), || eui_core::swipe::swipe_lock(dx as f32, dy as f32).to_string())
+    shield("swipe_lock", || "pending".to_string(), || eui_core::swipe::swipe_lock(dx, dy).to_string())
 }
 
 /// FEED-200: the offset a pager's pages are DRAWN at while the finger is at
 /// `offset` (screen px; resisted past an end, at most one page).
 #[uniffi::export]
 pub fn swipe_offset(index: u32, count: u32, offset: f64, width: f64, rtl: bool) -> f64 {
-    shield("swipe_offset", || 0.0, || f64::from(eui_core::swipe::swipe_offset(index as usize, count as usize, offset as f32, width as f32, rtl)))
+    shield("swipe_offset", || 0.0, || eui_core::swipe::swipe_offset(index as usize, count as usize, offset, width, rtl))
 }
 
 /// FEED-200: the page a released swipe settles on (`offset` screen px,
 /// `velocity` px/ms at the release).
 #[uniffi::export]
 pub fn swipe_settle(index: u32, count: u32, offset: f64, velocity: f64, width: f64, rtl: bool) -> u32 {
-    shield("swipe_settle", || index, || eui_core::swipe::swipe_settle(index as usize, count as usize, offset as f32, velocity as f32, width as f32, rtl) as u32)
+    shield("swipe_settle", || index, || eui_core::swipe::swipe_settle(index as usize, count as usize, offset, velocity, width, rtl) as u32)
 }
 
 /// FEED-200: whether a touch starting inside a node of `component` (its
