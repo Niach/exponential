@@ -4511,6 +4511,9 @@ mod tests {
     /// layer and the shell's cached dock: a right press hands the selection
     /// to Copy, a code span as its code (it paints over a placeholder of
     /// non-breaking spaces, which copied as blank: Copy stayed disabled).
+    /// #EXP-1732: the session view's bubble wraps at its own width (a code
+    /// span never breaks: it moves to the next line whole), so the sweeps
+    /// find each line by probing instead of fixed offsets.
     #[gpui::test]
     fn a_right_press_on_selected_chat_text_enables_copy(cx: &mut gpui::TestAppContext) {
         use gpui::{Modifiers, MouseButton, Pixels, Render, StyleRefinement, VisualTestContext};
@@ -4525,7 +4528,8 @@ mod tests {
                     .child(gpui::AnyView::from(self.0.clone()).cached(StyleRefinement::default().size_full()))
             }
         }
-        const REPLY: &str = "**Package repos:** yes. `pkg.exponential.at` is a small server.\n\nInstall with `curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh`.\n\n- **Phone writes:** live test still running.";
+        const CODE: &str = "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh";
+        const REPLY: &str = "**Package repos:** yes. `pkg.exponential.at` is a small server.\n\n`curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh` installs it.\n\n- **Phone writes:** live test still running.";
         seed_agent_chat(REPLY, cx);
         let (shell, cx) = cx.add_window_view(|window, cx| Shell(cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx))));
         let cx: &mut VisualTestContext = cx;
@@ -4555,14 +4559,27 @@ mod tests {
             cx.run_until_parked();
             crate::steer_viewer::TRANSCRIPT_MENU_TEXT.with(|text| text.borrow().clone())
         };
-        // The bubble's lines: the first paragraph, the second, the list item.
-        let (first, second, item) = (10., 40., 70.);
+        // The bubble's lines, probed: a sweep across each band of the text
+        // block (past its right edge = to the line's end).
+        let first = 10.;
         let prose = copy_after_sweep(text(0., first), text(144., first), cx);
         assert!(prose.starts_with("Package"), "prose: {prose:?}");
-        let code = copy_after_sweep(text(304., second), text(404., second), cx);
-        assert_eq!(code, "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh", "a code span copies its code");
-        let all = copy_after_sweep(text(0., first), text(804., item), cx);
-        for part in ["Package repos:", "pkg.exponential.at is a small server.", "Install with curl -fsSL", "Phone writes: live test"] {
+        let line_of = |needle: &str, cx: &mut VisualTestContext| {
+            (1..40)
+                .map(|band| band as f32 * 8.)
+                .find(|&y| {
+                    let line = copy_after_sweep(text(0., y), text(1000., y), cx);
+                    line.trim_start_matches(|c: char| !c.is_alphanumeric()).starts_with(needle)
+                })
+                .unwrap_or_else(|| panic!("a line starts with {needle:?}"))
+        };
+        let second = line_of("curl", cx);
+        let item = line_of("Phone writes", cx);
+        // A sweep INSIDE the code span (it leads its line) copies its code.
+        let code = copy_after_sweep(text(20., second), text(120., second), cx);
+        assert_eq!(code, CODE, "a code span copies its code");
+        let all = copy_after_sweep(text(0., first), text(1000., item), cx);
+        for part in ["Package repos:", "pkg.exponential.at is a small server.", "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh installs it", "Phone writes: live test"] {
             assert!(all.contains(part), "multi-paragraph Copy carries {part:?}: {all:?}");
         }
         assert!(!all.contains('\u{a0}'), "no placeholder spaces: {all:?}");
