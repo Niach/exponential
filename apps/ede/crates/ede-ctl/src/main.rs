@@ -8,7 +8,7 @@
 //! exponential-ctl capture [--output NAME | --window ID] --png FILE   a capture as a PNG
 //! exponential-ctl capture --png FILE --expect-drawn                  …and fail unless something is drawn
 //! exponential-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
-//! exponential-ctl pointer <x> <y> [--click] [--bindings]              pointer motion, optionally a left click (--bindings = as the person's)
+//! exponential-ctl pointer <x> <y> [--click|--press|--release] [--bindings]  pointer motion, optionally a left click, or one edge of it for a drag (--bindings = as the person's)
 //! exponential-ctl minimize <id> | restore <id>                         into the taskbar and back (#EDE-48)
 //! ```
 //!
@@ -21,7 +21,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 use ede_protocol::{CaptureTarget, Client, InputEvent, WindowId};
 
 fn usage() -> ! {
-    eprintln!("usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click] [--bindings] | minimize ID | restore ID");
+    eprintln!("usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--bindings] | minimize ID | restore ID");
     std::process::exit(2)
 }
 
@@ -109,8 +109,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bindings = rest.iter().any(|a| a == "--bindings");
             let mut send = |event: InputEvent| -> Result<(), ede_protocol::Error> { if bindings { ede.input_as_person(event) } else { ede.input(event) } };
             send(InputEvent::PointerMotion { x, y })?;
-            if rest.iter().any(|a| a == "--click") {
+            let click = rest.iter().any(|a| a == "--click");
+            if click || rest.iter().any(|a| a == "--press") {
                 send(InputEvent::PointerButton { button: 0x110, pressed: true })?;
+            }
+            if click || rest.iter().any(|a| a == "--release") {
                 send(InputEvent::PointerButton { button: 0x110, pressed: false })?;
             }
         }

@@ -4667,11 +4667,8 @@ mod tests {
         view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
     }
 
-    /// EXP-1228: a right press on an agent chat's bubbles opens THE
-    /// transcript menu (Copy), the raw session view's host; it never did on
-    /// the thread screen.
-    #[gpui::test]
-    fn a_right_press_on_an_agent_chat_opens_the_transcript_menu(cx: &mut gpui::TestAppContext) {
+    /// One agent chat ("r1") holding one agent message `body`.
+    fn seed_agent_chat(body: &'static str, cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         cx.update(|cx| {
             gpui_component::init(cx);
@@ -4709,7 +4706,7 @@ mod tests {
                 "id": "m1",
                 "conversation_id": "c1",
                 "author_kind": "agent",
-                "body": "Hey, what's up?",
+                "body": body,
                 "created_at": "2026-11-04T10:00:00.000Z",
             }))
             .unwrap();
@@ -4718,6 +4715,14 @@ mod tests {
                 cx.notify();
             });
         });
+    }
+
+    /// EXP-1228: a right press on an agent chat's bubbles opens THE
+    /// transcript menu (Copy), the raw session view's host; it never did on
+    /// the thread screen.
+    #[gpui::test]
+    fn a_right_press_on_an_agent_chat_opens_the_transcript_menu(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey, what's up?", cx);
         let (_view, cx) = cx.add_window_view(|window, cx| ThreadScreenView::new("r1".to_string(), window, cx));
         for _ in 0..3 {
             cx.update(|window, cx| window.draw(cx).clear(cx));
@@ -4734,6 +4739,66 @@ mod tests {
             gpui::Modifiers::default(),
         );
         assert_eq!(opens(), before + 1, "the right press opens the transcript menu");
+    }
+
+    /// EXP-1739: real chat text (bold, code spans, paragraphs, a list) swept
+    /// with the pointer in the thread screen, under the window's selection
+    /// layer and the shell's cached dock: a right press hands the selection
+    /// to Copy, a code span as its code (it paints over a placeholder of
+    /// non-breaking spaces, which copied as blank: Copy stayed disabled).
+    #[gpui::test]
+    fn a_right_press_on_selected_chat_text_enables_copy(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton, Pixels, Render, StyleRefinement, VisualTestContext};
+
+        /// The shell's shape: the dock cached under the Root's selection layer.
+        struct Shell(Entity<ThreadScreenView>);
+        impl Render for Shell {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div()
+                    .size_full()
+                    .child(gpui_base::TextSelectionLayer)
+                    .child(gpui::AnyView::from(self.0.clone()).cached(StyleRefinement::default().size_full()))
+            }
+        }
+        seed_agent_chat(
+            "**Package repos:** yes. `pkg.exponential.at` is a small server.\n\nInstall with `curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh`.\n\n- **Phone writes:** live test still running.",
+            cx,
+        );
+        let (_shell, cx) = cx.add_window_view(|window, cx| Shell(cx.new(|cx| ThreadScreenView::new("r1".to_string(), window, cx))));
+        let cx: &mut VisualTestContext = cx;
+        for _ in 0..3 {
+            cx.update(|window, _| window.refresh());
+            cx.run_until_parked();
+        }
+        let bounds = cx.debug_bounds(THREAD.test_ids.conversation.as_str()).expect("the conversation paints");
+        let at = |x: f32, y: f32| bounds.origin + gpui::point(px(x), px(y));
+        // Right-click Copy's text after sweeping `from` → `to` ("" = disabled).
+        let copy_after_sweep = |from: gpui::Point<Pixels>, to: gpui::Point<Pixels>, cx: &mut VisualTestContext| {
+            let off = at(1800., 900.);
+            cx.simulate_mouse_down(off, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_up(off, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+            cx.run_until_parked();
+            cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+            cx.run_until_parked();
+            cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+            cx.run_until_parked();
+            cx.simulate_mouse_down(to, MouseButton::Right, Modifiers::default());
+            cx.simulate_mouse_up(to, MouseButton::Right, Modifiers::default());
+            cx.run_until_parked();
+            crate::steer_viewer::TRANSCRIPT_MENU_TEXT.with(|text| text.borrow().clone())
+        };
+        // The bubble's lines: the first paragraph, the second, the list item.
+        let (first, second, item) = (52., 82., 112.);
+        let prose = copy_after_sweep(at(496., first), at(640., first), cx);
+        assert!(prose.starts_with("Package"), "prose: {prose:?}");
+        let code = copy_after_sweep(at(800., second), at(900., second), cx);
+        assert_eq!(code, "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh", "a code span copies its code");
+        let all = copy_after_sweep(at(496., first), at(1300., item), cx);
+        for part in ["Package repos:", "pkg.exponential.at is a small server.", "Install with curl -fsSL", "Phone writes: live test"] {
+            assert!(all.contains(part), "multi-paragraph Copy carries {part:?}: {all:?}");
+        }
+        assert!(!all.contains('\u{a0}'), "no placeholder spaces: {all:?}");
     }
 
     /// chats.json THE WAY BACK, the desktop's whole path: an agent's chat (no

@@ -498,7 +498,13 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert_eq!(geo, Rectangle::new((480, 280).into(), (320, 240).into()), "centred like a Wayland window");
-    assert!(h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())), "it has keyboard focus");
+    // The focus follows the map asynchronously (the X11 WM handshake), so
+    // wait for it instead of racing it: CI runners lost the race.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+        assert!(Instant::now() < deadline, "it has keyboard focus");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     // Xwayland draws the background pixel once the frame commits.
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -586,4 +592,161 @@ fn the_recovery_screen_shows_without_a_shell() {
     std::thread::sleep(Duration::from_millis(100));
     h.with(|ede| ede.recovery.return_grace = Duration::ZERO);
     assert_eq!(h.capture(0).at(400, 300) & 0x00ff_ffff, 0x0017_1717, "gone for longer than the grace");
+}
+
+/// Presses the left button at `at` and hands the press serial back, as a
+/// client-side title bar does before it asks for a move or a resize.
+fn press_on_window(h: &Harness, c: &mut Session, at: (f64, f64)) -> u32 {
+    c.state.press_serial = None;
+    h.with(move |ede| {
+        ede.pointer_motion_to(at.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    wait_for(c, |c| c.state.press_serial.is_some());
+    c.state.press_serial.unwrap()
+}
+
+/// Drags the held button to `to` in a few steps and lets go.
+fn drag_to(h: &Harness, from: (f64, f64), to: (f64, f64)) {
+    h.with(move |ede| {
+        for i in 1..=4 {
+            let t = i as f64 / 4.0;
+            ede.pointer_motion_to((from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t).into(), 1 + i);
+        }
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 10);
+    });
+}
+
+/// #EDE-65: a client that draws its own title bar (GTK, gpui) moves and
+/// resizes through xdg_toplevel's requests: the drag follows the pointer,
+/// a resize respects the edge and the client's minimum size, and a
+/// maximized window dragged off its tile stays under the pointer even
+/// though the client asked only past its own drag threshold.
+#[test]
+fn a_client_side_title_bar_moves_resizes_and_unmaximizes_its_window() {
+    use wayland_protocols::xdg::shell::client::xdg_toplevel::ResizeEdge;
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let _pointer = c.pointer();
+    let seat = c.state.seat.clone().unwrap();
+    let t = c.toplevel("csd");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+    let start = windows(&h)[0].1;
+    assert_eq!(h.with(|ede| ede.frame_height(ede.space.elements().next().unwrap())), 0, "no xdg-decoration: the client draws its own bar");
+
+    // Move: the header drag.
+    let grab = ((start.loc.x + 150) as f64, (start.loc.y + 10) as f64);
+    let serial = press_on_window(&h, &mut c, grab);
+    t.toplevel._move(&seat, serial);
+    c.roundtrip();
+    drag_to(&h, grab, (grab.0 - 100.0, grab.1 + 140.0));
+    c.roundtrip();
+    let moved = windows(&h)[0].1;
+    assert_eq!(moved.loc, (start.loc.x - 100, start.loc.y + 140).into());
+
+    // Resize from the bottom-right corner.
+    let corner = ((moved.loc.x + 399) as f64, (moved.loc.y + 299) as f64);
+    let serial = press_on_window(&h, &mut c, corner);
+    t.toplevel.resize(&seat, serial, ResizeEdge::BottomRight);
+    c.roundtrip();
+    h.with(move |ede| ede.pointer_motion_to((corner.0 + 100.0, corner.1 + 50.0).into(), 2));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (500, 350) && c.state.toplevels[0].states.contains(&XdgState::Resizing));
+    c.draw_configured(&t, 0, 0, RED);
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 3));
+    wait_for(&mut c, |c| !c.state.toplevels[0].states.contains(&XdgState::Resizing));
+    c.draw_configured(&t, 0, 0, RED);
+    assert_eq!(windows(&h)[0].1, Rectangle::new(moved.loc, (500, 350).into()));
+
+    // From the top-left corner, past the client's minimum size: clamped,
+    // and the bottom-right corner stays put.
+    t.toplevel.set_min_size(200, 150);
+    c.draw_configured(&t, 0, 0, RED);
+    let top_left = ((moved.loc.x + 1) as f64, (moved.loc.y + 1) as f64);
+    let serial = press_on_window(&h, &mut c, top_left);
+    t.toplevel.resize(&seat, serial, ResizeEdge::TopLeft);
+    c.roundtrip();
+    h.with(|ede| ede.pointer_motion_to((1200.0, 780.0).into(), 2));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (200, 150));
+    c.draw_configured(&t, 0, 0, RED);
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 3));
+    c.roundtrip();
+    c.draw_configured(&t, 0, 0, RED);
+    let small = windows(&h)[0].1;
+    assert_eq!(small, Rectangle::new((moved.loc.x + 300, moved.loc.y + 200).into(), (200, 150).into()));
+
+    // Double-click on its header = the client's maximize request.
+    t.toplevel.set_maximized();
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (1280, 800) && c.state.toplevels[0].states.contains(&XdgState::Maximized));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[0].1.size == (1280, 800).into());
+
+    // Dragged off by its header: the client asks for the move only after
+    // its threshold, the window comes back floating under the pointer.
+    let header = (640.0, 10.0);
+    let serial = press_on_window(&h, &mut c, header);
+    h.with(|ede| ede.pointer_motion_to((646.0, 30.0).into(), 2));
+    t.toplevel._move(&seat, serial);
+    c.roundtrip();
+    drag_to(&h, (646.0, 30.0), (700.0, 300.0));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (200, 150) && !c.state.toplevels[0].states.contains(&XdgState::Maximized));
+    c.draw_configured(&t, 0, 0, RED);
+    let floating = windows(&h)[0].1;
+    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), None);
+    assert_eq!(300 - floating.loc.y, 10, "the pointer holds the header where it grabbed it: {floating:?}");
+    assert!(floating.to_f64().contains((700.0, 300.0)), "{floating:?}");
+}
+
+/// #EDE-65: the server-side bar has the IDE's controls (minimize next to
+/// maximize and close), and a client-decorated window stacked over that bar
+/// takes a press there itself.
+#[test]
+fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    let geo = windows(&h)[0].1;
+    let bar_y = (geo.loc.y - 18) as f64;
+
+    // A client-decorated window over the bar's title.
+    let mut other = Session::connect(h.connect());
+    let _pointer = other.pointer();
+    let csd = other.toplevel("Calculator");
+    other.draw(&csd, 200, 200, RED);
+    wait_for(&mut other, |_| windows(&h).len() == 2);
+    let over = (geo.loc.x - 50, geo.loc.y - 100);
+    h.with(move |ede| {
+        let w = ede.space.elements().last().cloned().unwrap();
+        ede.space.map_element(w, over, true);
+    });
+    other.state.press_serial = None;
+    let title = ((geo.loc.x + 20) as f64, bar_y);
+    h.with(move |ede| {
+        ede.pointer_motion_to(title.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    wait_for(&mut other, |c| c.state.press_serial.is_some());
+    assert_eq!(windows(&h)[0].1, geo, "the frame under it did not start a move");
+
+    // Minimize: third from the right; the window leaves the screen and
+    // comes back where it was.
+    let min_x = (geo.loc.x + geo.size.w - 4 - 2 * 28 - 14) as f64;
+    h.with(move |ede| {
+        ede.pointer_motion_to((min_x, bar_y).into(), 3);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 4);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 5);
+    });
+    assert!(h.with(|ede| ede.space.elements().count() == 1 && ede.minimized.len() == 1));
+    let restored = h.with(|ede| {
+        let w = ede.minimized[0].clone();
+        ede.restore_window(&w);
+        ede.space.element_geometry(&w)
+    });
+    assert_eq!(restored, Some(geo));
 }

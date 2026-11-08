@@ -3,7 +3,10 @@ use gpui::{
     IntoElement, MouseButton, ParentElement, RenderOnce, Stateful, StyleRefinement, Styled, Window,
     prelude::FluentBuilder as _,
 };
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
+
+use crate::overlay_anchor::{AnchorGuard, OverlayAnchor, anchor_source, watch_anchor};
+use gpui::{EntityId, Global};
 
 use crate::ThemeStyled as _;
 use crate::{Selectable, StyledExt as _, v_flex};
@@ -202,19 +205,26 @@ impl Popover {
 }
 
 impl RenderOnce for Popover {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let anchor = self.anchor;
         let appearance = self.appearance;
         let style = self.style;
         let children = self.children;
         let content = self.content;
+        // #EXP-1739: the trigger is the popover's anchor; the popover closes
+        // once it moves, scrolls, is clipped away or leaves the tree.
+        let source_id = ElementId::Name(format!("popover-anchor-{:?}", self.id).into());
+        // Kept across frames: the content renders before the trigger reports.
+        let source = window.use_keyed_state(source_id.clone(), cx, |_, _| None::<OverlayAnchor>);
+        let source_reader = source.clone();
 
-        BasePopover::new(self.id)
+        let popover = BasePopover::new(self.id)
             .anchor(self.anchor)
             .mouse_button(self.mouse_button)
             .default_open(self.default_open)
             .overlay_closable(self.overlay_closable)
             .content(move |state, window, cx| {
+                watch_popover_anchor(source_reader.read(cx).clone(), window, cx);
                 Self::render_popover_content(anchor, appearance, window, cx)
                     .when_some(content, |this, content| {
                         this.child((content)(state, window, cx))
@@ -229,8 +239,34 @@ impl RenderOnce for Popover {
             })
             .when_some(self.on_open_change, |this, callback| {
                 this.on_open_change(move |open, window, cx| callback(open, window, cx))
-            })
-            .into_any_element()
+            });
+        anchor_source(source_id, popover).on_anchor(move |anchor, _, cx| {
+            source.update(cx, |source, _| *source = Some(anchor));
+        })
+    }
+}
+
+/// #EXP-1739: each open popover's anchor watch, by its state entity.
+#[derive(Default)]
+struct PopoverGuards(HashMap<EntityId, AnchorGuard>);
+
+impl Global for PopoverGuards {}
+
+/// Starts watching an open popover's trigger (once per opening): a lost
+/// anchor dismisses the popover.
+fn watch_popover_anchor(anchor: Option<OverlayAnchor>, window: &mut Window, cx: &mut Context<PopoverState>) {
+    let id = cx.entity_id();
+    if cx.default_global::<PopoverGuards>().0.contains_key(&id) {
+        return;
+    }
+    let Some(anchor) = anchor else { return };
+    let state = cx.entity().downgrade();
+    let guard = watch_anchor(anchor, window, cx, move |window, cx| {
+        cx.default_global::<PopoverGuards>().0.remove(&id);
+        let _ = state.update(cx, |state, cx| state.dismiss(window, cx));
+    });
+    if let Some(guard) = guard {
+        cx.default_global::<PopoverGuards>().0.insert(id, guard);
     }
 }
 

@@ -13,6 +13,13 @@ name: pick-runner
 # never has: RUNNER_STATUS_TOKEN is a fine-grained token with exactly that.
 # Without the secret every job takes the fallback.
 #
+# Overflow: the Mint has two runners, and a burst of pushes queued its jobs
+# 16 min at p90, 24 at p95 (2026-11-03..07) while it sat ~46% busy on
+# average. When the exp-linux jobs already waiting would take more than
+# `linux-overflow` rounds of the online runners, this run takes the
+# GitHub-hosted fallback instead (free: the repo is public). Any API error
+# = no overflow (the old online-only pick).
+#
 # Outputs are JSON for `runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}`.
 
 on:
@@ -25,6 +32,10 @@ on:
         type: string
         # The only GitHub image with release Xcode 27 + the iOS 27 runtime.
         default: xcode-27
+      linux-overflow:
+        description: Take the fallback when the waiting exp-linux jobs exceed this many per online runner (0 = never)
+        type: number
+        default: 2
     secrets:
       RUNNER_STATUS_TOKEN:
         required: false
@@ -48,6 +59,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
           LINUX_FALLBACK: ${{ inputs.linux-fallback }}
           MAC_FALLBACK: ${{ inputs.mac-fallback }}
+          LINUX_OVERFLOW: ${{ inputs.linux-overflow }}
         run: |
           runners='{"runners":[]}'
           if [ -n "$GH_TOKEN" ]; then
@@ -62,7 +74,34 @@ jobs:
               jq -nc --arg f "$fallback" '$f'
             fi
           }
+          # The exp-linux jobs waiting for a runner: the queued jobs of every
+          # queued or running run (labels = their runs-on).
+          backlog() {
+            local ids n=0 c
+            ids="$( { gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=queued&per_page=100" -q '.workflow_runs[].id' \
+                   && gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" -q '.workflow_runs[].id'; } )" || return 1
+            while read -r id; do
+              [ -n "$id" ] || continue
+              c="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?filter=latest&per_page=100" \
+                -q '[.jobs[] | select(.status == "queued" and any(.labels[]; . == "exp-linux"))] | length')" || return 1
+              n=$((n + c))
+            done <<<"$ids"
+            echo "$n"
+          }
           linux="$(pick exp-linux "$LINUX_FALLBACK")"
+          if [ "$linux" != "\"$LINUX_FALLBACK\"" ] && [ "${LINUX_OVERFLOW:-0}" -gt 0 ]; then
+            online="$(jq --arg l exp-linux '[.runners[] | select(.status == "online" and any(.labels[]; .name == $l))] | length' <<<"$runners")"
+            idle="$(jq --arg l exp-linux '[.runners[] | select(.status == "online" and (.busy | not) and any(.labels[]; .name == $l))] | length' <<<"$runners")"
+            if waiting="$(backlog)"; then
+              echo "exp-linux: $online online, $idle idle, $waiting jobs waiting"
+              if [ $((waiting - idle)) -gt $((online * LINUX_OVERFLOW)) ]; then
+                echo "::notice title=pick-runner::the Mint is backed up ($waiting jobs waiting on $online runners): GitHub-hosted"
+                linux="$(jq -nc --arg f "$LINUX_FALLBACK" '$f')"
+              fi
+            else
+              echo "::warning::cannot count the waiting jobs: no overflow"
+            fi
+          fi
           mac="$(pick exp-mac "$MAC_FALLBACK")"
           echo "linux=$linux" | tee -a "$GITHUB_OUTPUT"
           echo "mac=$mac" | tee -a "$GITHUB_OUTPUT"
