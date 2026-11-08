@@ -66,7 +66,6 @@ import {
   type AgentRow,
 } from "@/lib/session-tree"
 import { useSession } from "@/hooks/use-session"
-import { useAgentRows } from "@/hooks/use-agent-row"
 import { useNow } from "@/hooks/use-now"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import { TriggerDialog } from "@/components/trigger-dialog"
@@ -81,11 +80,6 @@ import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.j
 import {
   ASSISTANT_COPY,
   ASSISTANT_SCHEDULES,
-  COORDINATOR,
-  COORDINATOR_COPY,
-  COORDINATOR_NONE,
-  coordinatorOf,
-  coordinatorOptions,
   LEAD,
   LEAD_COPY,
   LEAD_NONE,
@@ -1222,58 +1216,11 @@ export function AgentEventsBand({ teamId }: { teamId: string }) {
   )
 }
 
-/** #EXP-1717 (agent-settings.json `coordinator`): Team settings › Agents'
- *  Coordinator row, THE settings Picker row (the merge-mode row's look):
- *  None or one team agent; owners pick, members read. */
-export function CoordinatorRow({ team, isOwner }: { team: Team; isOwner: boolean }) {
-  const agents = useAgentRows(team.id)
-  const [busy, setBusy] = useState(false)
-  const current = coordinatorOf(agents, team.id) ?? COORDINATOR_NONE
-  const items = coordinatorOptions(agents).map((option) =>
-    typeof option === `string`
-      ? { value: COORDINATOR_NONE, label: COORDINATOR_COPY.none }
-      : { value: option.id, label: option.name }
-  )
-  const save = async (next: string) => {
-    setBusy(true)
-    try {
-      await trpc.agents.setCoordinator.mutate(
-        { teamId: team.id, agentId: next === COORDINATOR_NONE ? null : next },
-        SKIP_ERROR_TOAST
-      )
-    } catch (error) {
-      failedAction(`save`, `the coordinator`, error, { retry: () => void save(next) })
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <GlassGroup>
-      <Picker
-        mode="single"
-        triggerVariant="row"
-        triggerLabel={COORDINATOR_COPY.label}
-        mobileTitle={COORDINATOR_COPY.label}
-        value={current}
-        onChange={(picked) => {
-          if (picked === null || picked === current) return
-          void save(picked)
-        }}
-        items={items}
-        width="md"
-        disabled={!isOwner || busy}
-        data-testid={COORDINATOR.testIds.row}
-      />
-      <LeadAssistantPicker team={team} isOwner={isOwner} />
-    </GlassGroup>
-  )
-}
-
-/** #EXP-1735 (agent-settings.json `lead`): the Lead Assistant row, right
- *  below the Coordinator in the same group (THE settings Picker row): None
- *  or one member, whose Assistant every member's Assistant reports to;
- *  owners pick, members read. */
-function LeadAssistantPicker({ team, isOwner }: { team: Team; isOwner: boolean }) {
+/** #EXP-1735 (agent-settings.json `lead`): Team settings › Agents' Lead
+ *  Assistant row where the Coordinator row was (the lead replaces the
+ *  coordinator), THE settings Picker row: None or one member, whose
+ *  Assistant every member's Assistant reports to; owners pick, members read. */
+export function LeadAssistantRow({ team, isOwner }: { team: Team; isOwner: boolean }) {
   const { users } = useTeamUsers(team.id)
   const [busy, setBusy] = useState(false)
   const [leadUserId, setLeadUserId] = useState<string | null>(null)
@@ -1316,20 +1263,22 @@ function LeadAssistantPicker({ team, isOwner }: { team: Team; isOwner: boolean }
     }
   }
   return (
-    <Picker
-      mode="single"
-      triggerVariant="row"
-      triggerLabel={LEAD_COPY.label}
-      mobileTitle={LEAD_COPY.label}
-      value={current}
-      onChange={(picked) => {
-        if (picked === null || picked === current) return
-        void save(picked)
-      }}
-      items={items}
-      width="md"
-      disabled={!isOwner || busy}
-      data-testid={LEAD.testIds.row}
-    />
+    <GlassGroup>
+      <Picker
+        mode="single"
+        triggerVariant="row"
+        triggerLabel={LEAD_COPY.label}
+        mobileTitle={LEAD_COPY.label}
+        value={current}
+        onChange={(picked) => {
+          if (picked === null || picked === current) return
+          void save(picked)
+        }}
+        items={items}
+        width="md"
+        disabled={!isOwner || busy}
+        data-testid={LEAD.testIds.row}
+      />
+    </GlassGroup>
   )
 }

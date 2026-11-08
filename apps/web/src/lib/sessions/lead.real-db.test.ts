@@ -105,8 +105,14 @@ const linesFrom = (listenerId: string, childId: string) =>
 describe.skipIf(!ready.ok)(`#EXP-1735 the team's lead Assistant`, () => {
   it(`owners pick a member; their Assistant leads and its conversation opens; None clears it`, async () => {
     const w = await world()
+    const [coordinator] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Triage`, instructions: ``, triggers: [], deviceId: w.mine.deviceId, ownerId: w.owner, role: `coordinator` })
+      .returning({ id: agents.id })
     const asOwner = agentsRouter.createCaller(person(w.owner) as never)
     await asOwner.setLeadAssistant({ teamId: w.teamId, userId: w.mate })
+    // The lead replaces the coordinator.
+    expect((await db.select({ role: agents.role }).from(agents).where(eq(agents.id, coordinator!.id)))[0]!.role).toBe(`agent`)
     const [team] = await db.select({ lead: teams.leadAssistantId }).from(teams).where(eq(teams.id, w.teamId))
     expect(team!.lead).toBe(w.lead.id)
     const [conversation] = await db

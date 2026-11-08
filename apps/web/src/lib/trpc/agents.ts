@@ -176,6 +176,15 @@ export const agentsRouter = router({
           .update(teams)
           .set({ leadAssistantId: lead?.id ?? null, updatedAt: new Date() })
           .where(eq(teams.id, input.teamId))
+        // The lead replaces the coordinator (#EXP-1730 phase B drops the
+        // role): a lead pick sends the team's coordinator back to a team
+        // agent in the same write, so old clients' Coordinator row reads None.
+        if (lead) {
+          await tx
+            .update(agents)
+            .set({ role: `agent`, updatedAt: new Date() })
+            .where(and(eq(agents.teamId, input.teamId), eq(agents.role, `coordinator`)))
+        }
         if (lead) {
           // Its conversation is where the reports land: open it now (best
           // effort: a device that cannot run it leaves it for first use).
