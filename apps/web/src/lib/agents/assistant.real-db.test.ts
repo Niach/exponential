@@ -264,10 +264,12 @@ describe.skipIf(!ready.ok)(`another member's Assistant is never an assignee (S-3
 })
 
 // Migration 0208's DATA statements (everything after the DDL), replayed in
-// a rolled-back transaction over rows shaped like before it.
+// a rolled-back transaction over rows shaped like before it. The retired
+// `speak_replies` / `push_to_talk` columns are gone since 0264's drop, so
+// their assignments are stripped from the replay.
 const MIGRATION = readFileSync(join(__dirname, `../../db/out/0208_s3_assistant.sql`), `utf8`)
   .split(`--> statement-breakpoint`)
-  .map((statement) => statement.trim())
+  .map((statement) => statement.trim().replace(/\s*"(speak_replies|push_to_talk)" = false,/g, ``))
   .filter((statement) => /^(--[^\n]*\n)*UPDATE/.test(statement))
 
 // A conversation session of `userId` with the agent.
