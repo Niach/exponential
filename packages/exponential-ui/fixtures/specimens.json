@@ -4135,7 +4135,7 @@
                   ]
                 },
                 "style": {
-                  "width": 360
+                  "maxWidth": 360
                 },
                 "children": [
                   {
