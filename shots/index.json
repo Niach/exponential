@@ -2017,8 +2017,8 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21584,
-        "sha256": "f75b63794854bc058d620d02750b093060f6002b6158b45161b5df324a9c9aef"
+        "bytes": 20868,
+        "sha256": "014868f07528ed2ede5ca657898a0f27260270a80f9d2db1ad06fa185c0770df"
       }
     },
     "ede-settings-share": {
@@ -2026,8 +2026,8 @@
         "file": "shots/ede-settings-share/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 12840,
-        "sha256": "623ab8d35039ff7007f3048a9af3a3ad8e32a7764a4ae3bbe22a16b08759ca29"
+        "bytes": 13722,
+        "sha256": "21bf38791dbb0c43aa1e5970d352af54d80e6074e2fb63b537e5f99189ecacf0"
       }
     },
     "ede-settings-team": {
@@ -2035,8 +2035,8 @@
         "file": "shots/ede-settings-team/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 13038,
-        "sha256": "ee757c56932b9e24c261bc1a658d5a3ae4ccb0fff77eec08d08e335687d46e38"
+        "bytes": 12954,
+        "sha256": "8b0689bb1a4c20347959510fa1d1e24ea81eff0ee251eb28d3c1d0b08a1ef6e5"
       }
     },
     "ede-switcher": {

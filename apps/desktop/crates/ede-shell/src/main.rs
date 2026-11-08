@@ -65,9 +65,9 @@
 //! of the machine's, so a golden never depends on what is installed. Since
 //! #EDE-65 the sidebar is the IDE's 56 px icon rail for good (no 272 px
 //! column, no toggle): the chats only, standing on the taskbar, which holds
-//! the start, chat and new-issue buttons; `ede_launch {new: issue}` and a
-//! team's chat hand off to the Exponential app (`exponential://new-issue`,
-//! `exponential://session/<id>`) until the chat moves into eDE;
+//! the start, chat and new-issue buttons; a chat of the rail opens in eDE's
+//! chat (`exponential://session/<id>` only when the team's chat cannot),
+//! `ede_launch {new: issue}` hands off (`exponential://new-issue`);
 //! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you.
 
 mod accounts;
@@ -1382,13 +1382,15 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
 /// [`header_for`] on an output of `(out_w, out_h)` logical px.
 fn layer_header(doc: &Document, (out_w, out_h): (u32, u32)) -> SurfaceHeader {
     let mut header = doc.surface.clone();
-    if let SurfaceHeader::Layer { size, exclusive_zone, anchor, .. } = &mut header {
+    if let SurfaceHeader::Layer { size, exclusive_zone, anchor, margin, .. } = &mut header {
         let layout = shell_layout();
+        // #EDE-65: a stretched surface keeps its margins (Settings stands on the taskbar).
         if anchor.contains(&ede_ui::surface::Edge::Left) && anchor.contains(&ede_ui::surface::Edge::Right) {
-            size.width = Some(out_w.max(1));
+            size.width = Some(out_w.saturating_sub(margin.left + margin.right).max(1));
         }
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
-            size.height = Some(out_h.saturating_sub(if doc.name == "sidebar" { layout.taskbar_height } else { 0 }).max(1));
+            let taskbar = if doc.name == "sidebar" { layout.taskbar_height } else { 0 };
+            size.height = Some(out_h.saturating_sub(margin.top + margin.bottom + taskbar).max(1));
         }
         // #EDE-65 lane I: the chat fills the panel like a maximised window.
         if doc.name == "chat" {
@@ -1647,16 +1649,20 @@ fn chats_refresh(shell: &SharedShell, cx: &mut App) {
         local_desktop(shell)
             .map(|d| {
                 shell.borrow_mut().local_sessions = Some(d.store.subscribe());
-                chats::chat_inputs(&chats::sessions(d.store.rows("sessions").unwrap_or_default()), d.executor.team_id())
+                chats::chat_inputs(&chats::sessions(d.store.rows("sessions").unwrap_or_default()), d.executor.team_id(), &Default::default())
             })
             .unwrap_or_default()
     } else {
         shell.borrow_mut().local_sessions = None;
         let store = current.account.as_deref().and_then(|a| shell.borrow().workspaces.store(a));
-        let spec = sync::shapes::shape_by_name("sessions");
-        match (store, spec) {
-            (Some(store), Some(spec)) => chats::chat_inputs(&chats::sessions(store.read_all(spec).unwrap_or_default()), &current.id),
-            _ => Vec::new(),
+        match store {
+            Some(store) => {
+                let read = |shape: &str| sync::shapes::shape_by_name(shape).and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
+                let sessions = chats::sessions(read("sessions"));
+                let unread = chats::unread_roots(&sessions, &chats::rows(read("conversations")), &chats::rows(read("session_reads")), &current.id);
+                chats::chat_inputs(&sessions, &current.id, &unread)
+            }
+            None => Vec::new(),
         }
     };
     if shell.borrow().chats != chats {
@@ -1665,14 +1671,35 @@ fn chats_refresh(shell: &SharedShell, cx: &mut App) {
     }
 }
 
-/// #EDE-65: `ede_chat {sessionId}`, a chat of the rail: on a Local desktop
-/// eDE's chat on that session (lane I's chat document); on a team the Exponential app opens it (until the chat moves
-/// into eDE).
+/// Where a rail chat opens (#EDE-65): eDE's chat (lane I's document) on a
+/// Local desktop, and on a team whose chat has the session synced; the
+/// Exponential app (`exponential://session/<id>`) only as the fallback,
+/// when the team's chat cannot open it (no account store yet, or the
+/// session is not among its rows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RailChat {
+    Chat,
+    HandOff,
+}
+
+/// `team_has_session`: the team chat's rows carry the session (`None` = no
+/// team chat).
+fn rail_chat_route(on_local: bool, team_has_session: Option<bool>) -> RailChat {
+    match (on_local, team_has_session) {
+        (true, _) | (false, Some(true)) => RailChat::Chat,
+        _ => RailChat::HandOff,
+    }
+}
+
+/// `ede_chat {sessionId}`, a chat of the rail: the chat on that session,
+/// shown ([`rail_chat_route`]).
 fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
     if id.is_empty() {
         return;
     }
-    if !on_local(shell) {
+    let local = on_local(shell);
+    let team_has_session = if local || demo() { None } else { team_chat(shell).map(|(_, rows)| rows.account.sessions.iter().any(|s| s.id == id)) };
+    if !demo() && rail_chat_route(local, team_has_session) == RailChat::HandOff {
         hand_off(&shell.borrow(), &accounts::session_deep_link(id));
         return;
     }
@@ -2799,7 +2826,7 @@ fn main() {
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
                             // #EDE-65: the current team's chats.
-                            "sessions" => chats_changed |= s.borrow().model.switcher.current.account.as_ref() == Some(account_id),
+                            "sessions" | "conversations" | "session_reads" => chats_changed |= s.borrow().model.switcher.current.account.as_ref() == Some(account_id),
                             // #VAPP-273: the connected team's apps and records.
                             "apps" | "app_records" => {
                                 if s.borrow().team_stores.as_ref().is_some_and(|t| &t.account_id == account_id) {
@@ -3015,8 +3042,34 @@ mod layer_sizes {
         assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
     }
 
+    /// #EDE-65: Settings open into the sidebar like the IDE's: over the
+    /// rail and the ground, standing on the taskbar, the nav as wide as the
+    /// IDE's settings column.
+    #[test]
+    fn settings_take_the_sidebar_and_the_ground() {
+        let settings = factory("settings");
+        for out in [(1280, 720), (1920, 1080)] {
+            assert_eq!(size(&layer_header(&settings, out)), (Some(out.0), Some(out.1 - 48), -1), "{out:?}");
+        }
+        let SurfaceHeader::Layer { margin, on_demand, .. } = &settings.surface else { panic!("a layer") };
+        assert_eq!((margin.bottom, *on_demand), (shell_layout().taskbar_height, true));
+        let doc: Value = serde_json::from_str(uicore_docs::doc("settings").unwrap().source).unwrap();
+        let nav = &doc["root"]["children"][0];
+        assert_eq!((nav["component"].as_str(), nav["props"]["width"].as_u64()), (Some("Sidebar"), Some(shell_layout().settings_width as u64)));
+    }
+
     /// The taskbar opens before the sidebar: its exclusive zone takes the
     /// whole bottom edge, the rail stands on it.
+    /// #EDE-65 (after #2308): a team's rail chat opens in eDE's chat like a
+    /// Local one; the Exponential app only when the team chat cannot.
+    #[test]
+    fn a_rail_chat_opens_in_edes_chat_and_hands_off_only_as_the_fallback() {
+        assert_eq!(rail_chat_route(true, None), RailChat::Chat);
+        assert_eq!(rail_chat_route(false, Some(true)), RailChat::Chat);
+        assert_eq!(rail_chat_route(false, Some(false)), RailChat::HandOff, "a session the team chat has not synced");
+        assert_eq!(rail_chat_route(false, None), RailChat::HandOff, "no team chat (no account store yet)");
+    }
+
     #[test]
     fn the_taskbar_maps_before_the_rail() {
         assert!(layer_rank(&factory("taskbar")) < layer_rank(&factory("sidebar")));
@@ -3034,6 +3087,10 @@ mod layer_sizes {
             assert!(!text.contains(&format!("\"id\":\"{id}\"")), "{id} is drawn");
         }
         assert!(text.contains("\"id\":\"chat_row\""));
+        // Lane I's final call: a chat opens with ede_chat {sessionId}.
+        let doc: Value = serde_json::from_str(uicore_docs::doc("sidebar").unwrap().source).unwrap();
+        let row = serde_json::to_string(&doc["root"]).unwrap();
+        assert!(row.contains(r#""functionCall":{"@call":"ede_chat","args":{"sessionId":{"@path":"id"}}}"#), "the rail's chat calls ede_chat {{sessionId}}");
     }
 }
 
