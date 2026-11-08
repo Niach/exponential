@@ -990,7 +990,10 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
         if apps.is_empty() {
             return;
         }
-        match engine::Stores::open(engine::data_dir(), capabilities) {
+        // #EDE-65 J5b: the Local desktop's own records, files and vaults.
+        let Some(desktop) = local_desktop(shell) else { return };
+        let current = shell.borrow().workspaces.desktops.current().map(str::to_string);
+        match engine::Stores::open(engine::local_data_dir(&desktop.dir, &desktop.entry.id, current.as_deref(), &engine::data_dir()), capabilities) {
             Ok(stores) => (apps, stores),
             Err(e) => {
                 tracing::warn!("apps: {e}");
