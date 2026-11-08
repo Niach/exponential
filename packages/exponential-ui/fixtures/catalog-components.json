@@ -3881,6 +3881,66 @@
       }
     },
     {
+      "name": "Tabs/swipeable=true",
+      "node": {
+        "id": "tabs",
+        "component": "Tabs",
+        "props": {
+          "tabs": [
+            {
+              "label": "Issue",
+              "value": "issue"
+            },
+            {
+              "label": "Session",
+              "value": "session"
+            }
+          ],
+          "value": "issue",
+          "swipeable": true
+        },
+        "children": [
+          {
+            "id": "tabs-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tabs/swipeable=false",
+      "node": {
+        "id": "tabs",
+        "component": "Tabs",
+        "props": {
+          "tabs": [
+            {
+              "label": "Issue",
+              "value": "issue"
+            },
+            {
+              "label": "Session",
+              "value": "session"
+            }
+          ],
+          "value": "issue",
+          "swipeable": false
+        },
+        "children": [
+          {
+            "id": "tabs-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Segmented/example",
       "node": {
         "id": "segmented",

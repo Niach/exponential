@@ -2147,7 +2147,7 @@
     },
     {
       "name": "@electric-sql/client",
-      "version": "1.5.16",
+      "version": "1.5.28",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"

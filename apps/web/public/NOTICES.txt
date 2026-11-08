@@ -6719,7 +6719,7 @@ Apache-2.0
 
 Applies to the following component:
 
-  @electric-sql/client 1.5.16
+  @electric-sql/client 1.5.28
     copyright license to reproduce, prepare Derivative Works of,
     copyright notice that is included in or attached to the work
 

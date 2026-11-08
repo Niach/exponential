@@ -246,6 +246,17 @@ pub struct TabDrag {
     pub rtl: bool,
 }
 
+/// FEED-200: a `swipeable` Tabs as measured after a pass (`Surface::fit_tab_pagers`):
+/// the panels' width, the reading direction and each tab's header span
+/// (`tabs` array index → `(x, y, w, h)` from the list's origin; `None` =
+/// not drawn, a strip tab folded into `+N`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TabPager {
+    pub width: f32,
+    pub rtl: bool,
+    pub spans: Vec<Option<(f32, f32, f32, f32)>>,
+}
+
 /// Local UI state the core owns (never sent to the producer unless bound).
 #[derive(Debug, Clone, Default)]
 pub struct LocalState {
@@ -258,6 +269,11 @@ pub struct LocalState {
     pub tab_order: HashMap<String, Vec<usize>>,
     /// VAPP-279: reorder drags in progress per Tabs id.
     pub tab_drags: HashMap<String, TabDrag>,
+    /// FEED-200: a swipeable Tabs' live swipe: the DRAWN offset (screen px,
+    /// `swipe::swipe_offset`) while a finger is down; absent = at rest.
+    pub tab_swipe: HashMap<String, f32>,
+    /// FEED-200: each swipeable Tabs' measured pager.
+    pub tab_pager: HashMap<String, TabPager>,
     pub accordion: HashMap<String, Vec<String>>,
     pub carousel: HashMap<String, i64>,
     pub open: HashMap<String, bool>,
