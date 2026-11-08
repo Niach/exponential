@@ -500,6 +500,23 @@ fn a_focused_number_field_selects_its_seed_and_typing_replaces_it(cx: &mut TestA
     assert!(note.contains("seeded"), "an Input keeps its text: {note}");
 }
 
+/// eDE's lock screen showed the typed password: an `Input{type: password}`
+/// draws bullets and still hands the real text to its binding.
+#[gpui::test]
+fn a_password_input_is_masked(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "password", "component": "Input", "props": {"label": "Password", "name": "password", "type": "password", "value": {"@path": "/password"}}},
+        {"id": "user", "component": "Input", "props": {"label": "User", "name": "user", "value": "danny"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, cx| v.set_data("/password", Some(json!("hunter2")), cx).unwrap());
+    draw(cx);
+    let id = "password.field";
+    assert_eq!(view.read_with(cx, |v, cx| v.field_masked(id, cx)), Some(true), "a password is drawn as bullets");
+    assert_eq!(view.read_with(cx, |v, cx| v.field_text(id, cx)).as_deref(), Some("hunter2"), "the binding keeps the real text");
+    assert_eq!(view.read_with(cx, |v, cx| v.field_masked("user.field", cx)), Some(false), "a plain field is not");
+}
+
 #[gpui::test]
 fn picked_files_reach_the_host_and_the_upload_event(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
