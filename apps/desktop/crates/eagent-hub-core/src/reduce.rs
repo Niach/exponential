@@ -1313,7 +1313,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
 
 fn trees_moved(ctx: &Ctx, agent: &HubAgent, since: i64) -> bool {
     // #EXP-1720: an Assistant's chats span its conversation's teams.
-    let teams = match ctx.state.sessions.get(&agent.conversation_id) {
+    let teams = match ctx.state.sessions.get(&agent.root_session_id) {
         Some(conversation) if agent.role == AgentRole::Assistant => tree_teams(&ctx.state, conversation),
         _ => vec![agent.team_id.clone()],
     };
@@ -1370,7 +1370,7 @@ fn schedule(ctx: &mut Ctx, data: ScheduleData) -> Step<StepResult> {
     }
     let caught_up = rules().trigger.caught_up_after_minutes * MIN;
     let body = due.iter().map(|d| copy::schedule_text(&d.cron, d.tz.as_deref(), ctx.now - d.at > caught_up)).collect::<Vec<_>>().join("\n");
-    let conversation = session(&ctx.state, Some(&agent.conversation_id))?;
+    let conversation = session(&ctx.state, Some(&agent.root_session_id))?;
     // Never stacks: an unread tick takes the newer text; a read one nobody answered is re-armed; else a new card.
     let tick = ctx.state.messages.iter().rposition(|m| m.session_id == conversation.id && is_tick(&m.card));
     let answered = tick.is_some_and(|i| {
@@ -1441,7 +1441,7 @@ fn emitted(ctx: &mut Ctx, data: EmittedData, event_id: &str) -> Step<StepResult>
             if trigger.kind != TriggerKind::Event || trigger.enabled == Some(false) || trigger.name.as_ref() != Some(&name) {
                 continue;
             }
-            let conversation = session(&ctx.state, Some(&agent.conversation_id))?;
+            let conversation = session(&ctx.state, Some(&agent.root_session_id))?;
             let card = EventCard {
                 event: "trigger_fired".into(),
                 session_id: None,

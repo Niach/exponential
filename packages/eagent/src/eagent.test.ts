@@ -33,7 +33,7 @@ test(`every id a fixture names follows eCore's id rule`, () => {
   const walk = (value: unknown, key?: string) => {
     if (Array.isArray(value)) return value.forEach((item) => walk(item, key))
     if (value && typeof value === `object`) return Object.entries(value).forEach(([k, v]) => walk(v, k))
-    if (typeof value === `string` && key && /^(id|sessionId|parentId|rootId|callerId|watcherId|freshId|deviceId|conversationId|agentId|messageId)$/.test(key)) ids.add(value)
+    if (typeof value === `string` && key && /^(id|sessionId|parentId|rootId|callerId|watcherId|freshId|deviceId|rootSessionId|agentId|messageId)$/.test(key)) ids.add(value)
   }
   walk(SCENARIOS)
   for (const id of ids) expect({ id, valid: isValidId(id) }).toEqual({ id, valid: true })

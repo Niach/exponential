@@ -880,7 +880,7 @@ function tick(ctx: Ctx): StepResult {
 function treesMoved(ctx: Ctx, agentId: string, since: number): boolean {
   const agent = ctx.state.agents[agentId]!
   // #EXP-1720: an Assistant's chats span its conversation's teams.
-  const conversation = ctx.state.sessions[agent.conversationId]
+  const conversation = ctx.state.sessions[agent.rootSessionId]
   const teams = agent.role === `assistant` && conversation ? treeTeams(ctx.state, conversation) : [agent.teamId]
   const rows = Object.values(ctx.state.sessions).filter((row) => teams.includes(row.teamId))
   const moved = (row: HubSession) => row.lastActivityAt !== null && row.lastActivityAt > since
@@ -914,7 +914,7 @@ function schedule(ctx: Ctx, data: ScheduleData): StepResult {
   const body = due
     .map((d) => scheduleText(d.cron, d.tz ?? null, ctx.now - d.at > rules.trigger.caughtUpAfterMinutes * MIN))
     .join(`\n`)
-  const conversation = session(ctx.state, agent!.conversationId)
+  const conversation = session(ctx.state, agent!.rootSessionId)
   // Never stacks: an unread tick takes the newer text; a read one nobody answered is re-armed; else a new card.
   const tick = ctx.state.messages
     .filter(
@@ -969,7 +969,7 @@ function emitted(ctx: Ctx, data: EmittedData, eventId: string): StepResult {
     if (agent.teamId !== teamId || agent.id === emitter) continue
     for (const trigger of agent.triggers) {
       if (trigger.kind !== `event` || trigger.enabled === false || trigger.name !== name) continue
-      const conversation = session(ctx.state, agent.conversationId)
+      const conversation = session(ctx.state, agent.rootSessionId)
       post(ctx, conversation.id, {
         authorKind: `user`,
         authorSessionId: null,
@@ -1065,7 +1065,7 @@ export function hydrate(given: {
   sessions?: Array<Partial<HubSession> & { id: string }>
   messages?: Array<Partial<HubMessage> & { id: string; sessionId: string }>
   devices?: Array<Partial<{ lastSeenAt: number; liveSessionIds: string[] | null }> & { id: string }>
-  agents?: Array<Partial<import("./model").HubAgent> & { id: string; ownerId: string; conversationId: string }>
+  agents?: Array<Partial<import("./model").HubAgent> & { id: string; ownerId: string; rootSessionId: string }>
 }): HubState {
   const d = rules.defaults
   const state: HubState = { seq: 0, sessions: {}, messages: [], devices: {}, agents: {} }
