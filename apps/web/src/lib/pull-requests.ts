@@ -1,4 +1,3 @@
-import { isGithubRateLimited } from "@/lib/integrations/github-client"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -31,14 +30,9 @@ import {
 import {
   closePullRequest as closeOnGithub,
   createPullRequest,
-  diagnoseUnmergeablePr,
   findOpenPullByHead,
   getPullRequest,
-  GitHubAsyncMergePending,
   GitHubMergeError,
-  mergedByPerson,
-  mergedByPersonNote,
-  mergePullRequestSmart,
   PullAlreadyExistsError,
   retargetPullRequest as retargetOnGithub,
   setPullRequestDraft,
@@ -46,9 +40,7 @@ import {
 import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
 import { loadPrFiles } from "@/lib/integrations/pr-files"
 import {
-  claimPrMerge,
   claimPrOpen,
-  releasePrMergeClaim,
   releasePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
 import {
@@ -56,7 +48,6 @@ import {
   applyPullRequestClosed,
   applyPullRequestDraft,
   applyPullRequestMerged,
-  deleteMergedHeadBranch,
   livePullRequestsOfRepo,
   livePullRequestsOfRoot,
   loadLivePullRequestByHead,
@@ -68,24 +59,14 @@ import {
   recordPullRequestOpened,
   repoFromPrUrl,
   leaveGithubStack,
-  retargetChildrenOfMergedPr,
 } from "@/lib/integrations/pr-sync"
 import {
-  awaitRebaseOffMergedBranch,
-  basedOnMergedPr,
   isLivePrState,
-  liveChildren,
   loadGuardDefaultBranches,
-  openStackMember,
-  prIssueIdentifiers,
-  squashCommitTitle,
-  stackLanding,
   stackStopBranches,
 } from "@/lib/pr-merge-guard"
 import { prLinks } from "@exp/domain-contract/issue-lifecycle"
-import { ensureGithubStack, GitHubStackForkError, inferBaseBranch, mergeThrough } from "@/lib/pr-stacks"
-import { mergeRefusalText } from "@/lib/merge-refusal"
-import { isNotMergeable, MergeRefusal, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
+import { inferBaseBranch } from "@/lib/pr-stacks"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import {
   effectiveDefaultBranch,
@@ -128,21 +109,6 @@ async function repoToken(repo: Repo): Promise<string> {
     )
   }
   return token
-}
-
-/** EXP-1413: the PR's head commit on GitHub; null when it cannot be read
- *  (the automerge then treats any earlier refusal of the PR as seen). */
-export async function pullRequestHeadSha(pullRequestId: string): Promise<string | null> {
-  try {
-    const pr = await loadPullRequest(pullRequestId)
-    if (!pr) return null
-    const repo = await loadRepository(pr.repositoryId)
-    const details = await getPullRequest(repo.fullName, pr.number, await repoToken(repo))
-    return details.headSha || null
-  } catch (err) {
-    console.error(`[yolo] reading the head of ${pullRequestId} failed`, err)
-    return null
-  }
 }
 
 /** EXP-1315 → S-3: a thread's PR that changes UI needs a labelled
@@ -274,44 +240,6 @@ async function createOrAdoptOnGithub(opts: {
     const raced = await lookup(opts.base)
     if (!raced) return fail(`BAD_GATEWAY`, e.message)
     return { url: raced.url, number: raced.number, base: raced.baseRef || opts.base, adopted: true }
-  }
-}
-
-/**
- * EXP-1248: a PR opened on another live PR's head joins that PR's GitHub
- * stack (creating the line bottom→top when there is none). A FORK (another
- * live PR already sits on the lower one: a tree, never a linear stack) is
- * skipped. The PR is open and recorded either way: a failed join is logged,
- * never the caller's error.
- */
-async function joinGithubStack(opts: {
-  pr: PullRequest
-  repoFullName: string
-  token: string
-}): Promise<void> {
-  const lowerId = opts.pr.basePullRequestId
-  if (!lowerId) return
-  try {
-    // #EXP-1711: the train lands a stack itself: a native stack would only
-    // refuse the retarget of the PRs above a landed one.
-    const { mergeTrainOn } = await import(`@/lib/merge-train/worker`)
-    if (mergeTrainOn(opts.repoFullName)) return
-    const lower = await loadPullRequest(lowerId)
-    if (!lower || !isLivePrState(lower.state)) return
-    const siblings = await liveChildren(db, [lower.id])
-    if (siblings.some((child) => child.id !== opts.pr.id)) return
-    await ensureGithubStack({
-      repo: opts.repoFullName,
-      token: opts.token,
-      lowerPrNumber: lower.number,
-      newPrNumber: opts.pr.number,
-      stopBranches: stackStopBranches(
-        await loadGuardDefaultBranches(db, { teamId: opts.pr.teamId, repoFullName: opts.repoFullName })
-      ),
-    })
-  } catch (e) {
-    if (e instanceof GitHubStackForkError) return
-    console.warn(`[pull-requests] PR #${opts.pr.number} is open; joining its GitHub stack failed`, e)
   }
 }
 
@@ -534,7 +462,6 @@ export async function openPullRequest(args: {
   if (created.adopted) releasePrOpenClaim(repo.fullName, head!)
 
   const recorded = await record({ url: created.url, number: created.number, base: created.base, title: args.title })
-  await joinGithubStack({ pr: recorded.pullRequest, repoFullName: repo.fullName, token })
   await keepNotRun(recorded.pullRequest.id)
   return {
     pullRequestId: recorded.pullRequest.id,
@@ -665,197 +592,6 @@ async function adoptByUrl(userId: string, url: string): Promise<PullRequest | nu
     .where(and(eq(repositories.fullName, fullName), eq(teamMembers.userId, userId)))
     .limit(1)
   return rows[0] ? adoptByNumber(userId, rows[0].id, number) : null
-}
-
-/** The internal merge, throwing TRPCErrors (EXP-1391: a refusal is a
- *  `MergeRefusal` with its kind). The tRPC router passes them through;
- *  `mergePullRequest` turns them into `error`. */
-export async function mergePullRequestOrThrow(args: {
-  userId: string
-  pullRequestId: string
-  stack?: boolean
-  callerSessionId?: string | null
-}): Promise<{ merged: boolean; queued?: boolean; note?: string; mergedIds?: string[]; txid?: number }> {
-  const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
-  try {
-    return await mergeResolved(pr, args)
-  } catch (err) {
-    if (err instanceof MergeRefusal) err.prNumber ??= pr.number
-    throw err
-  }
-}
-
-async function mergeResolved(
-  pr: PullRequest,
-  args: Parameters<typeof mergePullRequestOrThrow>[0]
-): Promise<Awaited<ReturnType<typeof mergePullRequestOrThrow>>> {
-  if (pr.state === `merged`) return { merged: true, mergedIds: [pr.id] }
-  if (pr.state === `draft`) {
-    throw new MergeRefusal({
-      kind: `other`,
-      message: `PR #${pr.number} is a draft. Mark it ready for review first.`,
-    })
-  }
-  if (!isLivePrState(pr.state)) {
-    fail(`PRECONDITION_FAILED`, `The pull request is ${pr.state}. Only open pull requests can be merged.`)
-  }
-  const repo = await loadRepository(pr.repositoryId)
-  // EXP-1248/1145: a stack member with live PRs beneath it lands only
-  // through `stack`; a tree's child waits for its parent. Before any claim
-  // or GitHub call.
-  const landing = stackLanding(await openStackMember(db, pr.id), args.stack)
-  const token = await repoToken(repo)
-  const defaults = await loadGuardDefaultBranches(db, { teamId: pr.teamId, repoFullName: repo.fullName })
-
-  // The PR below already MERGED: its EXP-324 heal is fire-and-forget and
-  // this merge would beat it, squashing INTO the merged branch (EXP-320).
-  // Await the heal, then refuse while GitHub still reports that base. A
-  // merge through a stack heals its BOTTOM (every other member sits on a
-  // live PR).
-  const bottom = landing?.[0] ?? pr
-  const mergedParent = await basedOnMergedPr(db, {
-    pullRequestId: bottom.id,
-    repositoryId: pr.repositoryId,
-    basePullRequestId: bottom.basePullRequestId,
-    base: bottom.base,
-    defaults,
-  })
-  if (mergedParent) {
-    try {
-      await retargetChildrenOfMergedPr(mergedParent.id)
-    } catch (err) {
-      console.error(`retarget before merging ${repo.fullName}#${bottom.number}:`, err)
-    }
-    await awaitRebaseOffMergedBranch(db, {
-      pullRequestId: bottom.id,
-      repoFullName: repo.fullName,
-      prNumber: bottom.number,
-      base: bottom.base,
-      mergedBranch: mergedParent.head,
-      token,
-    })
-  }
-
-  // A merge through a stack needs the line to BE a GitHub stack, or
-  // merge-async would squash it INTO the branch below. No fallback.
-  if (landing && landing.length > 1) {
-    try {
-      await ensureGithubStack({
-        repo: repo.fullName,
-        token,
-        lowerPrNumber: landing[landing.length - 2]!.number,
-        newPrNumber: pr.number,
-        stopBranches: stackStopBranches(defaults),
-      })
-    } catch (err) {
-      throw new MergeRefusal({ kind: `other`, message: err instanceof Error ? err.message : String(err) })
-    }
-  }
-
-  const landed = landing ?? [{ id: pr.id, number: pr.number }]
-  const viaAgent = Boolean(args.callerSessionId)
-  for (const member of landed) claimPrMerge(repo.fullName, member.number, { userId: args.userId, viaAgent })
-  const releaseClaims = () => {
-    for (const member of landed) releasePrMergeClaim(repo.fullName, member.number)
-  }
-  const identifier = (await prIssueIdentifiers(db, [pr.id])).get(pr.id) ?? null
-  const mergeOpts = {
-    repo: repo.fullName,
-    prNumber: pr.number,
-    token,
-    ...(pr.title ? { commitTitle: squashCommitTitle(identifier, pr.title, pr.number) } : {}),
-  }
-  let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
-  try {
-    smart = landing ? await mergeThrough(mergeOpts) : await mergePullRequestSmart(mergeOpts)
-  } catch (err) {
-    if (err instanceof GitHubAsyncMergePending) {
-      // NOT a failure: GitHub's job is still running, the claims STAY.
-      return fail(
-        `PRECONDITION_FAILED`,
-        `GitHub is still merging PR #${err.prNumber}. It did not finish in time — check the PR on GitHub; its issues complete when the merge lands.`
-      )
-    }
-    releaseClaims()
-    if (err instanceof GitHubMergeError) {
-      const diagnosis = isNotMergeable(err)
-        ? await diagnoseUnmergeablePr({
-            repo: repo.fullName,
-            prNumber: pr.number,
-            token,
-            defaultBranch:
-              defaults?.defaultBranchOverride ??
-              defaults?.defaultBranch ??
-              effectiveDefaultBranch(repo),
-          })
-        : null
-      throw prMergeFailureError(err, diagnosis)
-    }
-    throw err
-  }
-
-  // FEED-43 R1/EXP-897: the merge queue took it; nothing landed yet. The
-  // webhook (or the poller) completes it; the claims stay for its echo.
-  if (smart.queued) {
-    return {
-      merged: false,
-      queued: true,
-      note: `GitHub queued the merge of PR #${pr.number}. Nothing is merged yet; its issues complete when the merge lands.`,
-    }
-  }
-  // FEED-64: a PERSON merged it on github.com; theirs to attribute, so the
-  // claims go and the webhook/poller writes the state off `merged_by`.
-  if (mergedByPerson(smart.mergedBy)) {
-    releaseClaims()
-    return { merged: true, note: mergedByPersonNote(pr.number, smart.mergedBy), mergedIds: landed.map((m) => m.id) }
-  }
-
-  // Every landed PR completes now (self-hosted instances behind NAT may
-  // only have the slower poller); the webhook's echo degrades to a no-op.
-  let txid: number | undefined
-  for (const member of landed) {
-    // NEW-5: the merged head branch goes too, with the merge's own token
-    // (best effort, after its children are retargeted; never fails the merge).
-    const applied = await applyPullRequestMerged({
-      pullRequestId: member.id,
-      mergedAt: new Date(),
-      actorUserId: args.userId,
-      actorViaAgent: viaAgent,
-      deleteHead: { token, anyBranch: true },
-    })
-    // The webhook's echo won the claim (it deletes `exp/` heads only).
-    if (!applied.applied) void deleteMergedHeadBranch({ pullRequestId: member.id, token, anyBranch: true })
-    if (member.id === pr.id && applied.txid != null) txid = applied.txid
-  }
-  return { merged: true, mergedIds: landed.map((member) => member.id), ...(txid != null ? { txid } : {}) }
-}
-
-/** Squash-merge a PR; `stack` = merge THROUGH this member of a native stack
- *  (it lands with every live member beneath it, bottom-up). A refusal is
- *  `error`, never a throw (only an unknown/foreign PR throws). */
-export async function mergePullRequest(args: {
-  userId: string
-  pullRequestId: string
-  stack?: boolean
-  callerSessionId?: string | null
-}): Promise<{ merged: boolean; queued?: boolean; error?: string; mergedIds?: string[] }> {
-  try {
-    const { txid: _txid, note: _note, ...result } = await mergePullRequestOrThrow(args)
-    void _txid
-    void _note
-    return result
-  } catch (err) {
-    // EXP-1391: a refusal reads as the steps the agent takes next.
-    if (err instanceof MergeRefusal && err.prNumber != null) {
-      return { merged: false, error: mergeRefusalText(err.prNumber, err.message, err.kind) }
-    }
-    if (err instanceof TRPCError && err.code !== `NOT_FOUND`) {
-      return { merged: false, error: err.message }
-    }
-    // EXP-1609: GitHub's rate limit reads as its reset, never a raw 403.
-    if (isGithubRateLimited(err)) return { merged: false, error: err.message }
-    throw err
-  }
 }
 
 /** Change a live PR's base on GitHub (EXP-324's manual heal). Omitted =

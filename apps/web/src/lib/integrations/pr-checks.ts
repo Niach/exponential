@@ -253,7 +253,7 @@ async function postPrChecksLine(
     if (seen) return false
   }
   await generateTxId(tx)
-  // Pending input like a refused merge (merge-refusal.ts): the session
+  // Pending input: the session
   // wakes and reads the line; nobody watches CI.
   await insertMessage(tx, target, {
     authorKind: `user`,

@@ -140,7 +140,7 @@ export function isRepoDefaultBranch(
   )
 }
 
-/** The branches `ensureGithubStack` must never walk below. */
+/** The branches a stack never sits on (`inferBaseBranch` stops there). */
 export function stackStopBranches(branches: RepoDefaultBranches | null): string[] {
   if (!branches) return []
   return [

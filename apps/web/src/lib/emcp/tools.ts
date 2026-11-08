@@ -1,8 +1,7 @@
 import { linksIssues } from "@exp/domain-contract/session-kind"
 import { classifyAppLink } from "@/lib/app-link"
 import { viaAppOf } from "@/lib/emcp/via-app"
-import { mergeGate, mergeGateText } from "@exp/domain-contract/pr-checks"
-import { loadPullRequestChecks, pullRequestChecksBrief } from "@/lib/integrations/pr-checks"
+import { pullRequestChecksBrief } from "@/lib/integrations/pr-checks"
 import { z } from "zod"
 import { boardIconSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
@@ -86,7 +85,6 @@ import {
   teamInvites,
   teamMembers,
   teams,
-  repositories,
 } from "@/db/schema"
 import {
   commentAudienceValues,
@@ -97,6 +95,7 @@ import {
   issueStatusCategoryValues,
   boardIconValues,
 } from "@/lib/domain"
+import { teamMergeModeValues } from "@exp/db-schema/domain"
 import { teamColumns } from "@/lib/team-columns"
 import {
   assertTeamMember,
@@ -196,7 +195,6 @@ import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
 import { emitEventInTx } from "@/lib/events"
 import {
   closePullRequestTx,
-  mergePullRequest,
   openPullRequest,
   pullRequestFiles,
   resolvePullRequest,
@@ -233,7 +231,7 @@ import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
-import { yoloEdge } from "@/lib/yolo-edge"
+import { trainEdge } from "@/lib/merge-train/edge"
 import {
   assertFullAccess,
   assertBoardGranted,
@@ -3093,12 +3091,6 @@ export function registerExponentialTools(
     return member?.role === `owner`
   }
 
-  /** #EXP-1711: the switch may be scoped to some repositories. */
-  async function repositoryFullName(repositoryId: string): Promise<string | null> {
-    const [row] = await db.select({ fullName: repositories.fullName }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
-    return row?.fullName ?? null
-  }
-
   async function selectPr(args: {
     pullRequestId?: string
     issueId?: string
@@ -3142,7 +3134,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; no share links none; issues a merged PR closed are left out). repositoryId when there are none. Body = a server summary + your result pictures. A UI diff needs a result picture per platform (exponential_show pictures, label starts web/web-mobile/ios/android/desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
+      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; a PR on another open PR's branch stacks on it). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; no share links none; issues a merged PR closed are left out). repositoryId when there are none. Body = a server summary + your result pictures. A UI diff needs a result picture per platform (exponential_show pictures, label starts web/web-mobile/ios/android/desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         title: z.string().min(1).max(255),
@@ -3181,8 +3173,9 @@ export function registerExponentialTools(
           ...(issueIds.length > 0 ? { issueIds } : {}),
         })
         for (const id of issueIds) noteAgentIssueActivity(id, user.id)
-        // EXP-1413: `pr_open` is a yolo edge (quiet while the opener works).
-        yoloEdge(own?.rootId)
+        // EXP-1709: `pr_open` is a merge-train edge (readiness waits while
+        // the opener works).
+        trainEdge(own?.rootId)
         return ok({ ...result, checks: await prChecks(result.pullRequestId) })
       } catch (e) {
         return err(e)
@@ -3193,7 +3186,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `With auto-merge on (merge train): queue an open PR now and report where it stands (mergeQueue: state, position, testingWith); it lands by itself and pr_merge wakes you, so end your turn. Otherwise squash-merge it (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. With auto-merge, force: true from a team owner or a team agent = Merge now: next, alone, past any session wait (only when a person says so). Otherwise, when the server gates on CI, a red or running check refuses it; force: true merges anyway.`,
+      description: `Queue an open PR in the merge train now and report where it stands (mergeQueue: state, position, testingWith). It lands by itself once tested and pr_merge wakes you, so end your turn; never poll. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. A stack member queues with its stack. Merging your own PR never ends your session. force: true from a team owner or a team agent = Merge now: next, alone, untested, past any session wait (only when a person says so).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
@@ -3202,39 +3195,23 @@ export function registerExponentialTools(
       }),
     },
     async ({ stack, force, ...selector }) => {
+      void stack // old callers: a stack member always queues with its stack
       try {
-        const { pr, callerSessionId } = await selectPr(selector)
+        const { pr } = await selectPr(selector)
         const checks = await prChecks(pr.id)
-        // EXP-1709: the merge train queues it (its stack with it) and
-        // reports the position; nothing merges here.
+        // EXP-1709: the merge train (the only merge) queues it, its stack
+        // with it, and reports the position; nothing merges here.
         const train = await import(`@/lib/merge-train/worker`)
-        if (train.mergeTrainOn(await repositoryFullName(pr.repositoryId))) {
-          // #EXP-1711 (merge-train.json `merge_now`): force from a team owner
-          // or a team agent = Merge now: next, alone, past any session wait.
-          if (force && (await mayMergeNow(pr.teamId))) {
-            await train.mergeNowPullRequest(pr.id)
-            await train.runRepository(pr.repositoryId)
-            return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, mergeQueue: await train.queueReport(pr.id), checks })
-          }
-          await train.approvePullRequest(pr.id)
+        // #EXP-1711 (merge-train.json `merge_now`): force from a team owner
+        // or a team agent = Merge now: next, alone, past any session wait.
+        if (force && (await mayMergeNow(pr.teamId))) {
+          await train.mergeNowPullRequest(pr.id)
           await train.runRepository(pr.repositoryId)
-          return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })
+          return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, mergeQueue: await train.queueReport(pr.id), checks })
         }
-        // EXP-1610: MERGE_CHECK_GATE (default off) refuses a red or
-        // running gated check; force overrides.
-        if (process.env.MERGE_CHECK_GATE === `true` && !force) {
-          const verdict = mergeGate(await loadPullRequestChecks(pr.id))
-          if (!verdict.ok) {
-            return ok({ ...prRef(pr), merged: false, error: mergeGateText(pr.number, verdict), checks })
-          }
-        }
-        const result = await mergePullRequest({
-          userId: user.id,
-          pullRequestId: pr.id,
-          ...(stack !== undefined ? { stack } : {}),
-          callerSessionId,
-        })
-        return ok({ ...prRef(pr), ...result, checks })
+        await train.approvePullRequest(pr.id)
+        await train.runRepository(pr.repositoryId)
+        return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })
       } catch (e) {
         return err(e)
       }
@@ -3302,7 +3279,6 @@ export function registerExponentialTools(
         const { pr } = await selectPr(selector)
         // EXP-1709: hold / resume auto-merge (merge-train.json `hold`, `resume`).
         if (hold !== undefined) {
-          // The switch off: a flag yolo respects (no train acts on it).
           const train = await import(`@/lib/merge-train/worker`)
           await (hold ? train.holdPullRequest : train.resumePullRequest)(pr.id)
           if (title === undefined && body === undefined && draft === undefined) {
@@ -4660,14 +4636,14 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_update`,
     {
-      description: `Update a team's name, icon, estimate scale, yolo mode or time zone (IANA; null = each device's; apps read dates in it) by its UUID. Team owner only.`,
+      description: `Update a team's name, icon, estimate scale, merge mode (auto = the merge train lands ready PRs by itself; approval = a person approves first) or time zone (IANA; null = each device's; apps read dates in it) by its UUID. Team owner only.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
         estimationType: z.enum(issueEstimationValues).optional(),
-        // EXP-1105: true = every PR exponential_pr_open opens merges at once.
-        yoloMode: z.boolean().optional(),
+        // EXP-1709 (merge-train.json MODE).
+        mergeMode: z.enum(teamMergeModeValues).optional(),
         // VAPP-201: the team time zone (validated by teams.update).
         timeZone: z.string().max(64).nullable().optional(),
       }),

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-auto-merge-for-every-team",
+    date: "2026-11-08",
+    title: "Auto-merge for every team",
+    summary: "When a pull request is ready, the merge train tests it with others and lands it on its own; Hold or Merge now from the … menu.",
+    body: r#"- **Auto-merge for every team**: when a pull request is ready, the merge train tests it together with others and lands it on its own, then tells the agent that opened it.
+- **Hold or Merge now**: the … menu of a pull request holds its auto-merge, and team owners can merge it now.
+- **Settings → Merge**: pick Automatic or After approval; with After approval a ready pull request waits for Needs approval first."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_227: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-local-desktops-complete",
     date: "2026-11-08",
     title: "Local desktops are complete",
