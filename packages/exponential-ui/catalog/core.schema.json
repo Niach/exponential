@@ -14,7 +14,7 @@
   "components": {
     "Box": {
       "type": "object",
-      "description": "A styled container laid out by the whitelisted style object; what every macro expands into.",
+      "description": "A styled container laid out by the whitelisted style object; what every macro expands into. `on.hover` fires when the pointer enters it.",
       "properties": {
         "component": {
           "const": "Box"
@@ -49,7 +49,8 @@
             "children": "many",
             "events": [
               "press",
-              "toggle"
+              "toggle",
+              "hover"
             ]
           }
         }
@@ -26345,6 +26346,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "toggle": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "hover": {
           "$ref": "#/$defs/EuiAction"
         }
       },

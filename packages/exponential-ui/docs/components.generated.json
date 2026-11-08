@@ -21,12 +21,13 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-box",
-      "description": "A styled container laid out by the whitelisted style object; what every macro expands into.",
+      "description": "A styled container laid out by the whitelisted style object; what every macro expands into. `on.hover` fires when the pointer enters it.",
       "children": "many",
       "slots": [],
       "events": [
         "press",
-        "toggle"
+        "toggle",
+        "hover"
       ],
       "basic": [],
       "props": [

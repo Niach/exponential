@@ -1,5 +1,5 @@
 {
-  "$comment": "EDE-46 (eDE IDE-look shell, 2026-11-06): THE SHELL REDUCER the IDE and eDE both host (ide = shell + uicore, ede = compositor + uicore): reduce(state, event) -> state, pure, no clock, no I/O, plus the selectors the documents read; the uicore-model crate replays every case in Rust. STATE (every key always present): rail (the 272 px sidebar collapsed to the 56 px icon rail); sidebar {pinnedOpen, workspacesOpen, sessionsOpen} (folded sections); switcher {current {kind local|team, id, name}, entries [...]} (the desktop/team switcher top-left; `initial` has one local desktop `Local`); windows [{id, app, title, focused, workspace, minimized}] in the order the reducer learned them (window.opened appends, no event restacks, so the taskbar never jumps); mru [id] most recent first; workspaces {active (0-based, as ede-protocol), count}; taskbar {pinned [app], hover app|null, previews app|null, menu app|null}; startMenu {open, query, category (`all` by default)}; chat {open}; altTab {open, selected: an index into altTabOrder(state), which is the mru on one workspace}. CASES: `reduce` = {name, state, event, expected}: `state` lists complete top-level keys over `initial` (a key left out = initial's), `expected` lists the top-level keys that changed, complete; every key left out must be unchanged. Each selector = {name, state, args?, expected} with the full return value; startMenuApps/startMenuCategories take `apps` and `favourites` from the fixture's top level unless `args` gives them. EVENTS: rail.toggle flips rail. sidebar.toggle {section pinned|workspaces|sessions} flips that section (unknown: nothing). switcher.pick {entryKind, id} makes a listed entry current (unlisted: nothing; kind and id both match). switcher.set {entries} replaces the list, keeps current when its kind+id is still listed (taking the listed name), else the first entry; an empty list changes nothing (there is always a local desktop). window.opened {id, app, title, workspace} appends {focused false, minimized false} and puts the id at the END of the mru (a known id: nothing); the compositor's window.focused follows. window.closed {id} removes it from windows and mru, closes taskbar.previews when its app has no window left, and keeps altTab.selected in range (no window left: Alt-Tab closes). window.focused {id} focuses it, blurs every other, restores it when minimized, moves it to the front of the mru (unknown: nothing). window.titled {id, title}. window.minimized {id}: minimized true, focused false, mru unchanged. window.restored {id}: minimized false, focus unchanged. window.moved {id, workspace}: changes its workspace when 0 <= workspace < count, then keeps altTab.selected in range. workspace.switched {active}: 0 <= active < count, else nothing; keeps altTab.selected in range. workspace.count {count}: max(1, count); an active index or a window beyond it moves to the last workspace (Mint's rule). taskbar.pin {app} appends once; taskbar.unpin removes; taskbar.hover {app} / taskbar.unhover set hover. taskbar.previews {app|null} and taskbar.menu {app|null}: ONE POPUP AT A TIME: a non-null app closes the other taskbar popup and the start menu (open false, query and category cleared); null closes just that popup. startMenu.open sets open and closes the taskbar previews and menu, keeping an existing query and category; startMenu.close sets open false, query ``, category `all`; startMenu.toggle is one or the other; startMenu.query {query} stores the text as typed (the selector lowercases and trims); startMenu.category {category}. chat.toggle flips chat.open; the chat is independent of every popup. altTab.next / altTab.prev: order = altTabOrder(state); no window: nothing; closed: open with selected = 1 for next and n-1 for prev when n >= 2, else 0; open: step by one, wrapping. altTab.commit: the window at order[selected] gets the window.focused treatment, then altTab = {open false, selected 0}; closed: nothing. altTab.cancel: {open false, selected 0}, focus unchanged. SELECTORS: taskbarButtons(state) -> [{app, pinned, windows [id], focused, minimized, running}]: Mint's grouped window list, pinned apps first in pin order (a pinned app without a window on the active workspace is still a button, running false, windows []), then the running unpinned apps in the order of their first window in `windows`; only the ACTIVE workspace's windows count, a group's `windows` keep the compositor order, focused = any window focused, minimized = every window minimized (and at least one), running = at least one window. taskbarPress(state, app) -> {action}: Mint's click: no window on the active workspace -> {action launch}; one: focused and not minimized -> {action minimize, id}, else {action focus, id}; several -> {action previews}. taskbarScroll(state, app, direction up|down) -> {action focus, id} | null: cycles the group's windows (active workspace, compositor order) from the focused one, down = next, up = previous, wrapping; none focused: down = the first, up = the last; a single window = itself; no window = null. workspaceBadges(state) -> [{index, active, count}] for every workspace, count = its windows, minimized included. altTabOrder(state) -> [id]: the mru filtered to windows that exist, the active workspace's first, then the others, each part in mru order, minimized included. startMenuApps(state, apps, favourites) -> [{id, name, comment, category}]: apps = [{id, name, comment, categories [freedesktop], keywords}]. Groups (Mint's main groups, ids in this order): all, favourites, exponential (ids starting `at.exponential.`), accessories (Utility), administration (System, Settings), education (Education), games (Game), graphics (Graphics), internet (Network), office (Office), programming (Development), science (Science), sound-video (AudioVideo, Audio, Video), other (none of the above); an app belongs to every group its categories name and `category` in the output is its first group in that order. query = state.startMenu.query trimmed and lowercased; with >= 1 char the category is ignored and the result is ranked: 0 = the name (lowercased) starts with the query, 1 = every query word starts a word of the name, 2 = every word is found in the name, comment or keywords (lowercased), no match = out; ties by lowercase name then id. Without a query: `all` = every app by name, `favourites` = the favourite ids in their order (missing ones skipped), a group = its members by name, anything else = []. startMenuCategories(apps, favourites) -> [{id, label, count}] in Mint's order (All applications, Favourites, Exponential, Accessories, Administration, Education, Games, Graphics, Internet, Office, Programming, Science, Sound & Video, Other), only the non-empty groups plus All and Favourites always; favourites counts the installed ones. EDE-56 (Local desktops + accounts): a switcher entry may carry `account` (the Exponential account's id) and `accountName` (its email) for a team of a connected account; a local desktop has neither. switcherSections(state) -> [{kind local|account, id, label, entries [{kind, id, name, account?, accountName?, current}]}]: the Local desktops section first (`id` local, label `Local desktops`, every local entry in listed order), then one section per account in the order its first entry appears (`id` = the account, label = its accountName, else the account), each entry marked `current` when it is the switcher's current one (kind and id); a team entry without an account joins a section `id` `` labelled `Exponential`.",
+  "$comment": "EDE-46 (eDE IDE-look shell, 2026-11-06): THE SHELL REDUCER the IDE and eDE both host (ide = shell + uicore, ede = compositor + uicore): reduce(state, event) -> state, pure, no clock, no I/O, plus the selectors the documents read; the uicore-model crate replays every case in Rust. STATE (every key always present): rail (the 272 px sidebar collapsed to the 56 px icon rail); sidebar {pinnedOpen, workspacesOpen, sessionsOpen} (folded sections); switcher {current {kind local|team, id, name}, entries [...]} (the desktop/team switcher top-left; `initial` has one local desktop `Local`); windows [{id, app, title, focused, workspace, minimized}] in the order the reducer learned them (window.opened appends, no event restacks, so the taskbar never jumps); mru [id] most recent first; workspaces {active (0-based, as ede-protocol), count}; taskbar {pinned [app], hover app|null, previews app|null, menu app|null}; startMenu {open, query, category (`all` by default)}; chat {open}; altTab {open, selected: an index into altTabOrder(state), which is the mru on one workspace}. CASES: `reduce` = {name, state, event, expected}: `state` lists complete top-level keys over `initial` (a key left out = initial's), `expected` lists the top-level keys that changed, complete; every key left out must be unchanged. Each selector = {name, state, args?, expected} with the full return value; startMenuApps/startMenuCategories take `apps` and `favourites` from the fixture's top level unless `args` gives them. EVENTS: rail.toggle flips rail. sidebar.toggle {section pinned|workspaces|sessions} flips that section (unknown: nothing). switcher.pick {entryKind, id} makes a listed entry current (unlisted: nothing; kind and id both match); EDE-65: the switcher lives in the start menu, so a listed pick also closes it (open false, query ``, category `all`). switcher.set {entries} replaces the list, keeps current when its kind+id is still listed (taking the listed name), else the first entry; an empty list changes nothing (there is always a local desktop). window.opened {id, app, title, workspace} appends {focused false, minimized false} and puts the id at the END of the mru (a known id: nothing); the compositor's window.focused follows. window.closed {id} removes it from windows and mru, closes taskbar.previews when its app has no window left, and keeps altTab.selected in range (no window left: Alt-Tab closes). window.focused {id} focuses it, blurs every other, restores it when minimized, moves it to the front of the mru (unknown: nothing). window.titled {id, title}. window.minimized {id}: minimized true, focused false, mru unchanged. window.restored {id}: minimized false, focus unchanged. window.moved {id, workspace}: changes its workspace when 0 <= workspace < count, then keeps altTab.selected in range. workspace.switched {active}: 0 <= active < count, else nothing; keeps altTab.selected in range. workspace.count {count}: max(1, count); an active index or a window beyond it moves to the last workspace (Mint's rule). taskbar.pin {app} appends once; taskbar.unpin removes; taskbar.hover {app} / taskbar.unhover set hover. taskbar.previews {app|null} and taskbar.menu {app|null}: ONE POPUP AT A TIME: a non-null app closes the other taskbar popup and the start menu (open false, query and category cleared); null closes just that popup. startMenu.open sets open and closes the taskbar previews and menu, keeping an existing query and category; startMenu.close sets open false, query ``, category `all`; startMenu.toggle is one or the other; startMenu.query {query} stores the text as typed (the selector lowercases and trims); startMenu.category {category}. chat.toggle flips chat.open; the chat is independent of every popup. altTab.next / altTab.prev: order = altTabOrder(state); no window: nothing; closed: open with selected = 1 for next and n-1 for prev when n >= 2, else 0; open: step by one, wrapping. altTab.commit: the window at order[selected] gets the window.focused treatment, then altTab = {open false, selected 0}; closed: nothing. altTab.cancel: {open false, selected 0}, focus unchanged. SELECTORS: taskbarButtons(state) -> [{app, pinned, windows [id], focused, minimized, running}]: Mint's grouped window list, pinned apps first in pin order (a pinned app without a window on the active workspace is still a button, running false, windows []), then the running unpinned apps in the order of their first window in `windows`; only the ACTIVE workspace's windows count, a group's `windows` keep the compositor order, focused = any window focused, minimized = every window minimized (and at least one), running = at least one window. taskbarPress(state, app) -> {action}: Mint's click: no window on the active workspace -> {action launch}; one: focused and not minimized -> {action minimize, id}, else {action focus, id}; several -> {action previews}. taskbarScroll(state, app, direction up|down) -> {action focus, id} | null: cycles the group's windows (active workspace, compositor order) from the focused one, down = next, up = previous, wrapping; none focused: down = the first, up = the last; a single window = itself; no window = null. workspaceBadges(state) -> [{index, active, count}] for every workspace, count = its windows, minimized included. altTabOrder(state) -> [id]: the mru filtered to windows that exist, the active workspace's first, then the others, each part in mru order, minimized included. startMenuApps(state, apps, favourites) -> [{id, name, comment, category}]: apps = [{id, name, comment, categories [freedesktop], keywords}]. Groups (Mint's main groups, ids in this order): all, favourites, exponential (ids starting `at.exponential.`), accessories (Utility), administration (System, Settings), education (Education), games (Game), graphics (Graphics), internet (Network), office (Office), programming (Development), science (Science), sound-video (AudioVideo, Audio, Video), other (none of the above); an app belongs to every group its categories name and `category` in the output is its first group in that order. query = state.startMenu.query trimmed and lowercased; with >= 1 char the category is ignored and the result is ranked: 0 = the name (lowercased) starts with the query, 1 = every query word starts a word of the name, 2 = every word is found in the name, comment or keywords (lowercased), no match = out; ties by lowercase name then id. Without a query: `all` = every app by name, `favourites` = the favourite ids in their order (missing ones skipped), a group = its members by name, anything else = []. startMenuCategories(apps, favourites) -> [{id, label, count}] in Mint's order (All applications, Favourites, Exponential, Accessories, Administration, Education, Games, Graphics, Internet, Office, Programming, Science, Sound & Video, Other), only the non-empty groups plus All and Favourites always; favourites counts the installed ones. EDE-56 (Local desktops + accounts): a switcher entry may carry `account` (the Exponential account's id) and `accountName` (its email) for a team of a connected account; a local desktop has neither. switcherSections(state) -> [{kind local|account, id, label, entries [{kind, id, name, account?, accountName?, current}]}]: the Local desktops section first (`id` local, label `Local desktops`, every local entry in listed order), then one section per account in the order its first entry appears (`id` = the account, label = its accountName, else the account), each entry marked `current` when it is the switcher's current one (kind and id); a team entry without an account joins a section `id` `` labelled `Exponential`.",
   "version": 1,
   "initial": {
     "rail": false,
@@ -362,6 +362,101 @@
           ]
         }
       }
+    },
+    {
+      "name": "switcher.pick from the start menu closes it",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        },
+        "startMenu": {
+          "open": true,
+          "query": "ac",
+          "category": "games"
+        }
+      },
+      "event": {
+        "kind": "switcher.pick",
+        "entryKind": "team",
+        "id": "t1"
+      },
+      "expected": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        },
+        "startMenu": {
+          "open": false,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "switcher.pick of an unlisted entry leaves the start menu open",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        },
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      },
+      "event": {
+        "kind": "switcher.pick",
+        "entryKind": "team",
+        "id": "ghost"
+      },
+      "expected": {}
     },
     {
       "name": "switcher.set keeps the current entry when it is still listed and takes its new name",

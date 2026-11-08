@@ -342,8 +342,9 @@ impl Shell {
                 // icon / File ▸ New Window reopens a shell). NEW-68: while
                 // the voice tray is up it keeps running too, so the speech
                 // worker stays resident (the tray's Quit is the way out).
+                // #EDE-64: so does the eDE session's device.
                 #[cfg(not(target_os = "macos"))]
-                if shared.read(cx).windows_open == 0 && !etalk_gpui::voice_tray::keeps_running(cx) {
+                if shared.read(cx).windows_open == 0 && !etalk_gpui::voice_tray::keeps_running(cx) && !crate::window_hooks::resident_device(cx) {
                     cx.quit();
                 }
             }

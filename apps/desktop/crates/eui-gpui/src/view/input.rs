@@ -36,6 +36,13 @@ pub(crate) enum FieldInput {
     Multi(Entity<TextareaState>),
 }
 
+/// An `Input{type: password}` (A2UI's obscured TextField): its text is
+/// drawn as bullets and never exposed to accessibility (eDE's lock screen
+/// showed the typed password).
+pub(crate) fn is_secret(n: &PlacedNode) -> bool {
+    FieldKind::of(n) == FieldKind::Input && n.props.get("type").and_then(Value::as_str) == Some("password")
+}
+
 /// Which host field a node is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FieldKind {
@@ -175,7 +182,13 @@ impl SurfaceView {
             let kind = FieldKind::of(&n);
             let external = display_text(n.props.get(kind.echo_prop()));
             let placeholder = placeholder_of(&n);
+            let secret = is_secret(&n);
             if let Some(f) = self.fields.get_mut(&n.id) {
+                if let FieldInput::Line(s) = &f.input {
+                    if s.read(cx).presentation().is_masked() != secret {
+                        s.update(cx, |s, cx| s.set_masked(secret, window, cx));
+                    }
+                }
                 if f.placeholder != placeholder {
                     f.placeholder = placeholder.clone();
                     f.set_placeholder(placeholder, window, cx);
@@ -206,7 +219,7 @@ impl SurfaceView {
             let multi = matches!(kind, FieldKind::Textarea | FieldKind::Composer);
             let (input, sub) = if !multi {
                 let (ph, v) = (placeholder.clone(), external.clone());
-                let state = cx.new(|cx| InputState::new(window, cx).placeholder(ph).default_value(v));
+                let state = cx.new(|cx| InputState::new(window, cx).placeholder(ph).default_value(v).masked(secret));
                 let fid = id.clone();
                 let sub = cx.subscribe_in(&state, window, move |this, _, ev: &InputEvent, window, cx| this.on_field_event(&fid, ev, window, cx));
                 (FieldInput::Line(state), sub)
@@ -405,6 +418,14 @@ impl SurfaceView {
     /// The current text of field `id`.
     pub fn field_text(&self, id: &str, cx: &App) -> Option<String> {
         self.fields.get(id).map(|f| f.value(cx))
+    }
+
+    /// Field `id` draws its text as bullets (an `Input{type: password}`).
+    pub fn field_masked(&self, id: &str, cx: &App) -> Option<bool> {
+        match &self.fields.get(id)?.input {
+            FieldInput::Line(s) => Some(s.read(cx).presentation().is_masked()),
+            FieldInput::Multi(_) => Some(false),
+        }
     }
 
     /// The composer's send: `submit {value}` then an emptied field (a busy

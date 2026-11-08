@@ -9,7 +9,7 @@
           "description": "Makes the box a press target that fires `press`."
         }
       },
-      "description": "A styled container laid out by the whitelisted style object; what every macro expands into.",
+      "description": "A styled container laid out by the whitelisted style object; what every macro expands into. `on.hover` fires when the pointer enters it.",
       "example": {
         "style": {
           "display": "flex",

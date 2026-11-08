@@ -127,3 +127,27 @@ fn sessions_agents_prompts_records_and_refusals() {
     assert_eq!(content_type.as_deref(), Some("text/plain"));
     let _: Arc<elocal::LocalExecutor> = desktop.executor.clone();
 }
+
+/// #EXP-1727: a git working copy linked as the board's repository.
+#[test]
+fn a_linked_folder_is_the_boards_repository() {
+    let (dir, desktop) = desktop();
+    let client = desktop.client();
+    let team_id = desktop.team().unwrap()["id"].as_str().unwrap().to_string();
+    let board = desktop.store.rows_where("boards", "team_id", &team_id).unwrap()[0]["id"].as_str().unwrap().to_string();
+    let not_git = dir.path().join("plain");
+    std::fs::create_dir_all(&not_git).unwrap();
+    assert!(api::repositories::link_folder(&client, not_git.to_str().unwrap(), None).is_err());
+    let repo = dir.path().join("my-app");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/trunk\n").unwrap();
+    let linked = api::repositories::link_folder(&client, repo.to_str().unwrap(), Some(&board)).unwrap();
+    assert_eq!((linked.full_name.as_str(), linked.default_branch.as_str()), ("my-app", "trunk"));
+    // Linking the same folder again is the same repository.
+    assert_eq!(api::repositories::link_folder(&client, repo.to_str().unwrap(), None).unwrap().id, linked.id);
+    assert_eq!(api::repositories::list_local(&client).unwrap().len(), 1);
+    let issue = api::issues::issues_create(&client, &IssuesCreateInput::new(&board, "Wire it")).unwrap();
+    let for_issue = api::repositories::for_issue(&client, &issue.issue.id).unwrap().expect("the board's folder");
+    assert_eq!(for_issue.repository_id, linked.id);
+    assert_eq!(desktop.executor.board_repository(&board).unwrap().path, repo);
+}

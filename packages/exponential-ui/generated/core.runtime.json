@@ -1238,7 +1238,8 @@
       },
       "events": [
         "press",
-        "toggle"
+        "toggle",
+        "hover"
       ]
     },
     "Stack": {

@@ -146,6 +146,7 @@ private struct NodeBody: View {
         .modifier(TooltipLongPress(node: node, model: model))
         .modifier(NativeHooks(node: node, model: model))
         .modifier(HoverReporting(id: node.id, model: model, on: hovers))
+        .modifier(BoxHoverFiring(id: node.id, model: model, on: interactive && node.component == "Box" && node.part == nil))
         .modifier(ResizeHandleModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))

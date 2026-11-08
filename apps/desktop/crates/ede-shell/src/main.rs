@@ -220,6 +220,8 @@ struct Shell {
     chat_local: Option<local_runs::LocalChat>,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
+    /// #EDE-64: the apps launched in the last seconds.
+    launches: system::LaunchGuard,
     /// The installed packages (the factory and the person's directories).
     engine_apps: Vec<engine::EngineApp>,
     /// The launcher's entries, for the `launch` capability.
@@ -340,7 +342,8 @@ impl HostPlugin for Host {
                             refresh(&s, cx);
                         });
                     } else {
-                        launch_app(&self.shell.borrow(), app);
+                        let (s, app) = (self.shell.clone(), app.to_string());
+                        cx.defer(move |_| launch_app(&s, &app));
                     }
                 }
                 cx.defer(move |cx| {
@@ -954,6 +957,10 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         }
     }
     dispatch(shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
+    // The switcher lives in the start menu: the reducer closed it, the popup goes too.
+    if !shell.borrow().model.start_menu.open {
+        close(shell, "start-menu", cx);
+    }
     let current = shell.borrow().model.switcher.current.clone();
     if current.id != id {
         tracing::warn!(id, "the switcher does not list the pick");
@@ -976,11 +983,34 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
     engine_boot(shell, cx);
 }
 
-fn launch_app(shell: &Shell, app: &str) {
+/// The Exponential app's ids: one IDE per person, a hand-off target.
+const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
+
+/// #EDE-64: the sidebar hands off to the Exponential app (Inbox, New issue,
+/// Needs you, Chats): its window comes forward when one is up, a burst of
+/// clicks launches anything once.
+fn launch_app(shell: &SharedShell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
-    match shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted) {
-        Some(a) => system::launch(&a.exec),
-        None => tracing::warn!(app, "no desktop entry to launch"),
+    if EXPONENTIAL_APPS.contains(&wanted) {
+        let open = {
+            let s = shell.borrow();
+            let mine: Vec<_> = s.model.windows.iter().filter(|w| w.app == wanted).collect();
+            mine.iter().find(|w| w.focused).or(mine.first()).map(|w| w.id.clone())
+        };
+        if let Some(id) = open.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+            with_ede(shell, |ede| ede.focus(id));
+            return;
+        }
+    }
+    let exec = shell.borrow().apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted).map(|a| a.exec.clone());
+    let Some(exec) = exec else {
+        tracing::warn!(app, "no desktop entry to launch");
+        return;
+    };
+    if shell.borrow_mut().launches.admit(wanted, Instant::now()) {
+        system::launch(&exec);
+    } else {
+        tracing::info!(app, "already starting");
     }
 }
 
@@ -1293,6 +1323,9 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
         let active = s.model.workspaces.active;
         let feed = uicore_data::windows_feed(&list, active);
         s.feed.set("/windows", Value::Array(feed));
+        for app in list.iter().filter_map(|w| w.app_id.as_deref()) {
+            s.launches.mapped(app);
+        }
         s.windows = list;
     }
     previews_refresh(shell);
@@ -1340,13 +1373,7 @@ fn relayout(shell: &SharedShell, cx: &mut App) {
 fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
     let press = uicore_model::taskbar_press(&shell.borrow().model, app);
     match press {
-        TaskbarPress::Launch => {
-            let exec = shell.borrow().apps.iter().find(|a| a.id.trim_end_matches(".desktop") == app).map(|a| a.exec.clone());
-            match exec {
-                Some(exec) => system::launch(&exec),
-                None => tracing::warn!(app, "no desktop entry to launch"),
-            }
-        }
+        TaskbarPress::Launch => launch_app(shell, app),
         TaskbarPress::Focus { id } => {
             if let Ok(id) = ede_protocol::WindowId::new(&id) {
                 with_ede(shell, |ede| ede.focus(id));
@@ -1468,7 +1495,7 @@ fn remote_feed(shell: &Shell) -> Value {
 /// The composer's text to the desktop's agent (#EDE-58).
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if !chat_local(shell) {
-        launch_app(&shell.borrow(), "at.exponential");
+        launch_app(shell, "at.exponential");
         return;
     }
     let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
@@ -2092,6 +2119,7 @@ fn main() {
             pending_pick: saved_team,
             chat_local: None,
             engine: None,
+            launches: system::LaunchGuard::default(),
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
             team_stores: None,
@@ -2365,5 +2393,53 @@ mod layer_sizes {
             assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
         }
         assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
+    }
+}
+
+#[cfg(test)]
+mod start_menu_document {
+    use serde_json::Value;
+
+    fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+        if n.get("id").and_then(Value::as_str) == Some(id) {
+            return Some(n);
+        }
+        match n {
+            Value::Object(m) => m.values().find_map(|v| node(v, id)),
+            Value::Array(a) => a.iter().find_map(|v| node(v, id)),
+            _ => None,
+        }
+    }
+
+    fn call(n: &Value) -> (&str, &Value) {
+        let f = &n["on"]["press"]["functionCall"];
+        (f["@call"].as_str().unwrap_or_default(), &f["args"])
+    }
+
+    /// #EDE-65: the start menu holds the desktop/team switcher (the
+    /// sidebar's entries and rules, moved) and the Settings button.
+    #[test]
+    fn the_start_menu_holds_the_switcher_and_settings() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("start-menu").expect("the start menu").source).unwrap();
+        let functions: Vec<&str> = doc["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(functions.contains(&"ede_switcher") && functions.contains(&"ede_open_document"), "{functions:?}");
+        let root = &doc["root"];
+        let left = node(root, "left").expect("the left column");
+        assert!(node(left, "switcher").is_some(), "the switcher sits in the person's column");
+        let menu = node(root, "switcher_menu").expect("the switcher's menu");
+        assert_eq!(menu["props"]["anchor"], "switcher");
+        assert_eq!(node(menu, "switcher_sections").unwrap()["template"]["path"], "/shell/switcher/sections");
+        let (f, args) = call(node(menu, "switcher_entry").unwrap());
+        assert_eq!((f, args["action"].as_str()), ("ede_switcher", Some("pick")));
+        for (id, action) in [("switcher_new", "new"), ("switcher_share", "share"), ("switcher_connect", "connect")] {
+            let (f, args) = call(node(menu, id).expect(id));
+            assert_eq!((f, args["action"].as_str()), ("ede_switcher", Some(action)), "{id}");
+        }
+        let visible = |id: &str| node(menu, id).unwrap()["visible"].to_string();
+        assert!(visible("switcher_share").contains("/shell/switcher/connection/onLocal"));
+        assert!(visible("switcher_connect").contains("/shell/switcher/connection/connected") && visible("switcher_connect").contains("\"not\""));
+        assert!(!doc.to_string().contains("/shell/ide/"), "the IDE's rows stay in its sidebar");
+        let (f, args) = call(node(root, "settings").expect("the Settings button"));
+        assert_eq!((f, args["name"].as_str()), ("ede_open_document", Some("settings")));
     }
 }
