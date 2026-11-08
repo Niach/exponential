@@ -742,14 +742,16 @@ internal fun chatLeadOf(view: SessionTree.ChatView?, pullRequests: List<PullRequ
     }
 }
 
-/** The chat header's state word ×4 (web `ChatHeaderTitle`, iOS
- *  `ChatStripTabs.subtitle`): `needs input` (chat-list.json
- *  `words.needsInput`) while it needs you, `working…` while busy, else none. */
+/** The chat header's state word ×4 (#EXP-1732 session-screen.json
+ *  `subtitle`, iOS `ChatHeaderTitle.subtitle`): `needs input` (chat-list.json
+ *  `words.needsInput`) while the tree needs you, `working…` while busy, `Done`
+ *  once every session of the tree ended, else `Idle`. */
 internal fun chatStateWord(view: SessionTree.ChatView?): String? = when {
     view == null -> null
     view.needsYou -> SessionTree.ChatRowWord.NeedsInput.text
     view.busy -> com.exponential.app.domain.Chats.Copy.PREVIEW_WORKING
-    else -> null
+    !view.live -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Done)
+    else -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Idle)
 }
 
 /** A wire timestamp as the local `HH:mm` a message row shows. */

@@ -341,10 +341,10 @@ fun AppEditorScreen(
                             }
                         },
                         onBack = onBack,
-                        // The version pill (+ VAPP-235's pending offline writes).
-                        action = if (entry != null) {
+                        // The version pill (+ VAPP-235's pending offline
+                        // writes) right after the name (#EXP-1732, web/iOS/desktop).
+                        titleTrailing = if (entry != null) {
                             {
-                                Spacer(Modifier.width(com.exponential.app.domain.Chats.Shell.ChatHeader.GAP.dp))
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),

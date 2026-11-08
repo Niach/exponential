@@ -102,6 +102,9 @@ fun ChatHeader(
     /** #EXP-1732: a kind's OWN `…` (an app's menu sheet: Publish, Export,
      *  Delete) drawn instead of [menu]'s dropdown; null = [menu]. */
     more: (@Composable () -> Unit)? = null,
+    /** #EXP-1732: right after the title on its line (an app's version
+     *  pill, web/iOS/desktop alike); the title truncates first. */
+    titleTrailing: (@Composable () -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("chat-header")) {
@@ -120,6 +123,7 @@ fun ChatHeader(
                 lead()
                 Spacer(Modifier.width(Chats.Shell.ChatHeader.DISC_GAP.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
                         style = MaterialTheme.typography.titleMedium.copy(
@@ -131,8 +135,13 @@ fun ChatHeader(
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("chat-title"),
+                        modifier = Modifier.testTag("chat-title").weight(1f, fill = false),
                     )
+                    if (titleTrailing != null) {
+                        Spacer(Modifier.width(6.dp))
+                        titleTrailing()
+                    }
+                    }
                     if (!subtitle.isNullOrEmpty()) {
                         Text(
                             subtitle,
