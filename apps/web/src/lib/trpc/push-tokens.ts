@@ -11,7 +11,7 @@ const PUSH_PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
 /** The relay base URL a DEVICE registers its install with (EXP-1435):
  * PUSH_RELAY_PUBLIC_URL when the web app reaches the relay on an internal
  * address, else PUSH_RELAY_URL; null = no relay (self-hosted without push),
- * and the apps register nothing. */
+ * and the apps register their bare token as before. */
 export function pushRelayPublicUrl(): string | null {
   const url = process.env.PUSH_RELAY_PUBLIC_URL || process.env.PUSH_RELAY_URL
   return url ? url.replace(/\/+$/, ``) : null
@@ -22,23 +22,31 @@ export const pushTokensRouter = router({
 
   register: authedProcedure
     .input(
-      z.object({
-        token: z.string().min(1),
-        // Only the native apps register push tokens — web push is
-        // intentionally unimplemented (no service-worker push handler, no
-        // PushManager subscription anywhere), so there is no `web` arm.
-        platform: z.enum([`android`, `ios`]),
-        // EXP-1428: the push relay's accountless mode. The device registered
-        // itself with the relay, minted a capability for this server and
-        // hands it over with its X25519 push public key; pushes to this row
-        // are sealed to that key (lib/push-seal.ts) and POSTed to /push.
-        // Both are required since NEW-14 retired the bare-token /send shim.
-        capability: z.string().startsWith(`cap_`).max(512),
-        pushPublicKey: z.string().regex(PUSH_PUBLIC_KEY_RE, `base64url of 32 bytes`),
-        // #EXP-1639: the build draws Live Activities / Live Updates (their
-        // content is sealed to the push key).
-        liveActivities: z.boolean().optional(),
-      })
+      z
+        .object({
+          token: z.string().min(1),
+          // Only the native apps register push tokens — web push is
+          // intentionally unimplemented (no service-worker push handler, no
+          // PushManager subscription anywhere), so there is no `web` arm.
+          platform: z.enum([`android`, `ios`]),
+          // EXP-1428: the push relay's accountless mode. The device registered
+          // itself with the relay, minted a capability for this server and
+          // hands it over with its X25519 push public key; pushes to this row
+          // are then sealed to that key (lib/push-seal.ts) and POSTed to
+          // /push. Both or neither; released clients send neither.
+          capability: z.string().startsWith(`cap_`).max(512).optional(),
+          pushPublicKey: z
+            .string()
+            .regex(PUSH_PUBLIC_KEY_RE, `base64url of 32 bytes`)
+            .optional(),
+          // #EXP-1639: the build draws Live Activities / Live Updates (sealed
+          // registrations only: their content is sealed to the push key).
+          liveActivities: z.boolean().optional(),
+        })
+        .refine(
+          (v) => (v.capability === undefined) === (v.pushPublicKey === undefined),
+          { message: `capability and pushPublicKey go together` }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
@@ -48,8 +56,8 @@ export const pushTokensRouter = router({
       // steals the registration from another account on the same device.
       // Cleanup is three-layered: sign-out issues its own unregister (but that
       // call is best-effort — it can miss when offline or on old client
-      // builds that never call it), rows whose relay install or capability
-      // is gone are swept by the send path, and rows that stop being re-registered age out via the
+      // builds that never call it), rows FCM invalidates are swept by the
+      // send path, and rows that stop being re-registered age out via the
       // staleness sweep (lib/fcm-token-sweep.ts) so a departed account's
       // pushes can never leak to the device indefinitely.
       await ctx.db
@@ -58,19 +66,20 @@ export const pushTokensRouter = router({
           userId,
           token: input.token,
           platform: input.platform,
-          relayCapability: input.capability,
-          pushPublicKey: input.pushPublicKey,
-          liveActivities: Boolean(input.liveActivities),
+          relayCapability: input.capability ?? null,
+          pushPublicKey: input.pushPublicKey ?? null,
+          liveActivities: Boolean(input.liveActivities && input.capability),
         })
         .onConflictDoUpdate({
           target: [fcmTokens.token, fcmTokens.userId],
-          // The registration describes what the running build can open, so a
-          // re-register replaces the capability, key and Live Activities flag.
+          // The registration describes what the running build can open: a
+          // re-register without a capability (e.g. an app downgrade) clears
+          // it, so the row falls back to the /send shim.
           set: {
             platform: input.platform,
-            relayCapability: input.capability,
-            pushPublicKey: input.pushPublicKey,
-            liveActivities: Boolean(input.liveActivities),
+            relayCapability: input.capability ?? null,
+            pushPublicKey: input.pushPublicKey ?? null,
+            liveActivities: Boolean(input.liveActivities && input.capability),
             updatedAt: new Date(),
           },
         })

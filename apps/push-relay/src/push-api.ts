@@ -24,6 +24,9 @@ import { hashSecret, type ApnsEnvironment, type InstallRow, type Platform, type 
 // (exponential-net's push_seal); the relay only checks that it is base64url
 // and small enough, and forwards it blind. Every caller is equal here: there
 // is no privileged server and no account.
+//
+// The old secret-gated /send for released Exponential clients is a separate
+// compat shim (compat-send.ts), not part of this API.
 
 export interface PushApiOptions {
   store: RelayStore

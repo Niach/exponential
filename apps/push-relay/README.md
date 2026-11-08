@@ -13,7 +13,8 @@ There are no accounts and no privileged caller. A peer device, a desktop agent a
 | `src/push-api.ts` | the push API (`/installs…`, `/push`) |
 | `src/store.ts` | its SQLite store (installs + capability hashes) |
 | `src/apns.ts` | the APNs HTTP/2 client (FCM goes through firebase-admin) |
-| `src/app.ts` | `createRelayApp`: mounts the push API, plus the operator routes |
+| `src/compat-send.ts` | the deprecated `/send` [compat shim](#compat-shim-send) |
+| `src/app.ts` | `createRelayApp`: mounts both, plus the operator routes |
 | `src/index.ts` | reads the environment, opens the store, starts |
 
 ## Routes
@@ -32,9 +33,10 @@ There are no accounts and no privileged caller. A peer device, a desktop agent a
 | `DELETE /installs/:id/activities/:activityId` | `Bearer <installSecret>` | forget one |
 | `POST /activity` | `Bearer cap_…` | start / update / end a Live Activity with a sealed content |
 | `GET /healthz` | none | `{"ok":true}`, the constant Docker's HEALTHCHECK polls |
-| `GET /healthz?detail=1` | none | `{"ok":true,"api":true,"providers":{"fcm":bool,"apns":bool}}` |
+| `GET /healthz?detail=1` | none | `{"ok":true,"api":true,"compatSend":bool,"providers":{"fcm":bool,"apns":bool}}` |
 | `GET /healthz?deep=1` | `x-relay-secret` | a dry-run FCM multicast that exercises the transport end to end |
-| `GET /stats` | `x-relay-secret` | counters: deep checks at the top level, `providers`, and the push API's under `api` (the web admin performance page reads them) |
+| `GET /stats` | `x-relay-secret` | counters: `/send` + deep checks at the top level (the web admin performance page reads them), `providers`, and the push API's under `api` |
+| `POST /send` | `x-relay-secret` | **deprecated** compat shim |
 
 The relay stores only sha256 hashes of install secrets and capabilities (a leaked database cannot push or take over installs). The device token is stored as is, because every push needs it. Logs never contain tokens, secrets, capabilities or sealed payloads.
 
@@ -188,9 +190,15 @@ Exponential's web server does not hold device tokens on this API. The flow:
 
 The server needs no relay secret for any of this.
 
-## Operator routes
+## Compat shim: `/send`
 
-`/stats` and `/healthz?deep=1` are operator routes, gated by `PUSH_RELAY_SECRET` (`x-relay-secret` header); unset = `404`. The old `/send` shim for bare FCM tokens is gone (NEW-14): every Exponential client from the release floors on registers an install.
+`POST /send` (`src/compat-send.ts`) is **deprecated** and exists only for the Exponential iOS and Android builds already released: they give raw FCM tokens to the web server and show plaintext FCM `notification` messages, so they cannot open sealed payloads. The web server keeps reaching them through `/send` until new builds register installs.
+
+- Gated by `PUSH_RELAY_SECRET` (`x-relay-secret` header). Unset = not mounted (`404`).
+- Body `{tokens: string[≤500], notification: {title, body?}, data: Record<string,string>}` → `200 {invalidTokens}`. FCM only: data-only on Android, an explicit APNs alert block for iOS through FCM, one transport retry. Behaviour is frozen; see the comments in the file.
+- Removal is tracked under **NEW-14**, once `CLIENT_MIN_VERSION_IOS` / `CLIENT_MIN_VERSION_ANDROID` pass the first builds that register installs.
+
+`/stats` and `/healthz?deep=1` are operator routes, not part of the shim; they keep the same secret.
 
 ## Environment
 
@@ -199,14 +207,14 @@ The server needs no relay secret for any of this.
 | `PORT` | listen port, default 4001 |
 | `TRUST_PROXY` | `true` only behind a proxy you control that appends `X-Forwarded-For`; keys the per-IP limits by its rightmost entry |
 | `PUSH_RELAY_DB_PATH` | the push API's SQLite file, default `./data/push-relay.sqlite` (the directory is created); the image sets `/app/data/push-relay.sqlite`. **The relay refuses to start when it cannot open it.** |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase service account (single line): FCM installs |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase service account (single line): FCM installs and `/send` |
 | `APNS_KEY_P8` | the `.p8` auth key's PEM contents (literal `\n` escapes are fine) |
 | `APNS_KEY_ID` | the key's id |
 | `APNS_TEAM_ID` | the Apple developer team id |
 | `APNS_TOPICS` | comma list of bundle ids installs may register for |
 | `PUSH_PLACEHOLDER_TITLE` | the visible APNs alert title, default `New message` |
 | `PUSH_PLACEHOLDER_BODY` | optional alert body |
-| `PUSH_RELAY_SECRET` | operator secret shared with the web app: `/stats`, `/healthz?deep=1`. Unset = those answer 404 |
+| `PUSH_RELAY_SECRET` | operator secret shared with the web app: `/send` shim, `/stats`, `/healthz?deep=1`. Unset = those answer 404 |
 
 ### Deploying
 
@@ -216,6 +224,6 @@ Mount a **persistent volume at `/app/data`** (Coolify: Persistent Storage). With
 
 ```bash
 bun run dev          # bun --hot src/index.ts
-bun test             # app.test.ts (deep check, stats) + push-api.test.ts (in-memory SQLite, fake APNs/FCM)
+bun test             # app.test.ts (/send shim, deep check, stats) + push-api.test.ts (in-memory SQLite, fake APNs/FCM)
 bun run typecheck
 ```

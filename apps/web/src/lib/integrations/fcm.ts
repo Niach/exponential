@@ -1,4 +1,4 @@
-import { and, inArray, isNotNull } from "drizzle-orm"
+import { inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { fcmTokens } from "@/db/schema"
 import { recordPushBatch } from "@/lib/metrics/registry"
@@ -84,7 +84,7 @@ function fitBody(
 
 /**
  * The plaintext sealed for one device: JSON `{title, body, data}` with the
- * recipient's merged data. Over budget (sealed > 3072 bytes)
+ * same merged data the /send shim carries. Over budget (sealed > 3072 bytes)
  * it degrades in order: (0) a question's `sealedText` is dropped (#VAPP-45),
  * (1) the body is truncated, (2) data keys other than
  * userId / notificationId / type are dropped (body re-fitted from the
@@ -116,7 +116,15 @@ export function sealedPlaintext(
   return utf8.encode(JSON.stringify({ title: ``, data: essential }))
 }
 
+function withoutSealedText(data: Record<string, string>): Record<string, string> {
+  const { [SEALED_TEXT_KEY]: _dropped, ...rest } = data
+  return rest
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
+
+// The relay (and FCM multicast) accept at most 500 tokens per request.
+const MAX_TOKENS_PER_REQUEST = 500
 
 // Bun's outbound fetch shares ONE process-global connection pool (256 slots)
 // with the Electric shape proxy, so relay POSTs must be bounded in both time
@@ -125,21 +133,24 @@ export function sealedPlaintext(
 const RELAY_TIMEOUT_MS = 10_000
 const RELAY_CONCURRENCY = 8
 
-// The accountless push API (EXP-1428): one sealed POST /push per device,
-// authorized by the capability the device minted for us.
-type RelayRequest = { userId: string; capability: string; pushPublicKey: string }
+type RelayRequest =
+  // Compat for released iOS/Android builds that register a bare FCM token:
+  // the relay's shared-secret /send with plaintext. Removal under NEW-14.
+  | { kind: `legacy`; userId: string; tokens: string[] }
+  // The accountless push API (EXP-1428): one sealed POST /push per device,
+  // authorized by the capability the device minted for us.
+  | { kind: `sealed`; userId: string; capability: string; pushPublicKey: string }
 
 /**
  * Push one payload to every listed recipient's devices. Devices are fetched in
- * ONE query; only rows carrying a relay capability + push public key can be
- * reached (NEW-14 retired the bare-token /send shim; leftover bare rows are
- * skipped and age out through fcm-token-sweep). Each device gets its own
- * sealed POST /push with its recipient's merged `data` (at minimum the userId,
- * so multi-account clients can route the tap); 410/401 = the install or
- * capability is gone: the row is deleted. Every POST runs through a small
- * worker pool with a per-request timeout so a slow or wedged relay can never
- * pin more than RELAY_CONCURRENCY fetch-pool slots. Individual request
- * failures are logged and never throw.
+ * ONE query. A row carrying a relay capability + push public key gets its own
+ * sealed POST /push (410/401 = the install or capability is gone: the row is
+ * deleted); a row without goes through the legacy /send shim, batched per user
+ * (each recipient's `data` differs — at minimum the userId, so multi-account
+ * clients can route the tap). Every POST runs through a small worker pool with
+ * a per-request timeout so a slow or wedged relay can never pin more than
+ * RELAY_CONCURRENCY fetch-pool slots. Individual request failures are logged
+ * and never throw.
  */
 export async function sendToUsers(
   recipients: FcmRecipient[],
@@ -157,28 +168,47 @@ export async function sendToUsers(
   const rows = await db
     .select({
       userId: fcmTokens.userId,
+      token: fcmTokens.token,
       relayCapability: fcmTokens.relayCapability,
       pushPublicKey: fcmTokens.pushPublicKey,
     })
     .from(fcmTokens)
-    .where(
-      and(
-        inArray(fcmTokens.userId, [...dataByUser.keys()]),
-        isNotNull(fcmTokens.relayCapability),
-        isNotNull(fcmTokens.pushPublicKey)
-      )
-    )
+    .where(inArray(fcmTokens.userId, [...dataByUser.keys()]))
+  if (rows.length === 0) return
 
   const requests: RelayRequest[] = []
+  const tokensByUser = new Map<string, string[]>()
   for (const row of rows) {
-    if (!row.relayCapability || !row.pushPublicKey) continue
-    requests.push({
-      userId: row.userId,
-      capability: row.relayCapability,
-      pushPublicKey: row.pushPublicKey,
-    })
+    if (row.relayCapability && row.pushPublicKey) {
+      requests.push({
+        kind: `sealed`,
+        userId: row.userId,
+        capability: row.relayCapability,
+        pushPublicKey: row.pushPublicKey,
+      })
+      continue
+    }
+    const list = tokensByUser.get(row.userId)
+    if (list) list.push(row.token)
+    else tokensByUser.set(row.userId, [row.token])
   }
-  if (requests.length === 0) return
+  for (const [userId, tokens] of tokensByUser) {
+    for (let i = 0; i < tokens.length; i += MAX_TOKENS_PER_REQUEST) {
+      requests.push({
+        kind: `legacy`,
+        userId,
+        tokens: tokens.slice(i, i + MAX_TOKENS_PER_REQUEST),
+      })
+    }
+  }
+
+  const legacyHeaders: Record<string, string> = {
+    "Content-Type": `application/json`,
+  }
+  const relaySecret = process.env.PUSH_RELAY_SECRET
+  if (relaySecret) {
+    legacyHeaders[`x-relay-secret`] = relaySecret
+  }
 
   // Shared payload data first, then this recipient's own keys. The user id is
   // written LAST so per-recipient data can never clobber it: it rides along so
@@ -190,13 +220,41 @@ export async function sendToUsers(
     userId,
   })
 
+  const invalidTokens: string[] = []
   const goneCapabilities: string[] = []
   let next = 0
   let requestsOk = 0
   let requestsFailed = 0
   let lastError: string | undefined
 
-  async function sendSealed(req: RelayRequest): Promise<void> {
+  async function sendLegacy(
+    req: Extract<RelayRequest, { kind: `legacy` }>
+  ): Promise<void> {
+    const res = await fetch(`${url}/send`, {
+      method: `POST`,
+      headers: legacyHeaders,
+      signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
+      body: JSON.stringify({
+        tokens: req.tokens,
+        notification: { title: payload.title, body: payload.body },
+        // Released builds never open `sealedText`; FCM's 4 KB data cap.
+        data: withoutSealedText(dataFor(req.userId)),
+      }),
+    })
+    if (!res.ok) {
+      requestsFailed += 1
+      lastError = `relay responded ${res.status}`
+      console.error(`[fcm] relay responded ${res.status}:`, await res.text())
+      return
+    }
+    const json = (await res.json()) as { invalidTokens?: string[] }
+    invalidTokens.push(...(json.invalidTokens ?? []))
+    requestsOk += 1
+  }
+
+  async function sendSealed(
+    req: Extract<RelayRequest, { kind: `sealed` }>
+  ): Promise<void> {
     const sealed = pushSeal(
       Buffer.from(req.pushPublicKey, `base64url`),
       sealedPlaintext(payload.title, payload.body, dataFor(req.userId))
@@ -234,7 +292,8 @@ export async function sendToUsers(
       const req = requests[next]
       next += 1
       try {
-        await sendSealed(req)
+        if (req.kind === `sealed`) await sendSealed(req)
+        else await sendLegacy(req)
       } catch (err) {
         requestsFailed += 1
         lastError = String(err)
@@ -252,12 +311,17 @@ export async function sendToUsers(
   recordPushBatch({
     requestsOk,
     requestsFailed,
-    // Dead registrations: rows whose install or capability the relay
-    // reported gone.
-    invalidTokens: goneCapabilities.length,
+    // Dead registrations of either kind: FCM-invalidated legacy tokens plus
+    // sealed rows whose install or capability the relay reported gone.
+    invalidTokens: invalidTokens.length + goneCapabilities.length,
     lastError,
   })
 
+  if (invalidTokens.length > 0) {
+    // FCM invalidates a token for the whole device, so delete every account's
+    // registration of it — not just the notified user's row.
+    await db.delete(fcmTokens).where(inArray(fcmTokens.token, invalidTokens))
+  }
   if (goneCapabilities.length > 0) {
     // A capability belongs to exactly one install, so its value names the
     // dead row(s) on its own.

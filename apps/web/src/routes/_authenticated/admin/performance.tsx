@@ -939,7 +939,7 @@ function RelaysSection({
               </>
             }
             titleClassName="flex items-center justify-between"
-            description="Sealed push API. Counters are since relay start."
+            description="FCM fan-out. Counters are since relay start."
           >
             {!push.configured ? (
               <p className="text-sm text-muted-foreground">
@@ -960,35 +960,27 @@ function RelaysSection({
                 {push.stats && (
                   <div className="space-y-1">
                     <CounterRow
-                      label="Pushes (delivered / requested)"
-                      value={`${formatCount(push.stats.delivered)} / ${formatCount(push.stats.pushRequests)}`}
+                      label="Send requests (ok / failed)"
+                      value={`${formatCount(push.stats.sendOk)} / ${formatCount(push.stats.sendFailed)}`}
                     />
                     <CounterRow
-                      label="Provider errors"
-                      value={formatCount(push.stats.providerErrors)}
+                      label="FCM deadline timeouts"
+                      value={formatCount(push.stats.deadlineTimeouts)}
                     />
                     <CounterRow
-                      label="Dead installs pruned"
-                      value={formatCount(push.stats.deadInstalls)}
+                      label="Tokens (ok / failed)"
+                      value={`${formatCount(push.stats.tokensOk)} / ${formatCount(push.stats.tokensFailed)}`}
                     />
                     <CounterRow
-                      label="Installs registered"
-                      value={formatCount(push.stats.registrations)}
+                      label="Invalid tokens pruned"
+                      value={formatCount(push.stats.invalidTokens)}
                     />
-                    <CounterRow
-                      label="Auth failures / rate-limited"
-                      value={`${formatCount(push.stats.authFailures)} / ${formatCount(push.stats.rateLimited)}`}
-                    />
-                    <CounterRow
-                      label="Deep checks (failed / run)"
-                      value={`${formatCount(push.stats.deepCheckFailures)} / ${formatCount(push.stats.deepChecks)}`}
-                    />
-                    {push.stats.lastDeepCheckAt ? (
+                    {push.stats.lastError && (
                       <CounterRow
-                        label="Last deep check"
-                        value={`${push.stats.lastDeepCheckOk === false ? `failed` : `ok`} (${formatRelative(new Date(push.stats.lastDeepCheckAt))})`}
+                        label="Last error"
+                        value={`${push.stats.lastError}${push.stats.lastErrorAt ? ` (${formatRelative(new Date(push.stats.lastErrorAt))})` : ``}`}
                       />
-                    ) : null}
+                    )}
                     {push.startedAt ? (
                       <CounterRow
                         label="Relay up since"
