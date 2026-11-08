@@ -571,7 +571,7 @@ jobs:
   site:
     needs: changes
     if: needs.changes.outputs.site == 'true'
-    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       # Astro needs Node >= 22.23.4; the runner image ships 22.23.3.

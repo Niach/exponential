@@ -64,6 +64,8 @@ interface Ctx {
 
 export const isLive = (session: Pick<HubSession, `status`>) => session.status !== `ended`
 const isWorking = (session: Pick<HubSession, `status`>) => session.status === `running` || session.status === `idle`
+/** #EXP-1731: a row the device writes for a CLI subagent (subagents.json). */
+export const isSubagent = (session: Pick<HubSession, `subagentKey`>) => session.subagentKey != null
 
 /** A tree's acting agent: its conversation root's agent, else the agent that started it. */
 export const treeAgentId = (root: Pick<HubSession, `agentId` | `startedByAgentId`>) =>
@@ -196,7 +198,9 @@ function deliver(
     sealed?: { inTree?: Line; copies?: Record<string, string> }
   }
 ) {
-  const all = busListeners(ctx.state, child)
+  // #EXP-1731: a subagent's parent is the CLI process that ran it and has every line in-band: the bus never posts
+  // into it (no wake-up per subagent turn, not even its end report). Its watchers still hear it.
+  const all = busListeners(ctx.state, child).filter((listener) => !(isSubagent(child) && listener.id === child.parentId))
   const listeners = message.skip ? all.filter((listener) => !message.skip!(listener)) : all
   for (const listener of listeners) {
     const plain: Line = { body: message.body, card: message.card }
@@ -348,7 +352,8 @@ function rewatchRevived(ctx: Ctx, root: HubSession, caller: HubSession | null) {
 
 function assertTreeRoom(state: HubState, rootId: string, depth: number) {
   if (depth > rules.caps.treeMaxDepth) refuse(`invalid`, fill(copy.tooDeep, { max: rules.caps.treeMaxDepth }))
-  const live = Object.values(state.sessions).filter((row) => row.rootId === rootId && isLive(row)).length
+  // #EXP-1731: subagent rows hold no slot (the CLI already ran them; the caps stay today's).
+  const live = Object.values(state.sessions).filter((row) => row.rootId === rootId && isLive(row) && !isSubagent(row)).length
   if (live >= rules.caps.treeMaxSessions) refuse(`limit`, fill(copy.tooMany, { max: rules.caps.treeMaxSessions }))
 }
 
@@ -359,6 +364,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
     agentId: null,
     startedByAgentId: null,
     continuedFromId: null,
+    subagentKey: null,
     status: `queued`,
     busy: false,
     background: false,
@@ -461,6 +467,7 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
 
 function startChild(ctx: Ctx, data: SendData, caller: HubSession | null): StepResult {
   const parent = session(ctx.state, data.parentId)
+  if (isSubagent(parent)) refuse(`invalid`, copy.subagentNoChildren)
   assertTreeRoom(ctx.state, parent.rootId, parent.depth + 1)
   const root = session(ctx.state, parent.rootId)
   const child = insertSession(ctx, {
@@ -497,7 +504,9 @@ function agentFreshThread(ctx: Ctx, data: SendData, caller: HubSession | null, t
   if (!data.text?.trim() || data.sealed) return null
   if (target.needsInput) return null
   if (!callerTreeAgent(ctx.state, caller)) return null
-  const children = Object.values(ctx.state.sessions).filter((row) => row.rootId === target.id && row.id !== target.id).length
+  const children = Object.values(ctx.state.sessions).filter(
+    (row) => row.rootId === target.id && row.id !== target.id && !isSubagent(row)
+  ).length
   const reason = reuseRefusal(target, children, ctx.now, awaitsCaller(ctx.state, caller, target))
   if (!reason) return null
   const outcome = startRoot(ctx, { ...data, id: data.freshId, deviceId: data.deviceId ?? target.deviceId }, caller)
@@ -506,6 +515,13 @@ function agentFreshThread(ctx: Ctx, data: SendData, caller: HubSession | null, t
 
 function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepResult {
   const target = session(ctx.state, data.sessionId)
+  if (isSubagent(target) && target.parentId) {
+    // #EXP-1731: a subagent runs inside its parent's process and takes no input of its own (a message mid-run would
+    // resume a second copy): the message goes to its parent instead, exactly as if sent there, with a warning.
+    const out = sendMessage(ctx, { ...data, sessionId: target.parentId }, caller)
+    const redirect = fill(copy.subagentRedirect, { id: target.id, parentId: target.parentId })
+    return { ...out, warning: out.warning ? `${redirect} ${out.warning}` : redirect }
+  }
   if (data.scopeTeamIds) {
     // #EXP-1720: a turn's teams are the Assistant's alone: they become its conversation root's scope.
     const assistant = target.agentId ? ctx.state.agents[target.agentId] : undefined
@@ -599,8 +615,77 @@ function endRows(ctx: Ctx, rows: HubSession[], named?: { id: string; summary: st
     const own = named?.id === row.id
     busReport(ctx, row, own ? named!.summary : null, own ? named!.summarySealed : false)
   }
-  for (const id of ended) ctx.effects.push({ kind: `kill`, sessionId: id })
+  // #EXP-1731: a subagent has no process of its own to kill (its parent's runs it).
+  for (const id of ended) if (!isSubagent(ctx.state.sessions[id]!)) ctx.effects.push({ kind: `kill`, sessionId: id })
   return ended
+}
+
+/** #EXP-1731: a subagent row's end: its summary (a failure says so) as its own last line, then End (no kill, no
+ *  report into its parent: deliver() skips it). */
+function endSubagent(ctx: Ctx, row: HubSession, summary: string | null, failed: boolean): string[] {
+  // #FEED-192: a keyed tree never takes the device's plaintext summary (dropped, never stored).
+  const said = ctx.state.sessions[row.rootId]?.sealEpoch != null ? `` : (summary?.trim() ?? ``)
+  const text = failed ? (said ? fill(copy.subagentFailed, { summary: said }) : copy.subagentFailedBare) : said
+  if (text) post(ctx, row.id, { authorKind: `agent`, authorSessionId: null, body: text, card: null, sealed: false, waking: false })
+  return endRows(ctx, [row], { id: row.id, summary: text || null, summarySealed: false })
+}
+
+/** #EXP-1731: a parent whose turn is over (not busy: background work included) runs no subagent any more; the
+ *  ones its device never closed end now, oldest first. */
+function sweepSubagents(ctx: Ctx, parent: HubSession): string[] {
+  if (parent.busy && isLive(parent)) return []
+  return ordered(ctx.state)
+    .filter((row) => row.parentId === parent.id && isSubagent(row) && isLive(row))
+    .flatMap((row) => endSubagent(ctx, row, null, false))
+}
+
+interface SubagentData {
+  sessionId?: string
+  deviceId?: string
+  key?: string
+  freshId?: string
+  status?: `running` | `ended`
+  failed?: boolean
+  summary?: string | null
+}
+
+/** #EXP-1731: the device's subagent edge. The first `running` (or a late first `ended`) of a key under a parent
+ *  writes the row: one below the parent, its team, member, visibility and device, running and busy at once (never
+ *  queued, no brief, no first input, no card on the parent); later `running` edges are its progress, `ended` its End.
+ *  Every edge is a sign of life of the parent too. */
+function subagentEdge(ctx: Ctx, data: SubagentData): StepResult {
+  const parent = session(ctx.state, data.sessionId)
+  const key = data.key?.trim() ?? ``
+  if (!key) refuse(`invalid`, copy.subagentNoKey)
+  if (isSubagent(parent)) refuse(`invalid`, copy.subagentNoChildren)
+  // Like a report: a parent that ended, or a device it left, is ignored.
+  if (!isLive(parent) || (data.deviceId !== undefined && data.deviceId !== parent.deviceId)) return {}
+  parent.lastActivityAt = ctx.now
+  let row = ordered(ctx.state).find((r) => r.parentId === parent.id && r.subagentKey === key)
+  if (!row) {
+    row = insertSession(ctx, {
+      id: data.freshId ?? ``,
+      parentId: parent.id,
+      rootId: parent.rootId,
+      depth: parent.depth + 1,
+      teamId: parent.teamId,
+      userId: parent.userId,
+      shared: parent.shared,
+      deviceId: parent.deviceId,
+      subagentKey: key,
+      status: `running`,
+      busy: true,
+      startedAt: ctx.now,
+    })
+  } else if (data.status !== `ended` && !isLive(row)) {
+    // A resumed subagent (its CLI ran the same key again) is live again in place.
+    Object.assign(row, { status: `running`, busy: true, endedAt: null, updatedAt: ctx.now })
+  }
+  row.lastActivityAt = ctx.now
+  if (data.status === `ended` && isLive(row)) {
+    return { sessionId: row.id, endedIds: endSubagent(ctx, row, data.summary ?? null, data.failed === true) }
+  }
+  return { sessionId: row.id }
 }
 
 // ── the device ───────────────────────────────────────────────────────────────
@@ -659,7 +744,8 @@ function report(ctx: Ctx, data: ReportData): StepResult {
       lastActivityAt: ctx.now,
       updatedAt: ctx.now,
     })
-    return { sessionId: row.id }
+    const swept = sweepSubagents(ctx, row)
+    return swept.length ? { sessionId: row.id, endedIds: swept } : { sessionId: row.id }
   }
   // A thread ROOT that finished a turn and an agent's conversation survive their process (idle);
   // a child, or a root that never finished a turn (a refused launch), ends.
@@ -668,7 +754,9 @@ function report(ctx: Ctx, data: ReportData): StepResult {
       ? `idle`
       : data.status
   if (status === `ended`) {
-    const endedIds = endRows(ctx, [row])
+    row.busy = false
+    const swept = sweepSubagents(ctx, row)
+    const endedIds = [...swept, ...endRows(ctx, [row])]
     return { sessionId: row.id, endedIds }
   }
   const { handled = false, ...wall } = data.blocked ?? {}
@@ -699,7 +787,8 @@ function report(ctx: Ctx, data: ReportData): StepResult {
   row.updatedAt = ctx.now
   if (wasBlocked !== null && nextBlocked === null) clearBlocked(ctx, row)
   if (newlyBlocked) busLine(ctx, row, `session_blocked`, blockedText(blocked!), { waking: true })
-  return { sessionId: row.id }
+  const swept = isSubagent(row) ? [] : sweepSubagents(ctx, row)
+  return swept.length ? { sessionId: row.id, endedIds: swept } : { sessionId: row.id }
 }
 
 interface ReplyData {
@@ -754,7 +843,8 @@ function heartbeat(ctx: Ctx, data: BeatData): StepResult {
   const deviceId = data.deviceId ?? ``
   const live = data.liveSessionIds ? cleanLiveSessionIds(data.liveSessionIds).ids : null
   ctx.state.devices[deviceId] = { id: deviceId, lastSeenAt: ctx.now, liveSessionIds: live }
-  const hosted = ordered(ctx.state).filter((row) => row.deviceId === deviceId)
+  // #EXP-1731: a subagent lives and dies with its parent's process, never in the device's live list.
+  const hosted = ordered(ctx.state).filter((row) => row.deviceId === deviceId && !isSubagent(row))
   // An offline-parked session: a listed one survived (busy again), an unlisted mid-turn one waits for its
   // device to continue it from now on (`resumeSince`), anything else is simply live again.
   for (const row of hosted) {
@@ -808,15 +898,17 @@ const liveness = (row: HubSession) => Math.max(row.updatedAt, row.lastActivityAt
 function tick(ctx: Ctx): StepResult {
   const w = rules.watchdog
   const now = ctx.now
+  // #EXP-1731: the watchdog never flags a subagent row: its liveness is its parent's (sweepSubagents ends strays).
+  const watched = ordered(ctx.state).filter((row) => !isSubagent(row))
   // Unclaimed: queued past unclaimedMinutes, flagged once.
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     if (row.status !== `queued` || row.startedAt !== null || row.blocked || !(row.createdAt < now - w.unclaimedMinutes * MIN)) continue
     Object.assign(row, { blocked: flag(`unclaimed`, now), needsInput: true, updatedAt: now })
     busLine(ctx, row, `session_unclaimed`, unclaimedText(), { waking: true })
   }
   // Stalled input: its host is nudged again every tick while it lasts.
   const nudged = new Set<string>()
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     if (!isWorking(row) || row.blocked?.kind === `device_offline` || !ctx.state.devices[row.deviceId]) continue
     const stalled = ctx.state.messages.some(
       (m) => m.sessionId === row.id && m.pending && m.at < now - w.nudgeMinutes * MIN && isPendingInput(m)
@@ -827,7 +919,7 @@ function tick(ctx: Ctx): StepResult {
     }
   }
   // Stuck: busy with no sign of life, unless its online host lists it live.
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     const alive = liveness(row)
     if (!isWorking(row) || !row.busy || row.blocked) continue
     if (row.background && !(alive < now - w.backgroundStuckMinutes * MIN)) continue
@@ -837,7 +929,7 @@ function tick(ctx: Ctx): StepResult {
     busLine(ctx, row, `session_stuck`, stuckText(silentMinutes(alive, now)), { waking: true })
   }
   // Offline host: a busy run is interrupted (resume, silent); a claimed one between turns just reads idle.
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     if (!isWorking(row) || !row.busy || row.blocked || online(ctx, row.deviceId)) continue
     Object.assign(row, {
       status: `idle`,
@@ -847,11 +939,11 @@ function tick(ctx: Ctx): StepResult {
       updatedAt: now,
     })
   }
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     if (row.status === `running` && !row.busy && !online(ctx, row.deviceId)) Object.assign(row, { status: `idle`, updatedAt: now })
   }
   // Unresumed: an interruption its device has not continued resumeMinutes after it could = on a person, said once.
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     const b = row.blocked
     if (!isWorking(row) || !b || !INTERRUPTIONS.includes(b.kind) || row.needsInput || b.resume !== true) continue
     if (b.resumeSince == null || !(b.resumeSince < now - w.resumeMinutes * MIN)) continue
@@ -859,7 +951,7 @@ function tick(ctx: Ctx): StepResult {
     busLine(ctx, row, `session_interrupted`, unresumedText(), { waking: true })
   }
   // Offline too long: a cut run whose device never came back = on a person, said once.
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     const b = row.blocked
     if (!isWorking(row) || b?.kind !== `device_offline` || row.needsInput || b.resume !== true) continue
     if (b.resumeSince != null || !(b.since < now - w.offlineMinutes * MIN)) continue
@@ -867,7 +959,7 @@ function tick(ctx: Ctx): StepResult {
     busLine(ctx, row, `session_interrupted`, offlineText(), { waking: true })
   }
   // A usage wall whose reset passed: cleared, silently.
-  for (const row of ordered(ctx.state)) {
+  for (const row of watched) {
     if (!isWorking(row) || row.blocked?.kind !== `rate_limit` || !row.blocked.resetsAt) continue
     const at = stampMs(row.blocked.resetsAt)
     if (Number.isFinite(at) && at <= now) clearBlocked(ctx, row, `rate_limit`)
@@ -1037,6 +1129,9 @@ export function reduce(state: HubState, event: HubEvent): Outcome {
         break
       case `device.consume`:
         result = consume(ctx, data)
+        break
+      case `device.subagent`:
+        result = subagentEdge(ctx, data as SubagentData)
         break
       case `device.heartbeat`:
         result = heartbeat(ctx, data as BeatData)

@@ -45,6 +45,10 @@ export interface HubSession {
   background: boolean
   needsInput: boolean
   blocked: Blocked | null
+  /** #EXP-1731: the CLI's own id of the subagent (Claude's Task/Agent tool, Codex's spawned thread) this row mirrors;
+   *  non-null = a SUBAGENT row the device writes (`device.subagent`): it shares its parent's device, worktree and
+   *  branch, never opens a PR, takes no messages (a send goes to its parent) and counts against no cap. */
+  subagentKey: string | null
   /** Sessions this one watches (the bus wakes it with their transitions). */
   wakeOn: string[]
   /** A ROOT's tree key epoch (EXP-1458): non-null = keyed, its tree takes sealed text only (#FEED-185). */
