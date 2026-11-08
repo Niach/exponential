@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use eui_core::layout_tree::{LayerClass, ToastSpec};
 use eui_core::surface::{Layer, OutEvent};
 use eui_core::hold::HoldInput;
-use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollWheelEvent, Window};
+use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollEvent, Window};
 use serde_json::{json, Value};
 
 use super::state::{focus_order, is_focusable, is_text_field, next_focus, NodeFlags};
@@ -1506,7 +1506,7 @@ impl SurfaceView {
 
     /// The wheel / trackpad over a scroll container: the core's offset
     /// moves; at an edge the event chains to the host.
-    pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollEvent, cx: &mut Context<Self>) {
         let Some(s) = self.scrolls.get(&index).copied() else { return };
         let f = self.frames.get(index as usize).copied().unwrap_or_default();
         let d = ev.delta.pixel_delta(gpui::px(20.0));

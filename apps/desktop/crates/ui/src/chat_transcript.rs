@@ -240,7 +240,7 @@ mod tests {
     /// the tail and the transcript never scrolled.
     #[gpui::test]
     fn only_an_arrival_rearms_the_follow(cx: &mut gpui::TestAppContext) {
-        use gpui::{point, size, AppContext as _, ScrollDelta, ScrollWheelEvent};
+        use gpui::{point, size, AppContext as _, ScrollDelta, ScrollEvent};
         let cx = cx.add_empty_window();
         let list = ListState::new(20, gpui::ListAlignment::Top, px(1000.));
         list.set_follow_mode(FollowMode::Tail);
@@ -252,7 +252,7 @@ mod tests {
         };
         draw(cx);
         assert!(list.is_following_tail());
-        cx.simulate_event(ScrollWheelEvent {
+        cx.simulate_event(ScrollEvent {
             position: point(px(10.), px(10.)),
             delta: ScrollDelta::Pixels(point(px(0.), px(10.))),
             ..Default::default()

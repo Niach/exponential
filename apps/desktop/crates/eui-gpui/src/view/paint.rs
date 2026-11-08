@@ -606,7 +606,7 @@ impl SurfaceView {
             return el;
         }
         let id = n.id.clone();
-        el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
+        el = el.on_scroll(cx.listener(move |this, ev: &gpui::ScrollEvent, _window, cx| this.wheel(index, &id, ev, cx)));
         // EXP-1555: no scrollbars at rest (the web hides them): a
         // non-blocking overlay tracks the pointer over the container; the
         // bars show while it hovers, scrolls or drags a thumb.

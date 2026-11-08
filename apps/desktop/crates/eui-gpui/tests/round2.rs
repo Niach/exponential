@@ -170,7 +170,7 @@ fn a_sticky_box_pins_inside_its_scroller(cx: &mut TestAppContext) {
     view.update(cx, |v, _| v.trace_paint(true));
     let top = f32::from(painted(&view, cx, "pin").origin.y);
     let pane = painted(&view, cx, "pane");
-    cx.simulate_event(gpui::ScrollWheelEvent { position: pane.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-300.0))), ..Default::default() });
+    cx.simulate_event(gpui::ScrollEvent { position: pane.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-300.0))), ..Default::default() });
     draw(cx);
     draw(cx);
     let pinned = f32::from(painted(&view, cx, "pin").origin.y);
@@ -209,7 +209,7 @@ fn a_pinned_section_header_paints_at_the_lists_top_as_a_heading(cx: &mut TestApp
     assert_eq!(info.level, Some(3), "a section header is a level-3 heading (a11y.json)");
     view.update(cx, |v, _| v.trace_paint(true));
     let list = painted(&view, cx, "l");
-    cx.simulate_event(gpui::ScrollWheelEvent { position: list.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-500.0))), ..Default::default() });
+    cx.simulate_event(gpui::ScrollEvent { position: list.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-500.0))), ..Default::default() });
     draw(cx);
     draw(cx);
     let pinned = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.id.starts_with("l.section.")).filter_map(|n| v.painted_bounds(&n.id).map(|b| (n.id.clone(), f32::from(b.origin.y - list.origin.y)))).collect::<Vec<_>>());

@@ -577,7 +577,7 @@ fn tree_on_the_page<V: Render>(
     } else {
         container
             .overflow_hidden()
-            .on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
+            .on_scroll(move |event: &gpui::ScrollEvent, window, cx| {
                 let page = &page_for_wheel;
                 let delta = event.delta.pixel_delta(window.line_height());
                 let max = page.max_offset().y;

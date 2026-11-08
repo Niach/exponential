@@ -59,7 +59,7 @@ use eui_core::theme::{Mode, ResolvedTheme};
 use eui_core::zoom::{self as z, WheelDeltaMode, ZoomFrame, ZoomInitial, ZoomPoint, ZoomSize, ZoomView, ZOOM};
 use gpui::{
     anchored, canvas, deferred, div, point, prelude::*, px, Anchor, AnyElement, App, Bounds, Context, Corners, CursorStyle, DispatchPhase, ElementId, EventEmitter, FocusHandle, Focusable, Font, FontWeight,
-    Hsla, ImageSource, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, SharedString, Task, TouchPhase, Window,
+    Hsla, ImageSource, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent, Pixels, Point, ScrollDelta, ScrollEvent, SharedString, Task, TouchPhase, Window,
 };
 use serde_json::{json, Map, Value};
 
@@ -655,7 +655,7 @@ impl ZoomableImage {
 
     // -- Input ----------------------------------------------------------------
 
-    fn on_wheel(&mut self, ev: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_wheel(&mut self, ev: &ScrollEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.has_frame() || self.press.is_some() {
             return;
         }
@@ -1134,7 +1134,7 @@ impl Render for ZoomableImage {
             .aria_label(self.options.alt.clone())
             .cursor(cursor)
             .on_key_down(cx.listener(Self::on_key))
-            .on_scroll_wheel(cx.listener(Self::on_wheel))
+            .on_scroll(cx.listener(Self::on_wheel))
             .on_pinch(cx.listener(Self::on_pinch))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_down))
             .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {

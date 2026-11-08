@@ -387,7 +387,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         .p(px(pad))
         .gap(px(layout.block_gap))
         // The scroll-spy re-reads the headings after a scroll.
-        .on_scroll_wheel(|_, window, _| window.refresh());
+        .on_scroll(|_, window, _| window.refresh());
     for (ix, block) in blocks.iter().enumerate() {
         let element = match block {
             PlanBlock::Title { text } => div()

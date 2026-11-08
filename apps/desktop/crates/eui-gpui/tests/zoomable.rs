@@ -16,7 +16,7 @@ use eui_core::NestedNode;
 use eui_gpui::controls::{ZoomControls, ZoomPart, ZoomableImage, ZoomableImageEvent, ZoomableImageOptions, TAP_DELAY};
 use eui_gpui::host::{ActionEvent, HostPlugin};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
-use gpui::{div, point, prelude::*, px, App, Bounds, Entity, Modifiers, MouseButton, Pixels, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext};
+use gpui::{div, point, prelude::*, px, App, Bounds, Entity, Modifiers, MouseButton, Pixels, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext};
 use serde_json::{json, Value};
 
 /// A 1 × 1 PNG (no network in tests); the natural size is the author's.
@@ -139,7 +139,7 @@ fn a_tall_picture_opens_at_fit_width_on_its_top_in_a_square_window(cx: &mut Test
     assert!((v.scale - 0.48).abs() < 1e-4 && v.y.abs() < 1e-3 && v.x.abs() < 1e-3, "fit width at the top: {v:?}");
     // A plain wheel scrolls it (room on y), the surface keeps its place.
     let b = painted(&view, cx);
-    cx.simulate_event(ScrollWheelEvent { position: local(b, 240.0, 240.0), delta: ScrollDelta::Pixels(point(px(0.0), px(-120.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: local(b, 240.0, 240.0), delta: ScrollDelta::Pixels(point(px(0.0), px(-120.0))), ..Default::default() });
     draw(cx);
     let (after, _) = current(&zoom, cx);
     assert!((after.y + 120.0).abs() < 1e-3 && (after.scale - v.scale).abs() < 1e-9, "panned down 120: {after:?}");
@@ -152,7 +152,7 @@ fn cmd_wheel_zooms_about_the_cursor_and_reports_once_settled(cx: &mut TestAppCon
     let b = painted(&view, cx);
     let (rest, frame) = current(&zoom, cx);
     let at = ZoomPoint { x: 100.0, y: 80.0 };
-    cx.simulate_event(ScrollWheelEvent { position: local(b, 100.0, 80.0), delta: ScrollDelta::Pixels(point(px(0.0), px(100.0))), modifiers: Modifiers { platform: true, ..Default::default() }, ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: local(b, 100.0, 80.0), delta: ScrollDelta::Pixels(point(px(0.0), px(100.0))), modifiers: Modifiers { platform: true, ..Default::default() }, ..Default::default() });
     draw(cx);
     let (v, _) = current(&zoom, cx);
     let want = z::zoom_wheel(rest, -100.0, WheelDeltaMode::Pixel, at, &frame);
@@ -179,14 +179,14 @@ fn a_plain_wheel_pans_only_with_room(cx: &mut TestAppContext) {
     let zoom = zoom_of(&view, cx);
     let b = painted(&view, cx);
     let (rest, frame) = current(&zoom, cx);
-    cx.simulate_event(ScrollWheelEvent { position: local(b, 240.0, 150.0), delta: ScrollDelta::Pixels(point(px(-40.0), px(-40.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: local(b, 240.0, 150.0), delta: ScrollDelta::Pixels(point(px(-40.0), px(-40.0))), ..Default::default() });
     draw(cx);
     assert!(close(current(&zoom, cx).0, rest), "at fit there is no room: the host's wheel");
     // Zoomed to 100%, the same wheel pans by the deltas.
     zoom.update_in(cx, |z, window, cx| z.zoom_to_scale(1.0, window, cx));
     settle(cx, 400);
     let (zoomed, _) = current(&zoom, cx);
-    cx.simulate_event(ScrollWheelEvent { position: local(b, 240.0, 150.0), delta: ScrollDelta::Pixels(point(px(-40.0), px(-30.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: local(b, 240.0, 150.0), delta: ScrollDelta::Pixels(point(px(-40.0), px(-30.0))), ..Default::default() });
     draw(cx);
     let (v, _) = current(&zoom, cx);
     assert!(close(v, z::zoom_scroll(zoomed, 40.0, 30.0, &frame)), "{v:?}");
