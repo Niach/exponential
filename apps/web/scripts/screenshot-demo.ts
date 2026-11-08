@@ -19,6 +19,16 @@ export const MEMBER_READ_APP_SLUG = `crm`
 export const TEAM_SLUG = `acme`
 
 /**
+ * #EXP-1715: the demo user's OTHER teams (sole owner, no boards), so the
+ * composer's + › Teams pick (`composer-teams-menu`) has more than one team
+ * to list (the recipe unchecks the last one).
+ */
+export const DEMO_EXTRA_TEAMS = [
+  { name: `Acme Labs`, slug: `acme-labs` },
+  { name: `Northwind`, slug: `northwind` },
+] as const
+
+/**
  * The seeded board with no issues on it — the `board-empty` view on every
  * client. Named here because three places have to agree on it: the seed that
  * creates it, `lib/demo-ids.ts` which resolves `$emptyBoard` to its uuid for
