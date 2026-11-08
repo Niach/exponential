@@ -73,7 +73,7 @@ pub(crate) mod prompts;
 // #EXP-1660: Settings › Skills (the list + one skill's page).
 pub(crate) mod skills;
 mod board_detail;
-mod repositories;
+pub(crate) mod repositories;
 mod sessions;
 mod storage;
 pub(crate) mod team_general;

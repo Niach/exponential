@@ -41,6 +41,7 @@ val buildUiFfi = tasks.register<Exec>("buildUiFfi") {
     inputs.property("abis", System.getenv("ABIS") ?: "")
     outputs.dir(File(ffiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") return@onlyIf false
         if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Exponential UI .so")
         System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
     }
@@ -87,6 +88,9 @@ android {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
         unitTests.all {
+            // #VAPP-291: the binding picks android.system.SystemCleaner at sdk 34, and
+            // Robolectric's runs on the JDK's internal CleanerFactory.
+            it.jvmArgs("--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED")
             // JNA finds the facade's host build (`cargo build -p exponential-ui-ffi --release --features cli`).
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
             it.systemProperty("exponential.ui.fixtures", File(repoRoot, "packages/exponential-ui/fixtures").absolutePath)

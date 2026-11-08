@@ -687,6 +687,36 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertEqual(m.data["draft"], .string("set"))
     }
 
+    // MARK: - interactions-round1.json boxHover (#EDE-65)
+
+    /// The pointer entering a Box fires its `on.hover` (no payload), leaving
+    /// fires nothing, a pressable Box still presses: `boxHover` is what the
+    /// painter's `onHover` calls.
+    func testBoxHoverCasesFireOnEnteringThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["boxHover"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try model(f["surface"]!, host: host)
+            for step in c["steps"]?.array ?? [] {
+                if let id = step["enter"]?.string {
+                    m.boxHover(id: id, true)
+                } else if let id = step["leave"]?.string {
+                    m.boxHover(id: id, false)
+                } else if let id = step["press"]?.string {
+                    m.press(id: id)
+                } else {
+                    XCTFail("\(name): unknown step \(step.json)")
+                }
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+        }
+    }
+
     // MARK: - interactions-round1.json foldRow (#VAPP-284)
 
     /// A foldable Row (children): a press on the head or its fold button, or

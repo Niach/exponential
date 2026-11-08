@@ -125,7 +125,10 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
     }
     case `switcher.pick`: {
       const hit = s.switcher.entries.find((x) => x.kind === e.entryKind && x.id === e.id)
-      if (hit) s.switcher.current = { ...hit }
+      if (hit) {
+        s.switcher.current = { ...hit }
+        s.startMenu = closedStartMenu()
+      }
       break
     }
     case `switcher.set`: {

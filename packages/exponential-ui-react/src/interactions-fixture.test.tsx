@@ -590,3 +590,27 @@ describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
     })
   }
 })
+
+interface BoxHoverCase {
+  name: string
+  steps: ({ enter: string } | { leave: string } | { press: string })[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+
+// #EDE-65: a Box's `on.hover` fires as the pointer enters (Motion's rule).
+describe(`fixtures/interactions-round1.json boxHover`, () => {
+  const hover = (fixture as unknown as { boxHover: { surface: NestedNode; cases: BoxHoverCase[] } }).boxHover
+  for (const c of hover.cases) {
+    it(`boxHover: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ExponentialSurface root={tree(hover.surface)} theme="neutral" id="bh" host={{ onAction: (e) => void actions.push(e) }} />)
+      const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement
+      for (const s of c.steps) {
+        if (`enter` in s) fireEvent.pointerEnter(box(s.enter))
+        else if (`leave` in s) fireEvent.pointerLeave(box(s.leave))
+        else fireEvent.click(box(s.press))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+})

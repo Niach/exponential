@@ -1396,3 +1396,34 @@ fn a_wheel_over_the_anchors_container_closes_its_popover(cx: &mut TestAppContext
     assert!(view.read_with(cx, |v, _| v.surface().scroll_offset("list").1) > 0.0, "the wheel scrolled the container");
     assert!(!open(&view, cx), "the Popover closed with its anchor's scroll");
 }
+
+/// #EDE-65: a Box's `on.hover` through the painter: interactions-round1.json
+/// `boxHover` (real pointer moves enter / leave a tile, a click presses it),
+/// the actions the host sees, in order.
+#[gpui::test]
+fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["boxHover"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [fx["surface"].clone()]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let outside = view.read_with(vcx, |v, _| v.painted_bounds("tiles")).map(|b| b.bottom_right() + gpui::point(px(20.0), px(20.0))).unwrap();
+        for step in c["steps"].as_array().unwrap() {
+            let (kind, id) = step.as_object().unwrap().iter().next().unwrap();
+            let b = view.read_with(vcx, |v, _| v.painted_bounds(id.as_str().unwrap())).unwrap_or_else(|| panic!("{name}: {id} painted"));
+            match kind.as_str() {
+                "enter" => vcx.simulate_mouse_move(b.center(), None, Modifiers::default()),
+                "leave" => vcx.simulate_mouse_move(outside, None, Modifiers::default()),
+                _ => {
+                    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+                }
+            }
+            draw(vcx);
+        }
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}");
+    }
+}

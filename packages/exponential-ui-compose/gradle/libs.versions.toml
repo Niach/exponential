@@ -7,6 +7,8 @@ kotlin = "2.4.0"
 compose-bom = "2024.12.01"
 activity-compose = "1.12.4"
 core-ktx = "1.16.0"
+# The UniFFI bindings in Android mode (`@RequiresApi` on the cleaner, #VAPP-291).
+androidx-annotation = "1.9.1"
 # The UniFFI bindings load the facade over JNA (>= 5.12: `com.sun.jna.internal.Cleaner`).
 jna = "5.18.1"
 kotlinx-coroutines = "1.9.0"
@@ -23,6 +25,7 @@ media3 = "1.11.1"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidx-annotation" }
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
