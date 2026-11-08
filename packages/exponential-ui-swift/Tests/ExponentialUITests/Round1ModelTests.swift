@@ -692,8 +692,10 @@ final class Round1ModelTests: XCTestCase {
     /// The pointer entering a Box fires its `on.hover` (no payload), leaving
     /// fires nothing, a pressable Box still presses: `boxHover` is what the
     /// painter's `onHover` calls.
+    /// #FEED-201: `tilePress` (StatTile and Card presses) has the same shape.
     func testBoxHoverCasesFireOnEnteringThroughTheModel() throws {
-        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["boxHover"])
+        for key in ["boxHover", "tilePress"] {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")[key])
         let cases = f["cases"]?.array ?? []
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
@@ -714,6 +716,7 @@ final class Round1ModelTests: XCTestCase {
             let want = c["events"]?.array ?? []
             XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
             XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+        }
         }
     }
 
