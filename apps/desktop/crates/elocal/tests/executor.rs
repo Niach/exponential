@@ -151,3 +151,34 @@ fn a_linked_folder_is_the_boards_repository() {
     assert_eq!(for_issue.repository_id, linked.id);
     assert_eq!(desktop.executor.board_repository(&board).unwrap().path, repo);
 }
+
+/// #EXP-1727: a session on an issue of a board with a linked folder runs in
+/// its own git worktree of that folder; a second session of the tree reuses it.
+#[test]
+fn a_session_on_a_linked_board_gets_a_worktree() {
+    if std::process::Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    let (dir, desktop) = desktop();
+    let client = desktop.client();
+    let team_id = desktop.team().unwrap()["id"].as_str().unwrap().to_string();
+    let board = desktop.store.rows_where("boards", "team_id", &team_id).unwrap()[0]["id"].as_str().unwrap().to_string();
+    let repo = dir.path().join("app");
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("README.md"), "hi\n").unwrap();
+    git(&["add", "."]);
+    git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"]);
+    api::repositories::link_folder(&client, repo.to_str().unwrap(), Some(&board)).unwrap();
+    let issue = api::issues::issues_create(&client, &IssuesCreateInput::new(&board, "Fix it")).unwrap();
+    let mut input = api::sessions::SendInput::default();
+    input.text = Some("Fix it".into());
+    input.issue_ids = Some(vec![issue.issue.id.clone()]);
+    let sent = api::sessions::send(&client, &input).unwrap();
+    let (cwd, linked, branch) = elocal::runs::worktree_for(&desktop, &sent.session_id).expect("a worktree");
+    assert_eq!(linked.name, "app");
+    assert!(cwd.join("README.md").exists(), "the worktree is checked out");
+    assert!(branch.starts_with("exp/"));
+    assert_eq!(elocal::runs::worktree_for(&desktop, &sent.session_id).unwrap().0, cwd);
+}

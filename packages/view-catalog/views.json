@@ -8318,14 +8318,17 @@
       "id": "ede-notifications",
       "group": "ede",
       "title": "Exponential Desktop · toasts",
-      "blurb": "The factory toasts (apps/ede/ui/notifications.json): the shell is the session's notification server; new notifications stack top-right with the app, the time, the summary, the body and the app's actions (sample ones in the golden).",
+      "blurb": "The factory toasts (apps/ede/ui/notifications.json): the shell is the session's notification server; new notifications stack top-right with the app, the time, the summary, the body and the app's actions (sample ones in the golden); #EDE-65: a new inbox entry of a signed-in account toasts the same way (Open, Mark read).",
       "order": 5,
       "ede": {
         "size": "1280x720",
         "open": [
           "notifications"
         ],
-        "settleMs": 2000
+        "settleMs": 2000,
+        "env": {
+          "EDE_SHELL_DEMO_TRAY": "1"
+        }
       },
       "notes": {
         "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
@@ -8339,14 +8342,17 @@
       "id": "ede-notification-center",
       "group": "ede",
       "title": "Exponential Desktop · notification centre",
-      "blurb": "The factory notification centre (apps/ede/ui/notification-center.json): the taskbar's bell opens the session's history as a popup above it, each entry closable, all clearable.",
+      "blurb": "The factory notification centre (apps/ede/ui/notification-center.json): the taskbar's bell opens the session's history as a popup above it, merged newest first with (#EDE-65) every signed-in account's unread Exponential inbox entries (the team as the app; a press hands off to the Exponential app on the issue or session), each entry closable, all clearable.",
       "order": 6,
       "ede": {
         "size": "1280x720",
         "popup": [
           "notification-center"
         ],
-        "settleMs": 2500
+        "settleMs": 2500,
+        "env": {
+          "EDE_SHELL_DEMO_TRAY": "1"
+        }
       },
       "notes": {
         "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
@@ -8447,7 +8453,7 @@
       "id": "ede-chat",
       "group": "ede",
       "title": "Exponential Desktop · chat",
-      "blurb": "The chat button's surface (apps/ede/ui/chat.json): on a Local desktop the desktop's own agent (#EDE-58: the person's CLI over ACP, the conversation as Markdown, the composer sends into it); on a team the Assistant lives in the Exponential app and the text goes there.",
+      "blurb": "THE agent chat (apps/ede/ui/chat.json, #EDE-65 lane I): the chat button opens it filling the panel, drawn like the IDE's agent chat from the shared chat model (packages/uicore/fixtures/chat.json): the Assistant's home (agent row + composer) or a conversation (a person's bubble right, the agent's left, divider pills, cards, questions, the composer). On a Local desktop the desktop's own agent (#EDE-58); on a team the app takes the text until the shell syncs the team's sessions.",
       "order": 10,
       "ede": {
         "size": "1280x720",
@@ -8562,6 +8568,30 @@
         "env": {
           "EDE_SHELL_SETTINGS_PAGE": "local-general",
           "EDE_SHELL_SHARE": "picking"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-needs-you",
+      "group": "ede",
+      "title": "Exponential Desktop · Needs you",
+      "blurb": "#EDE-65: the taskbar's Needs you tray button (only while a plan, question or ready PR waits on the person in any team of the signed-in accounts, its badge the count) opens apps/ede/ui/needs-you.json as a popup above it: the IDE's Needs you rows per team, a press hands off to the Exponential app on that card.",
+      "order": 22,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "needs-you"
+        ],
+        "env": {
+          "EDE_SHELL_DEMO_TRAY": "1"
         },
         "settleMs": 2500
       },

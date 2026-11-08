@@ -3,13 +3,18 @@
 //! hub over the store). The shell starts the runner for the current Local
 //! desktop when a CLI is installed and signed in, sends the composer's
 //! text as a local session (one chat session per surface opening, a
-//! message into it after), and feeds `/chatting` from the store.
+//! message into it after), and builds the chat model's input from the
+//! store (#EDE-65 lane I: the shared chat document).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use elocal::runs::{AcpRunner, HostTools, LocalRuns, Runner};
-use serde_json::{json, Value};
+use elocal::runs::{HostTools, LocalRuns};
+use std::collections::HashMap;
+
+use domain::rows::{MessageRow, SessionRow};
+use serde_json::Value;
+use uicore_model::chat::{ChatAgentInput, ChatInput, ChatRowInput};
 
 pub struct LocalChat {
     pub desktop: Arc<elocal::LocalDesktop>,
@@ -27,17 +32,10 @@ impl LocalChat {
     /// the shell's own tools on the run's hub (#VAPP-273: `shell_edit`).
     pub fn start(desktop: Arc<elocal::LocalDesktop>, host: Option<HostTools>) -> Self {
         let cwd = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-        let mut agent = String::new();
-        let mut runner: Option<Arc<dyn Runner>> = None;
-        for candidate in [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex] {
-            let acp = AcpRunner::new(candidate);
-            if acp.available() {
-                agent = candidate.id().to_string();
-                runner = Some(Arc::new(acp));
-                break;
-            }
-        }
-        let runs = runner.and_then(|runner| match LocalRuns::start_with(desktop.clone(), runner, cwd, host) {
+        // Every usable CLI (#EDE-65 J5): a session runs the one it names, the first by default.
+        let runners = elocal::runs::installed_runners();
+        let agent = runners.first().map(|r| r.id().to_string()).unwrap_or_default();
+        let runs = (!runners.is_empty()).then_some(runners).and_then(|runners| match LocalRuns::start_with_runners(desktop.clone(), runners, cwd, host) {
             Ok(runs) => Some(runs),
             Err(e) => {
                 tracing::warn!("local runs: {e}");
@@ -70,39 +68,57 @@ impl LocalChat {
         Ok(())
     }
 
-    /// `/chatting`: the conversation of the chat's session, as the surface shows it.
-    pub fn feed(&self) -> Value {
-        let identity = self.desktop.executor.identity();
-        let (messages, status, busy) = match &self.session_id {
-            Some(session) => {
-                let row = self.desktop.store.row("sessions", session).ok().flatten();
-                let status = row.as_ref().and_then(|s| s.get("status").and_then(Value::as_str)).unwrap_or("queued").to_string();
-                let busy = row.as_ref().and_then(|s| s.get("busy").and_then(Value::as_bool)).unwrap_or(false);
-                let mut rows = self.desktop.store.rows_where("messages", "root_id", session).unwrap_or_default();
-                rows.sort_by(|a, b| a.get("created_at").and_then(Value::as_str).cmp(&b.get("created_at").and_then(Value::as_str)));
-                let messages: Vec<Value> = rows
-                    .iter()
-                    .filter(|m| m.get("body").and_then(Value::as_str).is_some_and(|b| !b.trim().is_empty()))
-                    .map(|m| {
-                        let author = match m.get("author_kind").and_then(Value::as_str) {
-                            Some("user") => identity.name.clone(),
-                            Some("agent") => self.agent.clone(),
-                            _ => "Exponential Desktop".to_string(),
-                        };
-                        json!({"id": m["id"], "author": author, "body": m["body"]})
-                    })
-                    .collect();
-                let status = match (status.as_str(), busy) {
-                    ("queued", _) => "Starting…".to_string(),
-                    (_, true) => format!("{} is working…", self.agent),
-                    ("ended", _) => "Ended".to_string(),
-                    _ => String::new(),
-                };
-                (messages, status, busy)
-            }
-            None => (Vec::new(), String::new(), false),
+    /// The chat model's input for the chat's session (#EDE-65 lane I): the
+    /// thread the domain builds from the desktop's store, drawn as bubbles
+    /// (the desktop's own agent is an agent chat).
+    pub fn input(&self) -> ChatInput {
+        let mut input = assistant_home();
+        let Some(session) = &self.session_id else { return input };
+        let Some(root) = self.desktop.store.row("sessions", session).ok().flatten().and_then(|row| serde_json::from_value::<SessionRow>(Value::Object(row)).ok()) else {
+            return input;
         };
-        json!({"local": true, "agent": self.agent, "title": "Assistant", "status": status, "busy": busy, "messages": messages})
+        let mut messages: Vec<MessageRow> = self
+            .desktop
+            .store
+            .rows_where("messages", "root_id", session)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| serde_json::from_value::<MessageRow>(Value::Object(row)).ok())
+            .collect();
+        // The store's rows carry no resolved session: they are this chat's.
+        for message in &mut messages {
+            message.session_id = session.clone();
+        }
+        let refs: Vec<&MessageRow> = messages.iter().collect();
+        let now = chrono::Utc::now().timestamp_millis();
+        let view = domain::session_tree::build_session_thread(
+            domain::session_tree::SessionThreadInput { root: &root, sessions: &[&root], session_issues: &[], issues: &[], messages: &refs, pull_requests: &[], now_ms: now },
+            None,
+        );
+        let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();
+        let me = self.desktop.executor.identity();
+        input.session_id = Some(session.clone());
+        input.busy = root.busy;
+        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
+        input
+    }
+
+    /// The person's pick on a question: the desktop's runs take answers as
+    /// the next message (elocal has no `sessions.answer`).
+    pub fn answer(&mut self, label: &str) -> Result<(), String> {
+        self.send(label)
+    }
+
+    /// New chat: the next send starts a session.
+    pub fn new_chat(&mut self) {
+        self.session_id = None;
+    }
+
+    /// A rail chat or a card: the chat shows that session of this desktop.
+    pub fn open(&mut self, session_id: &str) {
+        if self.desktop.store.row("sessions", session_id).ok().flatten().is_some() {
+            self.session_id = Some(session_id.to_string());
+        }
     }
 
     pub fn stop(&self) {
@@ -112,32 +128,56 @@ impl LocalChat {
     }
 }
 
-/// `/chatting` on a team (an account): the Assistant lives in the Exponential
-/// app; #EDE-65: the status names the team and the account it is connected
-/// through (the chat opens the app, it never asks to connect what is).
-pub fn remote_feed(team: &str, account: &str) -> Value {
-    let connected = match (team.is_empty(), account.is_empty()) {
-        (false, false) => format!("{team} · {account}"),
-        (false, true) => team.to_string(),
-        _ => account.to_string(),
-    };
-    json!({"local": false, "agent": "", "title": "Assistant", "status": connected, "busy": false, "messages": []})
+/// The chat's home with the one agent a Local desktop has (and a team
+/// has until the shell syncs its agents): the Assistant, the brand mark.
+pub fn assistant_home() -> ChatInput {
+    ChatInput {
+        title: ASSISTANT.into(),
+        icon: ASSISTANT_ICON.into(),
+        bubbles: true,
+        agents: vec![ChatAgentInput { id: ASSISTANT_ID.into(), name: ASSISTANT.into(), icon: ASSISTANT_ICON.into() }],
+        agent_id: Some(ASSISTANT_ID.into()),
+        ..Default::default()
+    }
 }
 
+pub const ASSISTANT_ID: &str = "assistant";
+const ASSISTANT: &str = "Assistant";
+const ASSISTANT_ICON: &str = "brand-exponential";
+
 /// The goldens: a short local conversation.
-pub fn demo_feed() -> Value {
-    json!({"local": true, "agent": "claude", "title": "Assistant", "status": "", "busy": false, "messages": [
-        {"id": "m1", "author": "Danny", "body": "Which issues are still open on this desktop?"},
-        {"id": "m2", "author": "claude", "body": "Two are open on **General**:\n\n- GEN-1 Set up the printer\n- GEN-2 Back up the photos\n\nWant me to take one?"}
-    ]})
+pub fn demo_input() -> ChatInput {
+    let message = |id: &str, author: &str, body: &str, time: &str| ChatRowInput::Message {
+        id: id.into(),
+        author: author.into(),
+        body: body.into(),
+        name: (author == "user").then(|| "Danny".to_string()),
+        time: time.into(),
+        queued: false,
+    };
+    ChatInput {
+        session_id: Some("demo".into()),
+        rows: vec![
+            message("m1", "user", "Which issues are still open on this desktop?", "09:14"),
+            message("m2", "agent", "Two are open on **General**:\n\n- GEN-1 Set up the printer\n- GEN-2 Back up the photos\n\nWant me to take one?", "09:14"),
+            ChatRowInput::Pill { id: "d1".into(), icon: "coding-compact".into(), label: "Conversation compacted · 09:20".into() },
+            message("m3", "user", "Take the printer.", "09:21"),
+        ],
+        ..assistant_home()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use uicore_model::chat::{chat_view, ChatFace};
+
     #[test]
-    fn a_team_chat_names_the_team_and_its_account() {
-        let feed = super::remote_feed("Exponential", "danny@example.com");
-        assert_eq!((feed["local"].as_bool(), feed["status"].as_str()), (Some(false), Some("Exponential · danny@example.com")));
-        assert_eq!(super::remote_feed("", "danny@example.com")["status"], "danny@example.com");
+    fn the_home_offers_the_assistant_and_the_demo_is_a_conversation() {
+        let home = chat_view(&super::assistant_home());
+        assert_eq!((home.face, home.agent_row.label.as_str()), (ChatFace::Home, "To Assistant"));
+        let demo = chat_view(&super::demo_input());
+        assert_eq!(demo.face, ChatFace::Conversation);
+        assert_eq!(demo.rows.len(), 4);
+        assert_eq!(demo.composer.placeholder, "Message Assistant", "eDE has no / menu yet");
     }
 }

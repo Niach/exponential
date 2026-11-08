@@ -26,13 +26,16 @@
 //! (the model: rail, taskbar buttons, workspaces, the start menu's categories
 //! and apps, chat, Alt-Tab), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
-//! thumbnails), `/osd`, `/notifications`, `/tray`, `/traymenu`,
+//! thumbnails), `/osd`, `/notifications` (#EDE-65: with the accounts'
+//! unread inbox merged in), `/needsYou`, `/tray`, `/traymenu`,
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
 //! document may call are the `ede_*` names its `surface.functions` lists
 //! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
 //! `ede_focus {window}`, `ede_close {window}`, `ede_minimize {window}`,
 //! `ede_lock`, `ede_logout`, `ede_power {action}`, `ede_select {window}`,
-//! `ede_notify_close {id}`, `ede_notify_action {id, key}`, `ede_notify_clear`,
+//! `ede_notify_open {id}`, `ede_notify_close {id, toast?}`, `ede_notify_action
+//! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
+//! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
 //! `ede_tray {service}`, `ede_tray_menu {service, id}`, `ede_open_document
 //! {name}`, `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
@@ -41,7 +44,9 @@
 //! `ede_taskbar {app}` (Mint's click), `ede_taskbar_scroll {app, direction}`,
 //! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
 //! query?, category?}`, `ede_chat` (toggle), `ede_workspace {index}`,
-//! `ede_sidebar {section}` (fold a section); #EDE-56: `ede_switcher {action:
+//! `ede_sidebar {section}` (fold a section); #EDE-65: `ede_issue
+//! {identifier, source, sourceId}` (a start-menu issue, opened in the
+//! Exponential app on its team or Local desktop); #EDE-56: `ede_switcher {action:
 //! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
 //! accounts' teams, `/shell/switcher/sections`), `ede_connect {action:
 //! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
@@ -58,23 +63,29 @@
 //!   --exit-after  quit after this many milliseconds (the headless check)
 //! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, windows) instead of the
 //! machine's, so a golden never depends on what is installed;
-//! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail.
+//! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail;
+//! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you.
 
 mod accounts;
+mod chat;
 mod engine;
+mod issues;
 mod assets;
 mod connect;
 mod dbus;
+mod inbox;
 mod local_runs;
 mod settings;
 mod settings_pages;
 mod share;
+mod sealed;
 mod system;
+mod team_chat;
 mod thumbs;
 
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -136,26 +147,83 @@ fn parse_args() -> Options {
     o
 }
 
-/// The notifications heard this session, newest first.
+/// The notifications heard this session, newest first, and (#EDE-65) the
+/// signed-in accounts' unread inbox entries ([`inbox`]) merged into them.
 #[derive(Default)]
 struct Notifications {
     list: Vec<dbus::Notification>,
     /// Ids still showing as toasts.
     toasts: Vec<u32>,
+    /// #EDE-65: the inbox entries, newest first.
+    inbox: Vec<inbox::InboxItem>,
+    /// The inbox entries showing as toasts, until when.
+    inbox_toasts: Vec<(String, Instant)>,
+    /// Every inbox entry heard, so each toasts once.
+    seen: HashSet<String>,
+    /// Notification ids dismissed here, until the shape's echo marks them read.
+    read_locally: HashSet<String>,
+    /// The demo's desktop notifications (the goldens), `(received ms, row)`.
+    demo: Vec<(i64, Value)>,
+}
+
+/// How long an inbox entry's toast stays (a desktop notification's default).
+const INBOX_TOAST: Duration = Duration::from_secs(6);
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 impl Notifications {
     fn to_json(&self) -> Value {
-        let toasts: Vec<Value> = self.list.iter().filter(|n| self.toasts.contains(&n.id)).take(3).map(dbus::Notification::to_json).collect();
-        json!({"toasts": toasts, "list": self.list.iter().map(dbus::Notification::to_json).collect::<Vec<_>>(), "count": self.list.len()})
+        let desktop: Vec<(i64, Value)> = if self.demo.is_empty() { self.list.iter().map(|n| (n.received_ms, n.to_json())).collect() } else { self.demo.clone() };
+        let toasts: HashSet<u64> = if self.demo.is_empty() { self.toasts.iter().map(|id| *id as u64).collect() } else { [1].into() };
+        let mut inbox_toasts: HashSet<String> = self.inbox_toasts.iter().map(|(key, _)| key.clone()).collect();
+        if !self.demo.is_empty() {
+            // The goldens' toast stack (`--open notifications`): the newest inbox entry too.
+            inbox_toasts.extend(self.inbox.first().map(|i| i.key.clone()));
+        }
+        inbox::merged_feed(&desktop, &toasts, &self.inbox, &inbox_toasts, now_ms())
+    }
+
+    fn any_toast(&self) -> bool {
+        !self.toasts.is_empty() || !self.inbox_toasts.is_empty()
     }
 
     /// Expired toasts leave the stack (they stay in the history); the ids
-    /// that left.
-    fn expire(&mut self, now: Instant) -> Vec<u32> {
+    /// that left (an inbox toast's leave quietly, `true` when one did).
+    fn expire(&mut self, now: Instant) -> (Vec<u32>, bool) {
         let gone: Vec<u32> = self.list.iter().filter(|n| self.toasts.contains(&n.id) && n.expires_at.is_some_and(|t| now >= t)).map(|n| n.id).collect();
         self.toasts.retain(|id| !gone.contains(id));
-        gone
+        let before = self.inbox_toasts.len();
+        self.inbox_toasts.retain(|(_, until)| now < *until);
+        (gone, before != self.inbox_toasts.len())
+    }
+
+    /// #EDE-65: the inbox as it stands now; what is new since the shell
+    /// started toasts (`since_ms`).
+    fn set_inbox(&mut self, mut items: Vec<inbox::InboxItem>, since_ms: i64) {
+        items.retain(|i| !i.unread_ids.iter().all(|id| self.read_locally.contains(id)));
+        items.sort_by(|a, b| b.created_ms.cmp(&a.created_ms));
+        let until = Instant::now() + INBOX_TOAST;
+        for key in inbox::fresh_items(&items, &mut self.seen, since_ms) {
+            self.inbox_toasts.insert(0, (key, until));
+        }
+        self.inbox_toasts.retain(|(key, _)| items.iter().any(|i| &i.key == key));
+        self.inbox = items;
+    }
+
+    /// An inbox entry by its feed id.
+    fn inbox_item(&self, key: &str) -> Option<inbox::InboxItem> {
+        self.inbox.iter().find(|i| i.key == key).cloned()
+    }
+
+    /// The entry leaves the bell (marked read here first); the item, to mark read on its server.
+    fn inbox_read(&mut self, key: &str) -> Option<inbox::InboxItem> {
+        let item = self.inbox_item(key)?;
+        self.read_locally.extend(item.unread_ids.iter().cloned());
+        self.inbox.retain(|i| i.key != key);
+        self.inbox_toasts.retain(|(k, _)| k != key);
+        Some(item)
     }
 
     fn push(&mut self, n: dbus::Notification) {
@@ -215,6 +283,12 @@ struct Shell {
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
     notifications: Notifications,
+    /// #EDE-65: Needs you across the accounts' teams (the tray button, needs-you.json).
+    needs_you: Vec<inbox::NeedsYouItem>,
+    /// When the shell started (epoch ms): only inbox entries since then toast.
+    started_ms: i64,
+    /// `EDE_SHELL_DEMO`: the sample data, nothing leaves the shell.
+    demo: bool,
     dbus: Option<dbus::Dbus>,
     tray: Vec<dbus::TrayItem>,
     /// #EDE-56: the Local desktops and the connected accounts' teams.
@@ -229,6 +303,14 @@ struct Shell {
     pending_pick: Option<String>,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
+    /// #EDE-65 lane I: the agent picked on the chat's home.
+    chat_agent: Option<String>,
+    /// The chat on a team: its account, team and open session.
+    chat_team: Option<team_chat::TeamChat>,
+    /// The team chat's opener over the app's keyring (its account's).
+    chat_opener: Option<(String, Arc<sync::sealed::Opener>)>,
+    /// The chat document's literal composer props (placeholder, busy) as drawn.
+    chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
     /// #EDE-64: the apps launched in the last seconds.
@@ -239,6 +321,11 @@ struct Shell {
     launchable: Arc<Vec<apps::App>>,
     /// #VAPP-273: the connected team's synced store, when the current entry is a team.
     team_stores: Option<Arc<engine::synced::TeamStores>>,
+    /// #EDE-65: the start menu's issue pool (built when the menu opens),
+    /// the hits for the current query and the debounce's generation.
+    issue_index: Arc<Vec<issues::Indexed>>,
+    issue_hits: Vec<uicore_model::StartMenuIssue>,
+    issue_search: u64,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -409,14 +496,35 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| switcher_commit(&shell, Some(id), cx));
                 }
             }
+            // #EDE-65: a row's press; an inbox entry hands off to the Exponential app.
+            "ede_notify_open" => {
+                if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| inbox_open(&shell, &key, cx));
+                } else if let Some(id) = args.get("id").and_then(Value::as_u64) {
+                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                        d.action_invoked(id as u32, "default");
+                    }
+                    cx.defer(move |cx| {
+                        notification_close(&shell, id as u32, 2, cx);
+                        close(&shell, "notification-center", cx);
+                    });
+                }
+            }
             "ede_notify_close" => {
-                if let Some(id) = args.get("id").and_then(Value::as_u64) {
+                if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
+                    // A toast's close only hides it; the bell's marks it read.
+                    let toast = args.get("toast").and_then(Value::as_bool).unwrap_or(false);
+                    cx.defer(move |cx| if toast { inbox_toast_hide(&shell, &key, cx) } else { inbox_mark_read(&shell, &key, cx) });
+                } else if let Some(id) = args.get("id").and_then(Value::as_u64) {
                     cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
                 }
             }
             "ede_notify_action" => {
+                let inbox_key = args.get("id").and_then(Value::as_str).map(String::from);
                 let (id, key) = (args.get("id").and_then(Value::as_u64), args.get("key").and_then(Value::as_str).map(String::from));
-                if let (Some(id), Some(key)) = (id, key) {
+                if let (Some(inbox_key), Some(key)) = (inbox_key, key.clone()) {
+                    cx.defer(move |cx| if key == "open" { inbox_open(&shell, &inbox_key, cx) } else { inbox_mark_read(&shell, &inbox_key, cx) });
+                } else if let (Some(id), Some(key)) = (id, key) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
                         d.action_invoked(id as u32, &key);
                     }
@@ -429,8 +537,18 @@ impl HostPlugin for Host {
                     for id in ids {
                         notification_close(&shell, id, 2, cx);
                     }
+                    // #EDE-65: and every inbox entry it lists is marked read.
+                    let keys: Vec<String> = shell.borrow().notifications.inbox.iter().map(|i| i.key.clone()).collect();
+                    for key in keys {
+                        inbox_mark_read(&shell, &key, cx);
+                    }
                     close(&shell, "notification-center", cx);
                 });
+            }
+            "ede_needs_you_open" => {
+                if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| needs_you_open(&shell, &key, cx));
+                }
             }
             "ede_tray" => {
                 if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
@@ -660,18 +778,45 @@ impl HostPlugin for Host {
                         dispatch(&shell, if open { ShellEvent::StartMenuOpen } else { ShellEvent::StartMenuClose }, cx);
                     }
                     if let Some(query) = args.get("query").and_then(Value::as_str) {
-                        dispatch(&shell, ShellEvent::StartMenuQuery { query: query.into() }, cx);
+                        start_menu_query(&shell, query.into(), cx);
                     }
                     if let Some(category) = args.get("category").and_then(Value::as_str) {
                         dispatch(&shell, ShellEvent::StartMenuCategory { category: category.into() }, cx);
                     }
                 });
             }
+            // #EDE-65: a start-menu issue opens in the Exponential app (until the shell shows issues).
+            // #EDE-65 J4: on another team or Local desktop, the switcher (and so the app) goes there first.
+            "ede_issue" => {
+                if let Some(identifier) = args.get("identifier").and_then(Value::as_str).map(String::from) {
+                    let source = issues::issue_source(&args);
+                    cx.defer(move |cx| {
+                        close(&shell, "start-menu", cx);
+                        dispatch(&shell, ShellEvent::StartMenuClose, cx);
+                        let current = shell.borrow().model.switcher.current.clone();
+                        if let Some((kind, id)) = source.filter(|(kind, id)| !(current.kind == *kind && current.id == *id)) {
+                            switcher_picked(&shell, kind, &id, cx);
+                        }
+                        ide_open(&shell, Some(&issues::issue_deep_link(&identifier)));
+                    });
+                }
+            }
             "ede_chat" => {
                 let args = args.clone();
-                cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
-                    Some("send") => chat_send(&shell, args.get("text").and_then(Value::as_str).unwrap_or(""), cx),
-                    _ => chat_toggle(&shell, cx),
+                cx.defer(move |cx| {
+                    let arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+                    match args.get("action").and_then(Value::as_str) {
+                        Some("send") => chat_send(&shell, &arg("text"), cx),
+                        Some("answer") => chat_answer(&shell, &arg("messageId"), &arg("answer"), cx),
+                        Some("pick") => {
+                            shell.borrow_mut().chat_agent = Some(arg("agentId"));
+                            chatting_changed(&shell, cx);
+                        }
+                        Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
+                        Some("new") => chat_open(&shell, None, cx),
+                        Some("stop") => {}
+                        _ => chat_toggle(&shell, cx),
+                    }
                 });
             }
             "ede_workspace" => {
@@ -706,7 +851,7 @@ impl HostPlugin for Host {
                 }
                 refresh(&shell, cx);
             }),
-            Some("/shell/startMenu/query") => cx.defer(move |cx| dispatch(&shell, ShellEvent::StartMenuQuery { query }, cx)),
+            Some("/shell/startMenu/query") => cx.defer(move |cx| start_menu_query(&shell, query, cx)),
             _ => {}
         }
     }
@@ -733,8 +878,8 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
-        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
-        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
     ]
 }
 
@@ -865,9 +1010,14 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().engine = Some(eng);
 }
 
-/// The current Local desktop, opened once (#EDE-57).
+/// The current Local desktop, opened once (#EDE-57): the switcher's (the
+/// index's current is the IDE's pick too, #EDE-65).
 fn local_desktop(shell: &SharedShell) -> Option<Arc<elocal::LocalDesktop>> {
-    let current = shell.borrow().workspaces.desktops.current().map(str::to_string)?;
+    let current = {
+        let s = shell.borrow();
+        let picked = &s.model.switcher.current;
+        if picked.kind == uicore_model::SwitcherKind::Local { picked.id.clone() } else { s.workspaces.desktops.current()?.to_string() }
+    };
     if let Some(open) = shell.borrow().local.clone().filter(|d| d.entry.id == current) {
         return Some(open);
     }
@@ -944,6 +1094,8 @@ fn next_desktop_name(shell: &Shell) -> String {
 /// The switcher's entries from the desktops index and the accounts' teams
 /// (#EDE-56), into the model (the current entry stays when it is still listed).
 fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
+    // The index is the IDE's too (#EDE-65): its new or renamed desktops show.
+    shell.borrow_mut().workspaces.desktops.reload();
     let entries = shell.borrow().workspaces.entries();
     if entries.is_empty() {
         return;
@@ -978,9 +1130,7 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         return;
     }
     shell.borrow().workspaces.save_current(&current);
-    if !picked_local {
-        accounts::ide_follow_team(id);
-    }
+    accounts::ide_follow(if picked_local { uicore_model::SwitcherKind::Local } else { uicore_model::SwitcherKind::Team }, id);
     // Another desktop or a team: the opened desktop and its chat go.
     let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
     if changed {
@@ -992,6 +1142,32 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
     chatting_changed(shell, cx);
     // #VAPP-273: the apps follow the desktop (local records or the team's).
     engine_boot(shell, cx);
+}
+
+/// The Exponential app on `link` (its single-instance socket), else started.
+fn ide_open(shell: &SharedShell, link: Option<&str>) {
+    if shell.borrow().workspaces.demo() {
+        tracing::info!(?link, "demo: no hand-off");
+        return;
+    }
+    if link.is_some_and(accounts::ide_send) {
+        return;
+    }
+    // A cold start keeps the link: the entry's Exec takes it as `%U` (its
+    // single-instance boot feeds command-line `exponential://` args in).
+    let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
+    match command {
+        Some(command) => system::launch(&command),
+        None => tracing::warn!("no at.exponential desktop entry to launch"),
+    }
+}
+
+/// The Exponential app's launch command, opening `link` when there is one.
+fn ide_command(app: &apps::App, link: Option<&str>) -> String {
+    match (app.exec_url.as_deref(), link) {
+        (Some(exec), Some(link)) => apps::exec_with_url(exec, link),
+        _ => app.exec.clone(),
+    }
 }
 
 /// The Exponential app's ids: one IDE per person, a hand-off target.
@@ -1112,6 +1288,7 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
         uicore_model::start_menu_apps(&state, &shell.menu_apps, &shell.model.taskbar.pinned).into_iter().map(|e| json!({"id": e.id, "name": e.name, "icon": app_icon(shell, &e.id)})).collect()
     };
     value["startMenu"]["favourites"] = Value::Array(favourites);
+    value["startMenu"]["issues"] = json!(uicore_model::start_menu_issues(&shell.model, &shell.issue_hits));
     value
 }
 
@@ -1199,6 +1376,12 @@ fn layer_header(doc: &Document, (out_w, out_h): (u32, u32), rail: bool) -> Surfa
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
             size.height = Some(out_h.max(1));
         }
+        // #EDE-65 lane I: the chat fills the panel like a maximised window.
+        if doc.name == "chat" {
+            let (w, h) = engine::window_max((out_w, out_h), rail);
+            size.width = Some(w);
+            size.height = Some(h);
+        }
         if doc.name == "sidebar" {
             size.width = Some(sidebar);
             if *exclusive_zone > 0 {
@@ -1245,6 +1428,7 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
         (header_for(&s, doc), s.feed.clone())
     };
     let mut doc = doc.clone();
+    patch_chat(&shell.borrow(), &mut doc);
     size_root(&mut doc, &header);
     doc.surface = header;
     shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
@@ -1481,39 +1665,184 @@ fn chat_local(shell: &SharedShell) -> bool {
     true
 }
 
-/// `/chatting` into the views: the local conversation, or the app's Assistant.
+/// `/chatting` into the views (#EDE-65 lane I): the chat model of the
+/// current conversation: the desktop's own agent on a Local desktop; on a
+/// team, until the shell syncs its sessions, the home with the Assistant.
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
-    if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
-        // The goldens: the sample conversation on a Local desktop, the app's on a team.
-        let feed = if on_local(shell) { local_runs::demo_feed() } else { remote_feed(&shell.borrow()) };
-        shell.borrow_mut().feed.set("/chatting", feed);
-        refresh(shell, cx);
-        return;
-    }
-    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()) } else { None }.unwrap_or_else(|| remote_feed(&shell.borrow()));
-    shell.borrow_mut().feed.set("/chatting", feed);
+    let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
+    let local = !demo && chat_local(shell);
+    let team = if demo || local { None } else { team_chat(shell) };
+    let (mut input, no_cli) = {
+        let s = shell.borrow();
+        match (demo, s.chat_local.as_ref().filter(|_| local), team) {
+            (true, _, _) if on_local(shell) => (local_runs::demo_input(), false),
+            (true, _, _) => (team_chat::demo_input(), false),
+            (false, Some(chat), _) => (chat.input(), chat.agent.is_empty()),
+            (false, None, Some((chat, rows))) => (team_chat::input(&rows, &chat, now_ms()), false),
+            _ => (local_runs::assistant_home(), false),
+        }
+    };
+    input.agent_id = shell.borrow().chat_agent.clone().or(input.agent_id);
+    let view = uicore_model::chat::chat_view(&input);
+    let mut value = serde_json::to_value(&view).unwrap_or_default();
+    value["noCli"] = json!(no_cli);
+    shell.borrow_mut().feed.set("/chatting", value);
+    chat_composer(shell, &view.composer, cx);
     refresh(shell, cx);
 }
 
-/// `/chatting` on a team: the team and the account it is connected through.
-fn remote_feed(shell: &Shell) -> Value {
-    let current = &shell.model.switcher.current;
-    let connection = accounts::connection_json(current, &shell.workspaces.signed_in());
-    let team = if current.kind == uicore_model::SwitcherKind::Team { current.name.as_str() } else { "" };
-    local_runs::remote_feed(team, connection["account"].as_str().unwrap_or_default())
-}
-
-/// The composer's text to the desktop's agent (#EDE-58).
-fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
-    if !chat_local(shell) {
-        launch_app(shell, "at.exponential");
+/// The conversation composer's placeholder and busy are literal props
+/// (genUI binds only a Composer's value): set by id, redrawn on a change.
+fn chat_composer(shell: &SharedShell, composer: &uicore_model::chat::ChatComposer, cx: &mut App) {
+    let props = json!({"placeholder": composer.placeholder, "busy": composer.busy});
+    if shell.borrow().chat_composer == props {
         return;
     }
-    let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
-    if let Err(e) = sent {
-        tracing::warn!("chat send: {e}");
+    shell.borrow_mut().chat_composer = props;
+    if !shell.borrow().surfaces.is_open("chat") {
+        return;
     }
-    // The draft is the document's: hand it an empty one, then let it own it again.
+    let Some(mut doc) = document(&shell.borrow(), "chat") else { return };
+    patch_chat(&shell.borrow(), &mut doc);
+    let header = header_for(&shell.borrow(), &doc);
+    size_root(&mut doc, &header);
+    doc.surface = header;
+    let feed = shell.borrow().feed.clone();
+    shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
+}
+
+/// The chat model's composer (`/chatting/composer`) into the chat
+/// document's literal props.
+fn patch_chat(shell: &Shell, doc: &mut Document) {
+    if doc.name != "chat" {
+        return;
+    }
+    let Some(composer) = shell.feed.get("/chatting").map(|c| &c["composer"]) else { return };
+    for prop in ["placeholder", "busy"] {
+        if let Some(value) = composer.get(prop) {
+            uicore_gpui::inline::set_prop(doc, "chat_composer", prop, value.clone());
+        }
+    }
+}
+
+/// The chat on the current team (its account's synced rows), kept on its
+/// session while the team stays current; `None` off a team or before its
+/// account's store opened.
+fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::TeamRows)> {
+    let current = shell.borrow().model.switcher.current.clone();
+    let account_id = current.account.clone().filter(|_| current.kind == uicore_model::SwitcherKind::Team)?;
+    let (account, store) = {
+        let s = shell.borrow();
+        (s.workspaces.account(&account_id)?, s.workspaces.store(&account_id)?)
+    };
+    let mut chat = team_chat::TeamChat { account_id: account_id.clone(), team_id: current.id.clone(), session_id: None };
+    if let Some(open) = shell.borrow().chat_team.as_ref().filter(|c| c.account_id == chat.account_id && c.team_id == chat.team_id) {
+        chat.session_id = open.session_id.clone();
+    }
+    shell.borrow_mut().chat_team = Some(chat.clone());
+    let mut rows = team_chat::TeamRows {
+        account: inbox::AccountRows::read(&account_id, &account.user_id, &store),
+        messages: inbox::read_rows(&store, "messages"),
+        users: inbox::read_rows(&store, "users"),
+    };
+    // Sealed chats open with the keys the Exponential app holds.
+    let opener = match shell.borrow().chat_opener.clone().filter(|(id, _)| *id == account_id) {
+        Some((_, opener)) => opener,
+        None => Arc::new(sealed::opener(&account_id)),
+    };
+    shell.borrow_mut().chat_opener = Some((account_id, opener.clone()));
+    sealed::open(&opener, &mut rows.account.sessions, &mut rows.messages);
+    Some((chat, rows))
+}
+
+/// The composer's text: to the desktop's agent (#EDE-58), or on a team
+/// through `sessions.send` (the IDE's path): the open session, else the
+/// picked agent; the chat then shows the session the server names.
+fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
+    if chat_local(shell) {
+        let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
+        if let Err(e) = sent {
+            tracing::warn!("chat send: {e}");
+        }
+        chat_clear_draft(shell, cx);
+        return;
+    }
+    let Some((chat, rows)) = team_chat(shell) else {
+        launch_app(shell, "at.exponential");
+        return;
+    };
+    let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
+    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text) else { return };
+    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
+        if let Some(sealed) = team_chat::seal(root, &text) {
+            input.text = Some(sealed);
+        }
+    }
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    chat_clear_draft(shell, cx);
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        match sent {
+            Ok(out) => {
+                if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
+                    open.session_id = Some(out.session_id);
+                }
+                cx.update(|cx| chatting_changed(&shell, cx));
+            }
+            Err(e) => tracing::warn!("chat send: {}", e.user_message()),
+        }
+    })
+    .detach();
+}
+
+/// A question's option: on a team `sessions.answer` stamps it in the card
+/// (the IDE's path); the desktop's runs take it as the next message.
+fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App) {
+    if label.trim().is_empty() {
+        return;
+    }
+    if chat_local(shell) {
+        if let Some(Err(e)) = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label)) {
+            tracing::warn!("chat answer: {e}");
+        }
+        chatting_changed(shell, cx);
+        return;
+    }
+    let Some(account_id) = shell.borrow().chat_team.as_ref().map(|c| c.account_id.clone()) else { return };
+    let Some(account) = shell.borrow().workspaces.account(&account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    let input = api::sessions::AnswerInput { message_id: message_id.to_string(), answer: Some(label.to_string()), answers: Some(json!([label])), ..Default::default() };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(e) = api::sessions::answer(&trpc, &input) {
+                tracing::warn!("chat answer: {}", e.user_message());
+            }
+        })
+        .detach();
+}
+
+/// A card's or a rail chat's session (`None` = New chat: the home).
+fn chat_open(shell: &SharedShell, session_id: Option<&str>, cx: &mut App) {
+    let session_id = session_id.filter(|id| !id.is_empty());
+    if chat_local(shell) {
+        if let Some(chat) = shell.borrow_mut().chat_local.as_mut() {
+            match session_id {
+                Some(id) => chat.open(id),
+                None => chat.new_chat(),
+            }
+        }
+    } else if team_chat(shell).is_some() {
+        if let Some(chat) = shell.borrow_mut().chat_team.as_mut() {
+            chat.session_id = session_id.map(str::to_string);
+        }
+    }
+    chatting_changed(shell, cx);
+}
+
+/// The draft is the document's: hand it an empty one, then let it own it again.
+fn chat_clear_draft(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().feed.set("/chat", json!({"draft": ""}));
     chatting_changed(shell, cx);
     shell.borrow_mut().feed.remove("/chat");
@@ -1536,9 +1865,65 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
         s.feed.set("/apps", Value::Array(filtered));
     }
     dispatch(shell, ShellEvent::StartMenuOpen, cx);
+    issues_reindex(shell, cx);
     toggle_popup(shell, name, cx);
     refresh(shell, cx);
     shell.borrow().surfaces.focus_component(name, "search", cx);
+}
+
+/// #EDE-65: the start menu's query: the apps at once, the issues once the
+/// keys rest (the debounce) and ranked off the main loop.
+const ISSUE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
+
+fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
+    dispatch(shell, ShellEvent::StartMenuQuery { query }, cx);
+    issues_search(shell, cx);
+}
+
+fn issues_search(shell: &SharedShell, cx: &mut App) {
+    let generation = {
+        let mut s = shell.borrow_mut();
+        s.issue_search += 1;
+        if s.model.start_menu.query.trim().is_empty() {
+            s.issue_hits.clear();
+            return;
+        }
+        s.issue_search
+    };
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(ISSUE_SEARCH_DEBOUNCE).await;
+        let Some((index, query)) = ({
+            let s = shell.borrow();
+            (s.issue_search == generation).then(|| (s.issue_index.clone(), s.model.start_menu.query.clone()))
+        }) else {
+            return;
+        };
+        let hits = cx.background_executor().spawn(async move { issues::search(&index, &query) }).await;
+        if shell.borrow().issue_search != generation {
+            return;
+        }
+        shell.borrow_mut().issue_hits = hits;
+        cx.update(|cx| model_changed(&shell, cx));
+    })
+    .detach();
+}
+
+/// #EDE-65: the issue pool, read again each time the menu opens (the
+/// stores' SQLite off the main loop); a query typed meanwhile ranks after.
+fn issues_reindex(shell: &SharedShell, cx: &mut App) {
+    let sources = shell.borrow().workspaces.issue_sources();
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let index = match sources {
+            Some(sources) => cx.background_executor().spawn(async move { issues::build(sources) }).await,
+            None => issues::demo_index(),
+        };
+        tracing::debug!(issues = index.len(), "start menu issue pool");
+        shell.borrow_mut().issue_index = Arc::new(index);
+        cx.update(|cx| issues_search(&shell, cx));
+    })
+    .detach();
 }
 
 /// Opens an on-demand layer document by name, if it is not open.
@@ -1803,7 +2188,7 @@ fn notifications_changed(shell: &SharedShell, cx: &mut App) {
         let mut s = shell.borrow_mut();
         let json = s.notifications.to_json();
         s.feed.set("/notifications", json);
-        !s.notifications.toasts.is_empty()
+        s.notifications.any_toast()
     };
     if any_toast {
         open_on_demand(shell, "notifications", cx);
@@ -1811,6 +2196,58 @@ fn notifications_changed(shell: &SharedShell, cx: &mut App) {
         close(shell, "notifications", cx);
     }
     refresh(shell, cx);
+}
+
+/// #EDE-65: the accounts' inbox and Needs you again (a delta on a shape the
+/// tray reads, a minute passed: the ages move).
+fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
+    let demo = shell.borrow().demo;
+    let (items, needs) = if demo {
+        (inbox::demo_inbox(now_ms()), inbox::demo_needs_you())
+    } else {
+        let rows = shell.borrow().workspaces.tray_rows();
+        let now = now_ms();
+        let read = shell.borrow().notifications.read_locally.clone();
+        (rows.iter().flat_map(|r| inbox::inbox_items(r, &read)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now)).collect())
+    };
+    {
+        let mut s = shell.borrow_mut();
+        let since = s.started_ms;
+        s.notifications.set_inbox(items, since);
+        s.feed.set("/needsYou", inbox::needs_you_feed(&needs));
+        s.needs_you = needs;
+    }
+    notifications_changed(shell, cx);
+}
+
+/// An inbox entry's press: marked read, the bell closes, the Exponential
+/// app opens on its issue or session (started when it does not run).
+fn inbox_open(shell: &SharedShell, key: &str, cx: &mut App) {
+    let link = shell.borrow().notifications.inbox_item(key).and_then(|i| i.link);
+    inbox_mark_read(shell, key, cx);
+    close(shell, "notification-center", cx);
+    ide_open(shell, link.as_deref());
+}
+
+/// The inbox has no archive: the entry is marked read (the IDE's row press).
+fn inbox_mark_read(shell: &SharedShell, key: &str, cx: &mut App) {
+    let item = shell.borrow_mut().notifications.inbox_read(key);
+    if let Some(item) = item {
+        shell.borrow().workspaces.mark_read(&item.account_id, item.unread_ids);
+    }
+    notifications_changed(shell, cx);
+}
+
+fn inbox_toast_hide(shell: &SharedShell, key: &str, cx: &mut App) {
+    shell.borrow_mut().notifications.inbox_toasts.retain(|(k, _)| k != key);
+    notifications_changed(shell, cx);
+}
+
+/// A Needs you row: the Exponential app on that chat's card.
+fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
+    let link = shell.borrow().needs_you.iter().find(|i| i.key() == key).map(inbox::NeedsYouItem::link);
+    close(shell, "needs-you", cx);
+    ide_open(shell, link.as_deref());
 }
 
 /// The outputs as the Displays page binds them (#EDE-14).
@@ -1997,7 +2434,7 @@ fn main() {
     // Notifications and tray changes from the session bus.
     let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Event>();
     let dbus = if demo { None } else { dbus::Dbus::start(dbus_tx, clock::time) };
-    // #EDE-56: the Local desktops (desktops.json beside compositor.toml), the
+    // #EDE-56: the Local desktops (the machine's index, #EDE-65; eDE's old one beside compositor.toml is imported once), the
     // shared accounts and their teams; Connect Exponential's threads and the
     // scheme handler's forwarded URLs.
     let config_dir = settings::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
@@ -2041,13 +2478,16 @@ fn main() {
             feed.set("/settings", state);
         }
         feed.set("/user", settings::user_json());
+        feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
+        feed.set("/needsYou", json!({"count": 0, "rows": []}));
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
-        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed("", "") });
+        // The goldens: the sample conversation (a demo starts on a Local desktop).
+        let chat = if demo { local_runs::demo_input() } else { local_runs::assistant_home() };
+        feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
-            feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
             feed.set("/tray", json!([{"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}, {"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""}]));
             feed.set(
                 "/traymenu",
@@ -2061,7 +2501,6 @@ fn main() {
             feed.set("/services", settings::demo_services());
             feed.set("/outputs", Value::Array(settings::demo_outputs()));
         } else {
-            feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
             feed.set("/tray", json!([]));
             feed.set("/services", json!({}));
             feed.set("/outputs", json!([]));
@@ -2086,6 +2525,12 @@ fn main() {
             model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
         let saved_team = workspaces.saved_team();
+        // A start on a Local desktop: a running Exponential app follows it too.
+        if saved_team.is_none() && !demo {
+            if let Some(current) = workspaces.current_local() {
+                accounts::ide_follow(current.kind, &current.id);
+            }
+        }
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
         feed.set("/shell", uicore_data::shell_feed(&model, &menu_apps, &favourites));
@@ -2119,7 +2564,23 @@ fn main() {
             capturing: Arc::new(AtomicBool::new(false)),
             thumbs_tx,
             osd_until: None,
-            notifications: Notifications::default(),
+            notifications: Notifications {
+                // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
+                demo: if demo {
+                    let now = now_ms();
+                    vec![
+                        (now - 2 * 60_000, json!({"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"})),
+                        (now - 20 * 60_000, json!({"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"})),
+                    ]
+                } else {
+                    Vec::new()
+                },
+                ..Notifications::default()
+            },
+            needs_you: Vec::new(),
+            demo,
+            // The demo toasts only through `--open notifications`.
+            started_ms: if demo { i64::MAX / 2 } else { now_ms() },
             dbus,
             tray: Vec::new(),
             workspaces,
@@ -2129,16 +2590,24 @@ fn main() {
             // #EDE-65: the team picked last, once its account's teams are listed.
             pending_pick: saved_team,
             chat_local: None,
+            chat_agent: None,
+            chat_team: None,
+            chat_opener: None,
+            chat_composer: Value::Null,
             engine: None,
             launches: system::LaunchGuard::default(),
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
             team_stores: None,
+            issue_index: Arc::new(Vec::new()),
+            issue_hits: Vec::new(),
+            issue_search: 0,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
         history_refresh(&shell);
         overlays_refresh(&shell);
+        exp_tray_refresh(&shell, cx);
         model_changed(&shell, cx);
         if !demo {
             // The outputs first: a stretched surface takes the output's size.
@@ -2186,6 +2655,9 @@ fn main() {
         let s = shell.clone();
         cx.spawn(async move |cx| {
             let mut minute = clock::time();
+            let (mut tray_pending, mut last_tray) = (false, Instant::now());
+            // #EDE-65 lane I: an open team chat repaints at most every 250 ms while a reply streams.
+            let (mut chat_pending, mut last_chat) = (false, Instant::now());
             loop {
                 let mut dirty = false;
                 while let Ok(changes) = changes_rx.try_recv() {
@@ -2232,8 +2704,17 @@ fn main() {
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
                 let mut records_changed = false;
+                let mut tray_changed = false;
+                let mut team_chat_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
                     if let sync::ShapeDelta::Applied { shape, account_id, .. } = &delta {
+                        if *shape == "teams" || inbox::SHAPES.contains(shape) {
+                            tray_changed = true;
+                        }
+                        // #EDE-65 lane I: the open team chat's rows moved.
+                        if team_chat::SHAPES.contains(shape) && s.borrow().chat_team.as_ref().is_some_and(|c| &c.account_id == account_id) {
+                            team_chat_changed = true;
+                        }
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
                             // #VAPP-273: the connected team's apps and records.
@@ -2280,12 +2761,30 @@ fn main() {
                 if teams_changed {
                     cx.update(|cx| switcher_refresh_entries(&s, cx));
                 }
+                // #EDE-65: the tray's inbox and Needs you, at most once a second while a sync streams.
+                tray_pending |= tray_changed;
+                chat_pending |= team_chat_changed;
+                if chat_pending && last_chat.elapsed() >= Duration::from_millis(250) {
+                    chat_pending = false;
+                    last_chat = Instant::now();
+                    if s.borrow().surfaces.is_open("chat") {
+                        cx.update(|cx| chatting_changed(&s, cx));
+                    }
+                }
+                if tray_pending && last_tray.elapsed() >= Duration::from_secs(1) {
+                    tray_pending = false;
+                    last_tray = Instant::now();
+                    cx.update(|cx| exp_tray_refresh(&s, cx));
+                }
                 // #EDE-58: the local agent's runs changed a session or its messages.
                 let chat_changed = s.borrow().chat_local.as_ref().and_then(|c| c.changes.as_ref()).map(|rx| rx.drain().count() > 0).unwrap_or(false);
                 if chat_changed {
                     cx.update(|cx| chatting_changed(&s, cx));
                 }
-                let expired = s.borrow_mut().notifications.expire(Instant::now());
+                let (expired, inbox_expired) = s.borrow_mut().notifications.expire(Instant::now());
+                if inbox_expired && expired.is_empty() {
+                    cx.update(|cx| notifications_changed(&s, cx));
+                }
                 if !expired.is_empty() {
                     for id in &expired {
                         if let Some(d) = s.borrow().dbus.as_ref() {
@@ -2302,6 +2801,8 @@ fn main() {
                 let now = clock::time();
                 if now != minute {
                     minute = now.clone();
+                    // The inbox's and Needs you's ages.
+                    tray_pending = true;
                     let mut sh = s.borrow_mut();
                     sh.feed.set("/time", json!(now));
                     sh.feed.set("/date", json!(clock::date()));
@@ -2429,6 +2930,30 @@ mod layer_sizes {
 }
 
 #[cfg(test)]
+mod ide_launch {
+    use super::*;
+
+    /// #EDE-65: a cold start hands the item's link over on the command line.
+    #[test]
+    fn a_cold_start_passes_the_link_as_the_entrys_url() {
+        let app = apps::App {
+            id: "at.exponential.desktop".into(),
+            name: "Exponential".into(),
+            comment: String::new(),
+            exec: "/opt/Exponential/exponential-desktop".into(),
+            exec_url: Some("/opt/Exponential/exponential-desktop %U".into()),
+            icon: None,
+            keywords: String::new(),
+            categories: vec![],
+        };
+        assert_eq!(ide_command(&app, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop 'exponential://issue/ACME-12'");
+        assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
+        let no_urls = apps::App { exec_url: None, ..app };
+        assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
+    }
+}
+
+#[cfg(test)]
 mod start_menu_document {
     use serde_json::Value;
 
@@ -2474,4 +2999,18 @@ mod start_menu_document {
         let (f, args) = call(node(root, "settings").expect("the Settings button"));
         assert_eq!((f, args["name"].as_str()), ("ede_open_document", Some("settings")));
     }
+
+    /// #EDE-65: the search lists Apps, then Issues (each opening in the app).
+    #[test]
+    fn the_start_menu_lists_apps_then_issues() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("start-menu").expect("the start menu").source).unwrap();
+        assert!(doc["surface"]["functions"].as_array().unwrap().iter().any(|f| f == "ede_issue"));
+        let scroll = node(&doc["root"], "apps_scroll").expect("the results");
+        let order: Vec<&str> = scroll["children"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
+        assert_eq!(order, ["apps_label", "apps", "app", "issues_label", "issues", "issue", "no_apps"]);
+        assert_eq!(node(scroll, "issues").unwrap()["template"]["path"], "/shell/startMenu/issues");
+        let (f, args) = call(node(scroll, "issue").unwrap());
+        assert_eq!((f, &args["identifier"]), ("ede_issue", &serde_json::json!({"@path": "identifier"})));
+    }
 }
+

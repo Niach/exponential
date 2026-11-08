@@ -36,8 +36,12 @@ fn ensure(cx: &mut App) -> bool {
         return true;
     }
     let Some(root) = root(cx) else { return false };
-    match Desktops::open(root) {
-        Ok(desktops) => {
+    // #EDE-65: the machine's one index, eDE's desktops from before imported once.
+    match Desktops::open_importing(root, elocal::ede_legacy_root().as_deref()) {
+        Ok((desktops, imported)) => {
+            if !imported.ids.is_empty() {
+                log::info!("[exp-desktop] local desktops: imported eDE's {:?}", imported.ids);
+            }
             cx.set_global(LocalDesktops { desktops, open: None, runs: None });
             true
         }
@@ -78,6 +82,11 @@ pub(crate) fn account(id: &str, cx: &App) -> Option<api::Account> {
     })
 }
 
+/// The open Local desktop's id (the app is on it).
+pub(crate) fn open_id(cx: &App) -> Option<String> {
+    Some(cx.try_global::<LocalDesktops>()?.open.as_ref()?.entry.id.clone())
+}
+
 /// A client over the open desktop while it is the active account.
 pub(crate) fn client(cx: &App) -> Option<api::TrpcClient> {
     let open = cx.try_global::<LocalDesktops>()?.open.as_ref()?;
@@ -90,6 +99,8 @@ pub(crate) fn entries(cx: &mut App) -> Vec<(String, String, bool)> {
     if !ensure(cx) {
         return Vec::new();
     }
+    // The index is eDE's too (#EDE-65): its new or renamed desktops show.
+    cx.global_mut::<LocalDesktops>().desktops.reload();
     let locals = cx.global::<LocalDesktops>();
     let open = locals.open.as_ref().map(|d| d.entry.id.clone());
     locals.desktops.active().into_iter().map(|e| (e.id.clone(), e.name.clone(), Some(&e.id) == open.as_ref())).collect()
@@ -164,6 +175,8 @@ pub(crate) fn enter_current(cx: &mut App) -> bool {
     if !ensure(cx) {
         return false;
     }
+    // The index is eDE's too (#EDE-65): its switcher's current, as it is now.
+    cx.global_mut::<LocalDesktops>().desktops.reload();
     let Some(current) = cx.global::<LocalDesktops>().desktops.current().map(str::to_string) else { return false };
     enter(&current, cx)
 }
@@ -249,6 +262,33 @@ mod tests {
         std::mem::forget(dir);
         // The leaked window context keeps the app past gpui's exit-time leak
         // check (`Store::open` holds its handles).
+        let _ = cx.add_window_view(|_, _| gpui::Empty);
+    }
+
+    /// #EDE-65: eDE's switcher picks a Local desktop; the app follows
+    /// (`exponential://local/<id>`), and the same link again changes nothing.
+    #[gpui::test]
+    fn the_local_link_opens_the_desktop_ede_picked(cx: &mut gpui::TestAppContext) {
+        cx.executor().allow_parking();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let (first, work) = {
+            let mut desktops = Desktops::open(&path).unwrap();
+            let first = desktops.current().unwrap().to_string();
+            (first, desktops.create("Work").unwrap().id)
+        };
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            install(path, cx);
+            assert!(enter(&first, cx));
+            crate::oauth::handle_open_urls(vec![format!("exponential://local/{work}")], cx);
+            assert_eq!(open_id(cx).as_deref(), Some(work.as_str()));
+            assert_eq!(Store::global(cx).session(cx).account_id(), Some(account_id(&work).as_str()));
+            crate::oauth::handle_open_urls(vec![format!("exponential://local/{work}"), "exponential://local/nope".into()], cx);
+            assert_eq!(open_id(cx).as_deref(), Some(work.as_str()));
+        });
+        std::mem::forget(dir);
         let _ = cx.add_window_view(|_, _| gpui::Empty);
     }
 

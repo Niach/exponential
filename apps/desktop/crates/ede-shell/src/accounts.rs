@@ -1,5 +1,5 @@
 //! The switcher's entries (#EDE-56): the Local desktops of this machine
-//! (elocal's `desktops.json` under the shell's config directory) and, for
+//! (elocal's `desktops.json`, the machine's one index shared with the IDE, #EDE-65) and, for
 //! every signed-in Exponential account (the IDE's `accounts.json` and token
 //! store, shared), its teams. The teams come from the account's `teams`
 //! shape, synced by the sync crate into the shell's OWN per-account store
@@ -26,13 +26,41 @@ pub struct Workspaces {
 
 /// The shapes the shell syncs per account: the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
-/// published packages) and their records, for a connected desktop.
-const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records"];
+/// published packages) and their records, for a connected desktop;
+/// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`).
+pub(crate) const SHAPES: &[&str] = &[
+    "teams",
+    "team_members",
+    "apps",
+    "app_records",
+    "notifications",
+    "issues",
+    "boards",
+    "sessions",
+    "session_issues",
+    "conversations",
+    "agents",
+    "pull_requests",
+    // #EDE-65 lane I: the agent chat's conversations (the IDE syncs the
+    // same shape) and the people its transcript names.
+    "messages",
+    "users",
+];
 
 impl Workspaces {
-    /// Opens the desktops index under `config_dir` and the shared accounts.
+    /// Opens the machine's Local desktops index (the IDE's, #EDE-65: eDE's
+    /// own under `config_dir` imported once; the goldens keep theirs under
+    /// `config_dir`) and the shared accounts.
     pub fn open(config_dir: &Path, demo: bool) -> Result<Self, String> {
-        let desktops = elocal::Desktops::open(config_dir).map_err(|e| format!("desktops.json: {e}"))?;
+        let desktops = if demo {
+            elocal::Desktops::open(config_dir).map_err(|e| format!("desktops.json: {e}"))?
+        } else {
+            let (desktops, imported) = elocal::Desktops::open_importing(elocal::machine_root(), Some(config_dir)).map_err(|e| format!("desktops.json: {e}"))?;
+            if !imported.ids.is_empty() || !imported.kept.is_empty() {
+                tracing::info!(imported = ?imported.ids, kept = ?imported.kept, replaced = ?imported.replaced, root = %desktops.root().display(), "the Local desktops joined the machine's index");
+            }
+            desktops
+        };
         let auth = api::AuthStore::load(api::default_data_dir());
         let data_dir = std::env::var_os("XDG_DATA_HOME")
             .filter(|v| !v.is_empty())
@@ -144,12 +172,56 @@ impl Workspaces {
         }
     }
 
+    /// The demo feed (the goldens): no accounts, no hand-off.
+    pub fn demo(&self) -> bool {
+        self.demo
+    }
+
     /// #EDE-65: the signed-in accounts as (id, email).
     pub fn signed_in(&self) -> Vec<(String, String)> {
         if self.demo {
             return vec![("demo".into(), "danny@example.com".into())];
         }
         self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
+    }
+
+    /// #EDE-65: every signed-in account's rows the tray reads (the inbox, Needs you).
+    pub fn tray_rows(&self) -> Vec<crate::inbox::AccountRows> {
+        if self.demo {
+            return Vec::new();
+        }
+        self.auth
+            .signed_in_accounts()
+            .into_iter()
+            .filter_map(|a| Some(crate::inbox::AccountRows::read(&a.id, &a.user_id, self.sync.store(&a.id)?.as_ref())))
+            .collect()
+    }
+
+    /// #EDE-65: `notifications.markRead` on the account's instance, one call
+    /// per row like the IDE's group press; the shape's echo clears them.
+    pub fn mark_read(&self, account_id: &str, ids: Vec<String>) {
+        let Some(account) = (!self.demo).then(|| self.account(account_id)).flatten() else { return };
+        let trpc = self.trpc(&account);
+        std::thread::spawn(move || {
+            for id in ids {
+                if let Err(e) = api::notifications::notifications_mark_read(&trpc, &id) {
+                    tracing::warn!("notifications.markRead({id}): {e}");
+                }
+            }
+        });
+    }
+
+    /// #EDE-65: what the start menu's issue search reads: every signed-in
+    /// account's store and every active Local desktop's (None = the demo's).
+    pub fn issue_sources(&self) -> Option<Vec<crate::issues::Source>> {
+        if self.demo {
+            return None;
+        }
+        let mut sources: Vec<crate::issues::Source> = self.auth.signed_in_accounts().iter().filter_map(|a| self.sync.store(&a.id)).map(crate::issues::Source::Account).collect();
+        for d in self.desktops.active() {
+            sources.push(crate::issues::Source::Local { id: d.id.clone(), name: d.name.clone(), path: self.desktops.desktop_dir(&d.id).join("local.sqlite") });
+        }
+        Some(sources)
     }
 
     /// `/accounts`: what Settings' Account page lists.
@@ -173,7 +245,8 @@ fn read_saved_team(path: &Path) -> Option<String> {
 }
 
 fn write_current(path: &Path, entry: &SwitcherEntry) -> std::io::Result<()> {
-    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id}).to_string())
+    // The account too (#EDE-65): the Exponential app starts on the team's own account.
+    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id, "account": entry.account}).to_string())
 }
 
 /// #EDE-65: what the switcher and the chat say about the connection: is an
@@ -194,18 +267,30 @@ pub fn team_deep_link(team_id: &str) -> String {
     format!("{}://team/{team_id}", api::login::OAUTH_CALLBACK_SCHEME)
 }
 
-/// #EDE-65: the Exponential app follows the switcher: the team link goes to
-/// the running app's single-instance socket (`exp-desktop.sock`); nothing
-/// runs = nothing to tell (it opens on its own last team, which this sets).
-pub fn ide_follow_team(team_id: &str) {
-    let sock = api::default_data_dir().join("exp-desktop.sock");
-    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return };
-    if socket.connect(&sock).is_ok() {
-        match socket.send(team_deep_link(team_id).as_bytes()) {
-            Ok(_) => tracing::info!(team = team_id, "the Exponential app follows the team"),
-            Err(e) => tracing::warn!("exp-desktop.sock: {e}"),
-        }
+/// #EDE-65: the deep link that brings the Exponential app onto a Local
+/// desktop (the machine's one index, so the app knows the id).
+pub fn local_deep_link(desktop_id: &str) -> String {
+    format!("{}://local/{desktop_id}", api::login::OAUTH_CALLBACK_SCHEME)
+}
+
+/// #EDE-65: the Exponential app follows the switcher: the team's or the
+/// Local desktop's link goes to the running app's single-instance socket
+/// (`exp-desktop.sock`); nothing runs = nothing to tell (it opens on its own
+/// last pick).
+pub fn ide_follow(kind: uicore_model::SwitcherKind, id: &str) {
+    let link = match kind {
+        uicore_model::SwitcherKind::Local => local_deep_link(id),
+        _ => team_deep_link(id),
+    };
+    if ide_send(&link) {
+        tracing::info!(%link, "the Exponential app follows the switcher");
     }
+}
+
+/// A deep link to the running Exponential app's single-instance socket
+/// (false: nothing runs or the send failed).
+pub fn ide_send(link: &str) -> bool {
+    crate::inbox::hand_off(link)
 }
 
 /// The goldens' switcher: two Local desktops and one account with two teams.
@@ -242,8 +327,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("switcher.json");
         assert_eq!(read_saved_team(&path), None);
-        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a1", "danny@example.com")).unwrap();
+        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a2", "work@example.com")).unwrap();
         assert_eq!(read_saved_team(&path).as_deref(), Some("t1"));
+        // The Exponential app reads the team's account from it (ui `session::ede_pick`).
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"kind": "team", "id": "t1", "account": "a2"}));
         write_current(&path, &SwitcherEntry::local("local", "Local")).unwrap();
         assert_eq!(read_saved_team(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -252,5 +340,6 @@ mod tests {
     #[test]
     fn the_team_link_is_the_one_the_app_parses() {
         assert_eq!(team_deep_link("e891ab20"), "exponential://team/e891ab20");
+        assert_eq!(local_deep_link("87858284"), "exponential://local/87858284");
     }
 }

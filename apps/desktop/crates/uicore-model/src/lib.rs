@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod chat;
 pub mod ide;
 pub mod layout;
 
@@ -672,6 +673,62 @@ pub fn start_menu_categories(apps: &[StartMenuApp], favourites: &[String]) -> Ve
                 _ => apps.iter().filter(|a| app_groups(a).contains(id)).count(),
             };
             (*id == "all" || *id == "favourites" || count > 0).then(|| StartMenuCategory { id: id.to_string(), label: label.to_string(), count })
+        })
+        .collect()
+}
+
+/// #EDE-65: one issue-search hit for the start menu: the engine
+/// (`domain::issue_search`) ranks every connected team's issues and every
+/// Local desktop's as one pool; this is a hit in its order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuIssue {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: String,
+    pub source: SwitcherKind,
+    pub source_id: String,
+    pub source_name: String,
+    pub board: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuIssueRow {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: String,
+    pub icon: String,
+    pub source: SwitcherKind,
+    pub source_id: String,
+    pub context: String,
+}
+
+/// #EDE-65: the start menu's issue rows under its apps.
+pub const START_MENU_ISSUE_LIMIT: usize = 8;
+
+const ISSUE_ANCHORS: &[&str] = &["backlog", "in_progress", "in_review", "done", "cancelled", "duplicate"];
+
+/// The ranked hits as rows: none without a query, else the first eight in
+/// the engine's order with a status icon and `<source> · <board>`.
+pub fn start_menu_issues(state: &ShellState, issues: &[StartMenuIssue]) -> Vec<StartMenuIssueRow> {
+    if state.start_menu.query.trim().is_empty() {
+        return Vec::new();
+    }
+    issues
+        .iter()
+        .take(START_MENU_ISSUE_LIMIT)
+        .map(|i| StartMenuIssueRow {
+            id: i.id.clone(),
+            identifier: i.identifier.clone(),
+            title: i.title.clone(),
+            status: i.status.clone(),
+            icon: if ISSUE_ANCHORS.contains(&i.status.as_str()) { format!("status-{}", i.status.replace('_', "-")) } else { "ui-issue".into() },
+            source: i.source.clone(),
+            source_id: i.source_id.clone(),
+            context: if i.board.is_empty() { i.source_name.clone() } else { format!("{} · {}", i.source_name, i.board) },
         })
         .collect()
 }
