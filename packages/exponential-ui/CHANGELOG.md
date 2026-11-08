@@ -7,6 +7,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - An open anchored overlay (Popover, Menu, Tooltip, a picker's popup) closes once its anchor scrolls, moves or leaves the tree (#EXP-1739): the core closes it on a scroll of a container holding the anchor or on a pass that finds the anchor moved or gone (raised through `take_events`); web `watchAnchor` (`@exponential_app/eui/web`) does the same for React and Solid. `fixtures/interactions-round1.json` `overlayAnchor`, replayed ×5.
 - Box `on.hover` (#EDE-65): a Box fires `hover` when the pointer enters it, exactly like Motion's (no payload; leaving fires nothing, entering again fires again; it need not be pressable), on React, Solid, gpui, SwiftUI and Compose. `interactions-round1.json` `boxHover`; the styleguide's `box-hover` entry. Prompt budget 9,798 → 9,811 tokens.
+- `Window` (VAPP-290): a new layout macro (lite, one child), a window frame over Box/Text: radius lg, clipped; the `chrome` bar (34 tall, three 10 px `dot`s at the start, the optional `title` caption centred between them and the `end` spacer) over the `body` the child fills; a group named by `title`, the chrome hidden from AT. Neutral recipes: card fill, hairline border, shadow md; a hairline rule under the chrome; muted dots (opacity quaternary) and title. `range(n)` takes a literal count. Specimen `exponential-ui-window`, + the kitchen sink.
 
 ## 0.19.1 (2026-11-07)
 
