@@ -1640,7 +1640,7 @@ export const sessionsSendInputSchema = z
     if (!input.text?.trim() && !input.issueIds && !input.promptId && !input.wakeOn)
       // #FEED-173: the same words as sessions.send's START_NEEDS_WORK (eagent `copy.startNeedsWork`).
       issue(
-        `Name the session to message (sessionId, agentId, appId or parentId), or give the new root session a text or issues; wakeOn alone watches from your own session`
+        `Name the session to message (sessionId, agentId, appId or parentId), or give the new session a text or issues; wakeOn alone watches from your own session`
       )
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>

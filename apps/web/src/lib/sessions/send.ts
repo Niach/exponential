@@ -820,7 +820,7 @@ async function applyWakeOn(tx: Tx, caller: Session | null, input: SessionsSendIn
  *  appId, parentId) and carrying no work for a new chat (text,
  *  attachments, a prompt, issues). Spec copy: packages/eagent rules
  *  `copy.startNeedsWork`. */
-export const START_NEEDS_WORK = `Name the session to message (sessionId, agentId, appId or parentId), or give the new root session a text or issues; wakeOn alone watches from your own session`
+export const START_NEEDS_WORK = `Name the session to message (sessionId, agentId, appId or parentId), or give the new session a text or issues; wakeOn alone watches from your own session`
 
 function startsNothing(input: SessionsSendInput): boolean {
   if (input.sessionId || input.agentId || input.appId || input.parentId) return false
