@@ -155,6 +155,22 @@ pub fn b64url_encode(bytes: &[u8]) -> String {
     BASE64URL_NOPAD.encode(bytes)
 }
 
+/// The tree secrets of a keyring file (`{"v": 1, "keys": {root: {epoch:
+/// <b64url secret>}}}`, what `coding::sealing::Keyring` persists, 0600 per
+/// account): root → epoch → secret. An entry that does not parse is skipped.
+pub fn keyring_secrets(text: &str) -> std::result::Result<std::collections::BTreeMap<String, std::collections::BTreeMap<u32, [u8; 32]>>, serde_json::Error> {
+    let doc: Value = serde_json::from_str(text)?;
+    let mut secrets: std::collections::BTreeMap<String, std::collections::BTreeMap<u32, [u8; 32]>> = Default::default();
+    for (root, epochs) in doc.get("keys").and_then(Value::as_object).into_iter().flatten() {
+        for (epoch, secret) in epochs.as_object().into_iter().flatten() {
+            let secret = secret.as_str().and_then(b64url_decode).and_then(|bytes| <[u8; 32]>::try_from(bytes).ok());
+            let (Ok(epoch), Some(secret)) = (epoch.parse::<u32>(), secret) else { continue };
+            secrets.entry(root.clone()).or_default().insert(epoch, secret);
+        }
+    }
+    Ok(secrets)
+}
+
 /// A 32-byte public key given as base64url.
 pub fn public_key_from_b64(text: &str) -> Result<[u8; 32]> {
     b64url_decode(text)

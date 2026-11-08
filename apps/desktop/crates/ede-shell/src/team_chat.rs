@@ -1,0 +1,239 @@
+//! The agent chat on a team (#EDE-65 lane I): the account's synced rows
+//! (sessions, conversations, agents, messages, users: the IDE's shapes) as
+//! the chat model's input, and the sends through `sessions.send` like the
+//! IDE's (`chat_actions::send_to_agent`, `chat_launch`): a message into an
+//! open session, or to the picked agent (the server lands it in the
+//! person's conversation with that agent). A sealed tree's text is sealed
+//! to its public key first (`coding::sealing::seal_body`'s envelope); a
+//! tree without one takes the plaintext, as the IDE does without its
+//! sealing service.
+
+use std::collections::HashMap;
+
+use domain::rows::{MessageRow, SessionRow, User};
+use uicore_model::chat::{ChatAgentInput, ChatInput};
+
+use crate::inbox::AccountRows;
+
+/// The chat's place on a team: the account, the team, the open session
+/// (`None` = the home).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamChat {
+    pub account_id: String,
+    pub team_id: String,
+    pub session_id: Option<String>,
+}
+
+/// What the chat reads off the account's store.
+pub struct TeamRows {
+    pub account: AccountRows,
+    pub messages: Vec<MessageRow>,
+    pub users: Vec<User>,
+}
+
+/// The shapes the chat reads: a delta on one repaints an open team chat.
+pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents", "users", "session_issues", "pull_requests"];
+
+/// The brand mark: the viewer's Assistant (the IDE's agent row draws it).
+const ASSISTANT_ICON: &str = "brand-exponential";
+const AGENT_ICON: &str = "bot";
+
+/// The team's agents as the IDE's agent row lists them (`agents_in_team`,
+/// `orderedAgents`: the viewer's Assistant first).
+pub fn agents(rows: &AccountRows, team_id: &str) -> Vec<ChatAgentInput> {
+    let me = Some(rows.user_id.as_str());
+    let team_ids: Vec<&str> = rows.teams.iter().map(|t| t.id.as_str()).collect();
+    let listed = domain::agent_settings::agents_in_team(rows.agents.iter(), team_id, &team_ids, me);
+    domain::agent_settings::ordered_agents(listed, me)
+        .into_iter()
+        .map(|a| ChatAgentInput {
+            id: a.id.clone(),
+            name: a.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| "Agent".into()),
+            icon: if a.is_assistant() { ASSISTANT_ICON.into() } else { a.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| AGENT_ICON.into()) },
+        })
+        .collect()
+}
+
+/// The chat model's input: the home with the team's agents, or the open
+/// session's thread as the domain builds it (session-thread.json).
+pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
+    let agents = agents(&rows.account, &chat.team_id);
+    let mut input = ChatInput { agent_id: agents.first().map(|a| a.id.clone()), agents, ..Default::default() };
+    let Some(root) = chat.session_id.as_deref().and_then(|id| rows.account.sessions.iter().find(|s| s.id == id)) else {
+        return input;
+    };
+    let tree: Vec<&SessionRow> = rows.account.sessions.iter().filter(|s| s.root_id_or_self() == root.root_id_or_self()).collect();
+    let by_conversation = domain::message_conversation::conversation_sessions(rows.account.conversations.iter());
+    let in_tree = |m: &&MessageRow| m.root_id.as_deref().is_none_or(|r| r == root.id);
+    let keyed = domain::message_conversation::key_messages_by_session(rows.messages.iter().filter(in_tree), &by_conversation);
+    let message_refs: Vec<&MessageRow> = keyed.iter().collect();
+    let session_issues: Vec<_> = rows.account.session_issues.iter().collect();
+    let issues: Vec<domain::session_tree::TreeIssue> = rows.account.issues.iter().map(domain::session_tree::TreeIssue::from_issue).collect();
+    let prs: Vec<_> = rows.account.pull_requests.iter().collect();
+    let view = domain::session_tree::build_session_thread(
+        domain::session_tree::SessionThreadInput { root, sessions: &tree, session_issues: &session_issues, issues: &issues, messages: &message_refs, pull_requests: &prs, now_ms },
+        None,
+    );
+    let by_id: HashMap<&str, &MessageRow> = keyed.iter().map(|m| (m.id.as_str(), m)).collect();
+    let users: HashMap<&str, &User> = rows.users.iter().map(|u| (u.id.as_str(), u)).collect();
+    let agent = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id));
+    input.icon = agent.map(|a| a.icon.clone()).unwrap_or_default();
+    input.title = if root.agent_id.is_some() { agent.map(|a| a.name.clone()).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
+    input.bubbles = domain::session_tree::thread_chat_mode(root.agent_id.as_deref()) == domain::session_tree::ThreadChatMode::Bubbles;
+    input.busy = view.busy;
+    input.session_id = Some(root.id.clone());
+    input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
+    input
+}
+
+/// A person's label (the IDE's `author_label`): the name, else the email.
+fn author_label(user: Option<&User>) -> String {
+    user.and_then(|u| u.name.clone().filter(|n| !n.is_empty()).or_else(|| u.email.clone().filter(|e| !e.is_empty()))).unwrap_or_else(|| "Someone".into())
+}
+
+/// The send: into the open session, else to the picked agent on the team.
+pub fn send_input(chat: &TeamChat, agent_id: Option<&str>, text: &str) -> Option<api::sessions::SendInput> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let mut input = api::sessions::SendInput { team_id: Some(chat.team_id.clone()), text: Some(text.to_string()), ..Default::default() };
+    match (&chat.session_id, agent_id) {
+        (Some(session), _) => input.session_id = Some(session.clone()),
+        (None, Some(agent)) => input.agent_id = Some(agent.to_string()),
+        (None, None) => return None,
+    }
+    Some(input)
+}
+
+/// The tree a send lands in (the open session's root, else the person's
+/// conversation with the agent), when it is synced.
+pub fn target_root<'a>(rows: &'a AccountRows, input: &api::sessions::SendInput) -> Option<&'a SessionRow> {
+    if let Some(session) = &input.session_id {
+        let row = rows.sessions.iter().find(|s| &s.id == session)?;
+        return rows.sessions.iter().find(|s| s.id == row.root_id_or_self());
+    }
+    let agent = input.agent_id.as_deref()?;
+    rows.sessions.iter().find(|s| s.is_root() && s.agent_id.as_deref() == Some(agent) && s.user_id.as_deref() == Some(rows.user_id.as_str()))
+}
+
+/// The text sealed to `root`'s tree key when it has one (the IDE's
+/// envelope); `None` = no key: the text goes as it is.
+pub fn seal(root: &SessionRow, text: &str) -> Option<String> {
+    let public = enet_core::sealed::public_key_from_b64(root.seal_public_key.as_deref()?).ok()?;
+    let epoch = u32::try_from(root.seal_epoch.unwrap_or(0)).ok()?;
+    enet_core::sealed::seal_body(&public, epoch, text).ok()
+}
+
+/// The demo's team chat (the goldens): an agent conversation.
+pub fn demo_input() -> ChatInput {
+    let message = |id: &str, author: &str, body: &str, time: &str| uicore_model::chat::ChatRowInput::Message {
+        id: id.into(),
+        author: author.into(),
+        body: body.into(),
+        name: (author == "user").then(|| "Dana Reyes".to_string()),
+        time: time.into(),
+        queued: false,
+    };
+    let agents = vec![
+        ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },
+        ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: "bug".into() },
+    ];
+    ChatInput {
+        session_id: Some("s1".into()),
+        title: "Triage".into(),
+        icon: "bug".into(),
+        bubbles: true,
+        agent_id: Some("a2".into()),
+        agents,
+        rows: vec![
+            message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a thread:", "09:02"),
+            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()) },
+            message("m2", "user", "Label the Android ones too, and check the board every hour.", "09:14"),
+            message("m3", "agent", "Done, 3 issues labelled android.", "09:14"),
+        ],
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn rows() -> TeamRows {
+        let account = AccountRows {
+            account_id: "acc".into(),
+            user_id: "u1".into(),
+            teams: vec![serde_json::from_value(json!({"id": "t1", "name": "Acme", "slug": "acme"})).unwrap()],
+            agents: vec![
+                serde_json::from_value(json!({"id": "a2", "team_id": "t1", "name": "Triage", "icon": "bug", "role": "agent", "sort_order": 1.0})).unwrap(),
+                serde_json::from_value(json!({"id": "a1", "team_id": "t1", "name": "Assistant", "role": "assistant", "owner_id": "u1"})).unwrap(),
+                serde_json::from_value(json!({"id": "a9", "team_id": "t1", "name": "Their Assistant", "role": "assistant", "owner_id": "u2"})).unwrap(),
+            ],
+            sessions: vec![serde_json::from_value(json!({"id": "s1", "team_id": "t1", "user_id": "u1", "agent_id": "a2", "status": "idle", "title": "Triage"})).unwrap()],
+            conversations: vec![serde_json::from_value(json!({"id": "c1", "team_id": "t1", "kind": "session", "session_id": "s1"})).unwrap()],
+            ..Default::default()
+        };
+        let messages = vec![
+            serde_json::from_value(json!({"id": "m1", "conversation_id": "c1", "root_id": "s1", "author_kind": "user", "author_id": "u1", "body": "Label them", "created_at": "2026-11-08T09:14:00Z"})).unwrap(),
+            serde_json::from_value(json!({"id": "m2", "conversation_id": "c1", "root_id": "s1", "author_kind": "agent", "body": "Done", "created_at": "2026-11-08T09:15:00Z"})).unwrap(),
+            serde_json::from_value(json!({"id": "m3", "conversation_id": "c-other", "root_id": "s7", "author_kind": "agent", "body": "elsewhere", "created_at": "2026-11-08T09:16:00Z"})).unwrap(),
+        ];
+        let users = vec![serde_json::from_value(json!({"id": "u1", "name": "Dana Reyes", "email": "dana@example.com"})).unwrap()];
+        TeamRows { account, messages, users }
+    }
+
+    fn chat(session: Option<&str>) -> TeamChat {
+        TeamChat { account_id: "acc".into(), team_id: "t1".into(), session_id: session.map(str::to_string) }
+    }
+
+    #[test]
+    fn the_home_lists_my_assistant_first_and_never_another_member_s() {
+        let input = input(&rows(), &chat(None), 0);
+        let names: Vec<&str> = input.agents.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["Assistant", "Triage"]);
+        assert_eq!(input.agents[0].icon, ASSISTANT_ICON);
+        assert_eq!(input.agent_id.as_deref(), Some("a1"));
+        assert!(input.session_id.is_none());
+    }
+
+    #[test]
+    fn an_agent_conversation_is_bubbles_with_its_own_messages_only() {
+        let input = input(&rows(), &chat(Some("s1")), 0);
+        assert!(input.bubbles);
+        assert_eq!((input.title.as_str(), input.icon.as_str()), ("Triage", "bug"));
+        let bodies: Vec<String> = input
+            .rows
+            .iter()
+            .filter_map(|r| match r {
+                uicore_model::chat::ChatRowInput::Message { body, .. } => Some(body.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bodies, ["Label them", "Done"]);
+        assert!(matches!(&input.rows.iter().find(|r| matches!(r, uicore_model::chat::ChatRowInput::Message { author, .. } if author == "user")), Some(uicore_model::chat::ChatRowInput::Message { name: Some(n), .. }) if n == "Dana Reyes"));
+    }
+
+    #[test]
+    fn a_send_goes_to_the_open_session_else_to_the_picked_agent() {
+        let open = send_input(&chat(Some("s1")), Some("a1"), " hi ").unwrap();
+        assert_eq!((open.session_id.as_deref(), open.agent_id.as_deref(), open.text.as_deref()), (Some("s1"), None, Some("hi")));
+        let home = send_input(&chat(None), Some("a2"), "hi").unwrap();
+        assert_eq!((home.session_id.as_deref(), home.agent_id.as_deref(), home.team_id.as_deref()), (None, Some("a2"), Some("t1")));
+        assert!(send_input(&chat(None), None, "hi").is_none());
+        assert!(send_input(&chat(Some("s1")), None, "  ").is_none());
+        let r = rows();
+        assert_eq!(target_root(&r.account, &home).map(|s| s.id.as_str()), Some("s1"), "my conversation with Triage");
+    }
+
+    #[test]
+    fn a_tree_without_a_key_is_not_sealed_and_one_with_a_key_is() {
+        let r = rows();
+        assert!(seal(&r.account.sessions[0], "hi").is_none());
+        let public = enet_core::sealed::generate_tree_key().public_key();
+        let keyed: SessionRow = serde_json::from_value(json!({"id": "s1", "seal_public_key": public, "seal_epoch": 2})).unwrap();
+        let sealed = seal(&keyed, "hi").expect("sealed");
+        assert!(sealed.starts_with("exp-sealed:v1:2:"), "{sealed}");
+    }
+}
