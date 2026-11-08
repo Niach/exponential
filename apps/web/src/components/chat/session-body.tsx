@@ -75,7 +75,16 @@ export function BackStackButton({ onPop, className }: { onPop?: () => void; clas
 const REPLY_PLACEHOLDER = CHAT_COPY.placeholder
 
 /** The reply box under a session's feed. */
-function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boolean }) {
+function SessionReply({
+  row,
+  opaque = false,
+  surface,
+}: {
+  row: SessionRow
+  opaque?: boolean
+  /** The + menu's surface (an agent's conversation: `agent`). */
+  surface?: `agent` | `session`
+}) {
   const { users } = useTeamUsers(row.teamId)
   const live = row.status !== `ended`
   return (
@@ -89,6 +98,7 @@ function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boole
       opaque={opaque}
       hideReplies={opaque}
       testId="session-composer"
+      {...(surface ? { surface } : {})}
     />
   )
 }
@@ -99,9 +109,9 @@ function useOpenedSessionRead(sessionId: string) {
   useMarkRead(sessionId, useNewestAgentMessageAt([sessionId]))
 }
 
-/** The session open IN PLACE inside its chat: md+ under the chat's
- *  header + strip; EXP-1343 phones too — a PAGE of the chat's pager under
- *  its floating header band (`topInset` clears it), replying through THE
+/** #EXP-1732: a session's OWN view on THE session screen: the ROOT's is
+ *  the Chat tab (every kind), a descendant's the opened Sessions row (the
+ *  tab pane wide, a pushed item on phones); phones reply through THE
  *  floating composer capsule. */
 export function InPlaceSession({
   row,
@@ -109,7 +119,14 @@ export function InPlaceSession({
   floating = false,
   origin = null,
   onOpenXref,
+  surface,
+  composer,
 }: {
+  /** The reply box's + menu surface (an agent's conversation: `agent`). */
+  surface?: `agent` | `session`
+  /** Replaces the reply box (an app editor's, with its device menu);
+   *  `opaque` = it floats in the phone capsule. */
+  composer?: (opaque: boolean) => ReactNode
   row: SessionRow
   /** Phones: the overlay header band's height. */
   topInset?: number
@@ -145,10 +162,12 @@ export function InPlaceSession({
               placeholder={REPLY_PLACEHOLDER}
               above={<SessionComposerReplies sessionId={row.id} />}
             >
-              <SessionReply row={row} opaque />
+              {composer ? composer(true) : <SessionReply row={row} opaque surface={surface} />}
             </FloatingComposer>
+          ) : composer ? (
+            composer(false)
           ) : (
-            <SessionReply row={row} />
+            <SessionReply row={row} surface={surface} />
           )
         }
       />

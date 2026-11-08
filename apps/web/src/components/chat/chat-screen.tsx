@@ -1,4 +1,4 @@
-import { chatPendingAsks, chatSessionNames } from "@exp/domain-contract/ask-dock"
+import { chatPendingAsks } from "@exp/domain-contract/ask-dock"
 import { CHATS_COPY, type ChatLead } from "@exp/domain-contract/chats"
 import {
   sessionScreen,
@@ -7,44 +7,27 @@ import {
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
-import { WAITING_CARDS_CONSTANTS } from "@exp/domain-contract/waiting-cards"
-import { sendSessionMessage } from "@/lib/enet/send-sealed"
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
-  CardHighlightContext,
-  CHAT_COLUMN_CLASS,
   ChatLeadDisc,
   conceptIcon,
-  FloatingComposer,
-  JumpToBottomButton,
-  JUMP_TO_BOTTOM_GAP,
-  LoadEarlierButton,
-  useTranscriptWindow,
   Menu,
   MenuGestureHost,
   SkeletonRows,
   chatLeadPrState,
-  ChatDock,
-  chatDockedIds,
-  ChatConversation,
-  type WaitingCardRow,
   useIsMobile,
-  userMessageTime,
   type MenuSessionProps,
   PlanPage,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
-import { SessionLiveTail, useSessionDock } from "@/components/agent-session"
-import { IssueChip as IssueRefChip } from "@/components/issue-chip"
-import { IssueRefOutlet, useIssueRefs } from "@/components/issue-ref-provider"
+import { IssueRefOutlet } from "@/components/issue-ref-provider"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
-import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
 import { ChatGuideMerge, chatGuidePullRequest } from "@/components/chat/chat-guide"
 import { useResultsTab } from "@/hooks/use-results-tab"
-import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { ChatScreenHeaderMenu, useChatTabMenu } from "@/components/chat/chat-tab-menu"
 import { useChatActions } from "@/components/chat/chat-menu"
@@ -60,29 +43,22 @@ import {
 } from "@/components/chat/session-screen-bodies"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { InPlaceSession } from "@/components/chat/session-body"
-import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
-import { useAgentRow } from "@/hooks/use-agent-row"
+import { useSessionNav } from "@/hooks/use-session-nav"
 import type { ChatSearch } from "@/lib/session-screen-search"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
-import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
-import { useFollowScroll } from "@/hooks/use-follow-scroll"
-import { useSession } from "@/hooks/use-session"
-import { useSessionMessages, useSessionWaitingCard, type MessagePage } from "@/hooks/use-session-tree"
+import type { MessagePage } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
-import { cn } from "@/lib/utils"
-import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   CHAT_ROW_WORDS,
-  type MessageRow,
   type PullRequestRow,
   type SessionRow,
   type SessionChatView,
 } from "@/lib/session-tree"
-import { chatMode, type SessionChatRow } from "@exp/domain-contract/session-tree"
+import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { planTabTarget } from "@exp/domain-contract/plan-page"
 
 // #EXP-1732 (fixtures/session-screen.json): THE session screen for a chat
@@ -92,9 +68,9 @@ import { planTabTarget } from "@exp/domain-contract/plan-page"
 // THE SegmentedControl of `sessionScreen().tabs` (Chat · Issues · Sessions
 // · Results with their counts); this host builds the bodies:
 //
-//   chat       THE one transcript (ChatConversation + THE Dock + THE
-//              composer), for every chat (NEW-46's single-session raw work
-//              is gone ×4); plans and questions stay inline
+//   chat       the ROOT's own session view (`InPlaceSession`: its raw
+//              work + traces, its cards inline, THE Dock, THE composer),
+//              for every kind
 //   issues     the tree's issues (nested indented), led by the `+`; a row
 //              opens that issue IN PLACE (`open=issue&issue=`)
 //   sessions   THE tree rows of every session under the root; a row opens
@@ -110,9 +86,6 @@ import { planTabTarget } from "@exp/domain-contract/plan-page"
 export { validateChatSearch, type ChatSearch } from "@/lib/session-screen-search"
 
 const PrivateIcon = conceptIcon(`ui-private`)
-// #EXP-1380 (chats.json PERF): a STABLE callback, or every row re-renders
-// with the page (`StableRow` compares it by identity).
-const attachmentSrc = (id: string) => `/api/attachments/${id}`
 
 /** The header subtitle's status word (`sessionScreenSubtitle`). */
 function statusWord(rows: readonly SessionRow[], root: SessionRow, needsYou: boolean): string {
@@ -205,13 +178,6 @@ export function ChatScreen({
 
   const rowsById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
   const focused = view.focusId ? (rowsById.get(view.focusId) ?? null) : null
-  /** EXP-1323: a suggested-tasks card's Start with… lists the POSTING
-   *  session's agent's models (a session of the tree; the root's as the
-   *  fallback). */
-  const agentFor = useCallback(
-    (sessionId: string) => rowsById.get(sessionId)?.cli ?? root.cli,
-    [rowsById, root.cli]
-  )
   // EXP-1323: opening the chat marks its root read (again whenever a newer
   // agent reply lands anywhere in the tree while it is open); an opened
   // session marks itself (`session-body.tsx`).
@@ -230,10 +196,9 @@ export function ChatScreen({
   // ── THE screen (session-screen.json) ──────────────────────────────────────
   const openIssueId =
     search.open === `issue` && search.issue && issueIds.includes(search.issue) ? search.issue : null
-  // #EXP-1732 (parity ×4, NEW-46 dropped): Chat is ALWAYS the transcript;
-  // the root's own raw work opens as a session only while it has children.
-  const openSessionRow =
-    search.open === `session` && focused && (focused.id !== root.id || rows.length > 1) ? focused : null
+  // #EXP-1732: the root's own work IS the Chat tab; `open=session` naming
+  // the root is just that.
+  const openSessionRow = search.open === `session` && focused && focused.id !== root.id ? focused : null
   const openPlan =
     search.open === `plan`
       ? (planRows.find((row) => row.id === search.plan) ??
@@ -305,45 +270,22 @@ export function ChatScreen({
     )
   )
 
-  // #EXP-1562 / #FEED-191 (needs-you.json): `?card=` scrolls the chat to
-  // that card and rings it (phones: the Chat tab first).
-  const [scrollTo, setScrollTo] = useState<{ id: string; at: number } | null>(null)
-  const [highlight, setHighlight] = useState<string | null>(null)
+  // #FEED-191 (needs-you.json): `?card=` lands on the Chat tab (the root's
+  // session view holds the card; #EXP-1732: it has no card scroll, so the
+  // param just leaves the URL).
   useEffect(() => {
-    if (!scrollTo) return
-    // The chat may still be mounting: look for the card a few frames.
-    let frames = 0
-    let raf = 0
-    const find = () => {
-      const card = document.querySelector(`[data-card-id="${CSS.escape(scrollTo.id)}"]`)
-      if (card) {
-        card.scrollIntoView({ block: `center`, behavior: `smooth` })
-        setHighlight(scrollTo.id)
-      } else if (frames++ < 60) raf = requestAnimationFrame(find)
-    }
-    raf = requestAnimationFrame(find)
-    return () => cancelAnimationFrame(raf)
-  }, [scrollTo])
-  // A card (or `?plan=`) older than the loaded page pages it in.
-  const deepLink = search.card ?? (search.open === `plan` ? search.plan : undefined)
-  const deepLinkHere = deepLink ? view.rows.some((row) => row.id === deepLink) : false
-  useEffect(() => {
-    if (!search.card || !deepLinkHere) return
-    setScrollTo({ id: search.card, at: Date.now() })
+    if (!search.card) return
     const { card: _card, ...rest } = search
-    // A phone shows the chat first (the card lives there).
     onNavigate(isMobile && screen.layout !== `chat` ? { tab: `chat`, ...keepBack } : rest, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.card, deepLinkHere])
+  }, [search.card])
+  // A `?plan=` older than the loaded page pages it in.
+  const planLink = search.open === `plan` ? search.plan : undefined
+  const planHere = planLink ? view.rows.some((row) => row.id === planLink) : false
   useEffect(() => {
-    if (deepLink && !deepLinkHere && messagePage.ready && messagePage.more) messagePage.loadMore()
+    if (planLink && !planHere && messagePage.ready && messagePage.more) messagePage.loadMore()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepLink, deepLinkHere, messagePage.ready, messagePage.more, messagePage.loaded])
-  useEffect(() => {
-    if (!highlight) return
-    const timer = setTimeout(() => setHighlight(null), WAITING_CARDS_CONSTANTS.highlightMs)
-    return () => clearTimeout(timer)
-  }, [highlight, scrollTo])
+  }, [planLink, planHere, messagePage.ready, messagePage.more, messagePage.loaded])
 
   const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
   const menu = useChatTabMenu({
@@ -355,20 +297,17 @@ export function ChatScreen({
   })
 
   // ── The bodies ─────────────────────────────────────────────────────────────
+  // #EXP-1732 (the owner's correction): the Chat tab IS the ROOT's own
+  // session view (its raw work + trace rows, its cards inline, THE Dock,
+  // THE composer) for every kind; descendants are Sessions rows.
   const chat = (
-    <ConversationBody
-      teamId={team.id}
-      view={view}
-      root={root}
-      users={users as User[]}
-      canReply={permissions.isMember}
-      busy={root.busy}
-      onOpenSession={openRowSession}
-      onOpenXref={nav.open}
-      onOpenPlan={(id) => openItem({ open: `plan`, plan: id })}
-      agentFor={agentFor}
-      tree={rows}
-      messagePage={messagePage}
+    <InPlaceSession
+      key={root.id}
+      row={root}
+      floating={isMobile}
+      origin={view.origin}
+      onOpenXref={openRowSession}
+      surface={root.agentId ? `agent` : `session`}
     />
   )
 
@@ -510,7 +449,6 @@ export function ChatScreen({
     // EXP-1347: an issue pill of one of this chat's issues opens it in place.
     <IssueRefOutlet issueIds={issueIds} onOpen={openIssue}>
       <MenuGestureHost menus={issueMenus}>
-        <CardHighlightContext.Provider value={highlight}>
           <SessionScreenFrame
             screen={screen}
             testId="chat-page"
@@ -545,7 +483,6 @@ export function ChatScreen({
             onCloseItem={closeItem}
             overlay={agent?.overlay}
           />
-        </CardHighlightContext.Provider>
       </MenuGestureHost>
       {chatActions.dialog}
     </IssueRefOutlet>
@@ -583,236 +520,4 @@ function ChatPlanBody({
       }
     />
   )
-}
-
-function ConversationBody({
-  teamId,
-  view,
-  root,
-  users,
-  canReply,
-  busy,
-  onOpenSession,
-  onOpenXref,
-  onOpenPlan,
-  agentFor,
-  tree,
-  messagePage,
-}: {
-  teamId: string
-  view: SessionChatView
-  /** The root's row (the live tail reads its relay state). */
-  root: SessionRow
-  users: User[]
-  canReply: boolean
-  /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
-  busy: boolean
-  /** #EXP-1662: a plan row opens that plan (`open=plan`). */
-  onOpenPlan: (messageId: string) => void
-  /** A session card opens that session in place (EXP-1316). */
-  onOpenSession: (sessionId: string) => void
-  /** S-3: an xref opens its session on the back stack. */
-  onOpenXref: (sessionId: string) => void
-  /** The agent CLI of a session of the tree (the suggestions' models). */
-  agentFor: (sessionId: string) => string | null | undefined
-  /** #EXP-1545: every session of the tree (a Live child's Queue docks). */
-  tree: readonly SessionRow[]
-  /** #EXP-1380: the loaded newest messages (Load earlier pages more). */
-  messagePage: MessagePage
-}) {
-  const messages = useSessionMessages(view.rootId)
-  const messagesById = useMemo(
-    () => new Map(messages.map((message: MessageRow) => [message.id, message])),
-    [messages]
-  )
-  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
-  // #EXP-1736 (transcript-grouping.json): the conversation's own sender
-  // (an agent's chat = the agent's name; else the chat's title) and its
-  // members' names.
-  const { agent: agentRow } = useAgentRow(root.agentId)
-  const chatSender = useMemo(
-    () => ({ sessionId: root.id, title: (root.agentId ? agentRow?.name : null) ?? view.title, agentId: root.agentId ?? null }),
-    [root.id, root.agentId, agentRow?.name, view.title]
-  )
-  const memberOf = useCallback((id: string) => usersById.get(id) ?? null, [usersById])
-  const { answer, pending } = useAnswerMessage()
-  const unqueue = useUnqueueMessage()
-  const { data: session } = useSession()
-  // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
-  // follows while pinned, THE jump button once scrolled up.
-  // Keyed on the row count + the last row's id, not `view.rows`: the view is
-  // rebuilt every second (useNow) and an identity key would re-run the
-  // follow effect each tick.
-  const lastRowId = view.rows.at(-1)?.id ?? null
-  const follow = useFollowScroll([view.rows.length, lastRowId])
-  // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
-  const transcript = useTranscriptWindow(view.rows, follow.scrollRef, { resetKey: view.rootId, ...messagePage })
-  const isMobile = useIsMobile()
-  const xrefAgent = useXrefAgent()
-  // S-3 (session-chat.json `chatModeCases`, chats.json CHAT MODE): an
-  // agent conversation paints chat bubbles on every form factor; a chat
-  // keeps its transcript, on every form factor too (EXP-1676).
-  const bubbles = chatMode(root) === `bubbles`
-  const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
-  // The Dock holds the open suggestions; S-3: a waiting plan or question is
-  // never docked and stays inline answerable.
-  const dockedIds = useMemo(
-    () => (canReply ? chatDockedIds(view.rows, () => null) : new Set<string>()),
-    [canReply, view.rows]
-  )
-  const sessionName = useMemo(() => chatSessionNames(view.tabs), [view.tabs])
-  // N-12: THE Dock over the Conversation's bottom edge: the Queue (the
-  // root's, else a Live child's, #EXP-1545), the root's
-  // queued messages, banners and open suggestions, then the composer
-  // (a phone's floats in the work bar); the scroller pads by its height.
-  const dockChildren = useMemo(
-    () =>
-      tree
-        .filter((row) => row.id !== root.id)
-        .map((row) => ({ session: row, name: sessionName(row.id) ?? row.title ?? `` })),
-    [tree, root.id, sessionName]
-  )
-  const sessionDock = useSessionDock(root, dockChildren)
-  const sendSurfaceReply = (text: string) => {
-    sendSessionMessage({ teamId, sessionId: view.composer.sessionId, text }, SKIP_ERROR_TOAST)
-      .catch((error) => failedAction(`send`, `the message`, error))
-  }
-  const [dockHeight, setDockHeight] = useState(0)
-  // FEED-140: the dock's band grows the transcript's bottom padding AFTER
-  // the first pin to the newest row; a pinned reader stays pinned, so the
-  // last card's actions (an inline plan's decision) never sit under it.
-  const { atBottom, jumpToBottom } = follow
-  useEffect(() => {
-    if (atBottom) jumpToBottom()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dockHeight])
-  const composer = canReply ? (
-    <SessionComposer
-      teamId={root.teamId}
-      browseTeamId={teamId}
-      sessionId={view.composer.sessionId}
-      placeholder={view.composer.placeholder}
-      users={users}
-      busy={busy}
-      canStop
-      opaque={isMobile}
-      hideReplies={isMobile}
-      testId="chat-composer"
-      surface={root.agentId ? `agent` : `session`}
-    />
-  ) : null
-
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="relative min-h-0 flex-1">
-      <div
-        ref={follow.scrollRef}
-        onScroll={follow.onScroll}
-        data-testid="chat-scroll"
-        className="h-full overflow-y-auto overscroll-contain"
-      >
-        <div
-          ref={follow.contentRef}
-          className={cn(CHAT_COLUMN_CLASS, `px-3 pt-8 md:px-5`)}
-          style={{ paddingBottom: dockHeight + 16 }}
-        >
-          {transcript.canLoadEarlier ? <LoadEarlierButton onClick={transcript.loadEarlier} /> : null}
-          <ChatConversation
-            rows={transcript.rows}
-            renderText={renderChatText}
-            attachmentSrc={attachmentSrc}
-            chat={chatSender}
-            member={memberOf}
-            fromStart={!transcript.canLoadEarlier}
-            onOpenSession={onOpenSession}
-            onOpenXref={onOpenXref}
-            xrefAgent={xrefAgent}
-            rootId={root.id}
-            WaitingCard={SessionWaitingCard}
-            origin={view.origin}
-            onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
-            onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
-            onDismiss={canReply ? (id) => void answer(id, { dismissed: true }) : undefined}
-            onOpenPlan={(plan) => onOpenPlan(plan.id)}
-            pending={pending}
-            docked={dockedIds}
-            viewerId={session?.user?.id ?? null}
-            onUnqueue={(id) => void unqueue(id)}
-            // Chat 58cb32df (chats.json TRANSCRIPT): phones paint chat
-            // bubbles; a surface card's reply posts as the next message.
-            layout={bubbles ? `bubbles` : `transcript`}
-            messageTime={(row) => {
-              const message = messagesById.get(row.id)
-              return message ? userMessageTime(new Date(message.createdAt)) : null
-            }}
-            onSurfaceReply={canReply ? sendSurfaceReply : undefined}
-            suggestions={suggestions}
-            renderIssueRef={(_issueId, identifier) =>
-              identifier ? <FiledIssueRef identifier={identifier} /> : null
-            }
-            tail={
-              view.liveSessionId === root.id ? <SessionLiveTail session={root} /> : undefined
-            }
-          />
-        </div>
-      </div>
-      <JumpToBottomButton
-        visible={!follow.atBottom && view.rows.length > 0}
-        className="absolute left-1/2 z-30 -translate-x-1/2"
-        style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
-        onClick={follow.jumpToBottom}
-      />
-      {canReply && (
-        <ChatDock
-          rows={view.rows}
-          sessionName={sessionName}
-          renderText={renderChatText}
-          pending={pending}
-          onAnswer={(id, input) => void answer(id, input)}
-          onDecide={(id, input) => void answer(id, input)}
-          sources={sessionDock.sources}
-          renderSheet={sessionDock.renderSheet}
-          renderAction={sessionDock.renderAction}
-          suggestions={suggestions}
-          onOpenSession={onOpenSession}
-          renderIssueRef={(_issueId, identifier) =>
-            identifier ? <FiledIssueRef identifier={identifier} /> : null
-          }
-          composer={isMobile ? undefined : composer}
-          onHeight={setDockHeight}
-          phoneClearance={isMobile}
-        />
-      )}
-      </div>
-      {/* EXP-1316: phones reply through THE floating composer capsule. */}
-      {composer && isMobile && (
-        <FloatingComposer
-          placeholder={view.composer.placeholder}
-          above={<SessionComposerReplies sessionId={view.composer.sessionId} />}
-        >
-          {composer}
-        </FloatingComposer>
-      )}
-    </div>
-  )
-}
-
-/** #EXP-1464: an expanded session row's waiting card off the synced data. */
-function SessionWaitingCard({
-  sessionId,
-  children,
-}: {
-  sessionId: string
-  children: (row: WaitingCardRow | null | undefined) => ReactNode
-}) {
-  return <>{children(useSessionWaitingCard(sessionId))}</>
-}
-
-/** EXP-1323: a filed suggestion's issue = THE issue chip once it resolves
- *  (same team, synced), else its identifier. */
-function FiledIssueRef({ identifier }: { identifier: string }) {
-  const issueRefs = useIssueRefs()
-  const resolved = issueRefs?.resolve(identifier) ?? null
-  if (!resolved) return <>{identifier}</>
-  return <IssueRefChip issue={resolved} onClick={() => issueRefs?.open(resolved.identifier)} />
 }

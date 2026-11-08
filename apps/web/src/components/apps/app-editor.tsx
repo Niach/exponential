@@ -28,7 +28,6 @@ import {
   EmptyState,
   getActionIcon,
   GlassGroup,
-  JumpToBottomButton,
   ListRow,
   Menu,
   type MenuEntry,
@@ -41,10 +40,8 @@ import {
   SelectTrigger,
   SelectValue,
   SETTINGS_LIST_CLASS,
-  ChatConversation,
   toast,
   useIsMobile,
-  userMessageTime,
   type DevicePickerDevice,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
@@ -72,11 +69,8 @@ import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
-import { renderChatText } from "@/components/chat/chat-markdown"
-import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
-import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
-import { useSessionTitles, useTreeMessages } from "@/hooks/use-session-tree"
+import { useSessionTitles } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -324,8 +318,6 @@ export function AppEditor({
   }, [runAsId, members, runAsChoices, levels])
   const { root, teamSessions } = useEditorSession(teamId, app.id, me)
   const deviceGlyph = useDeviceGlyphs()
-  const messages = useTreeMessages(root?.id)
-  const follow = useFollowScroll([messages, root?.id])
   const versions = useAppVersions(app.id)
   const head = app.headVersion
   // eApps V1 (#VAPP-210): `package` = the published version's, `draftPackage`
@@ -534,34 +526,31 @@ export function AppEditor({
     }
   }
 
-  const { rows: channelRows } = useConversationRows({ conversation: root, messages, teamSessions })
-  const { answer, pending } = useAnswerMessage()
-  const messageAt = (id: string) => {
-    const message = messages.find((row) => row.id === id)
-    return message ? new Date(message.createdAt) : null
-  }
-  const channel =
-    root && messages.length > 0 ? (
-      <ChatConversation
-        rows={channelRows}
-        renderText={renderChatText}
-        attachmentSrc={attachmentSrc}
-        chat={{ sessionId: root.id, title: app.name, agentId: null }}
-        member={(id) => (users as User[]).find((user) => user.id === id) ?? null}
-        viewerId={me ?? null}
-        messageTime={(row) => {
-          const at = messageAt(row.id)
-          return at ? userMessageTime(at) : null
-        }}
-        onOpenSession={(sessionId) => {
-          const target = teamSessions.find((row) => row.id === sessionId)
-          if (target) openSession(target)
-        }}
-        onAnswer={isMember ? (id, input) => void answer(id, input) : undefined}
-        onDecide={isMember ? (id, input) => void answer(id, input) : undefined}
-        pending={pending}
+  // #EXP-1732: the Chat pane IS the editor session's own session view (its
+  // raw work, THE Dock, the app's composer with its device menu); before the
+  // first send, the draft's starters (or the empty state) over the composer.
+  const appComposer = (opaque: boolean) =>
+    isMember ? (
+      <SessionComposer
+        teamId={teamId}
+        sessionId={root?.id ?? null}
+        appId={app.id}
+        deviceId={deviceId ?? undefined}
+        deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
+        moveDevice={device.move}
+        disabled={!root && !deviceId}
+        placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
+        autoFocus={draft && !root}
+        users={users as User[]}
+        busy={root?.busy ?? false}
+        canStop
+        opaque={opaque}
+        hideReplies={opaque}
+        testId="app-composer"
+        className={opaque ? undefined : `mx-auto max-w-3xl`}
       />
-    ) : draft && !root ? (
+    ) : null
+  const empty = draft ? (
       <div className="flex flex-1 items-center justify-center py-12">
         <EmptyState icon={NavAppsIcon} title={APPS_COPY.starterTitle} size="page">
           {isMember &&
@@ -591,42 +580,27 @@ export function AppEditor({
       </div>
     )
 
-  const composer = isMember ? (
-    <SessionComposer
-      teamId={teamId}
-      sessionId={root?.id ?? null}
-      appId={app.id}
-      deviceId={deviceId ?? undefined}
-      deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
-      moveDevice={device.move}
-      disabled={!root && !deviceId}
-      placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
-      autoFocus={draft && !root}
-      users={users as User[]}
-      busy={root?.busy ?? false}
-      canStop
-      testId="app-composer"
-      className="mx-auto max-w-3xl"
-    />
-  ) : null
-
-  const chat = (
+  const chat = root ? (
     <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.chat}>
-      <div className="relative min-h-0 flex-1">
-        <div ref={follow.scrollRef} onScroll={follow.onScroll} className="h-full overflow-y-auto overscroll-contain">
-          <div ref={follow.contentRef} className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-6 pb-6">
-            {channel}
-          </div>
-        </div>
-        <JumpToBottomButton
-          visible={!follow.atBottom && messages.length > 0}
-          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
-          onClick={follow.jumpToBottom}
-        />
+      <InPlaceSession
+        key={root.id}
+        row={root}
+        floating={isMobile}
+        onOpenXref={(sessionId) => {
+          const target = teamSessions.find((row) => row.id === sessionId)
+          if (target) openSession(target)
+        }}
+        composer={isMember ? appComposer : undefined}
+      />
+    </div>
+  ) : (
+    <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.chat}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-6 pb-6">{empty}</div>
       </div>
-      {composer && (
+      {isMember && (
         <div className="shrink-0 px-4 pt-2 pb-4" data-testid={APPS_TEST_IDS.composer}>
-          {composer}
+          {appComposer(false)}
         </div>
       )}
     </div>
@@ -947,5 +921,3 @@ export function AppEditor({
 }
 
 type PreviewFrame = `desktop` | `phone`
-
-const attachmentSrc = (id: string) => `/api/attachments/${id}`
