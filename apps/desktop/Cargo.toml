@@ -28,7 +28,9 @@ license = "Apache-2.0"
 # packages/exponential-ui/release/check-gpui-revs.ts gate the versions in every
 # consumer (crates/eui-gpui/README.md "gpui revisions" is the table).
 # Current: gpui-component 0.9.0 → gpui-pre 0.3.11 (zed f816e1f, 2026-11-01).
-gpui = { package = "gpui-pre", version = "=0.3.11" }
+# `stacker` grows the stack for deep element trees; zed made it opt-in
+# (#63187) after our previous pin, where it was always on.
+gpui = { package = "gpui-pre", version = "=0.3.11", features = ["stacker"] }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = [
     "font-kit",
     "x11",
