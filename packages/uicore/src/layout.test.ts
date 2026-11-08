@@ -4,7 +4,7 @@ import { LAYOUT, sidebarWidth, widgetSize } from "./layout"
 
 describe(`shell-layout.json`, () => {
   test(`layout.ts reads every number of the fixture`, () => {
-    expect(LAYOUT).toEqual(fixture)
+    expect(LAYOUT).toEqual(fixture as unknown as typeof LAYOUT)
     expect(LAYOUT.sidebarWidth).toBe(272)
     expect(LAYOUT.railWidth).toBe(56)
     expect(LAYOUT.taskbarHeight).toBe(48)
