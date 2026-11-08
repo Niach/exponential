@@ -109,31 +109,15 @@ impl From<&api::prompts::Prompt> for SlashPrompt {
     }
 }
 
-/// Rows of prompts the menu draws at most (web `filterSlashPrompts`' cap).
-const PROMPT_LIMIT: usize = 50;
-
-/// The token a prompt answers to after the slash (web `promptSlashName`):
-/// its name, lowercased, whitespace runs as `-` (`Fix flaky tests` →
-/// `fix-flaky-tests`), so `/fix` and `/fix-fl` both find it.
+/// The token a prompt answers to after the slash (`domain::slash_menu`).
 pub(crate) fn prompt_slash_name(name: &str) -> String {
-    name.trim()
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join("-")
+    domain::slash_menu::prompt_slash_name(name)
 }
 
 /// Case-insensitive PREFIX filter over the prompts' slash names, the team's
-/// order preserved; an empty query offers every prompt (web
-/// `filterSlashPrompts`).
+/// order preserved (`domain::slash_menu::filter_prompts`).
 pub(crate) fn filter_slash_prompts(prompts: &[SlashPrompt], query: &str) -> Vec<SlashPrompt> {
-    let needle = query.trim().to_lowercase();
-    prompts
-        .iter()
-        .filter(|prompt| prompt_slash_name(&prompt.name).starts_with(&needle))
-        .take(PROMPT_LIMIT)
-        .cloned()
-        .collect()
+    domain::slash_menu::filter_prompts(prompts, |prompt| &prompt.name, query).into_iter().cloned().collect()
 }
 
 /// One row of THE `/` menu: a contract builtin or a team prompt.

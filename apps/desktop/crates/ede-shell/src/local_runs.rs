@@ -151,6 +151,11 @@ impl LocalChat {
         row.and_then(|r| r.get("cli").and_then(Value::as_str).map(str::to_string)).filter(|c| !c.is_empty()).or_else(|| (!self.agent.is_empty()).then(|| self.agent.clone()))
     }
 
+    /// The desktop's prompts (its store's `prompts`, #EDE-65 J).
+    pub fn prompts(&self) -> Vec<domain::rows::PromptRow> {
+        self.desktop.store.rows("prompts").unwrap_or_default().into_iter().filter_map(|row| serde_json::from_value(Value::Object(row)).ok()).collect()
+    }
+
     /// New chat: the next send starts a session.
     pub fn new_chat(&mut self) {
         self.session_id = None;

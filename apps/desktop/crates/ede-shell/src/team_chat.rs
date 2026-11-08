@@ -29,10 +29,12 @@ pub struct TeamRows {
     pub account: AccountRows,
     pub messages: Vec<MessageRow>,
     pub users: Vec<User>,
+    /// The account's prompts (the `/` menu's second group).
+    pub prompts: Vec<domain::rows::PromptRow>,
 }
 
 /// The shapes the chat reads: a delta on one repaints an open team chat.
-pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents", "users", "session_issues", "pull_requests"];
+pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents", "users", "session_issues", "pull_requests", "prompts"];
 
 /// The brand mark: the viewer's Assistant (the IDE's agent row draws it).
 pub const ASSISTANT_ICON: &str = "brand-exponential";
@@ -238,7 +240,7 @@ mod tests {
             serde_json::from_value(json!({"id": "m3", "conversation_id": "c-other", "root_id": "s7", "author_kind": "agent", "body": "elsewhere", "created_at": "2026-11-08T09:16:00Z"})).unwrap(),
         ];
         let users = vec![serde_json::from_value(json!({"id": "u1", "name": "Dana Reyes", "email": "dana@example.com"})).unwrap()];
-        TeamRows { account, messages, users }
+        TeamRows { account, messages, users, prompts: Vec::new() }
     }
 
     fn chat(session: Option<&str>) -> TeamChat {

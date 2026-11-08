@@ -65,6 +65,24 @@ pub fn insertion(name: &str, arg_hint: &str) -> String {
     }
 }
 
+/// Prompts the menu draws at most (web `filterSlashPrompts`' cap).
+pub const PROMPT_LIMIT: usize = 50;
+
+/// The token a team prompt answers to after the slash (web
+/// `promptSlashName`): its name lowercased, whitespace runs as `-`
+/// (`Fix flaky tests` → `fix-flaky-tests`).
+pub fn prompt_slash_name(name: &str) -> String {
+    name.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join("-")
+}
+
+/// NEW-2: the team's prompts the menu lists after the builtins: a
+/// case-insensitive PREFIX filter over their slash names, the team's order
+/// kept, capped; an empty query offers every prompt (web `filterSlashPrompts`).
+pub fn filter_prompts<'a, T>(prompts: &'a [T], name: impl Fn(&T) -> &str, query: &str) -> Vec<&'a T> {
+    let needle = query.trim().to_lowercase();
+    prompts.iter().filter(|prompt| prompt_slash_name(name(prompt)).starts_with(&needle)).take(PROMPT_LIMIT).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,6 +106,15 @@ mod tests {
         assert_eq!(names("/CO", "codex"), ["compact"]);
         assert!(names("/", "pi").is_empty(), "an unknown agent has no builtins");
         assert!(names("hello", "claude").is_empty());
+    }
+
+    #[test]
+    fn prompts_answer_to_their_slash_name() {
+        assert_eq!(prompt_slash_name("  Fix  flaky Tests "), "fix-flaky-tests");
+        let prompts = ["Fix flaky tests", "Release notes", "fix the build"];
+        assert_eq!(filter_prompts(&prompts, |p| p, "fix"), [&"Fix flaky tests", &"fix the build"]);
+        assert_eq!(filter_prompts(&prompts, |p| p, "fix-fl"), [&"Fix flaky tests"]);
+        assert_eq!(filter_prompts(&prompts, |p| p, "").len(), 3);
     }
 
     #[test]
