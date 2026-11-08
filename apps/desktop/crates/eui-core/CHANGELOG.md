@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tabs `swipeable` (#FEED-200): `swipe::{swipe_lock, swipe_step, swipe_offset, swipe_settle, swipe_progress, swipe_indicator, swipe_blocks}` + the `SWIPE_*` constants (`fixtures/swipe.json`); `Surface::event(index, "swipe", {phase: start|move|end|cancel, offset, velocity})` on a swipeable Tabs (its root or `content`) draws the panels and the `thumb` part at the drawn offset (paint-only `transform`, no transition under the finger) and settles on release (`value` written through, `change`). `LocalState.tab_swipe` / `tab_pager` (`TabPager`, measured after each pass).
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

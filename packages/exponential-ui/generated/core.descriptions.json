@@ -716,6 +716,9 @@
         },
         "addable": {
           "description": "A + button firing `new`."
+        },
+        "swipeable": {
+          "description": "Touch: swipe pages the panels."
         }
       },
       "description": "Tab navigation; the child at index i is the panel of tab i.",

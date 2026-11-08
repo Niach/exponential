@@ -6,8 +6,8 @@
       "host": "darwin-arm64",
       "entries": {
         "@exponential_app/eui/index": {
-          "bytes": 694765,
-          "gzip": 189911,
+          "bytes": 696018,
+          "gzip": 190431,
           "parts": {
             "index.js": 100731,
             "chunks/index-bg70sphr.js": 150578,
@@ -53,8 +53,8 @@
           }
         },
         "@exponential_app/eui/schema": {
-          "bytes": 271242,
-          "gzip": 64421,
+          "bytes": 271337,
+          "gzip": 64450,
           "parts": {
             "entries/schema.js": 44375,
             "chunks/index-bg70sphr.js": 150578,
@@ -75,8 +75,8 @@
           }
         },
         "@exponential_app/eui/host": {
-          "bytes": 598177,
-          "gzip": 153815,
+          "bytes": 598215,
+          "gzip": 153811,
           "parts": {
             "host/index.js": 6730,
             "chunks/index-s6fryrxa.js": 167312,
@@ -90,8 +90,8 @@
           }
         },
         "@exponential_app/eui/web": {
-          "bytes": 180794,
-          "gzip": 55541,
+          "bytes": 184725,
+          "gzip": 56829,
           "parts": {
             "web/index.js": 125399,
             "chunks/index-04yw3re8.js": 38107,

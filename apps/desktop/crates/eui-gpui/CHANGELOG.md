@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tabs `swipeable` (#FEED-200, `view/swipe.rs`): a two-finger trackpad swipe pages the Tabs like a finger. gpui's phased `ScrollWheelEvent`s (`ScrollDelta::Pixels`, `TouchPhase` Started/Moved/Ended) over the content send `swipe {phase: start|move|end, offset, velocity}` once `swipe_lock` calls the travel horizontal (vertical = the page's); a gesture starting over a node `swipe_blocks` names (Table, Chart, Slider, a horizontal scroller…) stays that node's; the fling's momentum never pages again; a mouse wheel (`Lines`) never swipes; a gesture silent for 500 ms settles. The panels and the thumb paint the core's `transform` / `transition` as any node does.
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

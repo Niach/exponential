@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tabs `swipeable` (#FEED-200): a horizontal touch drag on the panels pages them (iOS; a mouse never pages): `swipe {phase, offset, velocity}` to the core, which draws the pages and the header `thumb` and settles. A touch starting inside something that scrolls, pans or drags sideways keeps it (`SurfaceModel.swipeBlocked`); the axis waits for the slop (`swipeAxis`). `SurfaceModel.isSwipeContent`, `tabSwipe`. Replays `fixtures/swipe.json` through the FFI (`swipeLock`, `swipeOffset`, `swipeSettle`, `swipeBlocks`).
 - An anchored overlay closes once its anchor scrolls, moves or leaves the tree (#EXP-1739, through the core).
 
 ## 0.19.1 (2026-11-07)

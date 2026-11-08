@@ -1032,6 +1032,10 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }, {
     label: `variant · strip · overflow (+N)`,
     node: { id: `strip-narrow`, component: `Tabs`, props: { variant: `strip`, value: `t4`, closable: `hover`, addable: true, tabs: [`Inbox`, `Release notes`, `Calendar`, `Settings`, `Search`, `Drafts`].map((label, i) => ({ label, value: `t${i}` })) }, style: { width: 320 } },
+  }, {
+    // FEED-200: panels that page by swipe on touch (the thumb at rest).
+    label: `swipeable · true · fill`,
+    node: { id: `swipe`, component: `Tabs`, props: { swipeable: true, fill: true, value: `activity`, tabs: [`Dashboard`, `Activity`, `Income`, `Expenses`].map((label) => ({ label, value: label.toLowerCase() })) }, style: { width: 360 }, children: [`Dashboard`, `Activity`, `Income`, `Expenses`].map((label) => ({ id: `swipe_${label.toLowerCase()}`, component: `Text`, props: { text: `The ${label.toLowerCase()} panel.`, variant: `body` } })) },
   }],
   Input: [{
     label: `label · none`,

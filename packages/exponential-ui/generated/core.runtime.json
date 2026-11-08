@@ -2135,6 +2135,10 @@
         "addable": {
           "type": "boolean",
           "default": false
+        },
+        "swipeable": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [

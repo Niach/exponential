@@ -2592,6 +2592,11 @@
           "type": "boolean",
           "default": false,
           "description": "A + button firing `new`."
+        },
+        "swipeable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Touch: swipe pages the panels."
         }
       },
       "events": [

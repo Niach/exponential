@@ -3936,6 +3936,89 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-tabs-case-6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-6-label",
+                "component": "Text",
+                "props": {
+                  "text": "swipeable · true · fill",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6-swipe",
+                "component": "Tabs",
+                "props": {
+                  "swipeable": true,
+                  "fill": true,
+                  "value": "activity",
+                  "tabs": [
+                    {
+                      "label": "Dashboard",
+                      "value": "dashboard"
+                    },
+                    {
+                      "label": "Activity",
+                      "value": "activity"
+                    },
+                    {
+                      "label": "Income",
+                      "value": "income"
+                    },
+                    {
+                      "label": "Expenses",
+                      "value": "expenses"
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 360
+                },
+                "children": [
+                  {
+                    "id": "c6-swipe_dashboard",
+                    "component": "Text",
+                    "props": {
+                      "text": "The dashboard panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_activity",
+                    "component": "Text",
+                    "props": {
+                      "text": "The activity panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_income",
+                    "component": "Text",
+                    "props": {
+                      "text": "The income panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_expenses",
+                    "component": "Text",
+                    "props": {
+                      "text": "The expenses panel.",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
