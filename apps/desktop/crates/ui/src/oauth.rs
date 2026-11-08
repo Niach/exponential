@@ -187,6 +187,10 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             open_local_deep_link(&desktop_id, cx);
             continue;
         }
+        if let Some(link) = parse_session_deep_link(&url) {
+            open_session_deep_link(link, cx);
+            continue;
+        }
         log::info!("[ui] open-urls: unhandled URL {url}");
     }
 }
@@ -233,6 +237,55 @@ fn open_local_deep_link(desktop_id: &str, cx: &mut App) {
     }
 }
 
+/// #EDE-65 `exponential://session/<id>[?opens=plan|card|results|chat&message=<id>]`:
+/// eDE's tray opens an inbox row's session or a Needs you row's card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionDeepLink {
+    pub session_id: String,
+    pub opens: Option<String>,
+    pub message_id: Option<String>,
+}
+
+pub(crate) fn parse_session_deep_link(url: &str) -> Option<SessionDeepLink> {
+    let prefix = format!("{}://session/", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?.split('#').next().unwrap_or_default();
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let session_id = path.trim_end_matches('/');
+    if session_id.is_empty() {
+        return None;
+    }
+    let param = |key: &str| {
+        query.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('=')).filter(|v| !v.is_empty()).map(str::to_string)
+    };
+    Some(SessionDeepLink { session_id: session_id.to_string(), opens: param("opens"), message_id: param("message") })
+}
+
+/// Opens the session like its inbox row does, or (a Needs you row) on its
+/// plan, its card or its Results like the Needs you page's press; a session
+/// this app has not synced is ignored like an unknown issue link.
+fn open_session_deep_link(link: SessionDeepLink, cx: &mut App) {
+    let root_id = Store::global(cx).collections().sessions.read(cx).get(&link.session_id).map(|row| row.root_id_or_self().to_string());
+    let Some(root_id) = root_id else {
+        log::info!("[ui] open-urls: session deep link {} matches no synced session — ignored", link.session_id);
+        return;
+    };
+    let Some(window) = crate::navigation::active_or_primary_window(cx) else { return };
+    let _ = window.update(cx, |_, window, cx| {
+        match (link.opens.as_deref(), link.message_id.as_deref()) {
+            (Some("plan"), Some(message_id)) => return crate::plan_page::open(&link.session_id, message_id, window, cx),
+            (Some("card"), Some(message_id)) => crate::thread_screen::request_thread_card(&root_id, message_id, cx),
+            (Some("results"), _) => crate::thread_screen::request_thread_results(&root_id, cx),
+            _ => {
+                let screen = crate::plan_page::screen_for_session(&link.session_id, cx);
+                crate::plan_page::prime_session(&link.session_id, cx);
+                return crate::navigation::navigate(window, cx, screen);
+            }
+        }
+        let screen = crate::navigation::session_screen_for(&root_id, cx);
+        crate::navigation::navigate(window, cx, screen);
+    });
+}
+
 /// The window switches to the team (a resident app without a window opens
 /// on it next time); a team this app has not synced (another account's) is
 /// ignored like an unknown issue link. On a Local desktop the app goes
@@ -264,20 +317,54 @@ fn open_team_deep_link(team_id: String, cx: &mut App) {
 /// team-scoped `#IDENT` pill path
 /// (`description_editor::open_issue_by_identifier`), a deep link carries only
 /// the identifier — so it resolves case-insensitively across ALL synced
-/// issues. Unknown / not-yet-synced identifiers log and no-op, consistent
-/// with unhandled deep links.
+/// issues. #EDE-65 J4: eDE's start menu sends the switch to the issue's team
+/// or Local desktop first, so an identifier not there yet waits for the
+/// store to load (a newer issue link replaces it); unknown after
+/// [`ISSUE_LINK_WAIT`], it logs and no-ops, consistent with unhandled deep links.
 fn open_issue_deep_link(identifier: &str, cx: &mut App) {
-    let issue = Store::global(cx)
+    let generation = ISSUE_LINK.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    if let Some(found) = find_issue(identifier, cx) {
+        open_found_issue(found, cx);
+        return;
+    }
+    let identifier = identifier.to_string();
+    cx.spawn(async move |cx| {
+        let tries = ISSUE_LINK_WAIT.as_millis() / ISSUE_LINK_TICK.as_millis();
+        for _ in 0..tries {
+            cx.background_executor().timer(ISSUE_LINK_TICK).await;
+            if ISSUE_LINK.load(std::sync::atomic::Ordering::SeqCst) != generation {
+                return;
+            }
+            if let Some(found) = cx.update(|cx| find_issue(&identifier, cx)) {
+                cx.update(|cx| open_found_issue(found, cx));
+                return;
+            }
+        }
+        log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
+    })
+    .detach();
+}
+
+/// How long an issue link waits for its team or Local desktop to load.
+const ISSUE_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+const ISSUE_LINK_TICK: std::time::Duration = std::time::Duration::from_millis(250);
+/// The latest issue link (a newer one ends an older one's wait).
+static ISSUE_LINK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The issue an identifier names in the active store: `(id, board id)`.
+fn find_issue(identifier: &str, cx: &App) -> Option<(String, String)> {
+    Store::global(cx)
         .collections()
         .issues
         .read(cx)
         .iter()
         .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-        .map(|issue| (issue.id.clone(), issue.board_id.clone()));
-    let Some((issue_id, board_id)) = issue else {
-        log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
-        return;
-    };
+        .map(|issue| (issue.id.clone(), issue.board_id.clone()))
+}
+
+fn open_found_issue((issue_id, board_id): (String, String), cx: &mut App) {
+    #[cfg(test)]
+    OPENED_ISSUE.with(|o| *o.borrow_mut() = Some(issue_id.clone()));
     if let Some(window) = crate::navigation::active_or_primary_window(cx) {
         let _ = window.update(cx, |_, window, cx| {
             // EXP-510: land scoped on the issue's board; EXP-1192: with no
@@ -285,6 +372,17 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
             crate::navigation::open_issue_scoped(window, cx, issue_id, board_id, None);
         });
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The issue the last issue link resolved to (the tests read it).
+    static OPENED_ISSUE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn opened_issue() -> Option<String> {
+    OPENED_ISSUE.with(|o| o.borrow().clone())
 }
 
 /// The login-surface message when the callback lands but the exchange /
@@ -508,6 +606,20 @@ mod tests {
         assert!(api::login::parse_oauth_callback("exponential://local/d1").is_none());
     }
 
+    /// #EDE-65: eDE's tray sends `exponential://session/<id>`, a Needs you
+    /// row with the card it lands on.
+    #[test]
+    fn session_deep_link_parses_the_session_and_its_card() {
+        let plain = parse_session_deep_link("exponential://session/s1").unwrap();
+        assert_eq!(plain, SessionDeepLink { session_id: "s1".into(), opens: None, message_id: None });
+        let card = parse_session_deep_link("exponential://session/s1/?opens=card&message=m1").unwrap();
+        assert_eq!(card, SessionDeepLink { session_id: "s1".into(), opens: Some("card".into()), message_id: Some("m1".into()) });
+        assert_eq!(parse_session_deep_link("exponential://session/"), None);
+        assert_eq!(parse_session_deep_link("exponential://team/t1"), None);
+        assert!(api::login::parse_oauth_callback("exponential://session/s1?opens=card&message=m1").is_none());
+        assert_eq!(parse_team_deep_link("exponential://session/s1"), None);
+    }
+
     #[test]
     fn oauth_error_copy_matches_the_other_clients() {
         // Byte-parity with iOS `LoginViewModel.oauthErrorMessage` and Android's
@@ -591,5 +703,39 @@ mod tests {
             panic!("failure deep link did not parse as an OAuth error callback");
         };
         assert_eq!(oauth_error_message(&reason), "Sign-in was cancelled.");
+    }
+
+    /// #EDE-65 J4: eDE's start menu opens a Local issue: the switch to its
+    /// desktop comes first, the issue link waits for the store, then opens.
+    #[gpui::test]
+    fn an_issue_link_waits_for_its_local_desktop(cx: &mut gpui::TestAppContext) {
+        cx.executor().allow_parking();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::local_desktops::install(path, cx);
+            assert!(crate::local_desktops::enter_current(cx));
+            handle_open_urls(vec!["exponential://issue/gen-1".into()], cx);
+        });
+        let client = cx.update(|cx| crate::local_desktops::client(cx).expect("a local client"));
+        let board = cx.update(|cx| {
+            let c = Store::global(cx).collections().clone();
+            let team = c.teams_sorted(cx)[0].id.clone();
+            c.boards_in_team(&team, cx)[0].id.clone()
+        });
+        let created = api::issues::issues_create(&client, &api::issues::IssuesCreateInput::new(&board, "Opened from the start menu")).unwrap();
+        for _ in 0..200 {
+            cx.executor().advance_clock(ISSUE_LINK_TICK);
+            cx.run_until_parked();
+            if opened_issue().is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(opened_issue(), Some(created.issue.id.clone()));
+        std::mem::forget(dir);
+        let _ = cx.add_window_view(|_, _| gpui::Empty);
     }
 }

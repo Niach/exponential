@@ -63,6 +63,8 @@ pub struct Notification {
     pub expires_at: Option<Instant>,
     /// Local `HH:MM`.
     pub at: String,
+    /// #EDE-65: when it arrived (epoch ms), to merge it with the inbox.
+    pub received_ms: i64,
 }
 
 impl Notification {
@@ -146,6 +148,7 @@ impl Notifications {
             urgency,
             expires_at,
             at: (self.clock)(),
+            received_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
         };
         let _ = self.tx.send(Event::Notified(n));
         id

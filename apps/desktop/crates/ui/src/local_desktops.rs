@@ -175,6 +175,8 @@ pub(crate) fn enter_current(cx: &mut App) -> bool {
     if !ensure(cx) {
         return false;
     }
+    // The index is eDE's too (#EDE-65): its switcher's current, as it is now.
+    cx.global_mut::<LocalDesktops>().desktops.reload();
     let Some(current) = cx.global::<LocalDesktops>().desktops.current().map(str::to_string) else { return false };
     enter(&current, cx)
 }

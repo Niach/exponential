@@ -21,7 +21,7 @@ macro_rules! docs {
     };
 }
 
-docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "start-menu", "switcher", "taskbar", "tray-menu"];
+docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "needs-you", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "start-menu", "switcher", "taskbar", "tray-menu"];
 
 /// The tab bar only the IDE draws (eDE has Mint's taskbar).
 pub const TABBAR: Doc = Doc { name: "tabbar", source: include_str!("../../../../../packages/uicore/docs/tabbar.json") };

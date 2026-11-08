@@ -27,8 +27,21 @@ pub struct Workspaces {
 /// The shapes the shell syncs per account: the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
 /// published packages) and their records, for a connected desktop;
-/// #EDE-65: the issues and their boards, for the start menu's search.
-const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records", "boards", "issues"];
+/// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`).
+pub(crate) const SHAPES: &[&str] = &[
+    "teams",
+    "team_members",
+    "apps",
+    "app_records",
+    "notifications",
+    "issues",
+    "boards",
+    "sessions",
+    "session_issues",
+    "conversations",
+    "agents",
+    "pull_requests",
+];
 
 impl Workspaces {
     /// Opens the machine's Local desktops index (the IDE's, #EDE-65: eDE's
@@ -168,6 +181,32 @@ impl Workspaces {
         self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
     }
 
+    /// #EDE-65: every signed-in account's rows the tray reads (the inbox, Needs you).
+    pub fn tray_rows(&self) -> Vec<crate::inbox::AccountRows> {
+        if self.demo {
+            return Vec::new();
+        }
+        self.auth
+            .signed_in_accounts()
+            .into_iter()
+            .filter_map(|a| Some(crate::inbox::AccountRows::read(&a.id, &a.user_id, self.sync.store(&a.id)?.as_ref())))
+            .collect()
+    }
+
+    /// #EDE-65: `notifications.markRead` on the account's instance, one call
+    /// per row like the IDE's group press; the shape's echo clears them.
+    pub fn mark_read(&self, account_id: &str, ids: Vec<String>) {
+        let Some(account) = (!self.demo).then(|| self.account(account_id)).flatten() else { return };
+        let trpc = self.trpc(&account);
+        std::thread::spawn(move || {
+            for id in ids {
+                if let Err(e) = api::notifications::notifications_mark_read(&trpc, &id) {
+                    tracing::warn!("notifications.markRead({id}): {e}");
+                }
+            }
+        });
+    }
+
     /// #EDE-65: what the start menu's issue search reads: every signed-in
     /// account's store and every active Local desktop's (None = the demo's).
     pub fn issue_sources(&self) -> Option<Vec<crate::issues::Source>> {
@@ -246,18 +285,7 @@ pub fn ide_follow(kind: uicore_model::SwitcherKind, id: &str) {
 /// A deep link to the running Exponential app's single-instance socket
 /// (false: nothing runs or the send failed).
 pub fn ide_send(link: &str) -> bool {
-    let sock = api::default_data_dir().join("exp-desktop.sock");
-    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return false };
-    if socket.connect(&sock).is_err() {
-        return false;
-    }
-    match socket.send(link.as_bytes()) {
-        Ok(_) => true,
-        Err(e) => {
-            tracing::warn!("exp-desktop.sock: {e}");
-            false
-        }
-    }
+    crate::inbox::hand_off(link)
 }
 
 /// The goldens' switcher: two Local desktops and one account with two teams.

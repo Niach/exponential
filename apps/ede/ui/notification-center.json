@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory notification centre (#EDE-12): the taskbar's bell opens it as a popup surface with every notification the shell has heard this session, newest first (/notifications/list), each closable, all clearable (ede_notify_clear).",
+  "$comment": "Exponential Desktop's factory notification centre (#EDE-12): the taskbar's bell opens it as a popup surface with every notification the shell has heard this session and (#EDE-65) every signed-in account's unread Exponential inbox entries (the IDE's grouping, all teams; `app` = the team), merged newest first (/notifications/list). A press on a row opens it (ede_notify_open: a desktop notification's default action, an inbox entry marks read and hands off to the Exponential app on its issue or session); its close removes a desktop notification and marks an inbox entry read (the inbox has no archive); Clear all does both for every row (ede_notify_clear).",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -11,6 +11,7 @@
       }
     },
     "functions": [
+      "ede_notify_open",
       "ede_notify_close",
       "ede_notify_action",
       "ede_notify_clear"
@@ -115,7 +116,8 @@
               "meta": {
                 "@path": "at"
               },
-              "density": "compact"
+              "density": "compact",
+              "pressable": true
             },
             "slots": {
               "leading": {
@@ -152,6 +154,18 @@
                           "@path": "id"
                         }
                       }
+                    }
+                  }
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_notify_open",
+                  "args": {
+                    "id": {
+                      "@path": "id"
                     }
                   }
                 }
