@@ -462,10 +462,20 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         let verdict: true | string = true
         for (const [xi, ctx] of c.contexts.entries()) {
           // A touch context (hasTouch) is Chromium's `(hover: none)`.
-          const context = await browser.newContext({ viewport: { width: Math.max(ctx.width + 40, 400), height: Math.max((ctx.height ?? 120) + 40, 400) }, reducedMotion: ctx.reducedMotion ? `reduce` : `no-preference`, hasTouch: ctx.hover === false })
+          const viewport = { width: Math.max(ctx.width + 40, 400), height: Math.max((ctx.height ?? 120) + 40, 400) }
+          const context = await browser.newContext({ viewport, reducedMotion: ctx.reducedMotion ? `reduce` : `no-preference`, hasTouch: ctx.hover === false })
           const page = await context.newPage()
+          // The node is a 40 px box at the page's top-left, where a headless
+          // pointer starts; Chromium re-hit-tests a resting pointer after
+          // layout, so a real `:hover`/`:active` could beat the media block
+          // in a context that forces no state (CfT 156, EXP-1395). Park the
+          // pointer in the far corner, off the node; a miss names the value
+          // and the states the node matched.
+          const park = () => page.mouse.move(viewport.width - 1, viewport.height - 1)
+          await park()
           await page.goto(url({ view: `conditions`, case: ci, ctx: xi }))
           await page.waitForSelector(`[data-xui-id="n"]`, { state: `attached` })
+          await park()
           await page.waitForTimeout(100)
           const theme = ctx.breakpoints ? loadTheme({ $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
           const want = styleToCss(resolveStyleValues(theme, c.expected[xi], `light`), theme.fonts)
@@ -478,7 +488,10 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
             for (const [k, v] of Object.entries(css as Record<string, string>)) probe.style.setProperty(k, v)
             const a = getComputedStyle(node)
             const b = getComputedStyle(probe)
-            const bad = Object.keys(css).map((k) => (k === `transition` ? `transition-duration` : k)).filter((k) => a.getPropertyValue(k) !== b.getPropertyValue(k))
+            const bad = Object.keys(css)
+              .map((k) => (k === `transition` ? `transition-duration` : k))
+              .filter((k) => a.getPropertyValue(k) !== b.getPropertyValue(k))
+              .map((k) => `${k} ${a.getPropertyValue(k)} (want ${b.getPropertyValue(k)}; ${[`hover`, `active`, `focus-visible`].filter((s) => node.matches(`:${s}`)).join(`+`) || `no state`})`)
             probe.remove()
             return bad
           }, want)
