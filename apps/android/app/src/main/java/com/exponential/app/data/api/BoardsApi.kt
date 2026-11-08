@@ -114,10 +114,10 @@ data class PutAwayBoard(
 )
 
 @Serializable
-private data class TeamIdInput(val teamId: String)
+private data class PutAwayTeamInput(val teamId: String)
 
 @Serializable
-private data class BoardIdInput(val boardId: String)
+private data class PutAwayBoardInput(val boardId: String)
 
 @Singleton
 class BoardsApi @Inject constructor(
@@ -183,8 +183,8 @@ class BoardsApi @Inject constructor(
         trpc.query(
             accountId,
             path = "boards.listArchived",
-            input = TeamIdInput(teamId),
-            inputSerializer = TeamIdInput.serializer(),
+            input = PutAwayTeamInput(teamId),
+            inputSerializer = PutAwayTeamInput.serializer(),
             outputSerializer = ListSerializer(PutAwayBoard.serializer()),
         )
 
@@ -193,16 +193,16 @@ class BoardsApi @Inject constructor(
         trpc.query(
             accountId,
             path = "boards.listDeleted",
-            input = TeamIdInput(teamId),
-            inputSerializer = TeamIdInput.serializer(),
+            input = PutAwayTeamInput(teamId),
+            inputSerializer = PutAwayTeamInput.serializer(),
             outputSerializer = ListSerializer(PutAwayBoard.serializer()),
         )
 
     /** `boards.unarchive` (owner-only). */
     suspend fun unarchive(accountId: String, boardId: String) =
-        trpc.mutationUnit(accountId, path = "boards.unarchive", input = BoardIdInput(boardId), inputSerializer = BoardIdInput.serializer())
+        trpc.mutationUnit(accountId, path = "boards.unarchive", input = PutAwayBoardInput(boardId), inputSerializer = PutAwayBoardInput.serializer())
 
     /** `boards.restore` (owner-only): out of the trash before the purge. */
     suspend fun restore(accountId: String, boardId: String) =
-        trpc.mutationUnit(accountId, path = "boards.restore", input = BoardIdInput(boardId), inputSerializer = BoardIdInput.serializer())
+        trpc.mutationUnit(accountId, path = "boards.restore", input = PutAwayBoardInput(boardId), inputSerializer = PutAwayBoardInput.serializer())
 }
