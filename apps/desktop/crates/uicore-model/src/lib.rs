@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod chat;
 pub mod ide;
 pub mod layout;
 
