@@ -1,0 +1,9 @@
+---
+/* The site is dark only, like the app: Starlight's theme provider pinned to
+   dark (its pickers object stays, Starlight's own scripts call it). */
+---
+
+<script is:inline>
+  document.documentElement.dataset.theme = `dark`
+  window.StarlightThemeProvider = { updatePickers() {} }
+</script>
