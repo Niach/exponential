@@ -639,7 +639,7 @@ object Markdown {
         parseInline(s, Flags(), null, run, 0, onImage = { alt, src ->
             paragraph()
             blocks.add(MarkdownBlock(MarkdownBlockKind.Image(src, alt), listOf(MarkdownInline(text = alt))))
-        }
+        })
         paragraph()
         return blocks
     }
