@@ -727,6 +727,13 @@ data class SessionEntity(
     // [scopeTeamIdList].
     @ColumnInfo(name = "scope_team_ids") @SerialName("scope_team_ids") @JsonNames("scopeTeamIds")
     @Serializable(with = JsonAsStringSerializer::class) val scopeTeamIds: String? = null,
+    // #EXP-1730 phase A ([MIGRATION_120_121]): the Chats list's digest of this
+    // session's messages (domain-contract `conversationDigest`, mirrored
+    // server-side from its conversation), raw jsonb TEXT; read through
+    // [com.exponential.app.domain.Chats.parseDigest]. The DAO opens its sealed
+    // slots with the root's keys.
+    @ColumnInfo(name = "digest") @SerialName("digest")
+    @Serializable(with = JsonAsStringSerializer::class) val digest: String? = null,
 ) {
     /** #EXP-1715: [scopeTeamIds] as ids; null (or empty) = every team. */
     val scopeTeamIdList: List<String>? get() = scopeTeamIds?.let(PgUuidArraySerializer::parseText)?.takeIf { it.isNotEmpty() }
@@ -759,6 +766,12 @@ data class AgentDefinitionEntity(
     val cli: String? = null,
     val account: String? = null,
     val model: String? = null,
+    // #EXP-1730 phase A ([MIGRATION_120_121]): the runner defaults as one
+    // object `{deviceId, cli, account, model}` (raw jsonb TEXT, trigger-kept
+    // with the four legacy columns above, which phase B drops). Readers use
+    // [runnerDefaults], never the legacy columns.
+    @ColumnInfo(name = "defaults") @SerialName("defaults")
+    @Serializable(with = JsonAsStringSerializer::class) val defaults: String? = null,
     @ColumnInfo(name = "owner_id") @SerialName("owner_id") @JsonNames("ownerId") val ownerId: String = "",
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
@@ -775,8 +788,42 @@ data class AgentDefinitionEntity(
     /** #EXP-1661: [skillIds] as ids (null / malformed = none). */
     val skillIdList: List<String> get() = parseJsonStringList(skillIds)
 
+    /** #EXP-1730: [defaults] parsed (null / malformed = no picks). */
+    val runnerDefaults: AgentDefaults get() = AgentDefaults.parse(defaults)
+
     /** S-3: the member's own Assistant (brand mark, orchestrator + voice). */
     val isAssistant: Boolean get() = role == com.exponential.app.domain.DomainContract.agentRoleAssistant
+}
+
+/**
+ * #EXP-1730 (db-schema `AgentDefaults`): an agent's runner defaults, the picks
+ * every run of it starts with (`agents.defaults` jsonb). Blank strings read as
+ * null; a missing or malformed object = no picks.
+ */
+data class AgentDefaults(
+    val deviceId: String? = null,
+    val cli: String? = null,
+    val account: String? = null,
+    val model: String? = null,
+) {
+    companion object {
+        val NONE = AgentDefaults()
+
+        fun parse(raw: String?): AgentDefaults {
+            if (raw.isNullOrBlank()) return NONE
+            val element = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull()
+            val obj = element as? kotlinx.serialization.json.JsonObject ?: return NONE
+            fun text(key: String): String? =
+                (obj[key] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+            return AgentDefaults(
+                deviceId = text("deviceId"),
+                cli = text("cli"),
+                account = text("account"),
+                model = text("model"),
+            )
+        }
+    }
 }
 
 // NEW-2: an event (free-text `name`, raw jsonb `payload`), team-scoped;
@@ -834,6 +881,9 @@ data class AppEntity(
     // (a JSON string[] of exact `exponential.<noun>.<op>` names; "[]" = none).
     @ColumnInfo(name = "granted_tools") @SerialName("granted_tools") @JsonNames("grantedTools")
     @Serializable(with = JsonAsStringSerializer::class) val grantedTools: String? = "[]",
+    // #EXP-1730 phase A ([MIGRATION_120_121]): the app's agent (its editor =
+    // the agent's root session); NULL = a standalone app.
+    @ColumnInfo(name = "agent_id") @SerialName("agent_id") @JsonNames("agentId") val agentId: String? = null,
     @ColumnInfo(name = "deleted_at") @SerialName("deleted_at") @JsonNames("deletedAt") val deletedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
@@ -980,17 +1030,20 @@ data class SessionIssueEntity(
 // `messageCardKind`); unknown kinds render nothing.
 @Entity(
     tableName = "messages",
-    indices = [Index("conversation_id"), Index("root_id"), Index("team_id")],
+    indices = [Index("conversation_id"), Index("session_id"), Index("root_id"), Index("team_id")],
 )
 @Serializable
 data class MessageEntity(
     @PrimaryKey val id: String,
-    // NEW-8: the conversation the row lives in; its session (if any) comes
-    // from the `conversations` row ([com.exponential.app.domain.MessageConversation]),
-    // never from a legacy `messages.session_id` (not stored; the shape
-    // decoder drops it).
+    // NEW-8: the conversation the row lives in (kept as synced; nothing reads
+    // it since #EXP-1730 phase A, phase B drops it server-side).
     @ColumnInfo(name = "conversation_id") @SerialName("conversation_id") @JsonNames("conversationId")
     val conversationId: String = "",
+    // #EXP-1730 phase A ([MIGRATION_120_121]): the session the row lives in
+    // (trigger-kept beside conversation_id; NULL only on a dm/channel row).
+    // Every reader keys a message by it.
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId")
+    val sessionId: String? = null,
     @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
     // Contract `messageAuthorKind`: user | agent | system.
@@ -1017,29 +1070,6 @@ data class MessageEntity(
     /** #EXP-1682: [attachmentIds] as ids (null / malformed = none). */
     val attachmentIdList: List<String> get() = attachmentIds?.let(PgUuidArraySerializer::parseText).orEmpty()
 }
-
-// NEW-3: the chat primitive. Step 1: every row is a session's own (kind
-// `session`), visible exactly when its session is; dm/channel rows arrive
-// with NEW-8.
-@Entity(
-    tableName = "conversations",
-    indices = [Index("team_id"), Index("session_id")],
-)
-@Serializable
-data class ConversationEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
-    // Contract `conversationKind`: dm | channel | session.
-    val kind: String = com.exponential.app.domain.DomainContract.conversationKindSession,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
-    val title: String? = null,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
-    // Thread e4a04d22: the Chats list's per-conversation digest (jsonb kept
-    // by the server's `conversation_digest` trigger), stored as JSON text
-    // like messages.card; read through [com.exponential.app.domain.Chats.digestMessages].
-    @Serializable(with = JsonAsStringSerializer::class) val digest: String? = null,
-)
 
 // EXP-1323: the viewer's read mark of one session (a thread = its root's
 // row), upserted by `sessions.markRead` when a thread or a session view opens.
