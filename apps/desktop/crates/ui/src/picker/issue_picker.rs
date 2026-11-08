@@ -424,6 +424,7 @@ fn engine_row(row: &IssueRow) -> domain::issue_search::SearchRow<'_> {
         // EXP-922: undone rows rank above done ones. The pool already hides
         // closed issues, so this only orders the PRE-SEEDED re-run rows.
         status: row.status.as_wire(),
+        ..Default::default()
     }
 }
 

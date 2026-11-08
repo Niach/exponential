@@ -232,5 +232,66 @@
     ],
     "query": "sid",
     "expected": ["t11", "t10", "t9", "t8", "t7", "t6", "t5", "t4", "t3", "t2", "t1", "t0"]
+  },
+  {
+    "name": "a by: token narrows to issues the creator filed, alongside the other words",
+    "rows": [
+      {"id": "c1", "identifier": "EXP-1", "title": "Editor toolbar", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
+      {"id": "c2", "identifier": "EXP-2", "title": "Editor crash", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"},
+      {"id": "c3", "identifier": "EXP-3", "title": "Fix login", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z"}
+    ],
+    "query": "editor by:lukas",
+    "expected": ["c1"]
+  },
+  {
+    "name": "a by:-only query lists the creator's issues open first, newest created, matching a name word or the email prefix",
+    "rows": [
+      {"id": "o1", "identifier": "EXP-1", "title": "Editor toolbar", "status": "backlog", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z"},
+      {"id": "o2", "identifier": "EXP-2", "title": "Editor crash", "status": "backlog", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z"},
+      {"id": "o3", "identifier": "EXP-3", "title": "Fix login", "status": "in_progress", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z"},
+      {"id": "o4", "identifier": "EXP-4", "title": "Shipped already", "status": "done", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-01-04T00:00:00Z"}
+    ],
+    "query": "BY:lukas.mai",
+    "expected": ["o3", "o1", "o4"]
+  },
+  {
+    "name": "a by: token matches the agent that filed the issue, a leading @ is dropped",
+    "rows": [
+      {"id": "g1", "identifier": "EXP-1", "title": "Search ranking", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "creatorAgentName": "Triage Bot", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
+      {"id": "g2", "identifier": "EXP-2", "title": "Search sheet", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z"},
+      {"id": "g3", "identifier": "EXP-3", "title": "Search page", "creatorAgentName": "Triage Bot", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-03-01T00:00:00Z"}
+    ],
+    "query": "search by:@triage",
+    "expected": ["g3", "g1"]
+  },
+  {
+    "name": "bare words match the creator's name below title and description hits, never the email",
+    "rows": [
+      {"id": "b1", "identifier": "EXP-1", "title": "Lukas onboarding", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
+      {"id": "b2", "identifier": "EXP-2", "title": "Nothing", "description": "ask lukas first", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z"},
+      {"id": "b3", "identifier": "EXP-3", "title": "Toolbar", "creatorName": "Lukas Maier", "creatorEmail": "lukas.maier@matflow.at", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z"},
+      {"id": "b4", "identifier": "EXP-4", "title": "Other", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z"},
+      {"id": "b5", "identifier": "EXP-5", "title": "Something", "creatorName": "L. M.", "creatorEmail": "lukas@matflow.at", "createdAt": "2026-01-05T00:00:00Z", "updatedAt": "2026-09-03T00:00:00Z"}
+    ],
+    "query": "lukas",
+    "expected": ["b1", "b2", "b3"]
+  },
+  {
+    "name": "an empty by: token is ignored",
+    "rows": [
+      {"id": "e1", "identifier": "EXP-1", "title": "Login flicker", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
+      {"id": "e2", "identifier": "EXP-2", "title": "Login timeout", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"}
+    ],
+    "query": "login by:",
+    "expected": ["e2", "e1"]
+  },
+  {
+    "name": "a row with no creator never matches a by: token",
+    "rows": [
+      {"id": "n1", "identifier": "EXP-1", "title": "Anna's login", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z"},
+      {"id": "n2", "identifier": "EXP-2", "title": "Login", "creatorName": "Anna Berg", "creatorEmail": "anna@matflow.at", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z"}
+    ],
+    "query": "by:anna",
+    "expected": ["n2"]
   }
 ]
