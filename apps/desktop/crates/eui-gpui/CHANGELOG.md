@@ -5,7 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
-- Pixel snapping (EXP-1629): `SurfaceViewOptions::pixel_snap` (on by default) snaps a surface to whole device pixels at the window's scale factor like gpui's layout, so an eUI document paints the same pixels as the gpui view it replaces. A view under a measure override never snaps; the conformance dump turns it off (it compares the core's fractional frames with the web).
+- Pixel snapping (EXP-1629): `SurfaceViewOptions::pixel_snap` (on by default) snaps a surface to whole device pixels at the window's scale factor like gpui's layout, so an eUI document paints the same pixels as the gpui view it replaces. A view under a measure override never snaps; the conformance dump turns it off (it compares the core's fractional frames with the web). While snapping, a text's measured width rounds up to a whole pixel, as gpui's text element does.
 
 ## 0.19.1 (2026-11-07)
 

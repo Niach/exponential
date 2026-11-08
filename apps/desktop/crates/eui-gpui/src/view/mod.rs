@@ -1084,7 +1084,8 @@ impl SurfaceView {
         };
         let max_h = (visible_h > 0.0).then_some(visible_h);
         self.sync_appearance(window);
-        self.surface.set_pixel_snap((self.pixel_snap && self.measure_override.is_none()).then(|| window.scale_factor()));
+        let snap = self.pixel_snap && self.measure_override.is_none();
+        self.surface.set_pixel_snap(snap.then(|| window.scale_factor()));
         let fill = if self.fill_height && self.viewport_height > 0.0 { self.viewport_height } else { 0.0 };
         self.surface.set_viewport(self.width, fill, if fill > 0.0 { None } else { max_h });
         // #VAPP-253: a lifted top or bottom sheet spans the window.
@@ -1121,7 +1122,7 @@ impl SurfaceView {
             let (out, unknown) = if let Some(m) = self.measure_override.as_mut() {
                 (self.surface.layout(m.as_mut()), Vec::new())
             } else {
-                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live);
+                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live).ceil_text(snap);
                 let out = self.surface.layout(&mut m);
                 calls += m.calls();
                 (out, std::mem::take(&mut m.unknown_extensions))
