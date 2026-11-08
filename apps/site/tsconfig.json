@@ -6,6 +6,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "resolveJsonModule": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "types": ["bun"]
   }
 }

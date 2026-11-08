@@ -38,7 +38,7 @@ export interface CallSocket {
   onmessage: ((event: MessageEvent) => void) | null
   onclose: ((event: CloseEvent) => void) | null
   onerror: ((event: Event) => void) | null
-  send(data: string | ArrayBufferLike | Uint8Array): void
+  send(data: string | ArrayBuffer | Uint8Array<ArrayBuffer>): void
   close(code?: number, reason?: string): void
 }
 

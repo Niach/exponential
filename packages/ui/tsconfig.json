@@ -5,7 +5,6 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vitest/globals", "node"],
-    "baseUrl": ".",
     /* The `@/*` alias exists ONLY so the shadcn CLI can write its generated
        files (components.json pins `ui` → `@/`). Nothing in src/ may import
        through it at runtime — every intra-package import is RELATIVE, because
