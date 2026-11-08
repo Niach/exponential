@@ -24,6 +24,8 @@ emcp = { path = "../emcp" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
+# #EDE-65 lane L: the attachment upload path (attachment_upload.rs).
+anyhow = { workspace = true }
 flume = { workspace = true }
 open = { workspace = true }
 dirs = { workspace = true }
