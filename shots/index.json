@@ -1940,13 +1940,22 @@
         "sha256": "b7e25fc198eb37535487d68df949f007e9f1458f8c8053b0c1b4e408bcc2d9d4"
       }
     },
+    "ede-needs-you": {
+      "ede": {
+        "file": "shots/ede-needs-you/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 15346,
+        "sha256": "6cf2fe9850e4d5cac2a7c542d5b30d05c64363140090d7fbc0d585a99fd19af0"
+      }
+    },
     "ede-notification-center": {
       "ede": {
         "file": "shots/ede-notification-center/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14986,
-        "sha256": "0a28029c8332505c920e581616e202e962b8f406c68aeae098120acb7e184572"
+        "bytes": 20612,
+        "sha256": "1c475022d3ee510263ec716d02516fa6b7686d9061e73cd584d90057c2906f7d"
       }
     },
     "ede-notifications": {
@@ -1954,8 +1963,8 @@
         "file": "shots/ede-notifications/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 13170,
-        "sha256": "99a03a66e20fe97b8761bb25d61cc3e990eae430f45800d2b118640c355a940b"
+        "bytes": 18742,
+        "sha256": "1442e8930a2c063ab5adff83fe70d608ef1f28b6b0606d9f0aa47bddfee63778"
       }
     },
     "ede-osd": {
