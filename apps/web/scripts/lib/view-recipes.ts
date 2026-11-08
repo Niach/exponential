@@ -42,7 +42,8 @@ const BOARD_SLUG = `mobile-app`
  * the result row — the query and the anchor have to keep matching the same
  * seeded issue (`seed-screenshots.ts`).
  */
-const SEARCH_QUERY = `cold start`
+// #NEW-21: a creator query, so the shot shows `by:` narrowing to Alex's issues.
+const SEARCH_QUERY = `by:alex`
 const SEARCH_RESULT_TITLE = `Reduce cold start below 800 ms`
 
 /**
