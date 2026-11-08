@@ -244,12 +244,23 @@ const BASIC_ID_PROPS = new Set([`child`, `trigger`, `content`])
 // ---------------------------------------------------------------------------
 // Id re-key (§14.3)
 
+/** #EXP-1742: each surface map's inverse, kept across the messages of a
+ *  stream (by map identity), so a message costs O(message), not O(ids
+ *  seen). Only `Rekey` writes a map, and it writes both. */
+const OWNERS = new WeakMap<Record<string, string>, Map<string, string>>()
+
 class Rekey {
   /** target → its original id (the map is injective). */
-  private readonly owners = new Map<string, string>()
+  private readonly owners: Map<string, string>
 
   constructor(private readonly map: Record<string, string>) {
-    for (const [old, target] of Object.entries(map)) this.owners.set(target, old)
+    let owners = OWNERS.get(map)
+    if (!owners) {
+      owners = new Map()
+      for (const [old, target] of Object.entries(map)) owners.set(target, old)
+      OWNERS.set(map, owners)
+    }
+    this.owners = owners
   }
 
   static forSurface(state: Upgrade09State, surfaceId: string): Rekey {
@@ -474,7 +485,14 @@ function upgradeUpdateComponents(body: Obj, state: Upgrade09State, ctx: Ctx): Ob
  *  never mutated). */
 export function upgradeMessage09(message: unknown, state?: Upgrade09State): { messages: unknown[]; state: Upgrade09State } {
   const next = cloneState(state)
-  if (!isObj(message)) return { messages: [message], state: next }
+  return { messages: upgradeMessage09In(message, next), state: next }
+}
+
+/** {@link upgradeMessage09} advancing `next` in place: what a stream (the
+ *  router, a surface bridge) calls per message, so a message never copies
+ *  the id maps of every message before it (#EXP-1742). */
+export function upgradeMessage09In(message: unknown, next: Upgrade09State): unknown[] {
+  if (!isObj(message)) return [message]
   const ctx: Ctx = { tools: {} }
   const rest: Obj = {}
   for (const [k, v] of Object.entries(message)) {
@@ -484,7 +502,7 @@ export function upgradeMessage09(message: unknown, state?: Upgrade09State): { me
     else if (k === `updateDataModel` && isObj(v)) rest[k] = own(v, `value`) ? v : { ...v, value: null }
     else rest[k] = v
   }
-  return { messages: [withVersion(rest)], state: next }
+  return [withVersion(rest)]
 }
 
 const CLIENT_CODES: Record<string, string> = {
