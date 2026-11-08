@@ -2015,7 +2015,7 @@
     },
     {
       "name": "crossbeam-epoch",
-      "version": "0.9.18",
+      "version": "0.9.21",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -2735,7 +2735,7 @@
     },
     {
       "name": "event-listener",
-      "version": "5.4.1",
+      "version": "5.4.2",
       "declared": "Apache-2.0 OR MIT",
       "licenses": [
         "MIT"
@@ -10172,7 +10172,7 @@
     },
     {
       "name": "tokio",
-      "version": "1.52.3",
+      "version": "1.54.1",
       "declared": "MIT",
       "licenses": [
         "MIT"

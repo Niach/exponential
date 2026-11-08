@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-1137 third-party components are distributed as part of this build. They are
+1134 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -199,12 +199,12 @@ Applies to the following 126 components:
     MIT elected from `MIT OR Apache-2.0`
   profiling-procmacros 1.0.18
     MIT elected from `MIT OR Apache-2.0`
-  rio-graphics 0.5.26
+  rio-graphics 0.5.29
     Copyright (c) 2023-Present Raphael Amorim
-  rio-unicode 0.5.26
+  rio-unicode 0.5.29
     Copyright (c) 2023-Present Raphael Amorim
     MIT elected from `MIT OR Apache-2.0`
-  rio-vt 0.5.26
+  rio-vt 0.5.29
     Copyright (c) 2023-Present Raphael Amorim
   rust-i18n-macro 4.2.1
   rust-i18n-support 4.2.1
@@ -340,7 +340,7 @@ Applies to the following 113 components:
     MIT elected from `MIT OR Apache-2.0`
   erased-serde 0.4.10
     MIT elected from `MIT OR Apache-2.0`
-  event-listener 5.4.1
+  event-listener 5.4.2
     MIT elected from `Apache-2.0 OR MIT`
   event-listener-strategy 0.5.4
     MIT elected from `Apache-2.0 OR MIT`
@@ -536,7 +536,7 @@ DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 44 components:
+Applies to the following 41 components:
 
   windows 0.54.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -608,13 +608,9 @@ Applies to the following 44 components:
     MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.59.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.60.2  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.61.2  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows-targets 0.52.6  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.53.5  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows-threading 0.1.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -623,8 +619,6 @@ Applies to the following 44 components:
   windows-version 0.1.7  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows_x86_64_msvc 0.52.6  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.53.1  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -3158,7 +3152,7 @@ Applies to the following 5 components:
   crossbeam-deque 0.8.6
     Copyright (c) 2019 The Crossbeam Project Developers
     MIT elected from `MIT OR Apache-2.0`
-  crossbeam-epoch 0.9.18
+  crossbeam-epoch 0.9.21
     Copyright (c) 2019 The Crossbeam Project Developers
     MIT elected from `MIT OR Apache-2.0`
   crossbeam-queue 0.3.12
@@ -5389,7 +5383,7 @@ Applies to the following 3 components:
   quinn 0.11.11
     Copyright (c) 2018 The quinn Developers
     MIT elected from `MIT OR Apache-2.0`
-  quinn-proto 0.11.15
+  quinn-proto 0.11.19
     Copyright (c) 2018 The quinn Developers
     MIT elected from `MIT OR Apache-2.0`
   quinn-udp 0.5.14
@@ -5602,7 +5596,7 @@ MIT
 
 Applies to the following 3 components:
 
-  tokio 1.52.3
+  tokio 1.54.1
   tokio-stream 0.1.19
   tokio-util 0.7.18
 
@@ -11796,7 +11790,7 @@ CDLA-Permissive-2.0
 
 Applies to the following component:
 
-  webpki-roots 1.0.8
+  webpki-roots 1.0.11
 
 ..............................................................................
 
@@ -15490,7 +15484,7 @@ MIT
 
 Applies to the following component:
 
-  h2 0.4.15
+  h2 0.4.20
     Copyright (c) 2017 h2 authors
 
 ..............................................................................
@@ -18826,7 +18820,7 @@ MIT
 
 Applies to the following component:
 
-  rio-grapheme-width 0.5.26
+  rio-grapheme-width 0.5.29
     Copyright (c) 2018-Present Wez Furlong
     Copyright (c) 2023-Present Raphael Amorim
 
@@ -23311,7 +23305,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   crossbeam-deque 0.8.6
     MIT elected from `MIT OR Apache-2.0`
-  crossbeam-epoch 0.9.18
+  crossbeam-epoch 0.9.21
     MIT elected from `MIT OR Apache-2.0`
   crossbeam-queue 0.3.12
     MIT elected from `MIT OR Apache-2.0`
@@ -23407,7 +23401,7 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   euclid 0.22.14
     MIT elected from `MIT OR Apache-2.0`
-  event-listener 5.4.1
+  event-listener 5.4.2
     MIT elected from `Apache-2.0 OR MIT`
   event-listener-strategy 0.5.4
     MIT elected from `Apache-2.0 OR MIT`
@@ -23943,7 +23937,7 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   quinn 0.11.11
     MIT elected from `MIT OR Apache-2.0`
-  quinn-proto 0.11.15
+  quinn-proto 0.11.19
     MIT elected from `MIT OR Apache-2.0`
   quinn-udp 0.5.14
     MIT elected from `MIT OR Apache-2.0`
@@ -24017,7 +24011,7 @@ Elections made in this build
     MIT elected from `Apache-2.0 OR MIT`
   resvg 0.46.0
     MIT elected from `Apache-2.0 OR MIT`
-  rio-unicode 0.5.26
+  rio-unicode 0.5.29
     MIT elected from `MIT OR Apache-2.0`
   ropey 2.0.0-beta.1
     MIT elected from `MIT OR Apache-2.0`
@@ -24463,13 +24457,9 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.59.0
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.60.2
-    MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.61.2
     MIT elected from `MIT OR Apache-2.0`
   windows-targets 0.52.6
-    MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.53.5
     MIT elected from `MIT OR Apache-2.0`
   windows-threading 0.1.0
     MIT elected from `MIT OR Apache-2.0`
@@ -24478,8 +24468,6 @@ Elections made in this build
   windows-version 0.1.7
     MIT elected from `MIT OR Apache-2.0`
   windows_x86_64_msvc 0.52.6
-    MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.53.1
     MIT elected from `MIT OR Apache-2.0`
   wmi 0.18.4
     MIT elected from `MIT OR Apache-2.0`

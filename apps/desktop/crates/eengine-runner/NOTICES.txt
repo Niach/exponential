@@ -92,7 +92,7 @@ Applies to the following 80 components:
     MIT elected from `MIT OR Apache-2.0`
   erased-serde 0.4.10
     MIT elected from `MIT OR Apache-2.0`
-  event-listener 5.4.1
+  event-listener 5.4.2
     MIT elected from `Apache-2.0 OR MIT`
   event-listener-strategy 0.5.4
     MIT elected from `Apache-2.0 OR MIT`
@@ -1805,7 +1805,7 @@ Applies to the following 4 components:
   crossbeam-deque 0.8.6
     Copyright (c) 2019 The Crossbeam Project Developers
     MIT elected from `MIT OR Apache-2.0`
-  crossbeam-epoch 0.9.18
+  crossbeam-epoch 0.9.21
     Copyright (c) 2019 The Crossbeam Project Developers
     MIT elected from `MIT OR Apache-2.0`
   crossbeam-queue 0.3.12
@@ -11559,7 +11559,7 @@ MIT
 
 Applies to the following component:
 
-  tokio 1.52.3  [x86_64-unknown-linux-gnu]
+  tokio 1.54.1  [x86_64-unknown-linux-gnu]
 
 ..............................................................................
 
@@ -13672,7 +13672,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   crossbeam-deque 0.8.6
     MIT elected from `MIT OR Apache-2.0`
-  crossbeam-epoch 0.9.18
+  crossbeam-epoch 0.9.21
     MIT elected from `MIT OR Apache-2.0`
   crossbeam-queue 0.3.12
     MIT elected from `MIT OR Apache-2.0`
@@ -13726,7 +13726,7 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   euclid 0.22.14
     MIT elected from `MIT OR Apache-2.0`
-  event-listener 5.4.1
+  event-listener 5.4.2
     MIT elected from `Apache-2.0 OR MIT`
   event-listener-strategy 0.5.4
     MIT elected from `Apache-2.0 OR MIT`

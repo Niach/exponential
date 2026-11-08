@@ -3416,7 +3416,7 @@
     },
     {
       "name": "crossbeam-epoch",
-      "version": "0.9.18",
+      "version": "0.9.21",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -4916,7 +4916,7 @@
     },
     {
       "name": "event-listener",
-      "version": "5.4.1",
+      "version": "5.4.2",
       "declared": "Apache-2.0 OR MIT",
       "licenses": [
         "MIT"
@@ -6573,7 +6573,7 @@
     },
     {
       "name": "h2",
-      "version": "0.4.15",
+      "version": "0.4.20",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -13021,7 +13021,7 @@
     },
     {
       "name": "quinn-proto",
-      "version": "0.11.15",
+      "version": "0.11.19",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -13863,7 +13863,7 @@
     },
     {
       "name": "rio-grapheme-width",
-      "version": "0.5.26",
+      "version": "0.5.29",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -13883,7 +13883,7 @@
     },
     {
       "name": "rio-graphics",
-      "version": "0.5.26",
+      "version": "0.5.29",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -13899,7 +13899,7 @@
     },
     {
       "name": "rio-unicode",
-      "version": "0.5.26",
+      "version": "0.5.29",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -13916,7 +13916,7 @@
     },
     {
       "name": "rio-vt",
-      "version": "0.5.26",
+      "version": "0.5.29",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -17127,7 +17127,7 @@
     },
     {
       "name": "tokio",
-      "version": "1.52.3",
+      "version": "1.54.1",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -19758,7 +19758,7 @@
     },
     {
       "name": "webpki-roots",
-      "version": "1.0.8",
+      "version": "1.0.11",
       "declared": "CDLA-Permissive-2.0",
       "licenses": [
         "CDLA-Permissive-2.0"
@@ -20762,26 +20762,6 @@
     },
     {
       "name": "windows-sys",
-      "version": "0.60.2",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/microsoft/windows-rs",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "license-mit",
-          "body": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
-        }
-      ],
-      "platforms": [
-        "x86_64-pc-windows-msvc"
-      ]
-    },
-    {
-      "name": "windows-sys",
       "version": "0.61.2",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
@@ -20803,26 +20783,6 @@
     {
       "name": "windows-targets",
       "version": "0.52.6",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/microsoft/windows-rs",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "license-mit",
-          "body": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
-        }
-      ],
-      "platforms": [
-        "x86_64-pc-windows-msvc"
-      ]
-    },
-    {
-      "name": "windows-targets",
-      "version": "0.53.5",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -20903,26 +20863,6 @@
     {
       "name": "windows_x86_64_msvc",
       "version": "0.52.6",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/microsoft/windows-rs",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "license-mit",
-          "body": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
-        }
-      ],
-      "platforms": [
-        "x86_64-pc-windows-msvc"
-      ]
-    },
-    {
-      "name": "windows_x86_64_msvc",
-      "version": "0.53.1",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
