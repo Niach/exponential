@@ -1,12 +1,15 @@
 import { useMemo } from "react"
 import {
   agentChatRows,
+  appChatRows,
   chatList,
   type AgentChatRow,
+  type AppChatRow,
   type ChatList,
   type ChatListView,
 } from "@exp/domain-contract/chats"
 import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
+import { useApps } from "@/hooks/use-apps"
 import { useNow } from "@/hooks/use-now"
 import {
   useAgents,
@@ -20,7 +23,8 @@ import { type ChatRowWord } from "@/lib/session-tree"
 // Chat 58cb32df (#EXP-1373, fixture `chats.json`): the Chats
 // screen's model (every form factor since #EXP-1380) for the ONE active team — the contract's `chatList` over
 // `partitionChats`, filter `all` (#FEED-191: no chips, `chatSections` groups
-// it), and (S-3) the pinned `agentChatRows`; `listAgents`
+// it), (S-3) the pinned `agentChatRows` and (#EXP-1733) the `appChatRows`
+// between them; `listAgents`
 // reads each agent's `role`/`ownerId` (the agents shape syncs both), so
 // another member's Assistant never shows. Pure reads over synced shapes; nothing here
 // decides a rule.
@@ -39,6 +43,8 @@ export function useChatList(
   list: ChatList
   /** S-3: the agents pinned on top of the list (none on Archived). */
   agentRows: AgentChatRow[]
+  /** #EXP-1733: the team's apps between the agents and the sessions. */
+  appRows: AppChatRow[]
   /** A root's agent CLI (its brand mark). */
   cliOf: (sessionId: string) => string | null
   isReady: boolean
@@ -46,6 +52,7 @@ export function useChatList(
   const { groups, isReady } = useChatsList(teamId)
   const { rows, tree } = useTeamSessions(teamId)
   const { agents } = useAgents(teamId, me)
+  const { apps } = useApps(teamId)
   const reads = useSessionReads()
   const prs = useTeamPullRequestsByRoot(teamId)
   // #EXP-1380: the digests, never the transcripts (`useDigestMessages`).
@@ -95,10 +102,26 @@ export function useChatList(
     [agents, tree, messages, reads, me, view, nowIso, offset]
   )
 
+  const appRows = useMemo(
+    () =>
+      appChatRows({
+        apps: apps.map((app) => ({ appId: app.id, slug: app.slug, name: app.name, icon: app.icon, color: app.color })),
+        sessions: tree,
+        messages,
+        reads,
+        me: me ?? null,
+        view,
+        now: nowIso,
+        utcOffsetMinutes: offset,
+      }),
+    [apps, tree, messages, reads, me, view, nowIso, offset]
+  )
+
   const cliByRoot = useMemo(() => new Map(rows.map((row) => [row.id, row.cli ?? null])), [rows])
   return {
     list,
     agentRows,
+    appRows,
     cliOf: (sessionId) => cliByRoot.get(sessionId) ?? null,
     isReady,
   }

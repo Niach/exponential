@@ -5,6 +5,7 @@ import {
   chatSelectionActions,
   chatMenuEntries,
   type AgentChatRow,
+  type AppChatRow,
   type ChatLead,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
@@ -50,6 +51,7 @@ const noop = (): void => {}
 const LIST_ROWS = chats.listCases[0]!.expected.rows as ChatRowModel[]
 /** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
 const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
+const APP_ROWS = chats.appRowCases[0]!.expected as AppChatRow[]
 
 // EXP-1647: the phone column is 390px at the PHONE root (16px) = 24.375rem:
 // the wide web root is 18.5px (styles.css). #FEED-191: no rings, no chips: the
@@ -61,7 +63,7 @@ export function ChatListSpecimen() {
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatsHeader inboxUnread />
-      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
+      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} appRows={APP_ROWS} agentOf={() => `claude`} />
     </div>
   )
 }

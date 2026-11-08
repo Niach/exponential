@@ -39,7 +39,7 @@ import { CHATS_LIST_COPY } from "@/lib/session-tree"
 
 // Chat 58cb32df + #EXP-1380 (chats.json LIST + WIDE): the product calls
 // them CHATS, and every form factor paints the SAME list of the ONE active
-// team: (S-3) the agents pinned on top, then (#FEED-191) `chatSections` under
+// team: (S-3) the agents pinned on top, then (#EXP-1733) the apps, then (#FEED-191) `chatSections` under
 // their headers (right-click / long-press = the row's menu through
 // `menuProps`). Phones put the large headline (search + inbox) on top, then the
 // Needs you entry row; wide keeps the list in one column at the page's list
@@ -83,7 +83,7 @@ function ChatsPage() {
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
   const me = authSession?.user?.id ?? null
-  const { list, agentRows, cliOf, isReady } = useChatList(team?.id, me, view)
+  const { list, agentRows, appRows, cliOf, isReady } = useChatList(team?.id, me, view)
   const needsYou = useNeedsYou(team?.id, me)
   // S-3: the viewer's Assistant exists once the list mounts (first use).
   useEnsureAssistant(team?.id)
@@ -187,6 +187,10 @@ function ChatsPage() {
     })
   }, [selection, sessionRows, list.rows, me, isOwner])
 
+  // #EXP-1733: an app row opens the app's chat (its editor).
+  const openApp = (appSlug: string) =>
+    void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug } })
+
   const openAgent = (agentId: string) =>
     void navigate({ to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } })
 
@@ -239,6 +243,8 @@ function ChatsPage() {
               rows={list.rows}
               agentRows={agentRows}
               onOpenAgent={openAgent}
+              appRows={appRows}
+              onOpenApp={openApp}
               agentOf={cliOf}
               loading={!team || !isReady}
               entering={entering}

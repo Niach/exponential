@@ -5,6 +5,7 @@ import { sessionTitle } from "./session-title"
 import { agentChatPage, agentChatTabs, partitionChats, type TreeMessage } from "./session-tree"
 import {
   agentChatRows,
+  appChatRows,
   agentInstructionsChanged,
   agentMenuEntries,
   chatDeleteTitle,
@@ -36,6 +37,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.agentChat.tabCases) test(`agent chat tabs: ${c.name}`, () => expect(agentChatTabs(c.holdsPlan)).toEqual(c.expected))
   for (const c of fixture.agentChat.pageCases) test(`agent chat page: ${c.name}`, () => expect(agentChatPage(c.selected, c.holdsPlan)).toBe(c.expected))
   for (const c of fixture.agentRowCases) test(`agent rows: ${c.name}`, () => expect(agentChatRows(c.input as never)).toEqual(c.expected as never))
+  for (const c of fixture.appRowCases) test(`app rows: ${c.name}`, () => expect(appChatRows(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.menuCases) test(`menu: ${c.name}`, () => expect(chatMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.agentMenuCases) test(`agent menu: ${c.name}`, () => expect(agentMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.replyCases) test(`reply: ${c.name}`, () => expect(surfaceReply(c.event)).toEqual(c.expected as never))

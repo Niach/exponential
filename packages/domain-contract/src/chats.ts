@@ -429,6 +429,74 @@ export function agentChatRows(input: {
   })
 }
 
+/** #EXP-1733: an APP row of the Chats list (`appRowCases`), between the
+ *  Agents and the root sessions: one per live team app in `sortApps` order,
+ *  its disc the app's icon + colour, its preview / time / unread from the
+ *  viewer's session with the app (the root with `appId` and `userId == me`);
+ *  needs you / busy = that root's `needsInput` / `busy`. A tap opens the app's
+ *  chat (its editor). Never selectable; none on the Archived page. */
+export interface AppChatRow {
+  appId: string
+  slug: string
+  /** The viewer's session with the app; null = none yet. */
+  sessionId: string | null
+  name: string
+  icon: string | null
+  color: string | null
+  preview: ChatPreview
+  time: string
+  activityAt: string | null
+  unreadCount: number
+  needsYou: boolean
+  busy: boolean
+}
+
+export function appChatRows(input: {
+  apps: readonly { appId: string; slug: string; name: string; icon: string | null; color: string | null }[]
+  sessions: readonly (TreeSession & { appId?: string | null })[]
+  messages: readonly TreeMessage[]
+  reads?: readonly TreeSessionRead[]
+  me: string | null
+  view?: ChatListView
+  now: string
+  utcOffsetMinutes: number
+}): AppChatRow[] {
+  if (input.view === `archived`) return []
+  const reads = input.reads ?? []
+  return [...input.apps]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: `base` }))
+    .map((app): AppChatRow => {
+      const session = input.me
+        ? input.sessions.find((s) => s.parentId === null && s.appId === app.appId && s.userId === input.me)
+        : undefined
+      const id = session?.id ?? null
+      const needsYou = session?.needsInput ?? false
+      const busy = session?.busy ?? false
+      const newest = id
+        ? input.messages
+            .filter((m) => m.sessionId === id && (m.authorKind === `user` || m.authorKind === `agent`))
+            .reduce<string | null>((at, m) => ((ms(m.createdAt) ?? 0) > (ms(at) ?? -1) ? m.createdAt : at), null)
+        : null
+      const activityAt = newest ?? session?.createdAt ?? null
+      return {
+        appId: app.appId,
+        slug: app.slug,
+        sessionId: id,
+        name: app.name,
+        icon: app.icon,
+        color: app.color,
+        preview: id
+          ? chatPreview({ rootId: id, messages: input.messages, needsYou, busy })
+          : { kind: `empty`, text: fixture.copy.preview.empty },
+        time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
+        activityAt,
+        unreadCount: id ? unreadCount(id, input.messages, reads) : 0,
+        needsYou,
+        busy,
+      }
+    })
+}
+
 export type ChatMenuEntry = `delete`
 
 /** A chat row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28)
