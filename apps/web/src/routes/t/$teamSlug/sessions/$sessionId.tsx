@@ -8,6 +8,7 @@ import { emptyStateCopy } from "@/lib/empty-states"
 import { useSessionChat, useSessionRow } from "@/hooks/use-session-tree"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useSession } from "@/hooks/use-session"
+import { useApps } from "@/hooks/use-apps"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { CHATS_LIST_COPY, type SessionRow } from "@/lib/session-tree"
 
@@ -30,7 +31,8 @@ import { CHATS_LIST_COPY, type SessionRow } from "@/lib/session-tree"
 // `?tab=sessions&open=session&session=<id>`, keeping `from` and `back`. A
 // session under a team AGENT keeps its own screen here (back to the agent);
 // an agent's conversation ROOT (NEW-2: a root with `agentId`) redirects to
-// the agent's page.
+// the agent's page; an app's editor ROOT (`appId`) to its app editor,
+// keeping `tab` / `open`.
 //
 // EXP-1291: old PR body footers link `sessions/<rootId>?view=guide`: that
 // URL opens the chat. S-3: `back` = the inter-session back stack
@@ -148,6 +150,7 @@ function ChatPage({
 }) {
   const team = useTeamBySlug(teamSlug)
   const navigate = useNavigate()
+  const { apps, isReady: appsReady } = useApps(team?.id)
   const chat = useSessionChat(
     sessionId,
     search.open === `session` ? (search.session ?? null) : null
@@ -177,6 +180,27 @@ function ChatPage({
         replace
       />
     )
+  }
+
+  // #EXP-1732: an app's editor session (a root with `appId`) is no chat
+  // page: its page is the app editor (keeping `tab` / `open`).
+  if (chat.root?.appId) {
+    const app = apps.find((row) => row.id === chat.root!.appId)
+    if (app) {
+      return (
+        <Navigate
+          to="/t/$teamSlug/app-editor/$appSlug"
+          params={{ teamSlug, appSlug: app.slug }}
+          search={{
+            ...(search.tab ? { tab: search.tab } : {}),
+            ...(search.open ? { open: search.open } : {}),
+            ...(search.open === `session` && search.session ? { session: search.session } : {}),
+          }}
+          replace
+        />
+      )
+    }
+    if (!appsReady) return <Loading />
   }
 
   // An agent's conversation (NEW-2: a root with `agentId`) is no chat page:

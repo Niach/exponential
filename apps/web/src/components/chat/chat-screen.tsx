@@ -93,8 +93,8 @@ import { planTabTarget } from "@exp/domain-contract/plan-page"
 // · Results with their counts); this host builds the bodies:
 //
 //   chat       THE one transcript (ChatConversation + THE Dock + THE
-//              composer); a single-session chat = its root's raw work in
-//              place; plans and questions stay inline
+//              composer), for every chat (NEW-46's single-session raw work
+//              is gone ×4); plans and questions stay inline
 //   issues     the tree's issues (nested indented), led by the `+`; a row
 //              opens that issue IN PLACE (`open=issue&issue=`)
 //   sessions   THE tree rows of every session under the root; a row opens
@@ -217,10 +217,6 @@ export function ChatScreen({
   // session marks itself (`session-body.tsx`).
   const treeIds = useMemo(() => rows.map((row) => row.id), [rows])
   useMarkRead(root.id, useNewestAgentMessageAt(treeIds))
-  // NEW-6 (N-1) / NEW-46: on a single-session chat the chat IS the root's
-  // raw work in place. S-3: an agent conversation always paints its bubbles.
-  const mainSession =
-    view.mainSessionId && chatMode(root) !== `bubbles` ? (rowsById.get(view.mainSessionId) ?? null) : null
   // #EXP-1662 (plan-page.json): the chat's plans; a plan row opens one.
   const planRows = useMemo(
     () => view.rows.filter((row): row is Extract<SessionChatRow, { type: `plan` }> => row.type === `plan`),
@@ -234,7 +230,10 @@ export function ChatScreen({
   // ── THE screen (session-screen.json) ──────────────────────────────────────
   const openIssueId =
     search.open === `issue` && search.issue && issueIds.includes(search.issue) ? search.issue : null
-  const openSessionRow = search.open === `session` && focused && focused.id !== root.id ? focused : null
+  // #EXP-1732 (parity ×4, NEW-46 dropped): Chat is ALWAYS the transcript;
+  // the root's own raw work opens as a session only while it has children.
+  const openSessionRow =
+    search.open === `session` && focused && (focused.id !== root.id || rows.length > 1) ? focused : null
   const openPlan =
     search.open === `plan`
       ? (planRows.find((row) => row.id === search.plan) ??
@@ -356,9 +355,7 @@ export function ChatScreen({
   })
 
   // ── The bodies ─────────────────────────────────────────────────────────────
-  const chat = mainSession ? (
-    <InPlaceSession row={mainSession} floating={isMobile} origin={view.origin} onOpenXref={nav.open} />
-  ) : (
+  const chat = (
     <ConversationBody
       teamId={team.id}
       view={view}

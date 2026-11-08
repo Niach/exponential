@@ -232,6 +232,7 @@ export function AppEditor({
   canManage,
   canGrant,
   requestedTab,
+  requestedOpen = null,
   requestedFrame = null,
   requestedScreen = null,
 }: {
@@ -246,6 +247,8 @@ export function AppEditor({
   canGrant: boolean
   /** VAPP-177: the route's `?tab=` (read once: no tab is kept). */
   requestedTab: string | null
+  /** #EXP-1732: the route's `?open=` (settings, a session of the tree; read once). */
+  requestedOpen?: { open: SessionScreenOpen; sessionId?: string } | null
   /** VAPP-179: the route's `?frame=` (read once; screenshots open on Phone). */
   requestedFrame?: PreviewFrame | null
   /** VAPP-218: the preview's first screen (null = the package's first); a
@@ -258,7 +261,7 @@ export function AppEditor({
   // `legacyTabs`; `settings` opens the gear's settings) and the item open
   // over it (settings, a session of the editor tree).
   const [tab, setTab] = useState<string | null>(requestedTab)
-  const [opened, setOpened] = useState<{ open: SessionScreenOpen; sessionId?: string } | null>(null)
+  const [opened, setOpened] = useState<{ open: SessionScreenOpen; sessionId?: string } | null>(requestedOpen)
   const [viewing, setViewing] = useState<number | null>(null)
   // VAPP-179: the preview toolbar's frame + picked template (editor lifetime only).
   const [frame, setFrame] = useState<PreviewFrame>(requestedFrame ?? (APPS_PREVIEW.defaultFrame as PreviewFrame))

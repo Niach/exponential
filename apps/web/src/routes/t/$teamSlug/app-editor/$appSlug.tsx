@@ -24,7 +24,7 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const SYNC_GRACE_MS = 4_000
 
-type AppEditorSearch = { tab?: string; frame?: `desktop` | `phone` }
+type AppEditorSearch = { tab?: string; open?: string; session?: string; frame?: `desktop` | `phone` }
 
 export const Route = createFileRoute(`/t/$teamSlug/app-editor/$appSlug`)({
   validateSearch: (search: Record<string, unknown>): AppEditorSearch => {
@@ -32,6 +32,9 @@ export const Route = createFileRoute(`/t/$teamSlug/app-editor/$appSlug`)({
     const frame = search.frame
     return {
       ...(typeof tab === `string` && tab ? { tab } : {}),
+      // #EXP-1732: the item opened over the tab (settings, a session).
+      ...(search.open === `settings` || search.open === `session` ? { open: search.open } : {}),
+      ...(search.open === `session` && typeof search.session === `string` && search.session ? { session: search.session } : {}),
       ...(typeof frame === `string` && (APPS_PREVIEW.frames as string[]).includes(frame) ? { frame: frame as `desktop` | `phone` } : {}),
     }
   },
@@ -46,7 +49,7 @@ export const Route = createFileRoute(`/t/$teamSlug/app-editor/$appSlug`)({
 
 function AppEditorPage() {
   const { teamSlug, appSlug } = Route.useParams()
-  const { tab: requestedTab, frame: requestedFrame } = Route.useSearch()
+  const { tab: requestedTab, open: requestedOpen, session: requestedSession, frame: requestedFrame } = Route.useSearch()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const permissions = useTeamPermissions(team)
@@ -96,6 +99,13 @@ function AppEditorPage() {
       canManage={permissions.isOwner || app.createdBy === (session?.user?.id ?? null)}
       canGrant={permissions.isOwner}
       requestedTab={requestedTab ?? null}
+      requestedOpen={
+        requestedOpen === `settings`
+          ? { open: `settings` }
+          : requestedOpen === `session` && requestedSession
+            ? { open: `session`, sessionId: requestedSession }
+            : null
+      }
       requestedFrame={requestedFrame ?? null}
     />
   )
