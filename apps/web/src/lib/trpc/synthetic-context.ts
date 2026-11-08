@@ -1,9 +1,8 @@
 // A tRPC context for a SERVER-initiated call on a user's behalf — no HTTP
 // request, no Better Auth session. The routers only read `ctx.session.user.id`
 // and `ctx.db`; the rest keeps the Context type honest. Two callers: the
-// import pipeline (`lib/import/apply-db.ts`, acting as the importer) and the
-// EXP-1146 yolo tree merge (acting as each run's owner, `viaMcp` set so PR
-// attribution treats the merge as agent-driven like the MCP `pr_merge` path).
+// import pipeline (`lib/import/apply-db.ts`, acting as the importer) and
+// other server-side calls acting as a user.
 import { db } from "@/db/connection"
 import type { Context } from "@/lib/trpc"
 

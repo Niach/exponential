@@ -2646,7 +2646,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     // An idle (not busy) session had nothing to interrupt: delivered, even
     // with no relay configured. EXP-1413: nor does it stamp `stopped_at`
     // (the stamp reads the row's own `busy`): a Stop landing after the
-    // turn ended by itself holds no yolo merge.
+    // turn ended by itself holds no merge.
     await db
       .update(sessions)
       .set({ status: `idle`, busy: false, stoppedAt: null })

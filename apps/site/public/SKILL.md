@@ -86,8 +86,8 @@ notifications).
 - **attachments**: `list`, `get`, `upload` (bytes, or a signed URL then a
   finalize call; returns the embeddable markdown), `delete`.
 - **pr**: `open` (links the session's issues; a stacked base is inferred),
-  `merge` (squash through the GitHub App; `stack: true` lands a stack
-  member and everything beneath it), `close`, `retarget`, `update`,
+  `merge` (queues it in the merge train, which tests and lands it by
+  itself; `force: true` = Merge now, owners and team agents), `close`, `retarget`, `update`,
   `unlink`, `files`. A PR is named by `pullRequestId`, `issueId` or
   `repositoryId` + `prNumber`.
 - **boards** (`list`, `get`, `create`, `update`, `delete` = the 48-hour

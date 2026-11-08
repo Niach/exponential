@@ -1,14 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
-import {
-  ensureGithubStack,
-  GitHubStackForkError,
-  inferBaseBranch,
-  MAX_BASE_CANDIDATES,
-  mergeThrough,
-} from "@/lib/pr-stacks"
-import { GitHubStackError } from "@/lib/integrations/github-pr"
+import { inferBaseBranch, MAX_BASE_CANDIDATES } from "@/lib/pr-stacks"
 
-// EXP-1248: native GitHub stacks. Routes match on METHOD + exact PATH (the
+// EXP-1248: the inferred base of a stacked PR. Routes match on METHOD + exact PATH (the
 // part after /repos/o/r), consumed in order, so `/pulls/24` never answers
 // `/pulls/241`.
 
@@ -51,156 +44,6 @@ function github(routes: Route[]) {
   )
   return { impl: impl as never, calls }
 }
-
-const stack = (number: number, members: number[], extra: object = {}) => ({
-  number,
-  open: true,
-  base: { ref: `master` },
-  pull_requests: members.map((n) => ({ number: n, state: `open`, merged_at: null, head: { ref: `exp/${n}` } })),
-  ...extra,
-})
-
-const pull = (n: number, base: string) => ({
-  state: `open`,
-  merged: false,
-  head: { ref: `exp/${n}` },
-  base: { ref: base },
-})
-
-describe(`ensureGithubStack`, () => {
-  it(`creates a two-PR stack bottom → top when the lower PR sits on the default branch`, async () => {
-    const { impl, calls } = github([
-      { path: `/stacks`, status: 200, body: [] },
-      { path: `/pulls/1011`, status: 200, body: pull(1011, `master`) },
-      { method: `POST`, path: `/stacks`, status: 201, body: stack(7, [1011, 1012]) },
-    ])
-    const result = await ensureGithubStack({
-      repo: `o/r`,
-      token: `tok`,
-      lowerPrNumber: 1011,
-      newPrNumber: 1012,
-      stopBranches: [`master`],
-      fetchImpl: impl,
-    })
-    expect(result.number).toBe(7)
-    const create = calls.find((call) => call.method === `POST`)!
-    expect(create.body).toEqual({ pull_requests: [1011, 1012] })
-    expect(create.headers[`x-github-api-version`]).toBe(`2026-03-10`)
-    expect(calls[0]!.path).toBe(`/stacks?pull_request=1011&per_page=100`)
-  })
-
-  it(`adds the new PR on top of the stack the lower PR already tops`, async () => {
-    const { impl, calls } = github([
-      { path: `/stacks`, status: 200, body: [stack(7, [1011, 1012])] },
-      { method: `POST`, path: `/stacks/7/add`, status: 200, body: stack(7, [1011, 1012, 1013]) },
-    ])
-    const result = await ensureGithubStack({
-      repo: `o/r`,
-      token: `tok`,
-      lowerPrNumber: 1012,
-      newPrNumber: 1013,
-      fetchImpl: impl,
-    })
-    expect(result.pulls.map((p) => p.number)).toEqual([1011, 1012, 1013])
-    expect(calls.at(-1)!.body).toEqual({ pull_requests: [1013] })
-  })
-
-  it(`is a no-op when the new PR is already stacked on it`, async () => {
-    const { impl, calls } = github([
-      { path: `/stacks`, status: 200, body: [stack(7, [1011, 1012])] },
-    ])
-    await ensureGithubStack({ repo: `o/r`, token: `tok`, lowerPrNumber: 1011, newPrNumber: 1012, fetchImpl: impl })
-    expect(calls).toHaveLength(1)
-  })
-
-  it(`refuses a fork: the lower PR already has another PR stacked on it`, async () => {
-    const { impl } = github([
-      { path: `/stacks`, status: 200, body: [stack(7, [1011, 1012])] },
-    ])
-    const error = await ensureGithubStack({
-      repo: `o/r`,
-      token: `tok`,
-      lowerPrNumber: 1011,
-      newPrNumber: 1020,
-      fetchImpl: impl,
-    }).catch((err: unknown) => err)
-    expect(error).toBeInstanceOf(GitHubStackForkError)
-    expect((error as GitHubStackForkError).status).toBe(409)
-    expect((error as Error).message).toContain(`linear`)
-  })
-
-  it(`calls a PR below that is mid-stack a fork too`, async () => {
-    const { impl } = github([
-      { path: `/stacks`, status: 200, body: [] }, // #1008
-      { path: `/pulls/1008`, status: 200, body: pull(1008, `exp/1006`) },
-      { path: `/pulls`, status: 200, body: [{ number: 1006, html_url: `u`, base: { ref: `master` } }] },
-      { path: `/stacks`, status: 200, body: [stack(7, [1006, 1007])] }, // #1006 carries #1007
-    ])
-    const error = await ensureGithubStack({
-      repo: `o/r`,
-      token: `tok`,
-      lowerPrNumber: 1008,
-      newPrNumber: 1009,
-      fetchImpl: impl,
-    }).catch((err: unknown) => err)
-    expect(error).toBeInstanceOf(GitHubStackForkError)
-  })
-
-  it(`recurses down an unstacked chain and stacks the whole line in one call`, async () => {
-    // VAPP-88 #1004 ← VAPP-89 #1006 ← VAPP-91 #1008; the new PR #1009 sits on #1008.
-    const { impl, calls } = github([
-      { path: `/stacks`, status: 200, body: [] }, // #1008
-      { path: `/pulls/1008`, status: 200, body: pull(1008, `exp/VAPP-89`) },
-      { path: `/pulls`, status: 200, body: [{ number: 1006, html_url: `u`, base: { ref: `exp/VAPP-88` } }] },
-      { path: `/stacks`, status: 200, body: [] }, // #1006
-      { path: `/pulls/1006`, status: 200, body: pull(1006, `exp/VAPP-88`) },
-      { path: `/pulls`, status: 200, body: [{ number: 1004, html_url: `u`, base: { ref: `master` } }] },
-      { path: `/stacks`, status: 200, body: [] }, // #1004
-      { path: `/pulls/1004`, status: 200, body: pull(1004, `master`) },
-      { method: `POST`, path: `/stacks`, status: 201, body: stack(9, [1004, 1006, 1008, 1009]) },
-    ])
-    await ensureGithubStack({
-      repo: `o/r`,
-      token: `tok`,
-      lowerPrNumber: 1008,
-      newPrNumber: 1009,
-      stopBranches: [`master`],
-      fetchImpl: impl,
-    })
-    expect(calls.at(-1)!.body).toEqual({ pull_requests: [1004, 1006, 1008, 1009] })
-  })
-
-  it(`extends the stack the walk lands on`, async () => {
-    const { impl, calls } = github([
-      { path: `/stacks`, status: 200, body: [] }, // #1008
-      { path: `/pulls/1008`, status: 200, body: pull(1008, `exp/1006`) },
-      { path: `/pulls`, status: 200, body: [{ number: 1006, html_url: `u`, base: { ref: `exp/1004` } }] },
-      { path: `/stacks`, status: 200, body: [stack(3, [1004, 1006])] }, // #1006 tops stack 3
-      { method: `POST`, path: `/stacks/3/add`, status: 200, body: stack(3, [1004, 1006, 1008, 1009]) },
-    ])
-    await ensureGithubStack({ repo: `o/r`, token: `tok`, lowerPrNumber: 1008, newPrNumber: 1009, fetchImpl: impl })
-    expect(calls.at(-1)!.body).toEqual({ pull_requests: [1008, 1009] })
-  })
-
-  it(`surfaces GitHub's refusal as an error, never silently`, async () => {
-    const { impl } = github([
-      { path: `/stacks`, status: 200, body: [] },
-      { path: `/pulls/1011`, status: 200, body: pull(1011, `master`) },
-      { method: `POST`, path: `/stacks`, status: 422, body: { message: `Base ref mismatch` } },
-    ])
-    const error = await ensureGithubStack({
-      repo: `o/r`,
-      token: `tok`,
-      lowerPrNumber: 1011,
-      newPrNumber: 1012,
-      stopBranches: [`master`],
-      fetchImpl: impl,
-    }).catch((err: unknown) => err)
-    expect(error).toBeInstanceOf(GitHubStackError)
-    expect((error as GitHubStackError).status).toBe(422)
-    expect((error as Error).message).toContain(`Base ref mismatch`)
-  })
-})
 
 describe(`inferBaseBranch`, () => {
   it(`picks the nearest open PR whose head is an ancestor of the new head`, async () => {
@@ -309,26 +152,5 @@ describe(`inferBaseBranch`, () => {
     ])
     const result = await inferBaseBranch({ repo: `o/r`, token: `tok`, head: `exp/b`, defaultBranch: `master`, fetchImpl: impl })
     expect(result).toEqual({ base: `exp/a`, prNumber: 7 })
-  })
-})
-
-describe(`mergeThrough`, () => {
-  it(`is ONE merge-async on the member, polled to its landing`, async () => {
-    const { impl, calls } = github([
-      { method: `PUT`, path: `/pulls/1008/merge-async`, status: 202, body: { status: `pending`, details: { uuid: `u-1` } } },
-      { path: `/pulls/1008/merge-async/u-1`, status: 200, body: { status: `merged`, sha: `abc` } },
-    ])
-    const result = await mergeThrough({
-      repo: `o/r`,
-      token: `tok`,
-      prNumber: 1008,
-      fetchImpl: impl,
-      sleepImpl: async () => {},
-    })
-    expect(result).toMatchObject({ merged: true, queued: false, sha: `abc` })
-    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      `PUT /pulls/1008/merge-async`,
-      `GET /pulls/1008/merge-async/u-1`,
-    ])
   })
 })

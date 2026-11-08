@@ -228,13 +228,13 @@ export const teams = pgTable(`teams`, {
   // `endSessions` override sit on top. Synced so every client renders the
   // toggle and the desktop's batch self-close honours it.
   endSessionsOnMerge: boolean(`end_sessions_on_merge`).notNull().default(true),
-  // EXP-1105 — yolo mode (owner toggle, default off): every PR an agent opens
-  // via MCP `pr_open` squash-merges at once, and every client hides Reviews
-  // (desktop also Files + Source Control) unless something failed (an open PR
-  // left behind, a trunk-sync conflict). Synced so the nav can gate.
+  // EXP-1105 — yolo mode, DEAD on the server since the merge train is the
+  // only merge (EXP-1709): nothing reads it; it stays a synced column until
+  // every client reads `merge_mode` (#EXP-1710). An old client's write maps
+  // onto `merge_mode` (teams.update).
   yoloMode: boolean(`yolo_mode`).notNull().default(false),
-  // EXP-1709 (merge-train.json MODE): replaces `yolo_mode` once the train is
-  // switched on (MERGE_TRAIN). `auto` (default, every team) = a ready PR
+  // EXP-1709 (merge-train.json MODE): replaces `yolo_mode`. `auto` (default,
+  // every team, self-hosted included) = a ready PR
   // joins the merge train by itself; `approval` = it waits for a person's
   // Needs approval first (a documented varchar, contract teamMergeMode, like
   // `estimation_type`). Synced (the Settings select row); owners write it.
