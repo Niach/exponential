@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory chat (#EDE-52, #EDE-58): the composer opened by the chat button next to the start button (or Super+Space) as an on-demand top layer surface in the middle of the screen. On a LOCAL desktop it is the desktop's own agent: the text starts a local session (local-parity.json sessions.send) that the shell runs with the person's own CLI over ACP (elocal's runs: eagent-hub-core in-process, an in-process MCP hub over the desktop's store); the conversation shows here (/chatting {local, agent, status, messages [{id, author, body}]}), every message as Markdown. Without a CLI installed and signed in the composer says so. On a team (an account), the one global Assistant lives in the Exponential app (#EXP-1565): the composer hands the text to it (ede_launch with the app and the text).",
+  "$comment": "Exponential Desktop's factory chat (#EDE-52, #EDE-58): the composer opened by the chat button next to the start button (or Super+Space) as an on-demand top layer surface in the middle of the screen. On a LOCAL desktop it is the desktop's own agent: the text starts a local session (local-parity.json sessions.send) that the shell runs with the person's own CLI over ACP (elocal's runs: eagent-hub-core in-process, an in-process MCP hub over the desktop's store); the conversation shows here (/chatting {local, agent, status, messages [{id, author, body}]}), every message as Markdown. Without a CLI installed and signed in the composer says so. On a team (an account), the one global Assistant lives in the Exponential app (#EXP-1565): the header's status names the team and the account it is connected through (#EDE-65) and the empty state opens the app; the composer hands the text to it (ede_launch with the app and the text).",
   "surface": {
     "layer": "top",
     "size": {
@@ -10,8 +10,7 @@
     "onDemand": true,
     "functions": [
       "ede_launch",
-      "ede_chat",
-      "ede_switcher"
+      "ede_chat"
     ]
   },
   "root": {
@@ -89,7 +88,7 @@
         "props": {
           "icon": "action-chat",
           "title": "Your Assistant lives in the Exponential app",
-          "actionLabel": "Connect Exponential",
+          "actionLabel": "Open Exponential",
           "size": "page"
         },
         "style": {
@@ -113,9 +112,9 @@
         "on": {
           "press": {
             "functionCall": {
-              "@call": "ede_switcher",
+              "@call": "ede_launch",
               "args": {
-                "action": "connect"
+                "app": "at.exponential"
               }
             }
           }
