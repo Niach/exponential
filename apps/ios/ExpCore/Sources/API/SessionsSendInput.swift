@@ -99,8 +99,15 @@ public enum SessionsSendInput: Sendable, Equatable {
     )
     /// VAPP-110: a message to an APP — into the caller's own EDITOR session
     /// with it (created on first use on `deviceId`, else the caller's default
-    /// device; an ended one continues). Needs text or files.
-    case app(appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil)
+    /// device; an ended one continues). Needs text or files. #EXP-1729:
+    /// `account` / `model` = the editor composer's picks, riding the send
+    /// that opens or revives the root, with the agent the login belongs to
+    /// (`cli`, so the server reads the model in that agent's list; nil =
+    /// omitted).
+    case app(
+        appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil,
+        cli: String? = nil, account: String? = nil, model: String? = nil
+    )
     /// A CHILD session of `parentId` on any device.
     case child(
         parentId: String,
@@ -172,11 +179,14 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try encodeScope(scope)
-        case let .app(appId, deviceId, text, attachmentIds):
+        case let .app(appId, deviceId, text, attachmentIds, cli, account, model):
             try c.encode(appId, forKey: .appId)
             try c.encodeIfPresent(deviceId, forKey: .deviceId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+            try c.encodeIfPresent(cli, forKey: .cli)
+            try c.encodeIfPresent(account, forKey: .account)
+            try c.encodeIfPresent(model.flatMap { $0.isEmpty ? nil : $0 }, forKey: .model)
         case let .child(parentId, deviceId, options, text):
             try c.encode(parentId, forKey: .parentId)
             try c.encode(deviceId, forKey: .deviceId)
