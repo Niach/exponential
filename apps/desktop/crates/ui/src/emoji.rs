@@ -13,9 +13,8 @@
 
 
 use gpui::App;
-use serde::Deserialize;
 
-pub(crate) use domain::emoji::{catalog, EmojiCatalog, EmojiRecord};
+pub(crate) use domain::emoji::catalog;
 
 // ---------------------------------------------------------------------------
 // Rendering
