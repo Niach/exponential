@@ -67,9 +67,6 @@ struct UiPrefs {
     /// on this client only (apps.json EDITOR DEVICE).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     editor_devices: BTreeMap<String, String>,
-    /// #EXP-1724: the sidebar is folded into its icon rail.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    rail: bool,
     /// #EXP-1727: the app reopens on the current Local desktop.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     local_desktop: bool,
@@ -173,27 +170,6 @@ pub(crate) fn set_sidebar_width(key: &str, width: Option<f32>) {
         }
     }
     schedule_write();
-}
-
-/// #EXP-1724: is the sidebar folded into its icon rail?
-pub(crate) fn rail() -> bool {
-    prefs().lock().is_ok_and(|prefs| prefs.rail)
-}
-
-/// #EXP-1724: remember the rail.
-pub(crate) fn set_rail(rail: bool) {
-    {
-        let Ok(mut prefs) = prefs().lock() else {
-            return;
-        };
-        prefs.rail = rail;
-    }
-    schedule_write();
-}
-
-/// #EXP-1727: was the app on a Local desktop?
-pub(crate) fn on_local_desktop() -> bool {
-    prefs().lock().is_ok_and(|prefs| prefs.local_desktop)
 }
 
 /// #EXP-1727: remember being on a Local desktop.

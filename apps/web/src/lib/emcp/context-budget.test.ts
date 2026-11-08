@@ -63,8 +63,6 @@ vi.mock(`@/lib/pr-stacks`, () => ({
     base: opts.defaultBranch,
     prNumber: null,
   })),
-  ensureGithubStack: vi.fn(async () => ({ number: 1, baseRef: `master`, open: true, pulls: [] })),
-  mergeThrough: vi.fn(),
 }))
 vi.mock(`@/lib/run-pr-body`, () => ({
   runPrBody: vi.fn(),

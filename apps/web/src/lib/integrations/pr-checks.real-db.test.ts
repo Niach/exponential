@@ -6,8 +6,7 @@ import { boards, devices, messages, repositories, teamMembers, teams } from "@/d
 import { probeRealDb } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 
-// EXP-1610 against the REAL migrated Postgres (harness from
-// merge-refusal.real-db.test.ts): the check writer, the aggregate, the ONE
+// EXP-1610 against the REAL migrated Postgres: the check writer, the aggregate, the ONE
 // waking `pr_checks` line when CI leaves pending, and the queued flag.
 
 vi.mock(`@/lib/pull-requests`, async (importOriginal) => ({

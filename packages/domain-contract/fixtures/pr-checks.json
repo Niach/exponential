@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery (read at the head sha when known; a read cut at the page cap upserts without dropping rows); agents never poll; a `pull_request` `synchronize` (a push, a rebase) reads the new head at once. SWEEP (webhook-independent; the App's check events are a grant a person accepts, and without them a thread that ended its turn never heard CI): every watchdog tick re-reads (throttled per PR, skipped on a low installation budget or a known checks:read refusal) the live PRs whose checks are pending and that changed in the last 6 h, or that have none and changed in the last 30 min, at most 50 a tick; a GITHUB_POLLING instance (no webhooks reach it) also repairs its live PRs whose checks were read at an older head, inside the poller's budget back-off. Without the App's checks:read permission nothing is known: state none, never an error; the 403 is remembered per installation (~45 min), so a missing permission costs no calls. eCode's own CI writes the same rows later. WAKE (`wake`, #FEED-199): a `pr_checks` line fires only for the PR's CURRENT head (a delivery for a commit that is no longer the head is dropped, never written) and only once the REQUIRED checks reported: the gated checks = the base branch's required check names when it names any (a required name with no row yet = not reported; other workflows finishing early never wake), else every row; a `cancelled` run is no outcome (superseded by a push/rebase, or stopped): it reports nothing; failure = a gated check completed with a failing conclusion other than cancelled (wins: the first red required check is news); success = every gated check completed and none failing or cancelled; else no wake (null). It then wakes ONE `pr_checks` event line in the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). UNKNOWN (#FEED-198): `state none, total 0` alone cannot say whether CI never ran or nobody could read it, so a brief with no rows also carries what the last read found (`unknownText`): `unknown` = no_permission (GitHub refused the check runs: the App's checks:read is not accepted on this installation, and its check events are off too), not_installed (no installation token reaches the repo), unreadable (rate limited or a failed read: it heals on a later read), no_runs (GitHub answered and holds no run at the head: no CI triggered), plus `note` = that reason's sentence. Both keys are absent while rows exist or before any read, so a reader that ignores them sees the same brief as before. `pr merge` reports them; with MERGE_CHECK_GATE=true (default off) it refuses while a gated check is red or running (`gate`: the required checks when the base names any, else every check; red first) with `gateText`, and `force: true` merges anyway. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list) on this fixture. #EXP-1611 UI x4 (web, desktop, iOS, Android; every client syncs `pull-request-checks` + `pull_requests.checks_state` and replays the cases below; no client calls GitHub). THE PR SURFACE = the thread header (session-thread.json `guidePullRequest`: the status pill + the `…` menu, every tab, phones included); no other surface draws checks. HEADER PILL = merge-train.json `statusPill` (its tap opens the Checks submenu below). CHECKS LIST = the `…` menu's leading `checks` submenu (merge-train.json `mergeMenuEntries`: `checks` first whenever the PR has at least one row, any PR state, any viewer), THE Menu x4 (md+/IDE a submenu flyout, phones a pushed sheet page): the entry = icon `checksSummary(rows).glyph` (tinted by its tone), label `copy.checks`, value `checksSummary(rows).value`; its rows = `checksList(rows, now)` in order, each THE menu item: icon `glyph` tinted `tone` (`ci-running` = THE Spinner), label = the check name, value = `duration` (none = no value), a pick opens `url` (details_url, the logs) in the browser; a row without a url is disabled. GLYPHS (icons.json concepts): queued ci-queued, in_progress ci-running, completed + a failing conclusion ci-failed (red), success ci-passed (green), any other conclusion (neutral, skipped, stale) ci-skipped (muted); tone muted otherwise. ORDER: failed, running, queued, passed, skipped; ties by name (code-point order). DURATION (`checkDuration`): completed = completedAt - startedAt, in_progress = now - startedAt, else null (queued, or a missing start); `formatDuration(ms)` = `42s`, `3m 5s`, `1h 2m` (floor, negative = 0s). SUMMARY: failure = ci-failed red `{count} failing` (count = failing rows), pending = ci-running `{count} running` (rows not completed), success = ci-passed green `{count} passed` (every row), none = null (no entry). EVENT LINE: `pr_checks` (session-thread.json copy.events, `CI on PR {pr}`) draws like every PR event line x4. STYLEGUIDE: entry `pr-checks` (the status pills + the open checks submenu as a static menu panel over `specimen`); view-catalog `pr-checks`. #EXP-1707 (merge-train.json, the merge train): the header pill is a merge STATUS (`statusPill`: Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, ...) whose tap opens this fixture's Checks submenu; the person's Merge is Needs approval (`approval` mode) or Merge now in the `…`. The train tests every unit, so MERGE_CHECK_GATE, `gate`, `gateText` and `force` leave with #EXP-1709 (`pr merge` = queue now / report the position). `pr_checks` wakes stay as they are: a red own head is merge-train `failing` before the train, without a bounce.",
+  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery (read at the head sha when known; a read cut at the page cap upserts without dropping rows); agents never poll; a `pull_request` `synchronize` (a push, a rebase) reads the new head at once. SWEEP (webhook-independent; the App's check events are a grant a person accepts, and without them a thread that ended its turn never heard CI): every watchdog tick re-reads (throttled per PR, skipped on a low installation budget or a known checks:read refusal) the live PRs whose checks are pending and that changed in the last 6 h, or that have none and changed in the last 30 min, at most 50 a tick; a GITHUB_POLLING instance (no webhooks reach it) also repairs its live PRs whose checks were read at an older head, inside the poller's budget back-off. Without the App's checks:read permission nothing is known: state none, never an error; the 403 is remembered per installation (~45 min), so a missing permission costs no calls. eCode's own CI writes the same rows later. WAKE (`wake`, #FEED-199): a `pr_checks` line fires only for the PR's CURRENT head (a delivery for a commit that is no longer the head is dropped, never written) and only once the REQUIRED checks reported: the gated checks = the base branch's required check names when it names any (a required name with no row yet = not reported; other workflows finishing early never wake), else every row; a `cancelled` run is no outcome (superseded by a push/rebase, or stopped): it reports nothing; failure = a gated check completed with a failing conclusion other than cancelled (wins: the first red required check is news); success = every gated check completed and none failing or cancelled; else no wake (null). It then wakes ONE `pr_checks` event line in the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). UNKNOWN (#FEED-198): `state none, total 0` alone cannot say whether CI never ran or nobody could read it, so a brief with no rows also carries what the last read found (`unknownText`): `unknown` = no_permission (GitHub refused the check runs: the App's checks:read is not accepted on this installation, and its check events are off too), not_installed (no installation token reaches the repo), unreadable (rate limited or a failed read: it heals on a later read), no_runs (GitHub answered and holds no run at the head: no CI triggered), plus `note` = that reason's sentence. Both keys are absent while rows exist or before any read, so a reader that ignores them sees the same brief as before. `pr merge` reports them; it never merges past CI: the merge train (merge-train.json) lands a PR only once its GATED checks (`gatedChecks`: the required checks when the base names any, else every check) are green or absent. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list) on this fixture. #EXP-1611 UI x4 (web, desktop, iOS, Android; every client syncs `pull-request-checks` + `pull_requests.checks_state` and replays the cases below; no client calls GitHub). THE PR SURFACE = the thread header (session-thread.json `guidePullRequest`: the status pill + the `…` menu, every tab, phones included); no other surface draws checks. HEADER PILL = merge-train.json `statusPill` (its tap opens the Checks submenu below). CHECKS LIST = the `…` menu's leading `checks` submenu (merge-train.json `mergeMenuEntries`: `checks` first whenever the PR has at least one row, any PR state, any viewer), THE Menu x4 (md+/IDE a submenu flyout, phones a pushed sheet page): the entry = icon `checksSummary(rows).glyph` (tinted by its tone), label `copy.checks`, value `checksSummary(rows).value`; its rows = `checksList(rows, now)` in order, each THE menu item: icon `glyph` tinted `tone` (`ci-running` = THE Spinner), label = the check name, value = `duration` (none = no value), a pick opens `url` (details_url, the logs) in the browser; a row without a url is disabled. GLYPHS (icons.json concepts): queued ci-queued, in_progress ci-running, completed + a failing conclusion ci-failed (red), success ci-passed (green), any other conclusion (neutral, skipped, stale) ci-skipped (muted); tone muted otherwise. ORDER: failed, running, queued, passed, skipped; ties by name (code-point order). DURATION (`checkDuration`): completed = completedAt - startedAt, in_progress = now - startedAt, else null (queued, or a missing start); `formatDuration(ms)` = `42s`, `3m 5s`, `1h 2m` (floor, negative = 0s). SUMMARY: failure = ci-failed red `{count} failing` (count = failing rows), pending = ci-running `{count} running` (rows not completed), success = ci-passed green `{count} passed` (every row), none = null (no entry). EVENT LINE: `pr_checks` (session-thread.json copy.events, `CI on PR {pr}`) draws like every PR event line x4. STYLEGUIDE: entry `pr-checks` (the status pills + the open checks submenu as a static menu panel over `specimen`); view-catalog `pr-checks`. #EXP-1707 (merge-train.json, the merge train): the header pill is a merge STATUS (`statusPill`: Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, ...) whose tap opens this fixture's Checks submenu; the person's Merge is Needs approval (`approval` mode) or Merge now in the `…`. The train tests every unit, so MERGE_CHECK_GATE, `gate` and `gateText` left with #EXP-1709 (`pr merge` = queue now / report the position; `force` = Merge now, merge-train.json). `pr_checks` wakes stay as they are: a red own head is merge-train `failing` before the train, without a bounce.",
   "aggregate": [
     {
       "name": "no checks",
@@ -114,94 +114,6 @@
       "expected": "completed"
     }
   ],
-  "gate": [
-    {
-      "name": "nothing known",
-      "checks": [],
-      "expected": {
-        "ok": true
-      }
-    },
-    {
-      "name": "green",
-      "checks": [
-        {
-          "name": "gate",
-          "status": "completed",
-          "conclusion": "success",
-          "required": true
-        }
-      ],
-      "expected": {
-        "ok": true
-      }
-    },
-    {
-      "name": "required running",
-      "checks": [
-        {
-          "name": "gate",
-          "status": "in_progress",
-          "conclusion": null,
-          "required": true
-        },
-        {
-          "name": "docs",
-          "status": "completed",
-          "conclusion": "failure",
-          "required": false
-        }
-      ],
-      "expected": {
-        "ok": false,
-        "reason": "pending",
-        "names": [
-          "gate"
-        ]
-      }
-    },
-    {
-      "name": "required red first",
-      "checks": [
-        {
-          "name": "gate",
-          "status": "completed",
-          "conclusion": "failure",
-          "required": true
-        },
-        {
-          "name": "e2e",
-          "status": "queued",
-          "conclusion": null,
-          "required": true
-        }
-      ],
-      "expected": {
-        "ok": false,
-        "reason": "failing",
-        "names": [
-          "gate"
-        ]
-      }
-    },
-    {
-      "name": "no required = every check",
-      "checks": [
-        {
-          "name": "lint",
-          "status": "completed",
-          "conclusion": "timed_out"
-        }
-      ],
-      "expected": {
-        "ok": false,
-        "reason": "failing",
-        "names": [
-          "lint"
-        ]
-      }
-    }
-  ],
   "wakeText": [
     {
       "number": 12,
@@ -231,31 +143,6 @@
         "android-emulator"
       ],
       "expected": "CI on #7: android-emulator queued for 30+ minutes; no runner picked it up. Tell a person if it stays queued."
-    }
-  ],
-  "gateText": [
-    {
-      "number": 3,
-      "verdict": {
-        "ok": false,
-        "reason": "failing",
-        "names": [
-          "gate"
-        ]
-      },
-      "expected": "PR #3 has failing checks: gate. Read them, fix and push; merge again when CI is green (force: true merges anyway, only when a person says so)."
-    },
-    {
-      "number": 3,
-      "verdict": {
-        "ok": false,
-        "reason": "pending",
-        "names": [
-          "gate",
-          "e2e"
-        ]
-      },
-      "expected": "PR #3 still has checks running: gate, e2e. Do not poll: Exponential wakes this session when CI finishes. Merge then (force: true merges anyway, only when a person says so)."
     }
   ],
   "brief": [

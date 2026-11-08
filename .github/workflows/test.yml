@@ -6,7 +6,7 @@ name: test
 # (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
 # (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
-# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, the Android
+# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
 # compile + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
@@ -66,6 +66,7 @@ jobs:
       gaps: ${{ steps.f.outputs.gaps }}
       merge_train: ${{ steps.f.outputs.merge_train }}
       engine_ts: ${{ steps.f.outputs.engine_ts }}
+      contract_ts: ${{ steps.f.outputs.contract_ts }}
     steps:
       # The train's diff: two shallow commits are enough for a name-only tree diff.
       - uses: actions/checkout@v4
@@ -84,7 +85,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The Rust legs (desktop, eUI, eDE, Android) skip prose: a package's
@@ -150,6 +151,10 @@ jobs:
           # #VAPP-269: the Engine's TS twin and the web runner, with what they import.
           engine_ts='^(packages/(eengine|emcp|domain-contract|exponential-ui|exponential-ui-react|icons)/|apps/runner/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
           echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #EDE-65: the shared contract's fixtures and TS references (every
+          # client replays them; their own suite ran only on release tags).
+          contract_ts='^(packages/domain-contract/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          echo "contract_ts=$(grep -qE "$contract_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -651,11 +656,25 @@ jobs:
       - run: bun test ./src && bunx tsc --noEmit && bunx vite build
         working-directory: apps/runner/web
 
+  # #EDE-65: packages/domain-contract's own suite (the fixtures every client
+  # replays, their TS references) on a PR that touches it, so a fixture
+  # change can't reach master unchecked (it ran only in release-suite.yml).
+  contract-ts:
+    needs: [pick, changes]
+    if: needs.changes.outputs.contract_ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test ./src
+        working-directory: packages/domain-contract
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts]
     if: always()
     runs-on: ubuntu-latest
     steps:

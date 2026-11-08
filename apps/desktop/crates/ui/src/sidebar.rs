@@ -44,8 +44,9 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
+    menu::PopupMenuItem,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -391,6 +392,14 @@ pub(crate) fn apply_origin(window: &Window, cx: &mut App, origin: &crate::naviga
     }
 }
 
+/// EXP-282: one row of the rail — icon + label, left-aligned, glass
+/// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
+/// inner layout with no `Styled` reach into it (the settings-nav rows set the
+/// same precedent), and a centered label would defeat the whole point of the
+/// labelled rail. Handlers are the caller's job.
+/// EXP-533: the rail spinner's label and tooltip.
+const SYNCING_LABEL: &str = "Syncing\u{2026}";
+
 /// EXP-1105 / #EXP-1704: whether the ACTIVE team auto-merges (merge mode
 /// Automatic, which replaced yolo mode) — Files and Source Control leave the
 /// rail for every member. `None` = no active team; only an explicit `auto`
@@ -422,13 +431,82 @@ fn yolo_rail(yolo: bool, sc_failing: bool) -> YoloRail {
     }
 }
 
-/// EXP-282: one row of the rail — icon + label, left-aligned, glass
-/// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
-/// inner layout with no `Styled` reach into it (the settings-nav rows set the
-/// same precedent), and a centered label would defeat the whole point of the
-/// labelled rail. Handlers are the caller's job.
-/// EXP-533: the rail spinner's label and tooltip.
-const SYNCING_LABEL: &str = "Syncing\u{2026}";
+/// #EXP-1741: what the Computer button shows (the rail computes it per render
+/// from the trunk; the sidebar document's corner paints it).
+#[derive(Clone)]
+pub(crate) struct ComputerState {
+    pub(crate) files: bool,
+    pub(crate) source_control: bool,
+    pub(crate) tooltip: SharedString,
+    pub(crate) badge: Option<RailBadge>,
+    pub(crate) active: bool,
+}
+
+/// The Computer button — THIS machine's tools behind one menu on the menu
+/// surface: a new Terminal (the shell tab cmd-t opens, EXP-791), Files,
+/// Source Control and Version history (EXP-1105: yolo mode hides Files and
+/// Source Control until a git failure needs a person). Source Control's
+/// attention / error badge and its reason ride the button, so a trunk
+/// failure stays visible with the menu closed. Lit while Files or Source
+/// Control is up. #EXP-1741: back beside the Assistant and the gear (the IDE
+/// has no start menu).
+pub(crate) fn computer_button(state: &ComputerState, cx: &App) -> gpui::AnyElement {
+    let ComputerState { files, source_control, tooltip, badge, active } = state.clone();
+    // Only a FAILURE rides the button (the attention triangle / error
+    // cross); the syncing spinner stays on the menu row.
+    let entry_badge = badge.clone().filter(|badge| source_control && matches!(badge, RailBadge::Icon(..)));
+    let tooltip: SharedString = if entry_badge.is_some() { tooltip } else { "Computer".into() };
+    let menu_sc_badge = badge.filter(|_| source_control);
+    let menu = move |mut menu: gpui_component::menu::PopupMenu, _window: &mut Window, _cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
+        menu = menu.item(
+            crate::controls::pointer_label_item("Terminal", false)
+                .icon(Icon::from(registry::NAV_TERMINAL))
+                .on_click(|_, window, cx| crate::session_bar::open_new_shell(window, cx)),
+        );
+        if files {
+            menu = menu.item(
+                crate::controls::pointer_label_item("Files", false)
+                    .icon(Icon::new(registry::NAV_FILES))
+                    .on_click(|_, window, cx| activate_tool(window, cx, ToolWindow::Files)),
+            );
+        }
+        if source_control {
+            let badge = menu_sc_badge.clone();
+            menu = menu.item(
+                PopupMenuItem::element(move |_, cx| {
+                    h_flex()
+                        .flex_1()
+                        .gap_2()
+                        .items_center()
+                        .child(div().flex_1().min_w_0().truncate().child("Source Control"))
+                        .children(badge.clone().map(|badge| rail_badge_element(badge, 12., cx)))
+                })
+                .icon(Icon::from(registry::NAV_SOURCE_CONTROL))
+                .on_click(|_, window, cx| activate_tool(window, cx, ToolWindow::SourceControl)),
+            );
+            menu = menu.item(
+                crate::controls::pointer_label_item("Version history", false)
+                    .icon(Icon::new(registry::UI_HISTORY))
+                    .on_click(|_, window, cx| activate_tool(window, cx, ToolWindow::SourceControl)),
+            );
+        }
+        menu
+    };
+    // The footer's small ghost square (the settings gear's shape), the
+    // failure badge in its top-right corner. It opens upward: the button
+    // sits at the window's bottom edge.
+    let button = crate::controls::PointerMenu::for_button(
+        Button::new("rail-computer").ghost().cursor_pointer().small().icon(registry::NAV_COMPUTER).selected(active).tooltip(tooltip),
+        menu,
+    )
+    .anchor(gpui::Anchor::BottomLeft);
+    div()
+        .relative()
+        .flex_shrink_0()
+        .child(button)
+        .when_some(entry_badge, |this, badge| this.child(div().absolute().top(px(3.)).right(px(3.)).child(rail_badge_element(badge, 10., cx))))
+        .into_any_element()
+}
 
 /// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
 /// the plain dot): the classic colored dot (EXP-699: Inbox primary;
@@ -439,6 +517,7 @@ const SYNCING_LABEL: &str = "Syncing\u{2026}";
 pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
+    Syncing,
     /// EXP-963: a COUNT — the web rail's `Badge` (EXP-962): the Drafts
     /// entry's pile, muted. Zero renders nothing (the badge's own rule).
     Count(usize, crate::surface::BadgeTone),
@@ -459,6 +538,10 @@ pub(crate) fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> g
         RailBadge::Count(count, tone) => div()
             .flex_shrink_0()
             .children(crate::surface::count_badge(count, tone, cx))
+            .into_any_element(),
+        RailBadge::Syncing => div()
+            .flex_shrink_0()
+            .child(Spinner::new().icon(registry::UI_REFRESH).with_size(px(glyph_px)).color(cx.theme().muted_foreground))
             .into_any_element(),
         RailBadge::Icon(icon, color) => Icon::from(icon)
             .with_size(px(glyph_px))
@@ -803,14 +886,6 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::thread_row_mark_state(needs_you, busy)
 }
 
-/// #EXP-1724: the sidebar folds into its icon rail and back, remembered,
-/// every window. The IDE's own: #EDE-65 took `rail.toggle` out of the shell
-/// reducer (eDE's sidebar is the rail for good).
-pub(crate) fn toggle_rail(cx: &mut App) {
-    crate::ui_prefs::set_rail(!crate::ui_prefs::rail());
-    cx.refresh_windows();
-}
-
 impl RailView {
 }
 
@@ -821,13 +896,6 @@ impl Render for RailView {
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
         git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
-        // Trunk anomalies (paused conflict / local commits / dirty tree —
-        // each parks the autopull, EXP-346) paint the amber badge, EXCEPT
-        // while a live Action run is legitimately dirtying this clone.
-        let mut sc_attention = git_bar.read(cx).attention();
-        if sc_attention.is_some() && git_bar.read(cx).repo_tasks_alive(window, cx) {
-            sc_attention = None;
-        }
 
         // A branch checkout changes the working tree — refresh the file tree
         // the first render after the branch flips.
@@ -844,14 +912,14 @@ impl Render for RailView {
             }
         }
 
+        // Trunk anomalies (paused conflict / local commits / dirty tree —
+        // each parks the autopull, EXP-346) paint the amber badge, EXCEPT
+        // while a live Action run is legitimately dirtying this clone.
+        let mut sc_attention = git_bar.read(cx).attention();
+        if sc_attention.is_some() && git_bar.read(cx).repo_tasks_alive(window, cx) {
+            sc_attention = None;
+        }
         let team_yolo = yolo_mode(&self.nav, cx);
-        let nav = self.nav.clone();
-        self.region.update(cx, |region, cx| region.refresh(&nav, cx));
-        // Getting-started entry (EXP-470/548): pinned to the rail's bottom
-        // (below), rendered until every checklist entry is done.
-        let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
-            .then(|| self.rail_getting_started_entry(cx));
-
         // Source Control badge (EXP-253 — the git bar is headless now, this
         // badge is its whole rail presence): attention (conflict / local
         // commits / dirty tree) beats sticky error beats syncing; the
@@ -862,7 +930,18 @@ impl Render for RailView {
         // EXP-1105: the same two failure inputs the badge reads (attention
         // or a sticky sync error) — a pull merely in flight is not one.
         let sc_failing = sc_attention.is_some() || git_bar.read(cx).sync_error().is_some();
-        let sc_attention_on = sc_attention.is_some();
+        let sc_badge = if sc_attention.is_some() {
+            Some(RailBadge::Icon(
+                registry::UI_WARNING,
+                cx.theme().warning,
+            ))
+        } else if git_bar.read(cx).sync_error().is_some() {
+            Some(RailBadge::Icon(registry::UI_ERROR, cx.theme().danger))
+        } else if git_bar.read(cx).is_syncing() {
+            Some(RailBadge::Syncing)
+        } else {
+            None
+        };
         let sc_tooltip: SharedString = if let Some(reason) = sc_attention {
             format!("Source Control: {reason}").into()
         } else if let Some(error) = git_bar.read(cx).sync_error() {
@@ -888,11 +967,25 @@ impl Render for RailView {
         // EXP-1105: yolo mode hides Files / Source Control unless a git
         // failure needs a person (see `yolo_rail`).
         let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
+        let computer = ComputerState {
+            files: rail_gate.files,
+            source_control: rail_gate.source_control,
+            tooltip: sc_tooltip,
+            badge: sc_badge,
+            active: matches!(resolved_screen(&self.nav, cx), Some(Screen::Files) | Some(Screen::SourceControl)),
+        };
+        let nav = self.nav.clone();
+        self.region.update(cx, |region, cx| {
+            region.set_computer(computer);
+            region.refresh(&nav, cx);
+        });
+        // Getting-started entry (EXP-470/548): pinned to the rail's bottom
+        // (below), rendered until every checklist entry is done.
+        let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
+            .then(|| self.rail_getting_started_entry(cx));
+
         // #NEW-97: no tray host = the voice button beside the Computer one.
         let voice_entry = self.rail_voice_entry(cx);
-        let rail = crate::ui_prefs::rail();
-        let badge = (rail_gate.source_control && sc_failing).then(|| if sc_attention_on { "ide:trunk:warning" } else { "ide:trunk:error" }.to_string());
-        self.region.update(cx, |region, _| region.set_tools(rail_gate.files, rail_gate.source_control, sc_tooltip.to_string(), badge));
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -950,7 +1043,7 @@ impl Render for RailView {
             // #EXP-1723: the start and chat buttons are the document's corner;
             // what stays under them is what still needs a person: the
             // Getting-started entry, the sync spinner, the voice button.
-            .when(!rail, |column| {
+            .map(|column| {
                 column.child(
                     v_flex()
                         .w_full()

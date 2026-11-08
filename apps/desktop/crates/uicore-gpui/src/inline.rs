@@ -41,7 +41,7 @@ pub fn popup(doc: &uicore_docs::Doc) -> Document {
 /// (#EXP-1725): the IDE's header (the team switcher, search, new and the
 /// rail toggle) and its menu, the IDE's nav and its corners (eDE's start,
 /// chat and new-issue buttons live on the taskbar).
-pub const EDE_SIDEBAR_PRUNED: &[&str] = &["header", "switcher_menu", "header_rail", "ide_nav", "corner", "corner_rail"];
+pub const EDE_SIDEBAR_PRUNED: &[&str] = &["header", "switcher_menu", "ide_nav", "corner"];
 
 /// Drops the nodes a host draws itself or has no use for.
 pub fn without(doc: &mut Document, ids: &[&str]) {

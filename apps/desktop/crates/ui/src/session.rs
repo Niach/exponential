@@ -430,12 +430,9 @@ pub fn bootstrap(cx: &mut App) {
             }
             return;
         }
-        // #EXP-1727: the window reopens where it was: on a Local desktop.
-        None => {
-            if crate::ui_prefs::on_local_desktop() && crate::local_desktops::enter_current(cx) {
-                return;
-            }
-        }
+        // #EXP-1741: off eDE the IDE has no Local desktops: a window saved
+        // on one (an earlier build) reopens on the signed-in account.
+        None => crate::ui_prefs::set_on_local_desktop(false),
     }
     let auth = AuthContext::global(cx).clone();
     if let Some(account) = auth.auth.signed_in_accounts().into_iter().next() {
@@ -445,7 +442,7 @@ pub fn bootstrap(cx: &mut App) {
 
 /// The session is Exponential Desktop (eDE sets `XDG_CURRENT_DESKTOP`).
 fn on_exponential_desktop() -> bool {
-    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| desktops.split(':').any(|d| d == "Exponential"))
+    crate::local_desktops::available()
 }
 
 /// #EDE-65: where eDE's switcher is: the team its `switcher.json` names,

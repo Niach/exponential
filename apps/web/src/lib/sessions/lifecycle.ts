@@ -16,7 +16,7 @@ import { treeIsKeyed } from "@/lib/sessions/send"
 import { hostedByCondition, hostRowCondition, resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
-import { yoloEdge } from "@/lib/yolo-edge"
+import { trainEdge } from "@/lib/merge-train/edge"
 
 // EXP-1291/NEW-1: the session lifecycle — queued → running ⇄ idle → ended.
 // Merging ends nothing; a session ends only explicitly (End, the agent's
@@ -190,7 +190,7 @@ export async function stopSession(args: {
   await assertCanSteer(args.userId, session)
   const live = session.status === `running` || session.status === `idle`
   const ghost = live && !(await sessionDeviceOnline(session))
-  // EXP-1413: an interrupted busy turn holds the yolo automerge until the
+  // EXP-1413: an interrupted busy turn stamps `stopped_at` until the
   // session works again (`sessions.report`). Stopping requested work that
   // never started merges nothing either: no edge here. `busy` is read IN
   // the write (the row's own value): a Stop landing after the turn ended
@@ -293,7 +293,7 @@ export async function endSession(args: {
     return { txid, endedIds, summaryDropped }
   })
   await relayKillSessionsBestEffort(result.endedIds)
-  if (result.endedIds.length > 0) yoloEdge(session.rootId)
+  if (result.endedIds.length > 0) trainEdge(session.rootId)
   return result
 }
 
@@ -452,7 +452,7 @@ export async function endHostedSessions(ids: readonly string[], reason?: HostedE
   })
   const endedIds = endedRows.map((row) => row.id)
   await relayKillSessionsBestEffort(endedIds)
-  for (const rootId of new Set(endedRows.map((row) => row.rootId))) yoloEdge(rootId)
+  for (const rootId of new Set(endedRows.map((row) => row.rootId))) trainEdge(rootId)
   return endedIds
 }
 

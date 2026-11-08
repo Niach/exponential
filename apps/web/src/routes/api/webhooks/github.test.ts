@@ -84,10 +84,8 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPullRequestReopened: vi.fn(async () => {}),
   loadPullRequestByUrl: vi.fn(async (): Promise<{ id: string } | null> => null),
 }))
-vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge: vi.fn() }))
 vi.mock(`@/lib/merge-train/worker`, () => ({
   mergeTrainEdge: vi.fn(),
-  mergeTrainOn: vi.fn(() => false),
   onPullRequestPush: vi.fn(async () => null),
 }))
 vi.mock(`@/lib/merge-train/commit-checks`, async (importOriginal) => {
@@ -127,7 +125,7 @@ vi.mock(`@/lib/integrations/github-identity`, () => ({
 import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import { repositories } from "@/db/schema"
-import { yoloEdge } from "@/lib/yolo-edge"
+import { mergeTrainEdge } from "@/lib/merge-train/worker"
 import { attributePush, pushedRepositoryIds } from "@/lib/sessions/push-attribution"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
 // claim → webhook handoff end to end.
@@ -414,15 +412,16 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
     )
   })
 
-  it(`a draft readied on GitHub is a yolo edge for its thread; no flip, no edge`, async () => {
+  it(`a draft readied on GitHub is a merge-train edge for its PR; no flip, no edge`, async () => {
     known()
+    vi.mocked(mergeTrainEdge).mockClear()
     prSyncMock.applyPullRequestDraft.mockResolvedValueOnce({ rootSessionId: `root-1` })
     await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action: `ready_for_review` })) })
-    expect(vi.mocked(yoloEdge)).toHaveBeenCalledWith(`root-1`)
-    vi.mocked(yoloEdge).mockClear()
+    expect(vi.mocked(mergeTrainEdge)).toHaveBeenCalledWith({ pullRequestId: PR_ID })
+    vi.mocked(mergeTrainEdge).mockClear()
     prSyncMock.applyPullRequestDraft.mockResolvedValueOnce(null)
     await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action: `ready_for_review` })) })
-    expect(vi.mocked(yoloEdge)).not.toHaveBeenCalled()
+    expect(vi.mocked(mergeTrainEdge)).not.toHaveBeenCalled()
   })
 
   it(`rejects a bad signature with 401 before touching anything`, async () => {
@@ -703,9 +702,8 @@ describe(`github webhook — merge train commit checks (EXP-1709)`, () => {
     expect(worker.mergeTrainEdge).toHaveBeenCalledWith({ repoFullName: `org/repo` })
   })
 
-  it(`a push to a PR is the merge train's push while the switch is on`, async () => {
+  it(`a push to a PR is the merge train's push`, async () => {
     const worker = await import(`@/lib/merge-train/worker`)
-    vi.mocked(worker.mergeTrainOn).mockReturnValue(true)
     prSyncMock.loadPullRequestByUrl.mockResolvedValueOnce({ id: PR_ID } as never)
     await postHandler({
       request: webhookRequest(`pull_request`, {
@@ -715,7 +713,6 @@ describe(`github webhook — merge train commit checks (EXP-1709)`, () => {
       }),
     })
     expect(worker.onPullRequestPush).toHaveBeenCalledWith(PR_ID)
-    vi.mocked(worker.mergeTrainOn).mockReturnValue(false)
   })
 
   it(`a commit status on a train ref is kept; on any other branch it is acked only`, async () => {
