@@ -12,7 +12,7 @@ use std::sync::Arc;
 use elocal::runs::{HostTools, LocalRuns};
 use std::collections::HashMap;
 
-use domain::rows::{MessageRow, SessionRow};
+use domain::rows::{AgentDefRow, MessageRow, SessionRow};
 use serde_json::Value;
 use uicore_model::chat::{ChatAgentInput, ChatInput, ChatRowInput};
 
@@ -46,8 +46,29 @@ impl LocalChat {
         Self { desktop, runs, changes, agent, session_id: None }
     }
 
+    /// The desktop's agents (its store's `agents`, #EDE-65 J: the Assistant
+    /// and the agents made here).
+    fn agent_rows(&self) -> Vec<AgentDefRow> {
+        self.desktop.store.rows("agents").unwrap_or_default().into_iter().filter_map(|row| serde_json::from_value(Value::Object(row)).ok()).collect()
+    }
+
+    /// The agent row like a team's (my Assistant first) and their glyphs.
+    pub fn agents(&self) -> (Vec<ChatAgentInput>, HashMap<String, crate::team_chat::AgentGlyph>) {
+        let rows = self.agent_rows();
+        let team_id = self.desktop.executor.team_id().to_string();
+        let me = self.desktop.executor.identity().user_id;
+        (crate::team_chat::agent_inputs(&rows, &team_id, &[&team_id], &me), crate::team_chat::agent_glyphs(&rows, &team_id, &[&team_id], &me))
+    }
+
     /// The composer's text: a message into the chat's session, else a new one.
     pub fn send(&mut self, text: &str) -> Result<(), String> {
+        self.send_to(text, None)
+    }
+
+    /// [`Self::send`]; a new session goes to `agent_id` (the home's pick) and
+    /// names the CLI it runs (#EDE-65 J5: the agent's own, else this
+    /// desktop's first installed one), so the session row records it.
+    pub fn send_to(&mut self, text: &str, agent_id: Option<&str>) -> Result<(), String> {
         let text = text.trim();
         if text.is_empty() {
             return Ok(());
@@ -60,6 +81,11 @@ impl LocalChat {
             }
             _ => {
                 input.team_id = Some(self.desktop.executor.team_id().to_string());
+                // No pick = the home's default, the first of the agent row.
+                let picked = agent_id.map(str::to_string).or_else(|| self.agents().0.first().map(|a| a.id.clone()));
+                let agent = picked.and_then(|id| self.agent_rows().into_iter().find(|a| a.id == id));
+                input.cli = new_session_cli(agent.as_ref(), &self.agent);
+                input.agent_id = agent.map(|a| a.id);
             }
         }
         input.text = Some(text.to_string());
@@ -73,6 +99,11 @@ impl LocalChat {
     /// (the desktop's own agent is an agent chat).
     pub fn input(&self) -> ChatInput {
         let mut input = assistant_home();
+        let (agents, _) = self.agents();
+        if !agents.is_empty() {
+            input.agent_id = agents.first().map(|a| a.id.clone());
+            input.agents = agents;
+        }
         let Some(session) = &self.session_id else { return input };
         let Some(root) = self.desktop.store.row("sessions", session).ok().flatten().and_then(|row| serde_json::from_value::<SessionRow>(Value::Object(row)).ok()) else {
             return input;
@@ -97,6 +128,10 @@ impl LocalChat {
         );
         let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();
         let me = self.desktop.executor.identity();
+        if let Some(agent) = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id)) {
+            input.title = agent.name.clone();
+            input.icon = agent.icon.clone();
+        }
         input.session_id = Some(session.clone());
         input.busy = root.busy;
         input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
@@ -126,6 +161,13 @@ impl LocalChat {
             runs.stop_all();
         }
     }
+}
+
+/// The CLI a new Local session names (#EDE-65 J5: `sessions.send {cli}`):
+/// the picked agent's own `cli`, else the desktop's first installed one;
+/// `None` when neither is known (the runner picks).
+pub fn new_session_cli(agent: Option<&AgentDefRow>, installed: &str) -> Option<String> {
+    agent.and_then(|a| a.cli.clone()).filter(|c| !c.is_empty()).or_else(|| (!installed.is_empty()).then(|| installed.to_string()))
 }
 
 /// The chat's home with the one agent a Local desktop has (and a team
@@ -170,6 +212,15 @@ pub fn demo_input() -> ChatInput {
 #[cfg(test)]
 mod tests {
     use uicore_model::chat::{chat_view, ChatFace};
+
+    #[test]
+    fn a_new_session_names_the_agent_s_cli_else_the_installed_one() {
+        let agent = |cli: Option<&str>| -> super::AgentDefRow { serde_json::from_value(serde_json::json!({"id": "a1", "cli": cli})).unwrap() };
+        assert_eq!(super::new_session_cli(Some(&agent(Some("codex"))), "claude").as_deref(), Some("codex"));
+        assert_eq!(super::new_session_cli(Some(&agent(None)), "claude").as_deref(), Some("claude"));
+        assert_eq!(super::new_session_cli(Some(&agent(Some(""))), "claude").as_deref(), Some("claude"));
+        assert_eq!(super::new_session_cli(None, "").as_deref(), None);
+    }
 
     #[test]
     fn the_home_offers_the_assistant_and_the_demo_is_a_conversation() {
