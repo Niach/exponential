@@ -2,6 +2,7 @@
 // contract's (`@exp/domain-contract/session-tree`, fixture-locked ×4); this
 // re-exports them and maps the synced collection rows onto their inputs.
 
+import { keyMessagesBySession } from "@exp/domain-contract/message-session"
 import type { z } from "zod"
 import type {
   selectPullRequestSchema,
@@ -132,8 +133,8 @@ function plainTreeMessage(row: MessageRow): TreeMessage {
 /** #EXP-1730: the synced rows of a session (`messages.sessionId`; a
  *  dm/channel row carries none and is held back), oldest first. */
 export function keyMessageRows(rows: readonly SyncedMessageRow[]): MessageRow[] {
-  return rows
-    .filter((row): row is MessageRow => typeof row.sessionId === `string`)
+  // fixtures/message-session.json
+  return keyMessagesBySession(rows)
     .sort(
       (a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || (a.id < b.id ? -1 : 1)

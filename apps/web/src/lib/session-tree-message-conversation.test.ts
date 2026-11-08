@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import fixture from "@exp/domain-contract/fixtures/message-session.json"
 import { keyMessageRows, toTreeMessage, type SyncedMessageRow } from "@/lib/session-tree"
 
 // #EXP-1730 (one-tree model): a message names its session itself
@@ -51,4 +52,14 @@ describe(`keyMessageRows`, () => {
     expect(keyMessageRows(rows).map((row) => row.id)).toEqual([`a`, `b`])
     expect(rows.map((row) => row.id)).toEqual([`b`, `a`])
   })
+})
+
+// The ×4 rule (fixtures/message-session.json), replayed through the web's keying.
+describe(`message-session.json`, () => {
+  for (const entry of fixture.cases) {
+    it(entry.name, () => {
+      const rows = entry.messages.map((m, i) => ({ ...message(m.id, m.sessionId ?? null, `2026-10-23T10:00:0${i}Z`) }))
+      expect(keyMessageRows(rows).map(({ id, sessionId }) => ({ id, sessionId }))).toEqual(entry.expected)
+    })
+  }
 })
