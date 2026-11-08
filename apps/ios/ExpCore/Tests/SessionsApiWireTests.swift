@@ -78,6 +78,23 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertTrue(forward["scopeTeamIds"] is NSNull)
     }
 
+    /// #EXP-1729 (apps.json `editorHeader`): an app editor's send carries the
+    /// composer's Account and Model picks; none = no keys, a blank model never.
+    func testAppSendCarriesTheEditorPicks() throws {
+        let bare = try json(SessionsSendInput.app(appId: "a-1", deviceId: "dev-1", text: "Go"))
+        XCTAssertEqual(bare.keys.sorted(), ["appId", "deviceId", "text"])
+        let picked = try json(SessionsSendInput.app(appId: "a-1", deviceId: "dev-1", text: "Go", cli: "claude", account: "p-1", model: "opus"))
+        XCTAssertEqual(picked.keys.sorted(), ["account", "appId", "cli", "deviceId", "model", "text"])
+        XCTAssertEqual(picked["account"] as? String, "p-1")
+        XCTAssertEqual(picked["model"] as? String, "opus")
+        let blank = try json(SessionsSendInput.app(appId: "a-1", deviceId: nil, text: "Go", model: ""))
+        XCTAssertEqual(blank.keys.sorted(), ["appId", "text"])
+        XCTAssertEqual(
+            SessionsSendInput.app(appId: "a-1", deviceId: "d", text: "x", cli: "codex", account: "p", model: "m").with(text: "y"),
+            .app(appId: "a-1", deviceId: "d", text: "y", cli: "codex", account: "p", model: "m")
+        )
+    }
+
     /// NEW-2: a message to an agent names the agent and nothing of a runner
     /// (it runs on the agent's own device); `agents.create` carries the
     /// definition with its WHOLE trigger array.

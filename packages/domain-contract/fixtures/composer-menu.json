@@ -195,8 +195,8 @@
   "conditions": {
     "temporary": "launch: the agent row (composer-home.json `agentRow`) picks Temporary session (no agent)",
     "device": "the device can change here: launch while temporary; an app editor's composer (#FEED-204, apps.json EDITOR DEVICE: its row reads the device, disabled while the editor root is live); never in any other session or an agent chat",
-    "account": "the login can change here: launch while temporary; a session or an agent chat while its device is online and the viewer canSteerSession (the pick = the session account switch)",
-    "model": "the model can change here: launch while temporary; a session or an agent chat whose agent switches models (always for claude and codex)",
+    "account": "the login can change here: launch while temporary; an app editor's composer, always (#EXP-1729, apps.json `editorHeader`: no root or an ended root = the pick rides the next send; a live root = the session account switch); a session or an agent chat while its device is online and the viewer canSteerSession (the pick = the session account switch)",
+    "model": "the model can change here: launch while temporary; an app editor's composer, always (#EXP-1729: no root or an ended root = the pick rides the next send; a live root = the session's model switch); a session or an agent chat whose agent switches models (always for claude and codex)",
     "repositories": "the team has more than one repository",
     "subagentModel": "the picked agent takes a subagent model (claude)",
     "ultracode": "the picked agent supports ultracode (claude)",
@@ -225,6 +225,7 @@
   },
   "cases": [
     {"name": "#FEED-204: an app editor's composer reads its device", "surface": "session", "conditions": {"device": true}, "expected": ["add-file", "implement-issue", "-", "device"]},
+    {"name": "#EXP-1729: an app editor's composer is the session composer: Device, Account, Model", "surface": "session", "conditions": {"device": true, "account": true, "model": true}, "expected": ["add-file", "implement-issue", "-", "device", "account", "model"]},
     {"name": "#EXP-1715: the viewer's Assistant chat in several teams: Teams after Prompts", "surface": "agent", "conditions": {"assistant": true, "teams": true, "model": true, "prompts": true}, "expected": ["add-file", "implement-issue", "prompts", "teams", "-", "model"]},
     {"name": "#EXP-1715: one team only = no Teams row", "surface": "agent", "conditions": {"assistant": true, "teams": false, "model": true}, "expected": ["add-file", "implement-issue", "-", "model"]},
     {

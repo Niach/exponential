@@ -312,6 +312,8 @@ struct ThreadScreen: View {
                 // content scrolling under its scrim + edge fade.
                 .workHeaderBand {
                     if let editor {
+                        // #EXP-1729: an app editor's header IS THE chat header.
+                        editorChatHeader(editor)
                         editor.band
                     } else {
                         chatHeader(rows: rows, view: view)
@@ -334,23 +336,13 @@ struct ThreadScreen: View {
                 )
             }
         }
-        // #EXP-1688: a chat draws THE chat header itself; only an app editor
-        // keeps the navigation bar.
-        .toolbar(editor == nil ? .hidden : .automatic, for: .navigationBar)
+        // #EXP-1688: a chat draws THE chat header itself (#EXP-1729: an app
+        // editor's too).
+        .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         // The header band draws the bar's material — the nav bar's own
         // background and divider stand down (EXP-1150).
         .toolbarBackground(.hidden, for: .navigationBar)
-        // An app editor's `…`: a bare glyph too (no shared glass).
-        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor?.trailing != nil) {
-            editor?.trailing
-        }
-        .toolbar {
-            // EXP-1316: the title, ONE line, not tappable, the lock beside it.
-            if let editor {
-                ToolbarItem(placement: .principal) { editor.title }
-            }
-        }
         // Each presentation on its OWN node (EXP-240).
         .background {
             Color.clear
@@ -538,14 +530,24 @@ struct ThreadScreen: View {
         }
     }
 
+    /// #EXP-1729 (apps.json `editorHeader`): an app editor's chat header:
+    /// back · the app's title block · its `…`.
+    private func editorChatHeader(_ editor: ThreadEditorSlot) -> some View {
+        ChatHeader {
+            editor.title
+        } trailing: {
+            if let trailing = editor.trailing { trailing }
+        }
+    }
+
     /// #EXP-1688: no chat yet (first load, not found): the header's back alone,
-    /// the bar being hidden; an app editor keeps its toolbar.
+    /// the bar being hidden (#EXP-1729: an app editor's title and `…` too).
     @ViewBuilder
     private func bareBand<Content: View>(_ content: Content) -> some View {
-        if editor == nil {
-            content.workHeaderBand { ChatHeader() }
+        if let editor {
+            content.workHeaderBand { editorChatHeader(editor) }
         } else {
-            content
+            content.workHeaderBand { ChatHeader() }
         }
     }
 
@@ -864,6 +866,7 @@ struct ThreadScreen: View {
                                 agentRow: rows.agent,
                                 editorDevice: editor?.device,
                                 editorMove: editor?.appMove,
+                                editorPicks: editor?.picks,
                                 onExpand: {
                                     // Remember the pin BEFORE the inset moves it.
                                     pinOnInset = atBottom
@@ -1765,10 +1768,14 @@ final class ThreadComposerDraft: SessionComposerDraft {
     @ObservationIgnored private let sessionsApi: SessionsApi
     @ObservationIgnored private let attachmentsApi: AttachmentsApi
 
-    /// `sessions.send({appId, deviceId})` revives the root on that device.
+    /// `sessions.send({appId, deviceId})` revives the root on that device;
+    /// #EXP-1729: with the editor composer's Account and Model picks.
     struct AppMove: Equatable {
         let appId: String
         let deviceId: String
+        var cli: String?
+        var account: String?
+        var model: String?
     }
 
     init(
@@ -1815,7 +1822,10 @@ final class ThreadComposerDraft: SessionComposerDraft {
             if let appMove {
                 _ = try await sessionsApi.send(
                     accountId: accountId,
-                    .app(appId: appMove.appId, deviceId: appMove.deviceId, text: text, attachmentIds: attachmentIds)
+                    .app(
+                        appId: appMove.appId, deviceId: appMove.deviceId, text: text, attachmentIds: attachmentIds,
+                        cli: appMove.cli, account: appMove.account, model: appMove.model
+                    )
                 )
             } else if let agentId {
                 _ = try await sessionsApi.send(
@@ -1870,6 +1880,8 @@ struct ThreadComposer: View {
     /// send to another device.
     var editorDevice: SessionComposerFooter.DeviceMenu?
     var editorMove: ThreadComposerDraft.AppMove?
+    /// #EXP-1729: an app editor's Account and Model rows.
+    var editorPicks: ThreadEditorPicks?
     /// The capsule was tapped open (the host keeps its feed pinned).
     var onExpand: () -> Void = {}
 
@@ -2086,12 +2098,19 @@ struct ThreadComposer: View {
         let row = root ?? steerModel?.session
         let ended = row == nil || row?.status == DomainContract.sessionStatusEnded
         let percent = steerModel?.sessionUsage?.percent
+        // #EXP-1729: an ended editor root's Account and Model = the launch
+        // picks riding its next send.
+        let launchPicks = ended ? editorPicks : nil
         return SessionComposerFooter.Controls(
-            modelValue: steerModel?.composerModelValue(row: root) ?? root?.model,
-            agent: agent,
+            modelValue: launchPicks?.model ?? steerModel?.composerModelValue(row: root) ?? root?.model,
+            agent: launchPicks?.agent ?? agent,
             // EXP-877: a model switch is a PLAIN MESSAGE into the root — never
             // into an ENDED one.
             onPickModel: { alias in
+                if let launchPicks {
+                    launchPicks.onPickModel(alias)
+                    return
+                }
                 guard let draft, !ended else { return }
                 Task { await draft.sendMessage("/model \(alias)", attachmentIds: nil) }
             },
@@ -2115,10 +2134,11 @@ struct ThreadComposer: View {
             },
             // #EXP-1535: the "+" Account page = the usage wall's session
             // account switch on the root (its live model's rules).
-            account: steerModel?.composerAccountMenu,
+            account: launchPicks?.account ?? steerModel?.composerAccountMenu ?? editorPicks?.liveAccount,
             // #EXP-1715: the viewer's Assistant chat's Teams pick.
             teams: teamsPick,
-            device: deviceMenu
+            device: deviceMenu,
+            editor: editorPicks != nil
         )
     }
 
