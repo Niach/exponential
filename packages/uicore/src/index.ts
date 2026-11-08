@@ -4,3 +4,4 @@
 export * from "./shell"
 export * from "./layout"
 export * from "./ide"
+export * from "./chat"

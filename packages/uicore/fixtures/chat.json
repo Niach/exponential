@@ -1,0 +1,1077 @@
+{
+  "$comment": "#EDE-65 lane I: THE agent chat document both hosts draw (docs/chat.json: eDE's chat in the ground, the IDE's agent and thread pages later), a pure projection of ONE conversation the host already resolved, replayed in TS (src/chat.ts) and Rust (uicore-model chat.rs). The host builds the rows from the domain's thread rows (session-thread.json; the words other fixtures own, a divider's label, an event's text, a card's state word, come resolved), so this layer owns only how the chat is drawn. FACE: no sessionId = `home` (the Agent page: the agent row over the composer, composer-home.json: placeholder `copy.homePlaceholder`, the label `copy.to` with the picked agent's name, rows always empty); a sessionId = `conversation` (header = the title + the agent's icon, the rows, the composer with `copy.placeholder`). AGENT ROW: single select over `agents` in the given order; `agentId` picks one, an unknown or null pick falls back to the first; no agents = no label and nothing selected. ROWS keep their order; every row carries EVERY field (a template binds any of them), the ones its kind does not use blank: `` strings, false, [] or null. A message by `user` = kind `user` (`bubble` = the chat's `bubbles`, session-thread.json chatModeCases; caption: bubbles = the time alone, inside the bubble; a transcript = `name · time` under it, a missing part dropped with its separator; `queued` kept); by `agent` = kind `agent` (bubbles = a left bubble with its time; a transcript = plain prose, no caption); any other author = a muted `line` with `copy.systemIcon`. `pill` (a /new or /compact divider, a locked row) = kind `pill`, its label as `text`. `line` (an event, a subagent) and `card` (a session card, a report, a plan row, a surface or suggestions card; `target` = the session a press opens) pass through. `question` = kind `question` with `copy.questionIcon` (waiting-cards.json icons.question), the question as `title`, its options, custom, multi, waiting and answer. `picture` = its attachment and the caption as `text` (blank without one). empty = no rows. COMPOSER: canSend = the draft has a non-blank character, nothing is sending, and on home an agent is picked; busy = a turn is running (submit becomes stop).",
+  "version": 1,
+  "copy": {
+    "to": "To {name}",
+    "homePlaceholder": "What do you want to build?",
+    "placeholder": "Type / for commands",
+    "systemIcon": "ui-info",
+    "questionIcon": "ui-help"
+  },
+  "base": {
+    "sessionId": "S1",
+    "title": "Assistant",
+    "icon": "agent:A1",
+    "bubbles": true,
+    "agents": [
+      {
+        "id": "A1",
+        "name": "Assistant",
+        "icon": "agent:A1"
+      },
+      {
+        "id": "A2",
+        "name": "Triage",
+        "icon": "agent:A2"
+      }
+    ],
+    "agentId": "A1",
+    "draft": "",
+    "sending": false,
+    "busy": false,
+    "rows": []
+  },
+  "cases": [
+    {
+      "name": "home: no session shows the agent row and the home placeholder",
+      "input": {
+        "sessionId": null,
+        "title": "",
+        "icon": ""
+      },
+      "expected": {
+        "face": "home",
+        "header": {
+          "title": "",
+          "icon": ""
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "What do you want to build?",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "home: a pick names its agent; rows never show on home",
+      "input": {
+        "sessionId": null,
+        "agentId": "A2",
+        "rows": [
+          {
+            "id": "m1",
+            "type": "message",
+            "author": "agent",
+            "body": "hi",
+            "name": null,
+            "time": "09:00",
+            "queued": false
+          }
+        ]
+      },
+      "expected": {
+        "face": "home",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Triage",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": false
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": true
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "What do you want to build?",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "home: an unknown pick falls back to the first agent",
+      "input": {
+        "sessionId": null,
+        "agentId": "ZZ"
+      },
+      "expected": {
+        "face": "home",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "What do you want to build?",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "home: no agents = no label and no send",
+      "input": {
+        "sessionId": null,
+        "agents": [],
+        "agentId": null,
+        "draft": "hello"
+      },
+      "expected": {
+        "face": "home",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "",
+          "agents": []
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "What do you want to build?",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "home: a draft with text can send",
+      "input": {
+        "sessionId": null,
+        "draft": "  build it "
+      },
+      "expected": {
+        "face": "home",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "What do you want to build?",
+          "canSend": true,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a blank draft cannot send",
+      "input": {
+        "draft": "   \n"
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "sending blocks a second send",
+      "input": {
+        "draft": "again",
+        "sending": true
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a running turn makes the composer busy",
+      "input": {
+        "busy": true,
+        "draft": "more"
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": true,
+          "busy": true
+        }
+      }
+    },
+    {
+      "name": "bubbles: a person's time sits inside, the agent's bubble carries its time",
+      "input": {
+        "rows": [
+          {
+            "id": "m1",
+            "type": "message",
+            "author": "user",
+            "body": "Label the Android ones too.",
+            "name": "Dana Reyes",
+            "time": "09:14",
+            "queued": false
+          },
+          {
+            "id": "m2",
+            "type": "message",
+            "author": "agent",
+            "body": "Done, 3 issues labelled android.",
+            "name": null,
+            "time": "09:14",
+            "queued": false
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "m1",
+            "kind": "user",
+            "bubble": true,
+            "body": "Label the Android ones too.",
+            "caption": "09:14",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          },
+          {
+            "id": "m2",
+            "kind": "agent",
+            "bubble": true,
+            "body": "Done, 3 issues labelled android.",
+            "caption": "09:14",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "transcript: a person's caption is name · time under the bubble; the agent is prose",
+      "input": {
+        "bubbles": false,
+        "title": "#APP-5 Reduce cold start below 800 ms",
+        "icon": "",
+        "rows": [
+          {
+            "id": "m1",
+            "type": "message",
+            "author": "user",
+            "body": "Cold start is at 1.4 s.",
+            "name": "Dana Reyes",
+            "time": "21:02",
+            "queued": false
+          },
+          {
+            "id": "m2",
+            "type": "message",
+            "author": "agent",
+            "body": "Deferred the shape subscribe.",
+            "name": null,
+            "time": "21:05",
+            "queued": false
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "#APP-5 Reduce cold start below 800 ms",
+          "icon": ""
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "m1",
+            "kind": "user",
+            "bubble": false,
+            "body": "Cold start is at 1.4 s.",
+            "caption": "Dana Reyes · 21:02",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          },
+          {
+            "id": "m2",
+            "kind": "agent",
+            "bubble": false,
+            "body": "Deferred the shape subscribe.",
+            "caption": "",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a caption drops a missing part with its separator; a queued message stays queued",
+      "input": {
+        "bubbles": false,
+        "rows": [
+          {
+            "id": "m1",
+            "type": "message",
+            "author": "user",
+            "body": "one",
+            "name": null,
+            "time": "08:00",
+            "queued": true
+          },
+          {
+            "id": "m2",
+            "type": "message",
+            "author": "user",
+            "body": "two",
+            "name": "Dana",
+            "time": "",
+            "queued": false
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "m1",
+            "kind": "user",
+            "bubble": false,
+            "body": "one",
+            "caption": "08:00",
+            "queued": true,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          },
+          {
+            "id": "m2",
+            "kind": "user",
+            "bubble": false,
+            "body": "two",
+            "caption": "Dana",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a system message is a muted line",
+      "input": {
+        "rows": [
+          {
+            "id": "m1",
+            "type": "message",
+            "author": "system",
+            "body": "Session moved to Laptop",
+            "name": null,
+            "time": "",
+            "queued": false
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "m1",
+            "kind": "line",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "ui-info",
+            "title": "",
+            "text": "Session moved to Laptop",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "pills, lines and cards pass through in order",
+      "input": {
+        "rows": [
+          {
+            "id": "p1",
+            "type": "pill",
+            "icon": "coding-compact",
+            "label": "Conversation compacted · 18:20"
+          },
+          {
+            "id": "l1",
+            "type": "line",
+            "icon": "coding-subagent",
+            "text": "Explore · done"
+          },
+          {
+            "id": "c1",
+            "type": "card",
+            "icon": "coding-plan",
+            "title": "Plan: lazy-load the markdown editor",
+            "text": "Waiting on you",
+            "target": "S1"
+          },
+          {
+            "id": "c2",
+            "type": "card",
+            "icon": "session-tree",
+            "title": "Sort today's widget reports",
+            "text": "Working",
+            "target": "S2"
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "p1",
+            "kind": "pill",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "coding-compact",
+            "title": "",
+            "text": "Conversation compacted · 18:20",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          },
+          {
+            "id": "l1",
+            "kind": "line",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "coding-subagent",
+            "title": "",
+            "text": "Explore · done",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          },
+          {
+            "id": "c1",
+            "kind": "card",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "coding-plan",
+            "title": "Plan: lazy-load the markdown editor",
+            "text": "Waiting on you",
+            "target": "S1",
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          },
+          {
+            "id": "c2",
+            "kind": "card",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "session-tree",
+            "title": "Sort today's widget reports",
+            "text": "Working",
+            "target": "S2",
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a waiting question carries its options",
+      "input": {
+        "rows": [
+          {
+            "id": "q1",
+            "type": "question",
+            "question": "Lazy-load the markdown editor too, or open the PR?",
+            "options": [
+              {
+                "label": "Also lazy-load the markdown editor",
+                "description": "~90ms more"
+              },
+              {
+                "label": "Open the PR with what we have",
+                "description": null
+              }
+            ],
+            "custom": true,
+            "multi": false,
+            "waiting": true,
+            "answer": null
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "q1",
+            "kind": "question",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "ui-help",
+            "title": "Lazy-load the markdown editor too, or open the PR?",
+            "text": "",
+            "target": null,
+            "options": [
+              {
+                "label": "Also lazy-load the markdown editor",
+                "description": "~90ms more"
+              },
+              {
+                "label": "Open the PR with what we have",
+                "description": null
+              }
+            ],
+            "custom": true,
+            "multi": false,
+            "waiting": true,
+            "answer": null,
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "an answered question keeps its answer",
+      "input": {
+        "rows": [
+          {
+            "id": "q1",
+            "type": "question",
+            "question": "Ship it?",
+            "options": [
+              {
+                "label": "Yes",
+                "description": null
+              }
+            ],
+            "custom": false,
+            "multi": true,
+            "waiting": false,
+            "answer": "Yes"
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "q1",
+            "kind": "question",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "ui-help",
+            "title": "Ship it?",
+            "text": "",
+            "target": null,
+            "options": [
+              {
+                "label": "Yes",
+                "description": null
+              }
+            ],
+            "custom": false,
+            "multi": true,
+            "waiting": false,
+            "answer": "Yes",
+            "attachmentId": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a picture's caption is its text, blank without one",
+      "input": {
+        "rows": [
+          {
+            "id": "x1",
+            "type": "picture",
+            "attachmentId": "att-1",
+            "caption": "Board after the fix"
+          },
+          {
+            "id": "x2",
+            "type": "picture",
+            "attachmentId": "att-2",
+            "caption": null
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "x1",
+            "kind": "picture",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "Board after the fix",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": "att-1"
+          },
+          {
+            "id": "x2",
+            "kind": "picture",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "",
+            "title": "",
+            "text": "",
+            "target": null,
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": "att-2"
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    }
+  ]
+}
