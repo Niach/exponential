@@ -1,6 +1,8 @@
 ---
 /* One picture on a product page: a shot from the store or a file under
-   public/ (the Apps mocks), framed like PlatformShots' figures. */
+   public/ (the Apps mocks), in genUI's Window like every framed visual. */
+import Framed from "../landing/Framed.astro"
+
 interface Props {
   src: string
   alt: string
@@ -10,8 +12,9 @@ interface Props {
   max?: string
 }
 const { src, alt, width, height, max } = Astro.props
+const id = src.replace(/\.\w+$/, ``).replace(/[^a-z0-9]+/gi, `-`).replace(/^-|-$/g, ``)
 ---
 
-<figure class="exp-figure lib-figure" style={max ? `max-width:${max}` : undefined}>
-  <img src={src} alt={alt} width={width} height={height} loading="lazy" decoding="async" />
-</figure>
+<div class="lib-figure not-content" style={max ? `max-width:${max}` : undefined}>
+  <Framed id={id} src={src} alt={alt} width={width} height={height} />
+</div>
