@@ -2,6 +2,7 @@ package at.exponential.ui.compose
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
@@ -39,18 +40,26 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.zIndex
 import at.exponential.ui.ffi.animationFrameJson
+import at.exponential.ui.ffi.swipeLock
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.boxHover
 import at.exponential.ui.model.fire
 import at.exponential.ui.model.isStripTab
+import at.exponential.ui.model.isSwipeableTabContent
+import at.exponential.ui.model.swipeBlockedAt
+import at.exponential.ui.model.tabSwipe
 import at.exponential.ui.model.tabDrag
 import at.exponential.ui.model.focus
 import at.exponential.ui.model.holdInput
@@ -66,6 +75,7 @@ import at.exponential.ui.model.setOpen
 import at.exponential.ui.model.toastHold
 import at.exponential.ui.theme.AnimationSpec
 import at.exponential.ui.theme.PaintStyle
+import at.exponential.ui.theme.TransformOp
 
 /**
  * Which pressables handle their own gestures (no clickable wrapper): the
@@ -163,7 +173,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
     val inert = base.pointerEventsNone || invisible
     val pressable = node.pressable && !selfHandling(node) && !inert
     val tooltip = tooltipTarget(node, model)
-    val style = transitioned(base, model.reducedMotion)
+    val style = transitionedTranslate(transitioned(base, model.reducedMotion), model.reducedMotion)
     val anim = rememberAnimationFrame(node.id, base.animation, model.reducedMotion)
     val focusRequester = remember(node.id) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
@@ -336,6 +346,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(press)
             .then(resizeHandle(node, model, !invisible) { inputMode.inputMode == InputMode.Keyboard })
             .then(tabStripDrag(node, model, !invisible))
+            .then(tabPagerSwipe(node, model, !invisible))
             .paintedBox(style, size)
             .then(clip)
             .then(band),
@@ -441,6 +452,32 @@ private fun transitioned(style: PaintStyle, reduced: Boolean): PaintStyle {
     )
 }
 
+/**
+ * FEED-200: a pure-translation `transform` animates to its new value over
+ * the node's `transition` (CSS animates transforms too): the swipeable
+ * Tabs' panels and `thumb` settle this way after a release. A drag sets
+ * `transition: 0` (they follow the finger); no transition or reduced
+ * motion = a snap. Only nodes with a transform or a transition track it.
+ */
+@Composable
+private fun transitionedTranslate(style: PaintStyle, reduced: Boolean): PaintStyle {
+    if (style.transform.isEmpty() && style.transitionMs == null) return style
+    if (style.transform.any { it !is TransformOp.Translate }) return style
+    var tx = 0f
+    var ty = 0f
+    for (op in style.transform) if (op is TransformOp.Translate) {
+        tx += op.x
+        ty += op.y
+    }
+    val ms = style.transitionMs ?: 0f
+    val e = style.transitionEasing ?: listOf(0.25f, 0.1f, 0.25f, 1f)
+    val spec = if (ms <= 0f || reduced) snap<Float>() else tween<Float>(ms.toInt(), easing = CubicBezierEasing(e[0], e[1], e[2], e[3]))
+    val x by animateFloatAsState(tx, spec, label = "translateX")
+    val y by animateFloatAsState(ty, spec, label = "translateY")
+    if (x == tx && y == ty) return style
+    return style.copy(transform = listOf(TransformOp.Translate(x, y)))
+}
+
 /** The Tooltip a node triggers (its owner id), if any. */
 private fun tooltipTarget(node: NodeInfo, model: SurfaceModel): String? {
     val target = node.triggerFor ?: return null
@@ -505,6 +542,78 @@ private fun tabStripDrag(node: NodeInfo, model: SurfaceModel, enabled: Boolean):
                 onDragCancel = { model.tabDrag(index, "end", 0f) },
             )
         }
+}
+
+/**
+ * FEED-200 (fixtures/swipe.json): a `swipeable` Tabs' `content` pages its
+ * panels by a horizontal TOUCH swipe (a mouse keeps its clicks and
+ * selection). A touch starting inside a node that scrolls, pans or drags
+ * sideways ([swipeBlockedAt]) is that node's. Otherwise the travel since
+ * the down goes through the core's `swipeLock`: `pending` waits (nothing
+ * consumed, so the panel's own presses still work), `vertical` lets go
+ * (the page scrolls), `horizontal` claims the pointer: `start`, then a
+ * `move` per change with the screen dp since the touch started, `end` with
+ * the release velocity (dp/ms); a gesture that ends without an up (or a
+ * child that consumed it first) is a `cancel`. Screen offsets: the core
+ * mirrors under RTL.
+ */
+@Composable
+private fun tabPagerSwipe(node: NodeInfo, model: SurfaceModel, enabled: Boolean): Modifier {
+    if (!enabled || !model.isSwipeableTabContent(node.index)) return Modifier
+    val index = node.index
+    return Modifier.pointerInput(node.id) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (down.type != PointerType.Touch) return@awaitEachGesture
+            if (model.swipeBlockedAt(index, down.position.x / density, down.position.y / density)) return@awaitEachGesture
+            val tracker = VelocityTracker()
+            tracker.addPointerInputChange(down)
+            var locked = false
+            var ended = false
+            var offset = 0f
+            try {
+                while (true) {
+                    val e = awaitPointerEvent()
+                    val c = e.changes.firstOrNull { it.id == down.id } ?: break
+                    tracker.addPointerInputChange(c)
+                    val dx = (c.position.x - down.position.x) / density
+                    val dy = (c.position.y - down.position.y) / density
+                    if (!c.pressed) {
+                        if (locked) {
+                            c.consume()
+                            ended = true
+                            offset = dx
+                            // px/s → dp/ms.
+                            model.tabSwipe(index, "end", offset, tracker.calculateVelocity().x / density / 1000f)
+                        }
+                        break
+                    }
+                    if (!locked) {
+                        // A child (a scroller of its own) took the move first.
+                        if (c.isConsumed) break
+                        when (runCatching { swipeLock(dx.toDouble(), dy.toDouble()) }.getOrDefault("pending")) {
+                            "horizontal" -> {
+                                locked = true
+                                offset = dx
+                                c.consume()
+                                model.tabSwipe(index, "start", offset)
+                            }
+                            "vertical" -> break
+                            else -> {}
+                        }
+                    } else {
+                        if (c.positionChanged()) {
+                            offset = dx
+                            model.tabSwipe(index, "move", offset)
+                        }
+                        c.consume()
+                    }
+                }
+            } finally {
+                if (locked && !ended) model.tabSwipe(index, "cancel", offset)
+            }
+        }
+    }
 }
 
 /**

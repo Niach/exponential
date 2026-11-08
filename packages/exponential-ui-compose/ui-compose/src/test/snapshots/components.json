@@ -35936,6 +35936,178 @@
       }
     ]
   },
+  "Tabs\/swipeable=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/swipeable=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.thumb",
+        "part" : "thumb",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      }
+    ]
+  },
   "Tabs\/variant=pill" : {
     "height" : 72,
     "nodes" : [

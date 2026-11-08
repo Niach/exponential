@@ -149,6 +149,7 @@ private struct NodeBody: View {
         .modifier(BoxHoverFiring(id: node.id, model: model, on: interactive && node.component == "Box" && node.part == nil))
         .modifier(ResizeHandleModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
+        .modifier(TabSwipeModifier(node: node, model: model, enabled: interactive))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
         .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
@@ -385,6 +386,103 @@ struct TabStripDragModifier: ViewModifier {
         }
     }
 }
+
+/// FEED-200: a `swipeable` Tabs' `content` pages under a TOUCH drag (iOS;
+/// a mouse never pages, like the web). A zero-distance drag beside the
+/// content's own gestures (`simultaneousGesture`: buttons and scroll views
+/// inside keep theirs): the first change decides whether the touch is the
+/// pager's at all (`swipeBlocked`: it started inside a node that scrolls,
+/// pans or drags sideways); then the axis waits for the slop (`swipeLock`):
+/// `vertical` leaves the rest of this touch alone, `horizontal` fires
+/// `swipe {phase: start}` and a `move` per change with the SCREEN offset
+/// since the touch started (the core mirrors for RTL); the release fires
+/// `end` with the velocity (pt/ms), a gesture the system took back
+/// (reset without an end) `cancel`.
+struct TabSwipeModifier: ViewModifier {
+    let node: NodeInfo
+    let model: SurfaceModel
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if enabled, model.isSwipeContent(node.index) {
+            content.modifier(TabSwipeGesture(index: node.index, model: model))
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+#if os(iOS)
+/// One touch on swipeable content: undecided → pending (inside the slop)
+/// → swiping, or ignored (blocked / vertical) until it lifts.
+enum TabSwipeTouch: Equatable {
+    case idle, pending, swiping, ignored
+}
+
+struct TabSwipeGesture: ViewModifier {
+    let index: Int
+    let model: SurfaceModel
+    @GestureState private var tracking = false
+    @State private var touch = TabSwipeTouch.idle
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .updating($tracking) { _, state, _ in state = true }
+                    .onChanged { v in changed(v) }
+                    .onEnded { v in ended(v) }
+            )
+            .onChange(of: tracking) { _, now in
+                guard !now else { return }
+                // `onEnded` runs first on a normal release; a reset without
+                // it = the system cancelled the touch.
+                Task { @MainActor in
+                    if touch == .swiping { model.tabSwipe(index, phase: "cancel", offset: 0) }
+                    touch = .idle
+                }
+            }
+    }
+
+    private func changed(_ v: DragGesture.Value) {
+        if touch == .idle {
+            // The start point in surface coordinates (the content never
+            // moves; only its panels' paint-time transforms do).
+            let origin = model.frame(index).origin
+            let start = CGPoint(x: origin.x + v.startLocation.x, y: origin.y + v.startLocation.y)
+            touch = model.swipeBlocked(index, at: start) ? .ignored : .pending
+        }
+        switch touch {
+        case .pending:
+            switch model.swipeAxis(dx: v.translation.width, dy: v.translation.height) {
+            case "horizontal":
+                touch = .swiping
+                model.tabSwipe(index, phase: "start", offset: v.translation.width)
+            case "vertical":
+                touch = .ignored
+            default:
+                break
+            }
+        case .swiping:
+            model.tabSwipe(index, phase: "move", offset: v.translation.width)
+        case .idle, .ignored:
+            break
+        }
+    }
+
+    private func ended(_ v: DragGesture.Value) {
+        let was = touch
+        touch = .idle
+        guard was == .swiping else { return }
+        // `velocity` is pt/s (iOS 17); the core reads pt/ms.
+        model.tabSwipe(index, phase: "end", offset: v.translation.width, velocity: v.velocity.width / 1000)
+    }
+}
+#endif
 
 /// `catalog/layout.json` `tabLongPressMs`, in seconds.
 let tabLongPressSeconds: Double = 0.5

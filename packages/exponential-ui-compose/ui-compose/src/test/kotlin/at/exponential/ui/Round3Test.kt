@@ -19,6 +19,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import at.exponential.ui.catalog.CatalogConstants
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.compose.TreeGuideOp
@@ -253,5 +254,43 @@ class Round3Test {
         // The core filled the deepest row's guides: its elbow in column 1.
         val deepest = guides.first { it.props["depth"]?.number == 2.0 }
         assertEquals(1.0, deepest.props["elbowAt"]?.number)
+    }
+
+    // -- FEED-200: Tabs.swipeable --------------------------------------
+
+    private val swipeJson = """{"id":"root","component":"Box","children":[{"id":"swipe_tabs","component":"Tabs","style":{"width":360},
+        "props":{"swipeable":true,"value":{"@path":"/tab"},"tabs":[{"label":"One","value":"a"},{"label":"Two","value":"b"},{"label":"Three","value":"c"}]},
+        "on":{"change":{"event":{"name":"tab"}}},
+        "children":[{"id":"panel_a","component":"Text","props":{"text":"Alpha"}},{"id":"panel_b","component":"Text","props":{"text":"Beta"}},{"id":"panel_c","component":"Text","props":{"text":"Gamma"}}]}]}"""
+
+    /** A touch drag across the content from [from] to [to] (fractions of its width, at its vertical centre) over [ms]. */
+    private fun swipeContent(m: SurfaceModel, from: Float, to: Float, dy: Float = 0f, ms: Long = 300) {
+        val f = m.frame(m.nodes.first { it.owner == "swipe_tabs" && it.part == "content" }.index)
+        val d = density
+        val y = f.center.y * d
+        compose.onNodeWithTag("shot").performTouchInput {
+            swipe(Offset((f.left + f.width * from) * d, y), Offset((f.left + f.width * to) * d, y + dy * d), ms)
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun aTouchSwipeAcrossASwipeableTabsPages() {
+        val host = RecordingHost()
+        val m = render(swipeJson, host)
+        m.setData("/tab", JsonValue.Str("a"))
+        compose.waitForIdle()
+        // Leftwards past half the page: the next tab.
+        swipeContent(m, 0.9f, 0.1f)
+        assertEquals(listOf("tab"), host.actions.map { it.name })
+        assertEquals("b", m.data["tab"]?.string)
+        // A mostly vertical drag is the page's: no change.
+        swipeContent(m, 0.5f, 0.45f, dy = 120f)
+        assertEquals(1, host.actions.size)
+        // Rightwards back to the first; never past it.
+        swipeContent(m, 0.1f, 0.9f)
+        swipeContent(m, 0.1f, 0.9f)
+        assertEquals("a", m.data["tab"]?.string)
+        assertEquals(2, host.actions.size)
     }
 }
