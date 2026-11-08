@@ -391,6 +391,10 @@ export interface TrainUnitOutcome {
   files: string[]
   /** The resolver rule names applied to this unit. */
   resolved: string[]
+  /** #EXP-1711, a conflict only: `batch` = it composes clean on the base
+   *  alone, so only an earlier unit of this batch (not landed) is in the
+   *  way: no bounce. Absent = `base`. */
+  against?: `base` | `batch`
 }
 
 /** The `exp-train` result's JSON. */
@@ -415,7 +419,7 @@ export interface TrainVerdict {
   /** The units that ride (green: land; red: re-run, then bisect). */
   composed: number[][]
   /** The units that bounce, whatever the state. */
-  conflicts: Array<{ prs: number[]; files: string[] }>
+  conflicts: Array<{ prs: number[]; files: string[]; against?: `base` | `batch` }>
 }
 
 const PASSING = new Set([`success`, `neutral`, `skipped`])
@@ -430,7 +434,9 @@ export function trainVerdict(input: {
   const o = input.outcome
   if (!o) return { state: `pending`, head: null, composed: [], conflicts: [] }
   const composed = o.units.filter((u) => u.outcome === `composed`).map((u) => u.prs)
-  const conflicts = o.units.filter((u) => u.outcome === `conflict`).map((u) => ({ prs: u.prs, files: u.files }))
+  const conflicts = o.units
+    .filter((u) => u.outcome === `conflict`)
+    .map((u) => ({ prs: u.prs, files: u.files, ...(u.against ? { against: u.against } : {}) }))
   const base = { head: o.head, composed, conflicts }
   if (o.error) return { state: `error`, head: o.head, composed: [], conflicts: [] }
   if (composed.length === 0) return { state: `conflict`, ...base }

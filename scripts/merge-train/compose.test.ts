@@ -61,6 +61,26 @@ const POLICY: TrainRepoConfig = {
   ],
 }
 
+describe(`compose: a sibling in the way is no bounce (#EXP-1711)`, () => {
+  it(`a unit that conflicts only behind an earlier unit of the batch reports against: batch`, () => {
+    const r = repo({ "a.txt": `a\n` }, POLICY)
+    const first = r.branch({ "a.txt": `first\n` })
+    const second = r.branch({ "a.txt": `second\n` })
+    const { outcome } = compose({ dir: r.dir, trainId: `s1`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, first)] }, { prs: [pr(2, second)] }] })
+    expect(outcome.units.map((u) => [u.outcome, u.against ?? null])).toEqual([[`composed`, null], [`conflict`, `batch`]])
+    expect(r.read(`a.txt`)).toBe(`first\n`)
+  })
+
+  it(`a unit that conflicts with the base itself stays a plain conflict`, () => {
+    const r = repo({ "a.txt": `a\n`, "c.txt": `c\n` }, POLICY)
+    const stale = r.branch({ "a.txt": `stale\n` })
+    const moved = r.branch({ "a.txt": `moved\n` })
+    const other = r.branch({ "c.txt": `c1\n` }, moved)
+    const { outcome } = compose({ dir: r.dir, trainId: `s2`, baseSha: moved, mode: `test`, units: [{ prs: [pr(3, other)] }, { prs: [pr(4, stale)] }] })
+    expect(outcome.units.map((u) => [u.outcome, u.against ?? null])).toEqual([[`composed`, null], [`conflict`, null]])
+  })
+})
+
 describe(`compose`, () => {
   it(`squashes every PR in order with its title, a stack bottom first`, () => {
     const r = repo({ "a.txt": `a\n`, "b.txt": `b\n` }, POLICY)
@@ -146,7 +166,7 @@ describe(`compose`, () => {
       units: [{ prs: [pr(1, a)] }, { prs: [pr(2, b)] }],
       runCommand: () => false,
     })
-    expect(outcome.units[1]).toEqual({ prs: [2], outcome: `conflict`, files: [`gen/enum.txt`], resolved: [] })
+    expect(outcome.units[1]).toEqual({ prs: [2], outcome: `conflict`, files: [`gen/enum.txt`], resolved: [], against: `batch` })
   })
 
   // A toy generator: the next migration = the schema lines no migration has yet.
@@ -205,7 +225,7 @@ describe(`compose`, () => {
     const a = r.branch({ "changelog.ts": CHANGELOG.replace(`[\n`, `[\n  { v: 2 },\n`), ".exponential/merge-train.json": JSON.stringify(POLICY) })
     const b = r.branch({ "changelog.ts": CHANGELOG.replace(`[\n`, `[\n  { v: 3 },\n`) })
     const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, a)] }, { prs: [pr(2, b)] }] })
-    expect(outcome.units[1]).toEqual({ prs: [2], outcome: `conflict`, files: [`changelog.ts`], resolved: [] })
+    expect(outcome.units[1]).toEqual({ prs: [2], outcome: `conflict`, files: [`changelog.ts`], resolved: [], against: `batch` })
   })
 })
 

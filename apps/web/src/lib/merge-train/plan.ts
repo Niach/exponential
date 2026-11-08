@@ -88,7 +88,7 @@ export interface PlanRun<K> {
 
 export interface RunDecision<K> {
   land: K[][]
-  conflicts: Array<{ unit: K[]; files: string[] }>
+  conflicts: Array<{ unit: K[]; files: string[]; against?: `base` | `batch` }>
   failing: K[][]
   /** Back to the queue (an error, or nothing decided). */
   requeue: K[][]
@@ -115,7 +115,7 @@ export function decideRun<K>(
   }
   const conflicts = verdict.conflicts.flatMap((c) => {
     const unit = unitOf(c.prs)
-    return unit ? [{ unit, files: c.files }] : []
+    return unit ? [{ unit, files: c.files, ...(c.against ? { against: c.against } : {}) }] : []
   })
   const composed = verdict.composed.flatMap((prs) => {
     const unit = unitOf(prs)

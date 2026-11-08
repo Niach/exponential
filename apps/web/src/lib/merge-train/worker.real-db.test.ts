@@ -76,7 +76,7 @@ class FakeForge {
   missingPipeline = false
   refuseFastForward = false
   /** Decides each run: which PR numbers conflict, and whether CI is red. */
-  judge: (prs: number[]) => { conflicts?: number[]; red?: boolean; error?: string } = () => ({})
+  judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string } = () => ({})
   private outcomes = new Map<string, TrainPipelineOutcome>()
   private checks = new Map<string, TrainCheck[]>()
 
@@ -109,7 +109,8 @@ class FakeForge {
         this.dispatches.push({ inputs, units })
         const numbers = units.flatMap((u) => u.prs.map((p) => p.number))
         const verdict = this.judge(numbers)
-        const conflicts = new Set(verdict.conflicts ?? [])
+        const conflicts = new Set([...(verdict.conflicts ?? []), ...(verdict.siblings ?? [])])
+        const siblings = new Set(verdict.siblings ?? [])
         const head = `train-${inputs.train_id.slice(0, 8)}`
         if (verdict.error) {
           this.outcomes.set(inputs.train_id, { train: inputs.train_id, base_sha: inputs.base_sha, head: null, checks: `none`, units: [], error: verdict.error })
@@ -123,7 +124,8 @@ class FakeForge {
           units: units.map((u) => {
             const prs = u.prs.map((p) => p.number)
             const conflict = prs.some((n) => conflicts.has(n))
-            return { prs, outcome: conflict ? `conflict` : `composed`, files: conflict ? [`src/a.ts`] : [], resolved: [] }
+            const against = prs.some((n) => siblings.has(n)) ? { against: `batch` as const } : {}
+            return { prs, outcome: conflict ? `conflict` : `composed`, files: conflict ? [`src/a.ts`] : [], resolved: [], ...against }
           }),
           error: null,
         })
@@ -390,6 +392,21 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await lines(w.children[302]!))[0]!.body).toBe(
       `Auto-merge of #302 hit a conflict with main in src/a.ts. Rebase onto main, resolve and push: it re-queues by itself (bounce 1 of 3).`
     )
+  })
+
+  it(`a conflict only behind an unlanded sibling is no bounce: it re-queues and lands after (#EXP-1711)`, async () => {
+    const w = await world()
+    const a = await w.pr(351)
+    const b = await w.pr(352)
+    await w.idle()
+    fake.judge = (prs) => (prs.includes(351) ? { siblings: [352] } : {})
+    await pass(w.repoId)
+    await pass(w.repoId)
+    expect((await prRow(a)).state).toBe(`merged`)
+    expect(await prRow(b)).toMatchObject({ mergeAttempts: 0 })
+    expect(await lines(w.children[352]!)).toEqual([])
+    await pass(w.repoId, 2)
+    expect((await prRow(b)).state).toBe(`merged`)
   })
 
   it(`the third bounce holds the PR (Needs you), never another conflict`, async () => {
