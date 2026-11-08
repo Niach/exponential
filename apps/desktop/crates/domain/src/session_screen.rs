@@ -164,6 +164,18 @@ pub struct SessionScreenCopy {
     pub back: String,
     pub separator: String,
     pub link_issue: String,
+    pub status: SessionScreenStatusCopy,
+}
+
+/// `copy.status`: THE tree's lowercase words.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScreenStatusCopy {
+    pub needs_input: String,
+    pub working: String,
+    pub queued: String,
+    pub done: String,
+    pub idle: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -280,8 +292,15 @@ pub fn session_screen(
     if open == Some(SessionScreenOpen::Settings) && !spec.gear {
         open = None;
     }
-    let active_id = match req {
-        Some(req) if spec.tabs.iter().any(|tab| tab == req) => req,
+    // ACTIVE FOLLOWS THE OPENED ITEM: a session = Sessions, an issue = Issues.
+    let follows = match open {
+        Some(SessionScreenOpen::Session) => Some("sessions"),
+        Some(SessionScreenOpen::Issue) => Some("issues"),
+        _ => None,
+    };
+    let active_id = match (follows, req) {
+        (Some(follows), _) if spec.tabs.iter().any(|tab| tab == follows) => follows,
+        (_, Some(req)) if spec.tabs.iter().any(|tab| tab == req) => req,
         _ if wide => spec.wide_default.as_str(),
         _ => "chat",
     };
@@ -300,6 +319,36 @@ pub fn session_screen(
         SessionScreenLayout::Tab
     };
     SessionScreen { tabs, active, gear: spec.gear, open, layout }
+}
+
+/// One session of the tree for `session_screen_status`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScreenStatusInput {
+    pub status: String,
+    pub busy: bool,
+    pub needs_input: bool,
+    /// The tree's root.
+    pub root: bool,
+}
+
+/// THE tree's status word (`sessionScreenStatus`, `statusCases`): needs
+/// input > working > queued (the root) > done (the root ended) > idle.
+pub fn session_screen_status(sessions: &[SessionScreenStatusInput]) -> String {
+    let words = &SESSION_SCREEN.copy.status;
+    let live: Vec<&SessionScreenStatusInput> = sessions.iter().filter(|session| session.status != "ended").collect();
+    let root = sessions.iter().find(|session| session.root);
+    if live.iter().any(|session| session.needs_input) {
+        return words.needs_input.clone();
+    }
+    if live.iter().any(|session| session.busy) {
+        return words.working.clone();
+    }
+    match root.map(|root| root.status.as_str()) {
+        Some("queued") => words.queued.clone(),
+        Some("ended") => words.done.clone(),
+        _ => words.idle.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -362,6 +411,16 @@ mod tests {
             let actual =
                 session_screen_subtitle(input["status"].as_str(), input["device"].as_str(), input["trigger"].as_str());
             assert_eq!(actual, case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn status_cases_match_the_fixture() {
+        let cases = fixture()["statusCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input: Vec<SessionScreenStatusInput> = serde_json::from_value(case["input"].clone()).unwrap();
+            assert_eq!(session_screen_status(&input), case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 }

@@ -79,6 +79,13 @@ pub(crate) fn agent_header_disc(agent: Option<&AgentDefRow>, cx: &App) -> AnyEle
             .into_any_element(),
         _ => agent_def_icon(agent).with_size(px(HEADER_GLYPH_PX)).into_any_element(),
     };
+    header_disc(glyph, cx)
+}
+
+/// THE header's lead disc (the chat header's `disc` on the muted fill)
+/// around a glyph: an agent's avatar, the Assistant's mark, an app's
+/// BoardGlyph (session-screen.json APP LEAD).
+pub(crate) fn header_disc(glyph: AnyElement, cx: &App) -> AnyElement {
     div()
         .size(px(HEADER_DISC_PX))
         .flex_shrink_0()
@@ -699,7 +706,9 @@ impl AgentScreenView {
     /// #EXP-1729 (apps.json `editorHeader`, `editorHeaderCases`): the
     /// editor header's `status · device` subtitle and its tone, off the
     /// member's editor root and the device the composer shows.
-    pub(crate) fn editor_header(&self) -> Option<domain::apps::EditorHeader> {
+    /// With the header's DEVICE part alone (`editor_header` with no root:
+    /// the name, else `no device online`; session-screen.json STATUS WORD).
+    pub(crate) fn editor_header(&self) -> Option<(domain::apps::EditorHeader, String)> {
         if !matches!(self.subject, ChannelSubject::App(_)) {
             return None;
         }
@@ -709,7 +718,8 @@ impl AgentScreenView {
             needs_input: root.needs_input,
         });
         let device = self.editor_device.as_ref().and_then(|device| device.header_device());
-        Some(domain::apps::editor_header(root, device.as_ref().map(|(name, online)| (name.as_str(), *online))))
+        let device = device.as_ref().map(|(name, online)| (name.as_str(), *online));
+        Some((domain::apps::editor_header(root, device), domain::apps::editor_header(None, device).subtitle))
     }
 
     /// #EXP-1738: a pick on a live editor root moves it at once (an ended
@@ -1120,7 +1130,7 @@ impl AgentScreenView {
             (on_press, open)
         });
         let title = crate::session_chat::title_row(&name, false, cx).into_any_element();
-        let subtitle = crate::session_chat::screen_subtitle(None, agent, cx);
+        let subtitle = crate::session_chat::screen_subtitle(None, &[], agent, cx);
         screen_header(
             ScreenHeader {
                 avatar: agent_header_disc(agent, cx),

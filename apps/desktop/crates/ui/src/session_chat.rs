@@ -2505,8 +2505,6 @@ pub(crate) type OnTabPick = Rc<dyn Fn(SessionScreenTab, &mut Window, &mut App)>;
 /// A tree row's pick (an issue or a session of the Issues / Sessions tab).
 pub(crate) type OnTreePick = Rc<dyn Fn(&TreeItem, &mut Window, &mut App)>;
 
-/// One segment's width (the app editor's Segmented, now every kind's).
-pub(crate) const SCREEN_TAB_SEGMENT_PX: f32 = 96.;
 /// The Segmented's height (the app editor's).
 const SCREEN_TABS_H: f32 = 32.;
 
@@ -2611,7 +2609,11 @@ pub(crate) fn screen_tabs(
             let count = tab.count.map(|count| count.to_string());
             let name = eui_core::segmented::item_accessibility_label(&tab.label, count.as_deref());
             let on_pick = on_pick.clone();
+            // TAB SIZING ×4: sized to its label (+ count), never stretched
+            // to equal widths, never squeezed.
             crate::controls::segmented_item(active == id, cx)
+                .flex_none()
+                .px_3()
                 .id(SharedString::from(format!("{}-{}", SESSION_SCREEN.test_ids.tabs, id.as_str())))
                 .role(gpui::Role::Tab)
                 .aria_label(SharedString::from(name))
@@ -2622,7 +2624,9 @@ pub(crate) fn screen_tabs(
                 .into_any_element()
         })
         .collect();
-    div()
+    // The strip scrolls sideways when it overflows (the capsule keeps its
+    // content width inside the scrolling row).
+    h_flex()
         .id(SharedString::from(format!("{}-scroll", SESSION_SCREEN.test_ids.tabs)))
         .w_full()
         .min_w_0()
@@ -2632,7 +2636,8 @@ pub(crate) fn screen_tabs(
                 .id(SharedString::from(SESSION_SCREEN.test_ids.tabs.clone()))
                 .debug_selector(|| SESSION_SCREEN.test_ids.tabs.clone())
                 .flex_shrink_0()
-                .w(px(SCREEN_TAB_SEGMENT_PX * tabs.len() as f32))
+                .w_auto()
+                .justify_start()
                 .h(px(SCREEN_TABS_H))
                 .children(segments),
         )
@@ -2716,14 +2721,36 @@ pub(crate) fn session_pane(view: &Entity<crate::session_screen::SessionScreenVie
         .into_any_element()
 }
 
-/// The header's subtitle (`session_screen_subtitle`): the root's state word,
-/// its device's name (else the agent's), an agent's first enabled trigger.
+/// session-screen.json STATUS WORD (`session_screen_status`): THE tree's
+/// lowercase word (needs input > working > queued > done > idle), never
+/// dropped; `tree` may or may not carry the root.
+pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow]) -> String {
+    use domain::session_screen::{session_screen_status, SessionScreenStatusInput};
+    let input = |row: &SessionRow, is_root: bool| SessionScreenStatusInput {
+        status: row.status.clone().unwrap_or_default(),
+        busy: row.busy,
+        needs_input: row.needs_input,
+        root: is_root,
+    };
+    let root_id = root.map(|root| root.id.as_str());
+    let mut rows: Vec<SessionScreenStatusInput> = Vec::with_capacity(tree.len() + 1);
+    if let Some(root) = root.filter(|root| !tree.iter().any(|row| row.id == root.id)) {
+        rows.push(input(root, true));
+    }
+    rows.extend(tree.iter().map(|row| input(row, Some(row.id.as_str()) == root_id)));
+    session_screen_status(&rows)
+}
+
+/// The header's subtitle (`session_screen_subtitle`): THE tree's status word
+/// ([`tree_status_word`]), the root's device's name (else the agent's), an
+/// agent's first enabled trigger.
 pub(crate) fn screen_subtitle(
     root: Option<&SessionRow>,
+    tree: &[SessionRow],
     agent: Option<&domain::rows::AgentDefRow>,
     cx: &App,
 ) -> String {
-    let status = root.map(|root| domain::session_tree::session_state(root).word().to_string());
+    let status = tree_status_word(root, tree);
     let device_id = root
         .and_then(|root| root.device_id.clone())
         .or_else(|| agent.and_then(|agent| agent.device_id.clone()));
@@ -2738,7 +2765,7 @@ pub(crate) fn screen_subtitle(
             .find(|trigger| trigger.get("enabled").and_then(serde_json::Value::as_bool) != Some(false))
             .map(|trigger| domain::agent_settings::trigger_summary(&trigger))
     });
-    domain::session_screen::session_screen_subtitle(status.as_deref(), device.as_deref(), trigger.as_deref())
+    domain::session_screen::session_screen_subtitle(Some(status.as_str()), device.as_deref(), trigger.as_deref())
 }
 
 /// Open `session_id` IN PLACE (its chat hosts the raw work).
@@ -3697,7 +3724,7 @@ impl SessionChatScreenView {
                 (chat_header_lead(model, cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, cx), None)
             }
         };
-        let subtitle = screen_subtitle(Some(&model.root), agent.as_ref(), cx);
+        let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
         screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color: None, trailing, gear, menu, back, tabs }, cx)
     }
 
@@ -4111,7 +4138,9 @@ impl SessionChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let label = pane_back_label(screen.active);
+        // The `‹` goes back to the tab the item came from (the opened item
+        // makes Sessions / Issues active, session-screen.json).
+        let label = pane_back_label(self.tab);
         let this = cx.entity().downgrade();
         let on_back: OnPress = Rc::new(move |window, cx| {
             let _ = this.update(cx, |this, cx| this.close_item(window, cx));

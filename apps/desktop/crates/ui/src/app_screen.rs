@@ -100,8 +100,8 @@ use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation, Screen};
 
-/// The header glyph (the web's `size-5`).
-const HEADER_GLYPH_PX: f32 = 20.;
+/// The header glyph in its lead disc (the chat header's `disc`, `size-4`).
+const HEADER_GLYPH_PX: f32 = 16.;
 /// VAPP-179: one frame segment's width in the preview toolbar.
 const FRAME_SEGMENT_PX: f32 = 88.;
 
@@ -339,7 +339,9 @@ pub struct AppScreenView {
     /// #EXP-1729 (apps.json `editorHeader`): the header's `status · device`
     /// subtitle off the chat (its root and the composer's device),
     /// repainted only when it changes.
-    editor_header: Option<domain::apps::EditorHeader>,
+    /// #EXP-1732: with its DEVICE part alone (the subtitle = THE tree's
+    /// word · this part, in the header's tone).
+    editor_header: Option<(domain::apps::EditorHeader, String)>,
     preview: Option<Preview>,
     /// The version being previewed (`None` = the head) and its package.
     viewing: Option<i64>,
@@ -1045,7 +1047,9 @@ impl AppScreenView {
         use crate::session_chat::{screen_header, screen_tabs, OnPress, OnTabPick, ScreenHeader};
         let show_publish = self.can_write(cx) && domain::apps::can_publish(app.versions());
         let head = app.head_version;
-        let avatar = app.icon().with_size(px(HEADER_GLYPH_PX)).into_any_element();
+        // session-screen.json APP LEAD: the BoardGlyph IN the lead disc.
+        let avatar =
+            crate::agent_screen::header_disc(app.icon().with_size(px(HEADER_GLYPH_PX)).into_any_element(), cx);
         let muted = cx.theme().muted_foreground;
         let foreground = cx.theme().foreground;
         let title = h_flex()
@@ -1100,19 +1104,22 @@ impl AppScreenView {
                 cx.notify();
             });
         });
-        // #EXP-1729 (apps.json `editorHeader`): the subtitle says why nothing
-        // starts (`queued · no device online`), in its tone, off the chat's
-        // root and the composer's device; THE screen's line until it reads.
+        // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word
+        // (never dropped) · apps.json `editorHeader`'s DEVICE part (the
+        // name, else `no device online`), in `editorHeader`'s tone (#EXP-1729).
+        let root = self.editor_root(cx);
+        let tree = root.as_ref().map(|root| crate::session_data::tree_of_root(&root.id, cx)).unwrap_or_default();
+        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree);
         let (subtitle, subtitle_color) = match self.editor_header.clone() {
-            Some(header) => {
+            Some((header, device)) => {
                 let tone = match header.tone {
                     domain::apps::EditorHeaderTone::Attention => theme::tokens::YELLOW.to_hsla(),
                     domain::apps::EditorHeaderTone::Active => foreground,
                     domain::apps::EditorHeaderTone::Muted => muted,
                 };
-                (header.subtitle, Some(tone))
+                (domain::session_screen::session_screen_subtitle(Some(word.as_str()), Some(device.as_str()), None), Some(tone))
             }
-            None => (crate::session_chat::screen_subtitle(self.editor_root(cx).as_ref(), None, cx), None),
+            None => (crate::session_chat::screen_subtitle(root.as_ref(), &tree, None, cx), None),
         };
         screen_header(
             ScreenHeader {
@@ -1795,7 +1802,8 @@ impl AppScreenView {
     /// The tab pane beside the chat: THE gear's settings or a session under
     /// its `‹`, else the active tab's body.
     fn render_tab(&mut self, screen: &SessionScreen, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let label = crate::session_chat::pane_back_label(screen.active);
+        // The `‹` goes back to the tab the session came from.
+        let label = crate::session_chat::pane_back_label(self.tab);
         if screen.open == Some(SessionScreenOpen::Settings) {
             let this = cx.entity().downgrade();
             let on_back: crate::session_chat::OnPress = Rc::new(move |_window, cx| {
