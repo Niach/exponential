@@ -954,6 +954,10 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         }
     }
     dispatch(shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
+    // The switcher lives in the start menu: the reducer closed it, the popup goes too.
+    if !shell.borrow().model.start_menu.open {
+        close(shell, "start-menu", cx);
+    }
     let current = shell.borrow().model.switcher.current.clone();
     if current.id != id {
         tracing::warn!(id, "the switcher does not list the pick");
@@ -2365,5 +2369,53 @@ mod layer_sizes {
             assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
         }
         assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
+    }
+}
+
+#[cfg(test)]
+mod start_menu_document {
+    use serde_json::Value;
+
+    fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+        if n.get("id").and_then(Value::as_str) == Some(id) {
+            return Some(n);
+        }
+        match n {
+            Value::Object(m) => m.values().find_map(|v| node(v, id)),
+            Value::Array(a) => a.iter().find_map(|v| node(v, id)),
+            _ => None,
+        }
+    }
+
+    fn call(n: &Value) -> (&str, &Value) {
+        let f = &n["on"]["press"]["functionCall"];
+        (f["@call"].as_str().unwrap_or_default(), &f["args"])
+    }
+
+    /// #EDE-65: the start menu holds the desktop/team switcher (the
+    /// sidebar's entries and rules, moved) and the Settings button.
+    #[test]
+    fn the_start_menu_holds_the_switcher_and_settings() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("start-menu").expect("the start menu").source).unwrap();
+        let functions: Vec<&str> = doc["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(functions.contains(&"ede_switcher") && functions.contains(&"ede_open_document"), "{functions:?}");
+        let root = &doc["root"];
+        let left = node(root, "left").expect("the left column");
+        assert!(node(left, "switcher").is_some(), "the switcher sits in the person's column");
+        let menu = node(root, "switcher_menu").expect("the switcher's menu");
+        assert_eq!(menu["props"]["anchor"], "switcher");
+        assert_eq!(node(menu, "switcher_sections").unwrap()["template"]["path"], "/shell/switcher/sections");
+        let (f, args) = call(node(menu, "switcher_entry").unwrap());
+        assert_eq!((f, args["action"].as_str()), ("ede_switcher", Some("pick")));
+        for (id, action) in [("switcher_new", "new"), ("switcher_share", "share"), ("switcher_connect", "connect")] {
+            let (f, args) = call(node(menu, id).expect(id));
+            assert_eq!((f, args["action"].as_str()), ("ede_switcher", Some(action)), "{id}");
+        }
+        let visible = |id: &str| node(menu, id).unwrap()["visible"].to_string();
+        assert!(visible("switcher_share").contains("/shell/switcher/connection/onLocal"));
+        assert!(visible("switcher_connect").contains("/shell/switcher/connection/connected") && visible("switcher_connect").contains("\"not\""));
+        assert!(!doc.to_string().contains("/shell/ide/"), "the IDE's rows stay in its sidebar");
+        let (f, args) = call(node(root, "settings").expect("the Settings button"));
+        assert_eq!((f, args["name"].as_str()), ("ede_open_document", Some("settings")));
     }
 }
