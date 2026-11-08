@@ -64,6 +64,7 @@ pub mod agents;
 pub mod app_access;
 pub mod apps;
 pub use eagent::atomic_file;
+pub mod attachment_upload;
 pub mod attachments;
 pub mod billing;
 pub mod comments;
