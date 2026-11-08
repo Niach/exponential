@@ -512,8 +512,7 @@ impl HostRouter {
             Envelope::V10 => {}
             Envelope::Refused(reason) => return vec![invalid(&surface_id_of(object), &reason)],
             Envelope::Upgrade => {
-                let (messages, state) = crate::upgrade09::upgrade_message09(message, &self.upgrade_state);
-                self.upgrade_state = state;
+                let messages = crate::upgrade09::upgrade_message09_in(message, &mut self.upgrade_state);
                 let mut ops = Vec::new();
                 for m in messages {
                     // The upgraded form is 1.0: never bridged twice.

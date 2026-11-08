@@ -5755,7 +5755,6 @@ private fun ExpandedSteerComposer(
             effortValue = null,
             effortEnabled = false,
             rowsReadOnly = menu.readOnly,
-            subagentsValue = null,
             ultracode = menu.ultracode,
             mcpValue = null,
             computerUse = menu.computerUse,

@@ -121,10 +121,6 @@
       "reason": "EXP-862: one board's settings page. Captured by settings-boards, whose /settings/boards route forwards here for the first board; the id is whatever the seed minted, so the route is not addressable by the catalog."
     },
     {
-      "route": "/t/$teamSlug/settings/boards/archived",
-      "reason": "EXP-862: archived boards and the 48h trash on their own page. The pane is photographed on desktop as settings-boards-archived; the web and web-mobile captures land with the EXP-865 screenshot refresh (a declared capture without a committed webp fails shots:check)."
-    },
-    {
       "route": "/admin",
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },
@@ -639,7 +635,7 @@
         "anchorDelayMs": 2500,
         "env": {
           "EXP_DEV_TOOL": "board",
-          "EXP_DEV_SEARCH_QUERY": "cold start"
+          "EXP_DEV_SEARCH_QUERY": "by:alex"
         }
       },
       "diffTolerance": 0.0005
@@ -1921,11 +1917,11 @@
     {
       "id": "settings-boards-archived",
       "group": "settings",
-      "title": "Settings · Archived boards",
-      "blurb": "Boards put away rather than deleted, and the way back. EXP-862 gave web its own page under the settings nav's board list; the 48h pending-deletion card joins the archived list once something is in the trash.",
+      "title": "Settings · All boards",
+      "blurb": "#NEW-37: ONE list of the team's boards: the live boards under the Boards band, then the archived boards (Unarchive) and the 48h trash (Restore, the purge time) under their own bands, owners only. Web's /settings/boards (the phones' Team row lands here too), the sidebars' All boards entry.",
       "order": 19,
       "web": {
-        "route": "/t/$teamSlug/settings/boards/archived",
+        "route": "/t/$teamSlug/settings/boards",
         "anchor": {
           "text": "Unarchive",
           "timeoutMs": 20000
@@ -1936,11 +1932,11 @@
       "desktop": {
         "drive": {
           "kind": "settings",
-          "value": "archived-boards"
+          "value": "all-boards"
         }
       },
       "notes": {
-        "web": "EXP-862's own page under the settings nav's board list (owner-only); the anchor is the seeded archived board's Unarchive pill, so the shot never fires on the loading skeleton (the archived list is out of every synced shape and loads over tRPC).",
+        "web": "#NEW-37: the Boards page itself (owner); the anchor is the seeded archived board's Unarchive pill, so the shot never fires before the archived band (out of every synced shape, loaded over tRPC).",
         "web-mobile": "Inherits web: the same page at the phone's width.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
@@ -4638,6 +4634,39 @@
       },
       "android": {
         "shot": "exponential-ui-mosaic",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-window",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · Window",
+      "blurb": "A window frame around one child: a chrome bar with three dots and an optional centred title over a body the child fills. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/window/.",
+      "order": 114,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-window",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-window"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-window",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-window",
         "lane": "package"
       },
       "notes": {

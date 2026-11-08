@@ -4,8 +4,9 @@
 //! collections hold is OPENED here, so no renderer ever sees an envelope:
 //!
 //! * `messages`: `body` (body envelope) + `card` (card envelope);
-//! * `sessions`: the sealed title opens into `title`;
-//! * `conversations`: the digest's kept messages, like `messages`.
+//! * `sessions`: the sealed title opens into `title`; #EXP-1730: its
+//!   `digest`'s kept messages, like `messages`;
+//! * `conversations` (legacy, read by nothing since #EXP-1730): the same.
 //!
 //! A row this install holds no key for keeps an empty body / the card's clear
 //! part and carries [`SealState::Locked`] (the renderers draw the locked
@@ -110,12 +111,14 @@ impl Opener {
 
     /// Opens a `sessions` row's sealed title into `title` (a title this
     /// install cannot open keeps the neutral plaintext fallback).
+    /// #EXP-1730: its `digest` opens too (the row names its own root).
     pub fn open_session(&self, row: &mut SessionRow) {
         let root = row.root_id_or_self().to_string();
         self.remember_root(&row.id, &root);
         if let Some(title) = self.keys().open_title(row) {
             row.title = Some(title);
         }
+        self.open_digest_value(&mut row.digest, Some(root));
     }
 
     /// Opens a `conversations` row's digest messages in place. Returns
@@ -131,8 +134,14 @@ impl Opener {
 
     fn open_digest(&self, row: &mut ConversationRow) -> bool {
         let root = row.session_id.as_deref().and_then(|session| self.root_of(session));
+        self.open_digest_value(&mut row.digest, root)
+    }
+
+    /// Opens a digest's kept messages in place under `root`'s tree; `false`
+    /// = it holds sealed content and the root is unknown.
+    fn open_digest_value(&self, digest: &mut Option<Value>, root: Option<String>) -> bool {
         let tree = self.tree(root.as_deref());
-        let Some(Value::Object(digest)) = row.digest.as_mut() else {
+        let Some(Value::Object(digest)) = digest.as_mut() else {
             return true;
         };
         let mut sealed = false;
@@ -365,5 +374,19 @@ mod tests {
         assert!(!opener.open_conversation(&mut unknown));
         let preview = domain::chats::ConversationDigest::decode(unknown.digest.as_ref()).unwrap().preview.unwrap();
         assert_eq!((preview.body.as_str(), preview.seal), ("", Some(SealState::Locked)));
+
+        // #EXP-1730: a session's own digest opens under its root.
+        let mut with_digest = SessionRow {
+            id: "child".into(),
+            root_id: Some("root".into()),
+            digest: Some(serde_json::json!({
+                "preview": {"id": "m1", "authorKind": "user", "body": envelope, "createdAt": "2026-10-30T00:00:00Z"},
+            })),
+            ..SessionRow::default()
+        };
+        opener.open_session(&mut with_digest);
+        let preview = domain::chats::ConversationDigest::decode(with_digest.digest.as_ref()).unwrap().preview.unwrap();
+        assert_eq!(preview.body, fx["body"]["text"].as_str().unwrap());
+        assert_eq!(preview.seal, Some(SealState::Opened));
     }
 }

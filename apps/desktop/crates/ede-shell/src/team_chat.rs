@@ -1,5 +1,5 @@
 //! The agent chat on a team (#EDE-65 lane I): the account's synced rows
-//! (sessions, conversations, agents, messages, users: the IDE's shapes) as
+//! (sessions, agents, messages, users: the IDE's shapes) as
 //! the chat model's input, and the sends through `sessions.send` like the
 //! IDE's (`chat_actions::send_to_agent`, `chat_launch`): a message into an
 //! open session, or to the picked agent (the server lands it in the
@@ -31,10 +31,27 @@ pub struct TeamRows {
     pub users: Vec<User>,
     /// The account's prompts (the `/` menu's second group).
     pub prompts: Vec<domain::rows::PromptRow>,
+    /// The account's memberships (who `@` can name, with `users`).
+    pub members: Vec<domain::rows::TeamMember>,
+}
+
+/// The team's people as `@` lists them: its members' users (a user without
+/// an email cannot be mentioned: the interchange form is `@<email>`).
+pub fn members(rows: &TeamRows, team_id: &str) -> Vec<crate::chat::Member> {
+    let users: HashMap<&str, &User> = rows.users.iter().map(|u| (u.id.as_str(), u)).collect();
+    rows.members
+        .iter()
+        .filter(|m| m.team_id == team_id)
+        .filter_map(|m| users.get(m.user_id.as_str()))
+        .filter_map(|u| {
+            let email = u.email.clone().filter(|e| !e.is_empty())?;
+            Some(crate::chat::Member { name: u.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| email.clone()), email })
+        })
+        .collect()
 }
 
 /// The shapes the chat reads: a delta on one repaints an open team chat.
-pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents", "users", "session_issues", "pull_requests", "prompts"];
+pub const SHAPES: &[&str] = &["sessions", "messages", "agents", "users", "session_issues", "pull_requests", "prompts"];
 
 /// The brand mark: the viewer's Assistant (the IDE's agent row draws it).
 pub const ASSISTANT_ICON: &str = "brand-exponential";
@@ -116,9 +133,9 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
         return input;
     };
     let tree: Vec<&SessionRow> = rows.account.sessions.iter().filter(|s| s.root_id_or_self() == root.root_id_or_self()).collect();
-    let by_conversation = domain::message_conversation::conversation_sessions(rows.account.conversations.iter());
     let in_tree = |m: &&MessageRow| m.root_id.as_deref().is_none_or(|r| r == root.id);
-    let keyed = domain::message_conversation::key_messages_by_session(rows.messages.iter().filter(in_tree), &by_conversation);
+    // #EXP-1730: a message names its own session (`session_id`).
+    let keyed = domain::message_session::key_messages_by_session(rows.messages.iter().filter(in_tree));
     let message_refs: Vec<&MessageRow> = keyed.iter().collect();
     let session_issues: Vec<_> = rows.account.session_issues.iter().collect();
     let issues: Vec<domain::session_tree::TreeIssue> = rows.account.issues.iter().map(domain::session_tree::TreeIssue::from_issue).collect();
@@ -231,16 +248,15 @@ mod tests {
                 serde_json::from_value(json!({"id": "a9", "team_id": "t1", "name": "Their Assistant", "role": "assistant", "owner_id": "u2"})).unwrap(),
             ],
             sessions: vec![serde_json::from_value(json!({"id": "s1", "team_id": "t1", "user_id": "u1", "agent_id": "a2", "status": "idle", "title": "Triage"})).unwrap()],
-            conversations: vec![serde_json::from_value(json!({"id": "c1", "team_id": "t1", "kind": "session", "session_id": "s1"})).unwrap()],
             ..Default::default()
         };
         let messages = vec![
-            serde_json::from_value(json!({"id": "m1", "conversation_id": "c1", "root_id": "s1", "author_kind": "user", "author_id": "u1", "body": "Label them", "created_at": "2026-11-08T09:14:00Z"})).unwrap(),
-            serde_json::from_value(json!({"id": "m2", "conversation_id": "c1", "root_id": "s1", "author_kind": "agent", "body": "Done", "created_at": "2026-11-08T09:15:00Z"})).unwrap(),
-            serde_json::from_value(json!({"id": "m3", "conversation_id": "c-other", "root_id": "s7", "author_kind": "agent", "body": "elsewhere", "created_at": "2026-11-08T09:16:00Z"})).unwrap(),
+            serde_json::from_value(json!({"id": "m1", "conversation_id": "c1", "session_id": "s1", "root_id": "s1", "author_kind": "user", "author_id": "u1", "body": "Label them", "created_at": "2026-11-08T09:14:00Z"})).unwrap(),
+            serde_json::from_value(json!({"id": "m2", "conversation_id": "c1", "session_id": "s1", "root_id": "s1", "author_kind": "agent", "body": "Done", "created_at": "2026-11-08T09:15:00Z"})).unwrap(),
+            serde_json::from_value(json!({"id": "m3", "conversation_id": "c-other", "session_id": "s7", "root_id": "s7", "author_kind": "agent", "body": "elsewhere", "created_at": "2026-11-08T09:16:00Z"})).unwrap(),
         ];
         let users = vec![serde_json::from_value(json!({"id": "u1", "name": "Dana Reyes", "email": "dana@example.com"})).unwrap()];
-        TeamRows { account, messages, users, prompts: Vec::new() }
+        TeamRows { account, messages, users, prompts: Vec::new(), members: Vec::new() }
     }
 
     fn chat(session: Option<&str>) -> TeamChat {

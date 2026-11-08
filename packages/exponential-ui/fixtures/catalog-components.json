@@ -711,6 +711,25 @@
       }
     },
     {
+      "name": "Window/example",
+      "node": {
+        "id": "window",
+        "component": "Window",
+        "props": {
+          "title": "exponential.at"
+        },
+        "children": [
+          {
+            "id": "window-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Separator/example",
       "node": {
         "id": "separator",
@@ -8499,6 +8518,100 @@
             }
           ],
           "showValues": false
+        }
+      }
+    },
+    {
+      "name": "Chart/valueFormat=currency",
+      "node": {
+        "id": "chart",
+        "component": "Chart",
+        "props": {
+          "kind": "bar",
+          "categories": [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr"
+          ],
+          "series": [
+            {
+              "name": "Income",
+              "values": [
+                4200,
+                3900,
+                4600,
+                5100
+              ],
+              "tone": "success"
+            },
+            {
+              "name": "Expenses",
+              "values": [
+                3100,
+                3400,
+                2900,
+                3800
+              ],
+              "tone": "danger"
+            }
+          ],
+          "title": "Income vs expenses",
+          "showValues": true,
+          "valueFormat": {
+            "type": "currency",
+            "currency": "EUR",
+            "decimals": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Chart/rows+valueFormat=compact",
+      "node": {
+        "id": "chart",
+        "component": "Chart",
+        "props": {
+          "kind": "bar",
+          "series": [
+            {
+              "name": "Income",
+              "field": "income",
+              "tone": "success"
+            },
+            {
+              "name": "Expenses",
+              "field": "expenses",
+              "tone": "danger"
+            }
+          ],
+          "rows": [
+            {
+              "month": "Jan",
+              "income": 4200,
+              "expenses": 3100
+            },
+            {
+              "month": "Feb",
+              "income": 3900,
+              "expenses": 3400
+            },
+            {
+              "month": "Mar",
+              "income": 4600,
+              "expenses": 2900
+            },
+            {
+              "month": "Apr",
+              "income": 5100,
+              "expenses": 3800
+            }
+          ],
+          "categoryField": "month",
+          "valueFormat": {
+            "type": "compact",
+            "currency": "EUR"
+          }
         }
       }
     },

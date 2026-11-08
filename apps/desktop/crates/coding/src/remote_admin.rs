@@ -16,6 +16,9 @@ use crate::settings::Settings;
 // ---------------------------------------------------------------------------
 
 /// One agent's entry in a defaults patch. Only PRESENT fields apply.
+/// #EXP-1734: the retired `subagentModel` / `threadModel` keys an old
+/// device or server copy may still carry deserialize and are ignored (no
+/// `deny_unknown_fields`).
 ///
 /// Every `None` is OMITTED on the wire, never an explicit `null` — the
 /// server's zod schema rejected nulls with a 400 that silently killed
@@ -28,15 +31,6 @@ pub struct AgentDefaultsPatch {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// EXP-981: the model this agent's SUBAGENTS run on; claude-only, so it
-    /// is OMITTED for every other agent (the capability mask below).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subagent_model: Option<String>,
-    /// The model this agent's DISPATCHER roots run on (threads + team
-    /// agents, `sessions.dispatch`): `Settings.claude_thread_model` /
-    /// `codex_thread_model`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ultracode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,25 +239,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 set_string(slot, effort, &mut changed);
             }
         }
-        if let Some(subagent_model) = &entry.subagent_model {
-            let valid = agent.model_values().contains(&subagent_model.as_str());
-            if valid && agent.supports_subagent_model() {
-                set_string(
-                    &mut settings.claude_subagent_model,
-                    subagent_model,
-                    &mut changed,
-                );
-            }
-        }
-        if let Some(thread_model) = &entry.thread_model {
-            if agent.model_values().contains(&thread_model.as_str()) {
-                let slot = match agent {
-                    CodingAgent::Claude => &mut settings.claude_thread_model,
-                    CodingAgent::Codex => &mut settings.codex_thread_model,
-                };
-                set_string(slot, thread_model, &mut changed);
-            }
-        }
         if let Some(ultracode) = entry.ultracode {
             if agent.supports_ultracode() {
                 set_bool(&mut settings.claude_ultracode, ultracode, &mut changed);
@@ -286,7 +261,7 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
 /// launch default is.
 ///
 /// It exists because the dialog hand-copied the list and a field added later
-/// (`claude_subagent_model`) was then saved
+/// (the since-retired subagent model) was then saved
 /// everywhere EXCEPT on this machine's own row: the hub reseeded the selects
 /// from the stale file and `launch_defaults_sync`'s PushLocal later shipped
 /// the stale copy back over the server's. One function, one test
@@ -300,10 +275,7 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
 pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.claude_model = from.claude_model.clone();
     onto.claude_effort = from.claude_effort.clone();
-    onto.claude_subagent_model = from.claude_subagent_model.clone();
-    onto.claude_thread_model = from.claude_thread_model.clone();
     onto.codex_model = from.codex_model.clone();
-    onto.codex_thread_model = from.codex_thread_model.clone();
     onto.codex_effort = from.codex_effort.clone();
     onto.claude_ultracode = from.claude_ultracode;
     onto.auto_rotate_accounts = from.auto_rotate_accounts;
@@ -324,10 +296,6 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
             AgentDefaultsPatch {
                 model: Some(settings.model_for(agent).to_string()),
                 effort: Some(settings.effort_for(agent).to_string()),
-                subagent_model: agent
-                    .supports_subagent_model()
-                    .then(|| settings.subagent_model_for(agent).to_string()),
-                thread_model: Some(settings.thread_model_for(agent).to_string()),
                 ultracode: agent
                     .supports_ultracode()
                     .then_some(settings.claude_ultracode),
@@ -518,55 +486,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Every model is explicit: a blank model, subagent or thread model on
-    /// the wire is never applied, for any agent.
+    /// Every model is explicit: a blank model on the wire is never
+    /// applied, for any agent.
     #[test]
     fn a_blank_model_is_never_applied() {
         let mut settings = Settings::default();
         settings.codex_model = "gpt-5.6-terra".into();
         let patch: DefaultsPatch = serde_json::from_value(serde_json::json!({
             "agents": {
-                "codex": { "model": "", "threadModel": "" },
-                "claude": { "model": "", "subagentModel": "", "threadModel": "" },
+                "codex": { "model": "" },
+                "claude": { "model": "" },
             }
         }))
         .unwrap();
         assert!(!apply_defaults_patch(&mut settings, &patch));
         assert_eq!(settings.codex_model, "gpt-5.6-terra");
-        assert_eq!(settings.claude_model, "fable");
-        assert_eq!(settings.claude_subagent_model, "opus");
-        assert_eq!(settings.claude_thread_model, "haiku");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
+        assert_eq!(settings.claude_model, "opus");
     }
 
-    /// The dispatcher's thread model rides each agent's entry both ways and
-    /// is validated against THAT agent's vocabulary.
+    /// #EXP-1734: the retired subagent and thread models are never on the
+    /// wire, and an old copy still carrying them deserializes and changes
+    /// nothing.
     #[test]
-    fn the_thread_model_rides_each_agents_entry() {
+    fn the_retired_subagent_and_thread_models_are_ignored() {
         let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
-        assert_eq!(wire["agents"]["claude"]["threadModel"], "haiku");
-        assert_eq!(wire["agents"]["codex"]["threadModel"], "gpt-5.6-luna");
+        for agent in ["claude", "codex"] {
+            assert!(wire["agents"][agent].get("threadModel").is_none());
+            assert!(wire["agents"][agent].get("subagentModel").is_none());
+        }
         let mut settings = Settings::default();
         let patch: DefaultsPatch = serde_json::from_value(serde_json::json!({
             "agents": {
-                "claude": { "threadModel": "sonnet" },
-                "codex": { "threadModel": "gpt-5.6-terra" },
+                "claude": { "subagentModel": "sonnet", "threadModel": "haiku" },
+                "codex": { "threadModel": "gpt-5.6-luna" },
             }
         }))
         .unwrap();
-        assert!(apply_defaults_patch(&mut settings, &patch));
-        assert_eq!(settings.claude_thread_model, "sonnet");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-terra");
-        let crossed: DefaultsPatch = serde_json::from_value(serde_json::json!({
-            "agents": {
-                "claude": { "threadModel": "gpt-5.6-sol" },
-                "codex": { "threadModel": "haiku" },
-            }
-        }))
-        .unwrap();
-        assert!(!apply_defaults_patch(&mut settings, &crossed));
-        assert_eq!(settings.claude_thread_model, "sonnet");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-terra");
+        assert!(!apply_defaults_patch(&mut settings, &patch));
+        assert_eq!(settings, Settings::default());
     }
 
     /// EXP-1158: `defaultAccount` is gone — an old server copy still
@@ -607,18 +564,12 @@ mod tests {
         assert!(!rendered.contains("null"), "no nulls on the wire: {rendered}");
         let codex = &wire["agents"]["codex"];
         assert!(codex.get("ultracode").is_none(), "ultracode is claude-only");
-        // EXP-981: the subagent pin is claude-only too.
-        assert!(
-            codex.get("subagentModel").is_none(),
-            "the subagent model is claude-only"
-        );
         assert!(codex.get("planMode").is_none(), "S-3: no plan-mode default");
         // EXP-690: the retired key is never advertised on any agent.
         assert!(codex.get("skipPermissions").is_none());
         let claude = &wire["agents"]["claude"];
         assert!(claude.get("skipPermissions").is_none());
         assert!(claude.get("planMode").is_none(), "S-3: no plan-mode default");
-        assert!(claude.get("subagentModel").is_some());
         // EXP-849: pi is gone from the wire entirely.
         assert!(wire["agents"].get("pi").is_none());
     }
@@ -630,8 +581,6 @@ mod tests {
         source.claude_model = "sonnet".into();
         source.claude_ultracode = true;
         source.codex_effort = "high".into();
-        source.claude_thread_model = "opus".into();
-        source.codex_thread_model = "gpt-5.6-sol".into();
         let wire = defaults_wire(&source);
         let mut target = Settings::default();
         assert!(apply_defaults_patch(&mut target, &wire));
@@ -639,8 +588,6 @@ mod tests {
         assert_eq!(target.claude_model, "sonnet");
         assert!(target.claude_ultracode);
         assert_eq!(target.codex_effort, "high");
-        assert_eq!(target.claude_thread_model, "opus");
-        assert_eq!(target.codex_thread_model, "gpt-5.6-sol");
     }
 
     /// EXP-1020: the overlay carries EVERY launch default and touches
@@ -657,10 +604,7 @@ mod tests {
             branch_prefix: "wip/".into(),
             claude_model: "sonnet".into(),
             claude_effort: "xhigh".into(),
-            claude_subagent_model: "sonnet".into(),
-            claude_thread_model: "fable".into(),
             codex_model: "gpt-5.6-terra".into(),
-            codex_thread_model: "gpt-5.6-sol".into(),
             codex_effort: "high".into(),
             claude_ultracode: true,
             auto_rotate_accounts: false,
@@ -697,7 +641,5 @@ mod tests {
             ..from.clone()
         };
         assert_eq!(onto, expected);
-        // The one the Device settings dialog used to drop on its own row.
-        assert_eq!(onto.claude_subagent_model, "sonnet");
     }
 }

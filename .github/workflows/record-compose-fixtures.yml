@@ -32,7 +32,13 @@ name: record-compose-fixtures
 # repository tree after the Outline: the Compose goldens + the web
 # baseline rewrite's gpui budget).
 # VAPP-285 (2026-11-06, rebased onto VAPP-277): re-recorded for the kitchen sink with the rail AND the Tree (kitchen-sink-exponential.png + -orange.png; the ratchets unchanged).
+# VAPP-290 (2026-11-07): re-recorded for the core catalog's Window (the
+# kitchen sink's window node: the Compose goldens + `Window.png`, the web
+# baseline rewrite's gpui budget).
 
+# FEED-205 (2026-11-08): re-recorded for the core catalog's Chart
+# `valueFormat=currency` and `rows+valueFormat=compact` states (the Compose
+# snapshot `components.json`).
 on:
   workflow_dispatch: {}
   push:
@@ -65,6 +71,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:

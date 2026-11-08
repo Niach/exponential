@@ -364,10 +364,6 @@ impl AgentScreenView {
             subscriptions.push(cx.observe_in(&collections.messages, window, |this, _, window, cx| {
                 this.queue_refresh(window, cx)
             }));
-            // NEW-8: a message's session is its conversation's.
-            subscriptions.push(cx.observe_in(&collections.conversations, window, |this, _, window, cx| {
-                this.queue_refresh(window, cx)
-            }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         }
         let transport = crate::queries::attachment_transport(cx);

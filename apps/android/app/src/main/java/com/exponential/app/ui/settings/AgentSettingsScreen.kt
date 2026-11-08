@@ -378,8 +378,10 @@ fun AgentSettingsScreen(
         name = row.name
         icon = row.icon ?: SessionTree.ListCopy.AGENT_DEFAULT_ICON
         color = row.color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR
-        deviceId = row.deviceId
-        accountKey = row.account?.let { account -> row.cli?.let { "$it:$account" } }
+        // #EXP-1730: the runner picks read `agents.defaults`.
+        val picks = row.runnerDefaults
+        deviceId = picks.deviceId
+        accountKey = picks.account?.let { account -> picks.cli?.let { "$it:$account" } }
     }
     LaunchedEffect(loadedInstructions) {
         val text = loadedInstructions ?: return@LaunchedEffect
@@ -393,12 +395,13 @@ fun AgentSettingsScreen(
     val accountOptions = remember(device) { accountOptionsFor(device, device?.acpAgents.orEmpty()) }
     // EXP-1306: the Account row's value = `agentAccountValue` over the pin
     // (`<cli>:<profile>` while editing, the synced row's cli otherwise).
-    val accountValueKey = remember(accountOptions, accountKey, agent?.cli) {
+    val syncedCli = agent?.runnerDefaults?.cli
+    val accountValueKey = remember(accountOptions, accountKey, syncedCli) {
         val parsed = accountKey?.let(AccountOptions::parseKey)
         AgentSettings.agentAccountValue(
             options = accountOptions.map { AgentSettings.AccountValueOption(it.id, it.agent, it.email, it.isLastUsed) },
             account = parsed?.id,
-            cli = parsed?.agent ?: agent?.cli,
+            cli = parsed?.agent ?: syncedCli,
         )?.let { "${it.agent}:${it.id}" }
     }
     val triggers = if (isNew) draftTriggers else syncedTriggers
@@ -543,9 +546,9 @@ fun AgentSettingsScreen(
                 val tz = java.util.TimeZone.getDefault().id
                 patch(UpdateAgentPatch(triggers = AgentSettings.Assistant.scheduleTriggers(id, tz).map { it.toWireJson() }))
             },
-            model = agent?.model,
-            modelOptions = com.exponential.app.ui.components.modelOptionsFor(agent?.cli?.takeIf { it.isNotBlank() } ?: "claude"),
-            modelCli = agent?.cli?.takeIf { it.isNotBlank() },
+            model = agent?.runnerDefaults?.model,
+            modelOptions = com.exponential.app.ui.components.modelOptionsFor(syncedCli ?: "claude"),
+            modelCli = syncedCli,
             onModelChange = { patch(UpdateAgentPatch(model = it)) },
             voice = if (assistant && editable) {
                 { AssistantVoiceBlock() }

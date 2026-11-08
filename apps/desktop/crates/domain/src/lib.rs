@@ -33,9 +33,9 @@
 //! * [`session_tree`] — EXP-1294 Threads v2: the session card, the thread
 //!   screen, the Threads page and the rail's Agents, byte-locked ×4 by
 //!   `fixtures/{session-card,session-thread,threads-list}.json`;
-//! * [`message_conversation`] — NEW-8: a message belongs to the session of
-//!   its conversation (`conversations` shape), byte-locked ×4 by
-//!   `fixtures/message-conversation.json`;
+//! * [`message_session`] — #EXP-1730: a message belongs to its own session
+//!   (`messages.session_id`), byte-locked ×4 by
+//!   `fixtures/message-session.json`;
 //! * [`session_title`] / [`session_kind`] — EXP-1341: THE display title of
 //!   any session and the kind traits (`persistent`, `triggers`) every
 //!   behaviour branches on, byte-locked ×4 by
@@ -94,7 +94,9 @@
 //! gpui-free — headless-testable.
 
 pub mod action_error;
+pub mod emoji;
 pub mod slash_menu;
+pub mod typeahead;
 pub mod contract {
     include!("contract.generated.rs");
 }
@@ -161,8 +163,8 @@ pub mod instant;
 pub mod issue_search;
 // EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
 pub mod list_item;
-// NEW-8: messages are keyed through their conversation, fixture-locked ×4.
-pub mod message_conversation;
+// #EXP-1730: messages are keyed by their own session, fixture-locked ×4.
+pub mod message_session;
 pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;

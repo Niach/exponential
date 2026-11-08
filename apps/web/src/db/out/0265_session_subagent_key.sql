@@ -1,0 +1,2 @@
+ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "subagent_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_sessions_subagent_key" ON "sessions" USING btree ("parent_id","subagent_key") WHERE subagent_key IS NOT NULL;

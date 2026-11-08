@@ -163,13 +163,31 @@ jobs:
   # #EXP-1677: the Dockerfile's build step. The typecheck and vitest never bundle
   # for the browser, so #1803's `node:crypto` in the client bundle went green
   # here and broke the image on master, holding a release round.
+  # #EXP-1748: and the image's boot. #2372's dependency bump built green and
+  # served 500 on every route (the server trace hoisted a nested package), so
+  # the built server boots against a migrated Postgres and answers the same
+  # probes build-web.yml's "Smoke the image" does.
   web-build:
     needs: changes
     if: needs.changes.outputs.web_build == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: exponential
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Production build
         env:
@@ -177,6 +195,11 @@ jobs:
           # bun, which has no such heap limit. Nitro's server bundle overruns node's default.
           NODE_OPTIONS: --max-old-space-size=8192
         run: bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
+      - name: Boot smoke
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/exponential
+          BETTER_AUTH_SECRET: ci-only-boot-smoke-secret
+        run: bun run migrate && cd apps/web && bun scripts/smoke-server.ts --boot
 
   migrations:
     needs: [pick, changes]
@@ -204,7 +227,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/exponential
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Apply migrations from scratch
         run: bun run migrate
@@ -318,6 +341,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -366,6 +390,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -507,7 +532,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - run: bun test ./src && bunx tsc -p tsconfig.json --noEmit
         working-directory: packages/uicore
@@ -546,7 +571,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun packages/exponential-ui/release/check-gpui-revs.ts
 
   # The styleguide's own suite (~2 s): every entry's status table names a
@@ -557,7 +582,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - run: bun test
         working-directory: apps/styleguide
@@ -569,14 +594,14 @@ jobs:
   site:
     needs: changes
     if: needs.changes.outputs.site == 'true'
-    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       # Astro needs Node >= 22.23.4; the runner image ships 22.23.3.
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - run: bun --filter @exp/site test
       - run: bun --filter @exp/site build
@@ -604,7 +629,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun test eval/gaps.test.ts
         working-directory: packages/exponential-ui
 
@@ -624,9 +649,15 @@ jobs:
           SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
-          echo "${SHA256}  /tmp/actionlint.tgz" | sha256sum -c -
-          tar xzf /tmp/actionlint.tgz -C /tmp actionlint
+          # github.com's release download down = the same tag from Go's
+          # module proxy (sumdb-verified), built with the runner's Go.
+          if curl -fsSL --retry 2 -o /tmp/actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz" &&
+            echo "${SHA256}  /tmp/actionlint.tgz" | sha256sum -c -; then
+            tar xzf /tmp/actionlint.tgz -C /tmp actionlint
+          else
+            echo "::warning::the actionlint release download failed; building v${VERSION} from Go's module proxy"
+            GOBIN=/tmp go install "github.com/rhysd/actionlint/cmd/actionlint@v${VERSION}"
+          fi
           /tmp/actionlint -color -shellcheck= -pyflakes=
 
   # #EXP-1708: the merge train's engine against real git repos and its
@@ -637,7 +668,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun run test:merge-train
 
   # #VAPP-269: the Engine's TS twin (packages/eengine: the reducers, the
@@ -649,7 +680,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - run: bun test ./src
         working-directory: packages/eengine
@@ -665,7 +696,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - run: bun test ./src
         working-directory: packages/domain-contract

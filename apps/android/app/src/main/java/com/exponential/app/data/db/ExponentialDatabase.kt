@@ -36,7 +36,6 @@ import androidx.room.TypeConverters
         EventEntity::class,
         PromptEntity::class,
         SkillEntity::class,
-        ConversationEntity::class,
         AppEntity::class,
         AppVersionEntity::class,
         AppRecordEntity::class,
@@ -81,7 +80,13 @@ import androidx.room.TypeConverters
     //      train), explicit [MIGRATION_118_119]; only those two shapes refetch.
     // v120 (#EXP-1715): sessions.scope_team_ids (the Assistant's Teams pick),
     //      explicit [MIGRATION_119_120]; only the sessions shape refetches.
-    version = 120,
+    // v121 (#EXP-1730 phase A, one tree): messages.session_id (+ index),
+    //      sessions.digest, agents.defaults, apps.agent_id; the local
+    //      `conversations` table is dropped (nothing reads it: messages key by
+    //      session_id, the list reads sessions.digest). Explicit
+    //      [MIGRATION_120_121]; the messages, sessions, agents and apps shapes
+    //      refetch, the conversations offset goes.
+    version = 121,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -116,7 +121,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
     abstract fun promptDao(): PromptDao
     abstract fun skillDao(): SkillDao
-    abstract fun conversationDao(): ConversationDao
     abstract fun appDao(): AppDao
     abstract fun appVersionDao(): AppVersionDao
     abstract fun appRecordDao(): AppRecordDao

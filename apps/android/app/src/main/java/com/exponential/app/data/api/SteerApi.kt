@@ -53,18 +53,6 @@ data class DeviceOwner(
 data class AgentLaunchDefaults(
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
-    /**
-     * EXP-981: claude only — the model its subagents run on, from the same
-     * closed `codingModel` vocabulary. Absent = contract
-     * `deviceAgentDefaultsSubagentModel` (every model is explicit).
-     */
-    @SerialName("subagentModel") val subagentModel: String? = null,
-    /**
-     * The DISPATCHER root's model (threads + team agents), per agent, from
-     * that agent's model vocabulary. Absent = contract
-     * `deviceAgentDefaultsThreadModel` / `deviceAgentDefaultsCodexThreadModel`.
-     */
-    @SerialName("threadModel") val threadModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean = false,
     /**
      * EXP-1005: the desktop's auto-rotate-accounts toggle (claude only). This

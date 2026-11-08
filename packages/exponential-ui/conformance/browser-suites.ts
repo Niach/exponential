@@ -54,6 +54,7 @@ import {
   DEFAULT_STRINGS,
   animationFrame,
   displayString,
+  formatChartValue,
   intlFormatter,
   scrollOffsetForIndex,
   tableRowKeys,
@@ -64,7 +65,7 @@ import {
   styleToCss,
   readOnlyDisabledIds,
 } from "../src/index"
-import type { ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
+import type { ChartValueFormat, ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
 import { conformanceManifest } from "../src/conformance"
 import type { ConformanceReport } from "../src/conformance"
 import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, getPointer, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
@@ -461,10 +462,20 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         let verdict: true | string = true
         for (const [xi, ctx] of c.contexts.entries()) {
           // A touch context (hasTouch) is Chromium's `(hover: none)`.
-          const context = await browser.newContext({ viewport: { width: Math.max(ctx.width + 40, 400), height: Math.max((ctx.height ?? 120) + 40, 400) }, reducedMotion: ctx.reducedMotion ? `reduce` : `no-preference`, hasTouch: ctx.hover === false })
+          const viewport = { width: Math.max(ctx.width + 40, 400), height: Math.max((ctx.height ?? 120) + 40, 400) }
+          const context = await browser.newContext({ viewport, reducedMotion: ctx.reducedMotion ? `reduce` : `no-preference`, hasTouch: ctx.hover === false })
           const page = await context.newPage()
+          // The node is a 40 px box at the page's top-left, where a headless
+          // pointer starts; Chromium re-hit-tests a resting pointer after
+          // layout, so a real `:hover`/`:active` could beat the media block
+          // in a context that forces no state (CfT 156, EXP-1395). Park the
+          // pointer in the far corner, off the node; a miss names the value
+          // and the states the node matched.
+          const park = () => page.mouse.move(viewport.width - 1, viewport.height - 1)
+          await park()
           await page.goto(url({ view: `conditions`, case: ci, ctx: xi }))
           await page.waitForSelector(`[data-xui-id="n"]`, { state: `attached` })
+          await park()
           await page.waitForTimeout(100)
           const theme = ctx.breakpoints ? loadTheme({ $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
           const want = styleToCss(resolveStyleValues(theme, c.expected[xi], `light`), theme.fonts)
@@ -477,7 +488,10 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
             for (const [k, v] of Object.entries(css as Record<string, string>)) probe.style.setProperty(k, v)
             const a = getComputedStyle(node)
             const b = getComputedStyle(probe)
-            const bad = Object.keys(css).map((k) => (k === `transition` ? `transition-duration` : k)).filter((k) => a.getPropertyValue(k) !== b.getPropertyValue(k))
+            const bad = Object.keys(css)
+              .map((k) => (k === `transition` ? `transition-duration` : k))
+              .filter((k) => a.getPropertyValue(k) !== b.getPropertyValue(k))
+              .map((k) => `${k} ${a.getPropertyValue(k)} (want ${b.getPropertyValue(k)}; ${[`hover`, `active`, `focus-visible`].filter((s) => node.matches(`:${s}`)).join(`+`) || `no state`})`)
             probe.remove()
             return bad
           }, want)
@@ -500,6 +514,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       const spaces = (v: unknown) => String(v).replace(/[  ]/g, ` `)
       for (const c of f.zoned) record(`format`, `zoned: ${c.name}`, () => spaces(resolveValue(c.call, { data: {}, locale: `en-US`, formatter: memoFormatter(intlFormatter(`en-US`, c.timeZone)) })) === spaces(c.expected))
       for (const d of f.display) record(`format`, `display: ${d.name}`, () => displayString(d.value) === d.expected)
+      // FEED-205: a Chart value in its `valueFormat` (the painters' `formatChartValue`).
+      for (const c of (fixture(`format.json`) as { chartValues: { name: string; value: number; valueFormat?: ChartValueFormat; expected: string }[] }).chartValues) record(`format`, `chart: ${c.name}`, () => spaces(formatChartValue(formatter, c.value, c.valueFormat)) === spaces(c.expected))
       const items = fixture(`template-items.json`)
       const keyed = (data: unknown, template: ChildTemplate, scope: string) => logic.templateItems({ data, templateNode: () => ({}) } as unknown as Ctx, { template } as unknown as UiNode, scope)?.items ?? []
       for (const c of items.keys) record(`template-items`, `keys: ${c.name}`, () => canon(keyed({ items: c.items }, { component: `x`, path: `/items`, ...(c.key === undefined ? {} : { key: c.key }) } as ChildTemplate, ``).map((i) => i.key)) === canon(c.expected))

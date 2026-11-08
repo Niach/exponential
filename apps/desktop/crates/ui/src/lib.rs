@@ -258,6 +258,8 @@ mod alert_gallery;
 mod transcript_bench;
 #[cfg(test)]
 mod shell_bench;
+#[cfg(test)]
+mod settings_bench;
 
 pub use actions::*;
 pub use icons::ExpIcon;

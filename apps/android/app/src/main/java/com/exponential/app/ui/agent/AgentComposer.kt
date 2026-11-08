@@ -71,7 +71,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  *   markers, EXP-698);
  * - tools: EXP-1249 — ONE "+" ([ComposerMenu.PLUS_TEST_ID]) opening the
  *   composer menu ([ComposerPlusMenuSheet]: Implement issue, Run action, Add
- *   file or image, Effort, Subagents, Ultracode, MCP servers, Computer use);
+ *   file or image, Effort, Ultracode, MCP servers, Computer use);
  *   the submit is the round send glyph (EXP-827: icon-only ×4), NAMED by the
  *   contract's per-subject title ("Start chat" / "Start coding" / "Start
  *   batch · N" / "Run action").

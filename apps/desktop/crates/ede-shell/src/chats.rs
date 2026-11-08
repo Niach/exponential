@@ -6,13 +6,13 @@
 //! busy while any live session of its tree does; its activity is the
 //! tree's newest `updated_at`; its agent is the working session's CLI, else
 //! the root's; unread is the IDE's own (#EXP-1323/#EXP-1724): the tree's
-//! newest agent message (the conversations' digests) newer than the
+//! newest agent message (#EXP-1730: the sessions' digests) newer than the
 //! viewer's `session_reads` mark, from `partition_threads` itself.
 //! `uicore_model::chats::chat_rows` orders and marks them.
 
 use std::collections::{HashMap, HashSet};
 
-use domain::rows::{ConversationRow, MessageRow, SessionReadRow, SessionRow};
+use domain::rows::{MessageRow, SessionReadRow, SessionRow};
 use domain::session_tree::{partition_threads, session_state, SessionState, ThreadsListInput};
 use serde_json::{json, Map, Value};
 use uicore_model::chats::{chat_rows, ChatInput};
@@ -29,14 +29,15 @@ pub fn sessions(rows: Vec<Map<String, Value>>) -> Vec<SessionRow> {
 
 /// The roots of `team_id` the IDE's Chats list shows bold: the agent wrote
 /// after the viewer's read mark (`partition_threads`, the IDE's rule).
-pub fn unread_roots(sessions: &[SessionRow], conversations: &[ConversationRow], reads: &[SessionReadRow], team_id: &str) -> HashSet<String> {
+pub fn unread_roots(sessions: &[SessionRow], reads: &[SessionReadRow], team_id: &str) -> HashSet<String> {
     let in_team: HashSet<&str> = sessions.iter().filter(|s| s.team_id.as_deref() == Some(team_id)).map(|s| s.id.as_str()).collect();
-    let messages: Vec<MessageRow> = conversations
+    // #EXP-1730: each session's digest rides on its own row.
+    let messages: Vec<MessageRow> = sessions
         .iter()
-        .filter_map(|c| Some((c.session_id.as_deref().filter(|id| in_team.contains(id))?, c)))
-        .flat_map(|(session, c)| {
-            let digest = domain::chats::ConversationDigest::decode(c.digest.as_ref());
-            domain::chats::digest_messages(session, digest.as_ref()).into_iter().map(|m| MessageRow { conversation_id: c.id.clone(), ..m })
+        .filter(|s| in_team.contains(s.id.as_str()))
+        .flat_map(|s| {
+            let digest = domain::chats::ConversationDigest::decode(s.digest.as_ref());
+            domain::chats::digest_messages(&s.id, digest.as_ref())
         })
         .collect();
     let rows: Vec<&SessionRow> = sessions.iter().filter(|s| in_team.contains(s.id.as_str())).collect();
@@ -148,21 +149,17 @@ mod tests {
     /// #EDE-65: the IDE's unread rule: an agent message after the read mark.
     #[test]
     fn a_chat_is_unread_while_the_agent_wrote_after_the_read_mark() {
-        let sessions = vec![
-            row(json!({"id": "r1", "team_id": "t1", "status": "active", "updated_at": "2026-11-08T10:00:00.000Z"})),
-            row(json!({"id": "r2", "team_id": "t1", "status": "active", "updated_at": "2026-11-08T10:00:00.000Z"})),
-            row(json!({"id": "r3", "team_id": "t1", "status": "active", "updated_at": "2026-11-08T10:00:00.000Z"})),
-        ];
         let digest = |at: &str| json!({"preview": {"id": format!("m-{at}"), "authorKind": "agent", "body": "done", "createdAt": at}, "agentAt": at, "agentTimes": [at]});
-        let conversations: Vec<ConversationRow> = vec![
-            serde_json::from_value(json!({"id": "c1", "kind": "session", "session_id": "r1", "digest": digest("2026-11-08T10:05:00.000Z")})).unwrap(),
-            serde_json::from_value(json!({"id": "c2", "kind": "session", "session_id": "r2", "digest": digest("2026-11-08T10:05:00.000Z")})).unwrap(),
+        let sessions = vec![
+            row(json!({"id": "r1", "team_id": "t1", "status": "active", "updated_at": "2026-11-08T10:00:00.000Z", "digest": digest("2026-11-08T10:05:00.000Z")})),
+            row(json!({"id": "r2", "team_id": "t1", "status": "active", "updated_at": "2026-11-08T10:00:00.000Z", "digest": digest("2026-11-08T10:05:00.000Z")})),
+            row(json!({"id": "r3", "team_id": "t1", "status": "active", "updated_at": "2026-11-08T10:00:00.000Z"})),
         ];
         let reads: Vec<SessionReadRow> = vec![
             serde_json::from_value(json!({"id": "x1", "session_id": "r1", "read_at": "2026-11-08T10:00:00.000Z"})).unwrap(),
             serde_json::from_value(json!({"id": "x2", "session_id": "r2", "read_at": "2026-11-08T10:06:00.000Z"})).unwrap(),
         ];
-        let unread = unread_roots(&sessions, &conversations, &reads, "t1");
+        let unread = unread_roots(&sessions, &reads, "t1");
         assert_eq!(unread, HashSet::from(["r1".to_string()]), "r2 was read after, r3 has no agent message");
         let chats = chat_inputs(&sessions, "t1", &unread);
         assert_eq!(chats.iter().map(|c| c.unread).collect::<Vec<_>>(), [true, false, false]);

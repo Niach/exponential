@@ -552,6 +552,31 @@ pub(crate) struct IssueHit {
     pub(crate) status: domain::statuses::ResolvedStatus,
 }
 
+/// #NEW-21: the synced issue's engine view WITH its creator: the member
+/// (`creator_id` → synced `users`: name + email) and the agent
+/// (`creator_agent_id` → synced `agents`: name), so `by:<name>` filters and
+/// a bare word scores against who filed it.
+pub(crate) fn issue_search_row<'a>(
+    issue: &'a domain::rows::Issue,
+    cx: &'a App,
+) -> domain::issue_search::SearchRow<'a> {
+    let collections = Store::global(cx).collections();
+    let user = issue
+        .creator_id
+        .as_deref()
+        .and_then(|id| collections.users.read(cx).get(id));
+    let agent_name = issue
+        .creator_agent_id
+        .as_deref()
+        .and_then(|id| collections.agents.read(cx).get(id))
+        .and_then(|agent| agent.name.as_deref());
+    domain::issue_search::SearchRow::from(issue).with_creator(
+        user.and_then(|user| user.name.as_deref()),
+        user.and_then(|user| user.email.as_deref()),
+        agent_name,
+    )
+}
+
 /// The local pass: the team's synced issues ranked by `domain::issue_search`
 /// at the DEFAULT limit (an empty query lists the newest open work).
 pub(crate) fn local_issue_hits(team_id: &str, query: &str, cx: &App) -> Vec<IssueHit> {
@@ -559,7 +584,7 @@ pub(crate) fn local_issue_hits(team_id: &str, query: &str, cx: &App) -> Vec<Issu
     let statuses = crate::queries::team_statuses(cx, team_id);
     let issues = collections.issue_refs_in_team(team_id, cx);
     let rows: Vec<domain::issue_search::SearchRow<'_>> =
-        issues.iter().map(|issue| (*issue).into()).collect();
+        issues.iter().map(|issue| issue_search_row(issue, cx)).collect();
     domain::issue_search::rank(&rows, query, domain::issue_search::DEFAULT_LIMIT, &HashSet::new())
         .into_iter()
         .map(|ix| {

@@ -229,8 +229,7 @@ impl Render for OpenMenu {
 }
 
 /// The "+" menu's rows at `phase` (web `composerMenuEntries`): the
-/// fixture's rows with every condition met, minus Subagents
-/// (`sessions.send` does not carry it); in a session the subject rows
+/// fixture's rows with every condition met; in a session the subject rows
 /// (Implement issue ›, Message an agent ›) go: they exist only before a
 /// start.
 pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
@@ -249,7 +248,6 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
             account: true,
             model: true,
             repositories: true,
-            subagent_model: true,
             ultracode: true,
             mcp: true,
             skills: true,
@@ -259,9 +257,6 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
             teams: false,
         },
     )
-    .into_iter()
-    .filter(|row| *row != ComposerMenuRow::Subagents)
-    .collect()
 }
 
 /// The row's concept icon in the crate's icon slot (the real menu's).
@@ -324,7 +319,6 @@ fn plus_menu(
                 cx,
                 |sub, _, _| sub,
             ),
-            ComposerMenuRow::Subagents => menu,
             // #EXP-1715: the Assistant's Teams › (never in this specimen).
             ComposerMenuRow::Teams => menu,
             ComposerMenuRow::Ultracode => menu.item(
@@ -479,7 +473,7 @@ mod tests {
     use super::*;
 
     /// The "+" rows: before a start the fixture's rows with every condition
-    /// met minus Subagents; in a session the subject rows go and the
+    /// met; in a session the subject rows go and the
     /// separators stay tidy.
     #[test]
     fn the_plus_rows_follow_the_phase() {

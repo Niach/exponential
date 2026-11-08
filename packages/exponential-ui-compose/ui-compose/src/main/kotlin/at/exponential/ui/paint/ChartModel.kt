@@ -64,6 +64,13 @@ class ChartModel(props: Props) {
 
     /** The tick labels the core formatted (the surface formatter, the step's decimals). */
     val tickLabels: List<String> = chart["tickLabels"]?.array?.map { it.displayText } ?: ticks.map(::formatValue)
+
+    /** FEED-205: the value labels the core formatted (the chart's `valueFormat`), `[series][i]`. */
+    val valueLabels: List<List<String>> = chart["valueLabels"]?.array?.map { row -> row.array?.map { it.displayText } ?: emptyList() } ?: emptyList()
+
+    /** Series [s]'s value [i] as the core formatted it, else [fallback]. */
+    fun valueLabel(s: Int, i: Int, fallback: (Double) -> String): String =
+        valueLabels.getOrNull(s)?.getOrNull(i) ?: series.getOrNull(s)?.values?.getOrNull(i)?.let(fallback) ?: ""
     val hole: Double = chart["hole"]?.number ?: if (kind == "donut") 0.6 else 0.0
 
     /** The legend entries (2+ series, or the slices) when the core says one shows. */

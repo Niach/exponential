@@ -35,6 +35,7 @@ import {
   issueSearchMatchIds,
   issueSearchOpenSql,
   issueSearchRankSql,
+  issueSearchRecencySql,
 } from "@/lib/issue-search-sql"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
@@ -1652,7 +1653,7 @@ export const issuesRouter = router({
           ${issueSearchIdentifierExactSql(input.query)} desc,
           ${issueSearchOpenSql()} desc,
           ${issueSearchRankSql(input.query)} desc,
-          i.updated_at desc
+          ${issueSearchRecencySql(input.query)}
         limit ${input.limit}
       `)
 

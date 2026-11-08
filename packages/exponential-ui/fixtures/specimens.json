@@ -397,6 +397,160 @@
       }
     },
     {
+      "id": "exponential-ui-window",
+      "component": "Window",
+      "title": "Window",
+      "node": {
+        "id": "specimen-window",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-window-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-window-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-window",
+                "component": "Window",
+                "props": {
+                  "title": "exponential.at"
+                },
+                "children": [
+                  {
+                    "id": "c0-body",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.sm",
+                      "padding": "$spacing.xl",
+                      "flexGrow": 1,
+                      "alignItems": "flex-start"
+                    },
+                    "children": [
+                      {
+                        "id": "c0-body-title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Release 0.18",
+                          "variant": "label"
+                        }
+                      },
+                      {
+                        "id": "c0-body-text",
+                        "component": "Text",
+                        "props": {
+                          "text": "4 steps · 2 done",
+                          "variant": "muted"
+                        }
+                      },
+                      {
+                        "id": "c0-body-open",
+                        "component": "Button",
+                        "props": {
+                          "label": "Open board",
+                          "variant": "outline"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "style": {
+                  "height": 200
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-window-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-window-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "no title",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-untitled",
+                "component": "Window",
+                "props": {},
+                "style": {
+                  "height": 160
+                },
+                "children": [
+                  {
+                    "id": "c1-untitled-body",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.sm",
+                      "padding": "$spacing.xl",
+                      "flexGrow": 1,
+                      "alignItems": "flex-start"
+                    },
+                    "children": [
+                      {
+                        "id": "c1-untitled-body-title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Release 0.18",
+                          "variant": "label"
+                        }
+                      },
+                      {
+                        "id": "c1-untitled-body-text",
+                        "component": "Text",
+                        "props": {
+                          "text": "4 steps · 2 done",
+                          "variant": "muted"
+                        }
+                      },
+                      {
+                        "id": "c1-untitled-body-open",
+                        "component": "Button",
+                        "props": {
+                          "label": "Open board",
+                          "variant": "outline"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-separator",
       "component": "Separator",
       "title": "Separator",
@@ -8679,6 +8833,132 @@
                       ]
                     }
                   ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-chart-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-chart-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "valueFormat · currency EUR",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-income",
+                "component": "Chart",
+                "props": {
+                  "kind": "bar",
+                  "title": "Income vs expenses",
+                  "categories": [
+                    "Jan",
+                    "Feb",
+                    "Mar",
+                    "Apr"
+                  ],
+                  "series": [
+                    {
+                      "name": "Income",
+                      "values": [
+                        4200,
+                        3900,
+                        4600,
+                        5100
+                      ],
+                      "tone": "success"
+                    },
+                    {
+                      "name": "Expenses",
+                      "values": [
+                        3100,
+                        3400,
+                        2900,
+                        3800
+                      ],
+                      "tone": "danger"
+                    }
+                  ],
+                  "showValues": true,
+                  "valueFormat": {
+                    "type": "currency",
+                    "currency": "EUR",
+                    "decimals": 0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-chart-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-chart-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "rows · valueFormat compact",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-income_rows",
+                "component": "Chart",
+                "props": {
+                  "kind": "line",
+                  "rows": [
+                    {
+                      "month": "Jan",
+                      "income": 42000,
+                      "expenses": 31000
+                    },
+                    {
+                      "month": "Feb",
+                      "income": 39000,
+                      "expenses": 34000
+                    },
+                    {
+                      "month": "Mar",
+                      "income": 46000,
+                      "expenses": 29000
+                    },
+                    {
+                      "month": "Apr",
+                      "income": 51000,
+                      "expenses": 38000
+                    }
+                  ],
+                  "categoryField": "month",
+                  "series": [
+                    {
+                      "name": "Income",
+                      "field": "income",
+                      "tone": "success"
+                    },
+                    {
+                      "name": "Expenses",
+                      "field": "expenses",
+                      "tone": "danger"
+                    }
+                  ],
+                  "valueFormat": {
+                    "type": "compact",
+                    "currency": "EUR"
+                  }
                 }
               }
             ]

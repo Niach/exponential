@@ -7,8 +7,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
- * EXP-1583: a new root carries the composer's Subagents pick as
- * `subagentModel`; a blank one stays off the wire.
+ * The `sessions.send` wire: EXP-1734 retired the Subagents pick, so a new
+ * root never carries `subagentModel`.
  */
 class SessionsSendWireFormatTest {
 
@@ -20,26 +20,20 @@ class SessionsSendWireFormatTest {
     }
 
     @Test
-    fun `a root carries the subagent model`() {
+    fun `a root carries no subagent model`() {
         val input = SessionsSendInput.root(
             teamId = "t-1",
             deviceId = "d-1",
             text = "Go",
             cli = "claude",
-            model = "fable",
-            subagentModel = "opus",
+            model = "opus",
         )
         val encoded = json.encodeToString(input)
         assertEquals(
-            """{"teamId":"t-1","deviceId":"d-1","cli":"claude","model":"fable","subagentModel":"opus","text":"Go"}""",
+            """{"teamId":"t-1","deviceId":"d-1","cli":"claude","model":"opus","text":"Go"}""",
             encoded,
         )
-    }
-
-    @Test
-    fun `a blank subagent model is omitted`() {
-        val input = SessionsSendInput.root(teamId = "t-1", deviceId = "d-1", text = "Go", subagentModel = "")
-        assertFalse("subagentModel" in json.encodeToString(input))
+        assertFalse("subagentModel" in encoded)
     }
 
     @Test

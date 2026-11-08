@@ -38,12 +38,12 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/billing`
   | `/t/$teamSlug/settings/storage`
   | `/t/$teamSlug/settings/import`
-  | `/t/$teamSlug/settings/boards/archived`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/prompts`
   | `/t/$teamSlug/settings/widget`
   | `/t/$teamSlug/settings/mcp`
   | `/t/$teamSlug/settings/skills`
+  | `/t/$teamSlug/settings/boards`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
   | `/t/$teamSlug/settings/security`
@@ -69,7 +69,7 @@ export function flattenSettingsNav(items: SettingsNavItem[]): SettingsNavItem[] 
 }
 
 /** S-3: the web's viewer for settings-nav.json `visible` (General, Widget,
- *  Storage, Import, Archived boards = owners; Plan & Billing = owners on a
+ *  Storage, Import, All boards = owners; Plan & Billing = owners on a
  *  cloud instance; the rest every member). */
 function fixtureVisible(id: string): SettingsNavItem[`visible`] {
   return (permissions, context) =>
@@ -151,12 +151,13 @@ const SETTINGS_PAGES: Record<string, Omit<SettingsNavItem, `visible` | `children
     to: `/t/$teamSlug/settings/import`,
     icon: conceptIcon(`settings-import`),
   },
-  // EXP-500: the archived boards' restore list.
-  "archived-boards": {
-    id: `archived-boards`,
-    label: `Archived boards`,
-    to: `/t/$teamSlug/settings/boards/archived`,
-    icon: conceptIcon(`ui-archive`),
+  // #NEW-37: the Boards page (live, archived, trashed) closing the sidebar's
+  // Boards group; the phones reach the same page from their Team row.
+  "all-boards": {
+    id: `all-boards`,
+    label: `All boards`,
+    to: `/t/$teamSlug/settings/boards`,
+    icon: conceptIcon(`settings-boards`),
   },
   // EXP-792 / #VAPP-185: every member reads it; writes are owner-only inside.
   mcp: {
@@ -222,7 +223,7 @@ export interface SettingsNavGroupDef {
 // S-3 (settings-nav.json `nav`, ×4): the groups and their order ARE the
 // fixture's (platform `web`: no This device group, no About: the web's
 // lives in the account menu). Team (General first, Import closing it),
-// Boards (rows, New board, Archived boards), Agents (the viewer's Assistant,
+// Boards (rows, New board, All boards), Agents (the viewer's Assistant,
 // the team agents, New agent, MCP servers), Apps, Personal. Personal stays
 // last: the index redirect lands on the first visible item, a team page.
 export const SETTINGS_NAV: SettingsNavGroupDef[] = SETTINGS_NAV_GROUPS.filter(
@@ -276,7 +277,7 @@ export const ASSISTANT_LABEL = ASSISTANT_COPY.title
 
 // #EXP-1381: the settings route a pathname sits on: `section` = the segment
 // after `/settings/` (a settings-nav.json row id or a SETTINGS_NAV page),
-// `sub` = the one after it (a board/agent/app/prompt id, `new`, `archived`).
+// `sub` = the one after it (a board/agent/app/prompt id, `new`).
 export function settingsRouteOf(pathname: string): { section: string | null; sub: string | null } {
   const match = /\/settings\/([^/?#]+)(?:\/([^/?#]+))?/.exec(pathname)
   return { section: match?.[1] ?? null, sub: match?.[2] ?? null }

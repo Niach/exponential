@@ -263,6 +263,47 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Card/<part>."
     },
     {
+      "name": "Window",
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "specimenId": "exponential-ui-window",
+      "description": "A window frame: a chrome bar with three dots and an optional caption over one child that fills the body.",
+      "children": "one",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The centred caption in the chrome bar."
+        },
+        {
+          "name": "style",
+          "type": "style",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Extra Box styles merged over the window's own."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by its title; the chrome bar is hidden from AT",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "Window",
+        "title": "exponential.at"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Window/<part>."
+    },
+    {
       "name": "Separator",
       "kind": "macro",
       "group": "layout",
@@ -4541,6 +4582,22 @@
           "description": "One per line, bar group or pie ring."
         },
         {
+          "name": "rows",
+          "type": "[object]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A query's `groups`; series read their `field`."
+        },
+        {
+          "name": "categoryField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The rows' category field."
+        },
+        {
           "name": "title",
           "type": "string",
           "required": false,
@@ -4588,6 +4645,14 @@
           "bindable": false,
           "responsive": false,
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        {
+          "name": "valueFormat",
+          "type": "valueFormat",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         {
           "name": "showAxes",

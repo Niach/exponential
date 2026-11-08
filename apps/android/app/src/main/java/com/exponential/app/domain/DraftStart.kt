@@ -42,7 +42,6 @@ data class DraftStart(
         val mcpServerIds: Set<String> = emptySet(),
         val computerUse: Boolean? = null,
         val ultracode: Boolean? = null,
-        val subagentModel: String? = null,
         /** The composer's Resume toggle (an absent one = off). */
         val resume: Boolean = false,
     )

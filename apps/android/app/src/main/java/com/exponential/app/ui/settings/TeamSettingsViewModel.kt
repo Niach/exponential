@@ -17,6 +17,7 @@ import com.exponential.app.domain.membersInJoinOrder
 import com.exponential.app.domain.pendingInvites
 import com.exponential.app.domain.placeholderStatuses
 import com.exponential.app.data.api.BoardsApi
+import com.exponential.app.data.api.PutAwayBoard
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.GithubStatusResult
 import com.exponential.app.data.api.IntegrationsApi
@@ -120,6 +121,13 @@ data class TeamSettingsState(
             it.member.userId == currentUserId && it.member.role == DomainContract.teamRoleOwner
         }
 }
+
+/** #NEW-37: the Boards page's Archived and Trash bands (owners). */
+data class PutAwayBoards(
+    val archived: List<PutAwayBoard> = emptyList(),
+    val trashed: List<PutAwayBoard> = emptyList(),
+    val pendingId: String? = null,
+)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -502,6 +510,42 @@ class TeamSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { teamsApi.deleteBoard(accountId, boardId) }
             .onFailure { fail("delete", "the board", it) }
+        refreshPutAway()
+    }
+
+    // --- #NEW-37: the archived boards and the 48h trash (owner-only tRPC
+    // reads: both states are out of every synced shape, EXP-500). Loaded when
+    // the Boards page opens and after every Unarchive / Restore / delete; a
+    // failed read is quiet (FEED-79), the bands keep what they had. ---
+
+    private val _putAway = MutableStateFlow(PutAwayBoards())
+    val putAway: StateFlow<PutAwayBoards> = _putAway
+
+    fun refreshPutAway(): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = selection.selectedId.value ?: return@launch
+        runCatching { boardsApi.listArchived(accountId, teamId) }
+            .onSuccess { rows -> _putAway.value = _putAway.value.copy(archived = rows) }
+        runCatching { boardsApi.listDeleted(accountId, teamId) }
+            .onSuccess { rows -> _putAway.value = _putAway.value.copy(trashed = rows) }
+    }
+
+    fun unarchiveBoard(board: PutAwayBoard) = runPutAway(board, "unarchive") { accountId ->
+        boardsApi.unarchive(accountId, board.id)
+    }
+
+    fun restoreBoard(board: PutAwayBoard) = runPutAway(board, "restore") { accountId ->
+        boardsApi.restore(accountId, board.id)
+    }
+
+    // Refresh on success AND failure: an unarchive can fail because the board
+    // was trashed meanwhile, a restore because it was purged.
+    private fun runPutAway(board: PutAwayBoard, verb: String, action: suspend (String) -> Unit) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        _putAway.value = _putAway.value.copy(pendingId = board.id)
+        runCatching { action(accountId) }.onFailure { fail(verb, board.name, it) }
+        _putAway.value = _putAway.value.copy(pendingId = null)
+        refreshPutAway().join()
     }
 
     // --- Repositories registry (server-only; the list is re-fetched after
