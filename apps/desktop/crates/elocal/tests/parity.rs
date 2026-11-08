@@ -90,6 +90,17 @@ fn issue_create_and_update() {
 }
 
 #[test]
+fn drafts() {
+    let f = fixture();
+    let who = identity(&f["issues"]["team"]["identity"]);
+    for c in f["drafts"]["upsert"]["cases"].as_array().unwrap() {
+        let existing = c["existing"].as_object().cloned();
+        assert_eq!(Value::Object(draft_row(&obj(&c["input"]), &who, existing.as_ref(), c["now"].as_str().unwrap())), c["expected"], "{}", c["name"]);
+    }
+    assert_eq!(draft_consumed_refusal("GEN-7"), "This draft was already created as GEN-7");
+}
+
+#[test]
 fn comments() {
     let f = fixture();
     let team = &f["issues"]["team"];
