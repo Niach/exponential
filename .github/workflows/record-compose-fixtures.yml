@@ -36,6 +36,9 @@ name: record-compose-fixtures
 # kitchen sink's window node: the Compose goldens + `Window.png`, the web
 # baseline rewrite's gpui budget).
 
+# FEED-205 (2026-11-08): re-recorded for the core catalog's Chart
+# `valueFormat=currency` and `rows+valueFormat=compact` states (the Compose
+# snapshot `components.json`).
 on:
   workflow_dispatch: {}
   push:
