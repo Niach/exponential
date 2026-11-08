@@ -120,10 +120,12 @@ object TranscriptGrouping {
                 val own = item.authorKind == "user" && !input.viewerId.isNullOrEmpty() &&
                     item.authorId == input.viewerId
                 val cross = fromSession(item.authorSessionId)
-                // The origin: the conversation's first message, unless it names
-                // its own sender; no later row.
-                val origin = if (originPending && cross == null) fromSession(chat.originSessionId) else null
-                originPending = false
+                // The origin: the conversation's first INPUT (a person's row or
+                // a known session's), unless it names its own sender; the
+                // agent's own output never takes it.
+                val isInput = item.authorKind == "user" || cross != null
+                val origin = if (originPending && isInput && cross == null) fromSession(chat.originSessionId) else null
+                if (isInput) originPending = false
                 if (cross != null) {
                     side = Side.Other
                     sender = cross

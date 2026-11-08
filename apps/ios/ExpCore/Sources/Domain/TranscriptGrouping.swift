@@ -224,10 +224,12 @@ public enum TranscriptGrouping {
                 let viewer = input.viewerId ?? ""
                 let own = item.authorKind == "user" && !viewer.isEmpty && item.authorId == viewer
                 let cross = fromSession(item.authorSessionId)
-                // The origin: the conversation's first message, unless it
-                // names its own sender; no later row.
-                let origin = originPending && cross == nil ? fromSession(chat.originSessionId) : nil
-                originPending = false
+                // The origin: the conversation's first INPUT (a person's row
+                // or a known session's), unless it names its own sender; the
+                // agent's own output never takes it.
+                let isInput = item.authorKind == "user" || cross != nil
+                let origin = originPending && isInput && cross == nil ? fromSession(chat.originSessionId) : nil
+                if isInput { originPending = false }
                 if let cross {
                     side = .other
                     sender = cross

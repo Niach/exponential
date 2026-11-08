@@ -321,14 +321,18 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
         } else {
             let own = author_kind == Some("user") && viewer.is_some() && item.author_id.as_deref() == viewer;
             let cross = from_session(author_session);
-            // The origin: the conversation's first message, unless it names
-            // its own sender; no later row.
-            let origin = if origin_pending && cross.is_none() {
+            // The origin: the conversation's first INPUT (a person's row or a
+            // known session's), unless it names its own sender; the agent's
+            // own output never takes it.
+            let is_input = author_kind == Some("user") || cross.is_some();
+            let origin = if origin_pending && is_input && cross.is_none() {
                 from_session(chat.origin_session_id.as_deref())
             } else {
                 None
             };
-            origin_pending = false;
+            if is_input {
+                origin_pending = false;
+            }
             if let Some(cross) = cross {
                 (TranscriptSide::Other, Some(cross))
             } else if let Some(origin) = origin {

@@ -89,10 +89,12 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
     } else {
       const own = item.authorKind === `user` && Boolean(input.viewerId) && item.authorId === input.viewerId
       const cross = fromSession(item.authorSessionId)
-      // The origin: the conversation's first message, unless it names its
-      // own sender; no later row.
-      const origin = originPending && !cross ? fromSession(chat.originSessionId) : null
-      originPending = false
+      // The origin: the conversation's first INPUT (a person's row or a
+      // known session's), unless it names its own sender; the agent's own
+      // output never takes it.
+      const isInput = item.authorKind === `user` || cross !== null
+      const origin = originPending && isInput && !cross ? fromSession(chat.originSessionId) : null
+      if (isInput) originPending = false
       if (cross) {
         side = `other`
         sender = cross
