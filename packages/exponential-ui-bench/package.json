@@ -29,7 +29,7 @@
     "@exponential_app/eui-solid": "workspace:*",
     "@exponential_app/eui-element": "workspace:*",
     "@types/bun": "latest",
-    "playwright": "^1.54.2",
+    "playwright": "^1.64.0",
     "typescript": "^5.7.2"
   }
 }

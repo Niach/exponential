@@ -77,6 +77,11 @@ export interface WatchdogRun {
 
 const LIVE = [`running`, `idle`] as const
 
+/** #EXP-1731 (eagent subagents.json): the watchdog and the heartbeat never
+ *  look at a CLI subagent row: its liveness is its parent's (a parent's turn
+ *  end sweeps the strays, `lib/sessions/subagent.ts`). */
+const NOT_SUBAGENT = isNull(sessions.subagentKey)
+
 /** EXP-1374 / #EXP-1374 follow-up: a session its device flagged `background`
  *  (busy only because background tasks run) is exempt from the stuck rule,
  *  but not forever: the flag is written on a state edge and nothing resets
@@ -178,7 +183,8 @@ async function flagUnclaimed(now: Date): Promise<number> {
           eq(sessions.status, `queued`),
           isNull(sessions.startedAt),
           isNull(sessions.blocked),
-          lt(sessions.createdAt, cutoff)
+          lt(sessions.createdAt, cutoff),
+          NOT_SUBAGENT
         )
       )
       .for(`update`, { skipLocked: true })
@@ -210,6 +216,7 @@ async function nudgeStalled(now: Date): Promise<number> {
     .where(
       and(
         inArray(sessions.status, [...LIVE]),
+        NOT_SUBAGENT,
         // NULL-safe: an unblocked row has no kind at all.
         sql`(${sessions.blocked} ->> 'kind') IS DISTINCT FROM 'device_offline'`,
         // `pendingInput()` names the messages table itself: no alias here.
@@ -249,6 +256,7 @@ async function flagStuck(now: Date): Promise<number> {
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
           eq(sessions.busy, true),
           // A background run is alive for BACKGROUND_STUCK_MINUTES, then
           // measured like the rest.
@@ -297,6 +305,7 @@ async function flagOffline(now: Date): Promise<number> {
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
           eq(sessions.busy, true),
           isNull(sessions.blocked),
           // FEED-148: the resolved host's row only: a decoy row online
@@ -327,6 +336,7 @@ async function flagOffline(now: Date): Promise<number> {
         and(
           eq(sessions.status, `running`),
           eq(sessions.busy, false),
+          NOT_SUBAGENT,
           isNotNull(sessions.deviceId),
           sql`NOT EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${cutoff})`
         )
@@ -348,6 +358,7 @@ async function flagUnresumed(now: Date): Promise<number> {
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
           interrupted(),
           eq(sessions.needsInput, false),
           sql`(${sessions.blocked} ->> 'resume')::boolean IS TRUE`,
@@ -381,6 +392,7 @@ async function flagOfflineTooLong(now: Date): Promise<number> {
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
           sql`${sessions.blocked} ->> 'kind' = 'device_offline'`,
           eq(sessions.needsInput, false),
           sql`(${sessions.blocked} ->> 'resume')::boolean IS TRUE`,
@@ -414,6 +426,7 @@ async function clearExpiredWalls(now: Date): Promise<number> {
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
           sql`${sessions.blocked} ->> 'kind' = 'rate_limit'`,
           sql`${sessions.blocked} ->> 'resetsAt' IS NOT NULL`
         )
@@ -455,9 +468,11 @@ export interface BeatingDevice {
 }
 
 /** FEED-147: the sessions a heartbeat may move: on that machine AND hosted
- *  by its sender (`hostedByCondition`), never every row naming the id. */
+ *  by its sender (`hostedByCondition`), never every row naming the id.
+ *  #EXP-1731: never a subagent row (never in the live list: its process is
+ *  its parent's). */
 function beatScope(device: BeatingDevice) {
-  return and(eq(sessions.deviceId, device.deviceId), hostedByCondition(device.userId))!
+  return and(eq(sessions.deviceId, device.deviceId), hostedByCondition(device.userId), NOT_SUBAGENT)!
 }
 
 /** The device heartbeat: its `device_offline` sessions are live again.

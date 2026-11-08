@@ -182,6 +182,12 @@ impl RunBackend for RunLifecycle {
         }
     }
 
+    fn post_subagents(&self, rows: Vec<api::session_device::SubagentRow>) {
+        if let Some(outbox) = self.outbox.get() {
+            outbox.post_subagents(rows);
+        }
+    }
+
     fn resolve_question(&self, question_id: &str) {
         if let Some(outbox) = self.outbox.get() {
             outbox.resolve_question(question_id);
