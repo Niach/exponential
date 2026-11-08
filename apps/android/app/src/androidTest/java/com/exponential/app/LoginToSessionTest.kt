@@ -79,15 +79,13 @@ class LoginToSessionTest {
         Espresso.pressBack()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), ScreenshotFlow.NAV_TIMEOUT)
 
-        // A chat's transcript: the conversation renders its synced rows
-        // (it opens at its tail, the agent's waiting question), not an
-        // endless wait.
+        // A chat's Chat tab (#EXP-1732) = its ROOT's own session view: it
+        // settles into the feed (or the idle placeholder), not an endless wait.
         openChat(COLD_START_CHAT_TITLE)
-        flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION), ScreenshotFlow.SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), ScreenshotFlow.SYNC_TIMEOUT)
         flow.waitFor(
-            hasText(COLD_START_TAIL_FRAGMENT, substring = true) and
-                hasAnyAncestor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION)),
-            ScreenshotFlow.SYNC_TIMEOUT,
+            hasTestTag("agent-feed") or hasText(STEER_NO_FEED_IDLE_TITLE),
+            ScreenshotFlow.NETWORK_TIMEOUT,
         )
         Espresso.pressBack()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), ScreenshotFlow.NAV_TIMEOUT)

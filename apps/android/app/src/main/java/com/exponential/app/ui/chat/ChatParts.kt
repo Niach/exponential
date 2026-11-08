@@ -966,66 +966,6 @@ fun rememberLiveArrivals(key: String, rows: List<SessionTree.SessionChatRow>): (
     return { id -> seen != null && id !in seen }
 }
 
-/**
- * N-12: THE Dock in a chat (dock.json; web `ChatDock`): the host's
- * [sources] (the root's Queue, queued messages, banners) plus the
- * suggested-tasks rows with an open item (only with [suggestions]; null =
- * read-only, the rows stay in the Conversation) as DockCards above the
- * composer; a suggestions card opens [ChatSuggestionsSheet], the rest
- * through [sessionSheet]. S-3: a waiting plan or question is
- * never a DockCard (it stays inline in the Conversation, answerable),
- * so nothing opens itself. [initialOpenId] / [initialExpanded] seed the
- * styleguide's states.
- */
-@Composable
-fun ChatDock(
-    rows: List<SessionTree.SessionChatRow>,
-    modifier: Modifier = Modifier,
-    sources: List<Dock.Source> = emptyList(),
-    sessionSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
-    action: (@Composable (Dock.Row) -> Unit)? = null,
-    initialOpenId: String? = null,
-    initialExpanded: Boolean = false,
-    suggestions: ChatSuggestionActions? = null,
-    onOpenSession: ((String) -> Unit)? = null,
-) {
-    val suggested = remember(rows, suggestions != null) {
-        if (suggestions != null) chatSuggestionSources(rows) else emptyList()
-    }
-    val docked = Dock.dockRows(suggested + sources)
-    var openId by remember { mutableStateOf(initialOpenId) }
-    val byId = remember(rows) { rows.associateBy { it.id } }
-    DockCards(
-        rows = docked,
-        openId = openId,
-        onOpenChange = { openId = it },
-        modifier = modifier,
-        action = action,
-        initialExpanded = initialExpanded,
-    ) { row, scope, close ->
-        val chatRow = byId[row.id]
-        if (chatRow is SessionTree.SessionChatRow.Suggestions) {
-            ChatSuggestionsSheet(chatRow, suggestions, onOpenSession)
-        } else {
-            sessionSheet?.invoke(this, row, scope, close)
-        }
-    }
-}
-
-/** dock.json `suggestionSources` over a chat's rows. */
-fun chatSuggestionSources(rows: List<SessionTree.SessionChatRow>): List<Dock.Source.Suggestions> =
-    Dock.suggestionSources(
-        rows.filterIsInstance<SessionTree.SessionChatRow.Suggestions>().map { row ->
-            Dock.SuggestionRow(row.id, row.header, row.items.map { it.state.wire to it.title })
-        },
-    )
-
-/** N-12: the Conversation rows THE Dock holds (they leave the transcript):
- *  the suggestion rows with an open item (web `chatDockedIds`). S-3: the
- *  waiting asks stay inline. */
-fun chatDockedIds(rows: List<SessionTree.SessionChatRow>): Set<String> =
-    chatSuggestionSources(rows).mapTo(mutableSetOf()) { it.id }
-
 /** A `picture` card: the attachment through the markdown image path (auth,
  *  probed size), the caption muted under it. */
 @Composable

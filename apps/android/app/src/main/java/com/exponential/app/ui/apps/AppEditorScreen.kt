@@ -128,7 +128,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.chat.ChatAgent
 import com.exponential.app.ui.chat.ChatAnswer
-import com.exponential.app.ui.chat.ChatDock
 import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatPlanDecision
 import com.exponential.app.ui.chat.ChatRowMeta
@@ -937,8 +936,8 @@ private fun AppVersionsList(
     }
 }
 
-/** The chat pane: the editor session's conversation (once it exists), else
- *  the empty chat whose composer's first send opens it. */
+/** The chat pane: the editor session's own session view (once it exists),
+ *  else the empty chat whose composer's first send opens it. */
 @Composable
 private fun AppChatPane(
     app: AppListEntry,
@@ -952,9 +951,7 @@ private fun AppChatPane(
 ) {
     if (rootId != null && chat != null) {
         AppEditorConversation(
-            app = app,
             rootId = rootId,
-            chat = chat,
             padding = padding,
             viewModel = viewModel,
             onOpenSession = onOpenSession,
@@ -1168,128 +1165,31 @@ private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit, onFromTempl
     )
 }
 
-/** The editor session's conversation: the agent channel's rows (the app's
- *  glyph + name on the agent's messages) over THE session composer. */
+/**
+ * #EXP-1732: the editor session's Chat tab = the ROOT's own session view
+ * ([com.exponential.app.ui.session.SessionPage]: its raw work + traces, its
+ * cards, THE Dock and THE composer). The root's view model (shared by key with
+ * the page) carries the editor's device move (#FEED-204).
+ */
 @Composable
 private fun AppEditorConversation(
-    app: AppListEntry,
     rootId: String,
-    chat: ChatViewModel,
     padding: PaddingValues,
     viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
 ) {
-    val view by chat.view.collectAsStateWithLifecycle()
-    val messages by chat.messages.collectAsStateWithLifecycle()
-    val users by chat.users.collectAsStateWithLifecycle()
-    val me by chat.currentUserId.collectAsStateWithLifecycle()
-    val failure by chat.failure.collectAsStateWithLifecycle()
-    FailedActionToast(failure, onShown = chat::clearFailure)
     val rootSession = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$rootId",
     ) { factory -> factory.create(rootId) }
-    LaunchedEffect(rootSession) { rootSession.ensureConnected() }
     // #FEED-204: an ended root's next send may go to another device.
     val editorDevice by viewModel.editorDevice.collectAsStateWithLifecycle()
     LaunchedEffect(rootSession, editorDevice.appMove) { rootSession.appMove = editorDevice.appMove }
-
-    val messagesById = remember(messages) { messages.associateBy { it.id } }
-    val meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta? = { row ->
-        val user = row.authorId?.let { users[it] }
-        ChatRowMeta(
-            authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
-            time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
-            user = user,
+    Box(Modifier.fillMaxSize().testTag(Apps.TestIds.CHAT)) {
+        com.exponential.app.ui.session.SessionPage(
+            sessionId = rootId,
+            padding = padding,
+            onOpenIssue = {},
+            onOpenOrigin = { id, _ -> onOpenSession(id) },
         )
-    }
-    val agent = ChatAgent(name = app.name, icon = app.icon, color = app.color)
-    val v = view
-    if (v == null) {
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
-        }
-        return
-    }
-    val onAnswer: ChatAnswer = { id, answer, settled ->
-        chat.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
-    }
-    val onDecidePlan: ChatPlanDecision = { id, d, settled ->
-        chat.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
-    }
-    val openSession by rememberUpdatedState(onOpenSession)
-    var composerExpanded by rememberSaveable { mutableStateOf(false) }
-    var bandHeightPx by remember { mutableIntStateOf(0) }
-    val topInset = padding.calculateTopPadding()
-    val bottomInset = padding.calculateBottomPadding()
-    val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .consumeWindowInsets(PaddingValues(bottom = bottomInset))
-            .imePadding()
-            .testTag(Apps.TestIds.CHAT),
-    ) {
-        if (v.rows.isEmpty()) {
-            EmptyState(
-                title = Apps.Copy.CHAT_EMPTY,
-                icon = ExpIcons.navApps,
-                size = EmptyStateSize.List,
-                modifier = Modifier.padding(padding).padding(horizontal = 24.dp).align(Alignment.Center),
-            )
-        }
-        ChatConversation(
-            rows = v.rows,
-            rootId = v.rootId,
-            meta = meta,
-            onOpenCard = { card -> openSession(card.sessionId) },
-            onAnswer = onAnswer,
-            onDecidePlan = onDecidePlan,
-            canUnqueue = { row -> row.authorId != null && row.authorId == me },
-            onUnqueue = chat::unqueue,
-            agent = agent,
-            modifier = Modifier.fillMaxSize().detailHazeSource(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 16.dp, bottom = bandClearance + 12.dp),
-            jumpBottomInset = bandClearance,
-            onOpenSession = { id -> openSession(id) },
-            // S-3: a report / another session's line links that session.
-            origin = v.origin,
-            onOpenXref = { id -> openSession(id) },
-            // #EXP-1736: the editor's bubbles: the app's name + mark ([agent]).
-            chat = com.exponential.app.domain.TranscriptGrouping.Chat(v.rootId, app.name, null, null),
-            viewerId = me,
-        )
-        FloatingBarEdge(
-            bottomInset = bottomInset,
-            visible = !composerExpanded,
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottomInset),
-        ) {
-            Box(Modifier.fillMaxWidth().onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height }) {
-                SessionComposer(
-                    viewModel = rootSession,
-                    expanded = composerExpanded,
-                    onExpandedChange = { composerExpanded = it },
-                    placeholder = if (Apps.isDraft(app.headVersion)) Apps.Copy.DRAFT_PLACEHOLDER else Apps.Copy.COMPOSER_PLACEHOLDER,
-                    capsuleTestTag = "app-composer-capsule",
-                    showQueue = false,
-                    // #EXP-1738: a pick on a live root also moves it (the
-                    // session pin's request; a refusal = its toast).
-                    deviceMenu = editorDevice.composerDevice { picked ->
-                        viewModel.pickDevice(picked)
-                        if (viewModel.editing) rootSession.moveToDevice(picked)
-                    },
-                    modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
-                    // N-12: THE Dock: the tree's waiting cards, then the
-                    // root's Queue and banners, over the composer.
-                    dock = { sessionDock ->
-                        ChatDock(
-                            rows = v.rows,
-                            sources = sessionDock.sources,
-                            sessionSheet = sessionDock.sheet,
-                            action = sessionDock.action,
-                        )
-                    },
-                )
-            }
-        }
     }
 }

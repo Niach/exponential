@@ -35,6 +35,7 @@ import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TITLE
 import com.exponential.app.domain.DevicesList
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.AppExport
@@ -764,9 +765,9 @@ class StyleguideScreenshotsTest {
                 flow.settle()
                 flow.screenshot("sg_chat-replies")
                 if (ScreenshotFlow.anyRequested("sg_session-slash-menu")) {
-                    val composer = hasTestTag(SessionTree.ChatCopy.TEST_ID_COMPOSER)
-                    composeRule.onAllNodes(hasTestTag("chat-composer-capsule")).onFirst().performClick()
-                    val field = hasSetTextAction() and (composer or hasAnyAncestor(composer))
+                    // #EXP-1732: the Chat tab = the root's session view (its composer).
+                    composeRule.onAllNodes(hasTestTag("steer-composer-capsule")).onFirst().performClick()
+                    val field = hasSetTextAction()
                     flow.waitFor(field, NAV_TIMEOUT)
                     composeRule.onAllNodes(field).onFirst().performTextInput("/")
                     flow.waitFor(hasText("/compact", substring = true), NAV_TIMEOUT)
@@ -1361,22 +1362,11 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToNode(coldStartRow)
             flow.settle()
             tapClearOfBar(coldStartRow)
-            flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
-            // #EXP-1561: the reply sits above the waiting question + plan cards
-            // (taller now that each carries its ×): swipe it in to prove the sync.
-            flow.waitForInList(
-                hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION),
-                hasText(COLD_START_REPLY_FRAGMENT, substring = true),
-                SYNC_TIMEOUT,
-            )
-            // ...and back to its end (the waiting cards) for the shot.
-            flow.scrollListToEnd(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION))
-            // S-3: the seeded question stays inline (the Dock takes no asks and
-            // the Guide tab is gone; results carry them).
-            flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
-            // #EXP-1732: THE session screen's tabs, the seed's issues + child
-            // session counted on Issues / Sessions.
-            flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), SYNC_TIMEOUT)
+            // #EXP-1732: THE session screen's tabs (the seed's issues + child
+            // session counted on Issues / Sessions) over the Chat tab = the
+            // ROOT's own session view.
+            flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("agent-feed") or hasText(STEER_NO_FEED_IDLE_TITLE), NETWORK_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_chat-screen")
 
@@ -1384,22 +1374,12 @@ class StyleguideScreenshotsTest {
             // session view (EXP-1291), the stub relay's feed for the seed's child
             // session. Its pending question takes the composer's place
             // (EXP-1306), so the question card is the gate.
-            val childCard = hasTestTag(SessionTree.CardCopy.TEST_ID_CARD) and
+            // #EXP-1732: the child = a row of the Sessions tab; it pushes its view.
+            composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Sessions))).performClick()
+            val childRow = hasTestTag("${SessionScreen.TestIds.SESSIONS}-row") and
                 hasText(CHILD_SESSION_TITLE, substring = true)
-            // EXP-1323: the suggestions card pushes the card above the fold once
-            // the conversation opens at its tail; drag back up to it like iOS (a
-            // real drag: a programmatic scroll is re-pinned to the tail, and the
-            // node's top edge sits under the floating header).
-            repeat(6) {
-                val shown = runCatching { composeRule.onAllNodes(childCard).onFirst().assertIsDisplayed() }.isSuccess
-                if (!shown) {
-                    composeRule.onNode(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION))
-                        .performTouchInput { swipeDown(startY = centerY, endY = bottom - 200f) }
-                    flow.settle()
-                }
-            }
-            flow.waitFor(childCard, SYNC_TIMEOUT)
-            composeRule.onAllNodes(childCard).onFirst().performClick()
+            flow.waitFor(childRow, SYNC_TIMEOUT)
+            composeRule.onAllNodes(childRow).onFirst().performClick()
             // S-3: the relay's question is inline in the feed again (dock.json).
             flow.waitFor(hasTestTag("feed-question"), NETWORK_TIMEOUT)
             flow.settle(longer = true)
