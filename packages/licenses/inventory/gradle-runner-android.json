@@ -1087,7 +1087,7 @@
     },
     {
       "name": "net.java.dev.jna:jna",
-      "version": "5.17.0",
+      "version": "5.18.1",
       "declared": "Apache-2.0 AND LGPL-2.1-or-later",
       "licenses": [
         "Apache-2.0",
