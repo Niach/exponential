@@ -1193,6 +1193,9 @@ final class StyleguideScreenshots: XCTestCase {
         let devicesRow = teamSettingsRow(app, "Devices")
         scrollUntilVisible(app, devicesRow, attempts: 4)
         expect(devicesRow, within: Wait.nav, "The Team page has no Devices row")
+        // The last row can sit under the floating tab bar, where a tap lands
+        // on the bar (the board tab) instead: lift it clear first.
+        app.swipeUp()
         devicesRow.tap()
     }
 
