@@ -411,7 +411,7 @@ impl SurfaceView {
     /// Blur field `id` (the window's focus cleared) and run its blur, for
     /// automation and tests.
     pub fn blur_field(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        window.blur();
+        window.blur(cx);
         self.on_field_event(id, &InputEvent::Blur, window, cx);
     }
 

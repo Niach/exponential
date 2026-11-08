@@ -402,7 +402,7 @@ impl ChatsView {
             cx.notify();
             return;
         }
-        if modifiers.secondary() || !self.selected.is_empty() {
+        if modifiers.secondary(cx) || !self.selected.is_empty() {
             self.toggle(id, window, cx);
             return;
         }

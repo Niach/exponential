@@ -1705,7 +1705,7 @@ impl Element for BlockTextElement {
             // held (matching the gesture that opens the link); a plain hover keeps
             // the text cursor. The editor root repaints on follow-modifier
             // toggles, so this re-evaluates even when the pointer stays still.
-            if window.modifiers().secondary() {
+            if window.modifiers().secondary(cx) {
                 window.set_cursor_style(CursorStyle::PointingHand, &prepaint.hitbox);
             }
         }

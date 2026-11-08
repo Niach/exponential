@@ -611,13 +611,13 @@ impl SurfaceView {
 
     pub(crate) fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let m = ev.keystroke.modifiers;
-        if (m.secondary() || m.control) && ev.keystroke.key == "c" && self.copy_selection(cx) {
+        if (m.secondary(cx) || m.control) && ev.keystroke.key == "c" && self.copy_selection(cx) {
             cx.stop_propagation();
             return;
         }
         // VAPP-279: Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on a strip tab
         // moves it one place (the core fires `reorder`).
-        if (m.secondary() || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
+        if (m.secondary(cx) || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
             if let Some(i) = self.focused.filter(|&i| self.is_strip_tab(i)) {
                 let key = if ev.keystroke.key == "left" { "ArrowLeft" } else { "ArrowRight" };
                 self.fire(i, "key", Some(json!({"key": key})), cx);
