@@ -362,8 +362,13 @@ pub const MAX_RANGE_ITEMS: usize = 10_000;
 /// fallback inside their parentheses stays theirs.
 pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
     let text = expr.trim();
-    if let Some((name, inner)) = function_form(text) {
-        let inner = eval_expr(inner, ctx);
+    if let Some((name, arg)) = function_form(text) {
+        // VAPP-290: `range(3)` = a literal count (Window's three dots).
+        if name == "range" && is_number_literal(arg.trim()) {
+            let n = arg.trim().parse::<f64>().unwrap_or(0.0).floor().clamp(0.0, MAX_RANGE_ITEMS as f64) as usize;
+            return Some(Value::Array((0..n).map(|i| json::number(i as f64)).collect()));
+        }
+        let inner = eval_expr(arg, ctx);
         // #VAPP-285: `treeRows(props)` = a Tree's flat rows (`crate::tree`).
         if name == "treeRows" {
             let props = inner.as_ref().and_then(Value::as_object);
