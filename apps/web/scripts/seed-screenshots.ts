@@ -466,8 +466,8 @@ type IssueRow = typeof issues.$inferSelect
  * FB-3 (the cold-start thread FILED it), FB-8 (a widget report the Triage
  * agent closed as a duplicate of FB-3) and FB-9 (the widget report it started
  * a thread for). Product Feedback is the live board no view photographs, so
- * its rows cost no board shot. None of their titles says "cold start" (the
- * `search` view types it).
+ * its rows cost no board shot. None of their titles says "cold start"; FB-3
+ * is Alex's, so the `search` view (`by:alex`) lists it.
  */
 async function seedFeedbackIssues(ctx: {
   teamId: string

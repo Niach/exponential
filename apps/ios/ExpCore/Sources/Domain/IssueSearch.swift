@@ -20,6 +20,14 @@ import Foundation
 ///   title substring                                          40
 ///   description word prefix                                  20
 ///   description substring                                    15
+///   creator name word prefix (the member or the agent)       10
+///
+/// #NEW-21: a `by:<name>` token is a CREATOR filter, not a scored word: the
+/// row stays only when its member's or agent's name has a word starting with
+/// <name>, or the member's email starts with it (`by:lukas`, `by:lukas.m`,
+/// `by:@triage`: one leading `@` dropped; an empty `by:` is ignored). A row
+/// with no creator never matches one. A query of `by:` tokens alone lists
+/// the matching rows in the empty-query order below.
 ///
 /// EXP-922: the ordering is THREE keys above the score, in this order:
 ///
@@ -62,6 +70,10 @@ public enum IssueSearch {
     private static let scoreTitleContains = 40
     private static let scoreDescriptionWordPrefix = 20
     private static let scoreDescriptionContains = 15
+    private static let scoreCreatorWordPrefix = 10
+
+    /// #NEW-21: the token prefix that turns a word into a creator filter.
+    public static let creatorPrefix = "by:"
 
     /// The searchable projection of an issue — what the engine reads, whatever
     /// the caller's row type is (a GRDB entity, a picker option, a server hit).
@@ -77,6 +89,13 @@ public enum IssueSearch {
         /// EXP-922: the builtin status ANCHOR (`issues.status`) the row
         /// dual-writes. Absent/unknown = treated as open.
         public let status: String?
+        /// #NEW-21: the member who filed it (`issues.creator_id`'s name +
+        /// email).
+        public let creatorName: String?
+        public let creatorEmail: String?
+        /// #NEW-21: the agent whose session filed it
+        /// (`issues.creator_agent_id`).
+        public let creatorAgentName: String?
 
         public init(
             id: String,
@@ -85,7 +104,10 @@ public enum IssueSearch {
             description: String? = nil,
             createdAt: String? = nil,
             updatedAt: String? = nil,
-            status: String? = nil
+            status: String? = nil,
+            creatorName: String? = nil,
+            creatorEmail: String? = nil,
+            creatorAgentName: String? = nil
         ) {
             self.id = id
             self.identifier = identifier
@@ -94,6 +116,9 @@ public enum IssueSearch {
             self.createdAt = createdAt
             self.updatedAt = updatedAt
             self.status = status
+            self.creatorName = creatorName
+            self.creatorEmail = creatorEmail
+            self.creatorAgentName = creatorAgentName
         }
     }
 
@@ -117,6 +142,23 @@ public enum IssueSearch {
                 token.hasPrefix("#") ? String(token.dropFirst()) : String(token)
             }
             .filter { !$0.isEmpty }
+    }
+
+    /// #NEW-21: the query split into its scored words and its `by:` creator
+    /// needles (prefix and one leading `@` dropped, empties ignored).
+    public static func parseQuery(_ query: String) -> (words: [String], creators: [String]) {
+        var words: [String] = []
+        var creators: [String] = []
+        for token in tokens(query) {
+            guard token.hasPrefix(creatorPrefix) else {
+                words.append(token)
+                continue
+            }
+            var needle = String(token.dropFirst(creatorPrefix.count))
+            if needle.hasPrefix("@") { needle = String(needle.dropFirst()) }
+            if !needle.isEmpty { creators.append(needle) }
+        }
+        return (words, creators)
     }
 
     /// The numeric tail as a number for ordering (`EXP-87` → 87), -1 when none.
@@ -159,8 +201,11 @@ public enum IssueSearch {
     /// The ranking over decorated entries — `rank` and `Index.rank` both end
     /// here, so the two can never order differently.
     fileprivate static func rank<T>(entries: [Entry<T>], query: String, limit: Int) -> [T] {
-        let queryTokens = tokens(query)
+        let (queryTokens, creators) = parseQuery(query)
         guard limit > 0 else { return [] }
+        let entries = creators.isEmpty
+            ? entries
+            : entries.filter { matchesCreators($0.prepared, creators) }
         if queryTokens.isEmpty {
             let sorted = entries.sorted { a, b in
                 if a.open != b.open { return a.open }
@@ -346,6 +391,9 @@ public enum IssueSearch {
         private let rawDescription: String
         lazy var description: String = rawDescription.lowercased()
         lazy var descriptionWords: [String] = IssueSearch.words(description)
+        /// #NEW-21: the member's and the agent's name words, and the email.
+        let creatorWords: [String]
+        let creatorEmail: String
 
         init(row: Row, eager: Bool = false) {
             self.identifier = row.identifier.lowercased()
@@ -354,6 +402,9 @@ public enum IssueSearch {
             self.title = title
             self.titleWords = IssueSearch.words(title)
             self.rawDescription = row.description ?? ""
+            self.creatorWords = IssueSearch.words((row.creatorName ?? "").lowercased())
+                + IssueSearch.words((row.creatorAgentName ?? "").lowercased())
+            self.creatorEmail = (row.creatorEmail ?? "").lowercased()
             if eager {
                 // Assigned once here, the lazy storage is never written again:
                 // concurrent ranks only read it.
@@ -402,7 +453,16 @@ public enum IssueSearch {
             return scoreDescriptionWordPrefix
         }
         if row.description.contains(token) { return scoreDescriptionContains }
+        if row.creatorWords.contains(where: { $0.hasPrefix(token) }) { return scoreCreatorWordPrefix }
         return nil
+    }
+
+    /// #NEW-21: whether a prepared row was filed by every `by:` needle.
+    private static func matchesCreators(_ row: Prepared, _ creators: [String]) -> Bool {
+        creators.allSatisfy { needle in
+            row.creatorWords.contains(where: { $0.hasPrefix(needle) })
+                || (!row.creatorEmail.isEmpty && row.creatorEmail.hasPrefix(needle))
+        }
     }
 
     /// A matched row's two ranking facts: the summed score, and whether any
@@ -456,6 +516,17 @@ extension IssueEntity {
     /// nullable in the store (a row can sync before its trigger-assigned
     /// identifier does), and an empty one simply scores nothing.
     public var searchRow: IssueSearch.Row {
+        searchRow(creatorName: nil, creatorEmail: nil, creatorAgentName: nil)
+    }
+
+    /// #NEW-21: the projection with its creator resolved (the member's name +
+    /// email by `creatorId`, the agent's name by `creatorAgentId`), so `by:`
+    /// and bare creator-name words match it.
+    public func searchRow(
+        creatorName: String?,
+        creatorEmail: String?,
+        creatorAgentName: String?
+    ) -> IssueSearch.Row {
         IssueSearch.Row(
             id: id,
             identifier: identifier ?? "",
@@ -463,7 +534,10 @@ extension IssueEntity {
             description: description,
             createdAt: createdAt,
             updatedAt: updatedAt,
-            status: status
+            status: status,
+            creatorName: creatorName,
+            creatorEmail: creatorEmail,
+            creatorAgentName: creatorAgentName
         )
     }
 }

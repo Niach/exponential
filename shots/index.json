@@ -6247,15 +6247,15 @@
         "file": "shots/search/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 15726,
-        "sha256": "81191b156ebd2161a1f20497b4fa65073823bf26f6877fdf27e11ac0b1fa3af0"
+        "bytes": 30864,
+        "sha256": "ab65b38f0560e1719588dd5d314c721e3a425efef96a27714857a9a3344ed10b"
       },
       "web-mobile": {
         "file": "shots/search/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 11474,
-        "sha256": "b4a827a31a044314a8376d411b809554f9cca10c6dc491d84a992565b6f006cb"
+        "bytes": 33964,
+        "sha256": "3cf7f129206a8155cf7d99cd9b5625abd0ed2773b2df78fc7b4b6a09d0076b2a"
       }
     },
     "search-list": {

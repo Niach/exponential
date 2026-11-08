@@ -104,14 +104,30 @@ final class SearchViewModel {
         // the box hands each build the previous one so unchanged rows keep
         // their prepared entry.
         let previous = IndexBox()
+        // #NEW-21: each row carries its creator (the member's name + email,
+        // the agent's name) so `by:<name>` filters and bare words match it.
         let observation = ValueObservation.tracking { db in
-            try IssueEntity
+            let issues = try IssueEntity
                 .filter(sql: "board_id IN (SELECT id FROM boards WHERE team_id = ?)", arguments: [teamId])
                 .fetchAll(db)
+            let users = try UserEntity.fetchAll(db)
+            let agents = try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            return SearchSnapshot(
+                issues: issues,
+                members: Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
+                agentNames: Dictionary(agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+            )
         }
         .removeDuplicates()
-        .map { issues in
-            let index = IssueSearch.Index(issues, reusing: previous.index, projection: \.searchRow)
+        .map { snapshot in
+            let index = IssueSearch.Index(snapshot.issues, reusing: previous.index) { issue in
+                let member = issue.creatorId.flatMap { snapshot.members[$0] }
+                return issue.searchRow(
+                    creatorName: member?.name,
+                    creatorEmail: member?.email,
+                    creatorAgentName: issue.creatorAgentId.flatMap { snapshot.agentNames[$0] }
+                )
+            }
             previous.index = index
             return index
         }
@@ -253,6 +269,14 @@ final class SearchViewModel {
             updatedAt: ""
         )
     }
+}
+
+/// #NEW-21: one observed snapshot: the team's issues and the synced members
+/// and agents their creator ids resolve against.
+private struct SearchSnapshot: Equatable, Sendable {
+    let issues: [IssueEntity]
+    let members: [String: UserEntity]
+    let agentNames: [String: String]
 }
 
 /// The previous snapshot's index, carried between `map` calls (GRDB runs
