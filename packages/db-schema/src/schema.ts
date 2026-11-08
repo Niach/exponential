@@ -2211,9 +2211,20 @@ export const sessions = pgTable(
     // turn (the composer's Teams row); NULL = every team they belong to. The
     // gate clamps the tree to the pick ∩ their teams. SYNCED (the picker).
     scopeTeamIds: uuid(`scope_team_ids`).array(),
+    // #EXP-1731 (eagent subagents.json): non-null = a CLI SUBAGENT row the
+    // device writes (`sessions.subagent`): the CLI's own id of it (Claude's
+    // Task/Agent tool id, Codex's spawned thread). It shares its parent's
+    // device, worktree and branch, takes no messages (a send goes to its
+    // parent) and holds no tree slot. Unique per parent.
+    subagentKey: text(`subagent_key`),
     ...timestamps,
   },
   (table) => [
+    // #EXP-1731: one row per (parent, subagent key): two racing first edges
+    // make one row (ON CONFLICT).
+    uniqueIndex(`uniq_sessions_subagent_key`)
+      .on(table.parentId, table.subagentKey)
+      .where(sql`subagent_key IS NOT NULL`),
     // One conversation per (agent, member).
     uniqueIndex(`uniq_sessions_agent_conversation`)
       .on(table.agentId, table.userId)

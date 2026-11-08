@@ -5,13 +5,14 @@ import { describe, expect, test } from "bun:test"
 import bus from "../fixtures/bus.json" with { type: "json" }
 import incidents from "../fixtures/incidents.json" with { type: "json" }
 import reuse from "../fixtures/reuse.json" with { type: "json" }
+import subagents from "../fixtures/subagents.json" with { type: "json" }
 import tree from "../fixtures/tree.json" with { type: "json" }
 import wakeups from "../fixtures/wakeups.json" with { type: "json" }
 import watchdog from "../fixtures/watchdog.json" with { type: "json" }
 import type { HubEvent, HubState, Outcome } from "./model"
 import { pick, replay, type FixtureCase } from "./replay"
 
-export const SCENARIOS = { tree, bus, wakeups, watchdog, reuse, incidents } as const
+export const SCENARIOS = { tree, bus, wakeups, watchdog, reuse, incidents, subagents } as const
 
 export function replayScenarios(
   reduce: (state: HubState, event: HubEvent) => Outcome,
