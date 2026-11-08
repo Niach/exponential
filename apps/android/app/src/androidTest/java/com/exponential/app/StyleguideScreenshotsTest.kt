@@ -376,15 +376,12 @@ class StyleguideScreenshotsTest {
         private const val COLD_START_REPLY_FRAGMENT = "Board snapshot cache"
         private const val CHILD_SESSION_TITLE = "Profile the launch path"
 
-        // The Triage agent: its channel (DEMO_AGENT_REQUEST, answered at
-        // DEMO_AGENT_CHANNEL_TIMES.reply = 07:14Z, 09:14 in DEMO_TIME_ZONE)
-        // and its settings page (seeded instructions).
+        // The Triage agent: its chat and its settings page (seeded
+        // instructions).
         private const val AGENT_NAME = "Triage"
 
         /** #EXP-1735: the seeded lead Assistant's member (the demo user). */
         private const val LEAD_NAME = "Alex Carter"
-        private const val AGENT_REQUEST_FRAGMENT = "Label the Android ones too"
-        private const val AGENT_REPLY_CLOCK = "09:14"
         private const val AGENT_INSTRUCTIONS_FRAGMENT = "Look after the boards"
 
         // EXP-1558: the seed's first team prompt (seed-screenshots.ts), the
@@ -1342,9 +1339,10 @@ class StyleguideScreenshotsTest {
             if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
                 // S-3: the pinned agent row.
                 composeRule.onAllNodes(hasTestTag("chat-agent-row") and hasText(AGENT_NAME)).onFirst().performClick()
-                flow.waitFor(hasText(AGENT_REQUEST_FRAGMENT, substring = true), SYNC_TIMEOUT)
-                flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
-                flow.settle()
+                // #EXP-1732: THE session screen; its Chat tab = the agent
+                // root's own session view (the seeded messages are no feed).
+                flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
+                flow.settle(longer = true)
                 flow.screenshot("sg_agent-channel")
                 Espresso.pressBack()
                 flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)

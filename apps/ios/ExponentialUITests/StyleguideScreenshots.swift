@@ -176,8 +176,6 @@ final class StyleguideScreenshots: XCTestCase {
     private static let agentName = "Triage"
     /// #EXP-1735: the seeded lead Assistant's member (the demo user).
     private static let leadName = "Alex Carter"
-    /// `DEMO_AGENT_REQUEST`, the person's ask in Triage's channel.
-    private static let agentRequest = "Label the Android ones too"
     /// The cold-start chat's child session (`DEMO_SESSION_ID`).
     private static let sessionTitle = "Profile the launch path"
     /// Its id (`DEMO_SESSION_ID`): the strip chip of its chat page.
@@ -1762,12 +1760,10 @@ final class StyleguideScreenshots: XCTestCase {
                 .firstMatch
             expect(agentRow, within: Wait.sync, "The Chats list has no \(Self.agentName) agent row")
             agentRow.tap()
-            expect(
-                anyElement(app, containing: Self.agentRequest),
-                within: Wait.sync,
-                "\(Self.agentName)'s channel never drew the seeded request"
-            )
-            snapshot("sg_agent-channel", settle: 2)
+            // #EXP-1732: THE session screen; its Chat tab = the agent
+            // root's own session view (the seeded messages are no feed).
+            expect(anyElement(app, identified: "session-tabs-chat"), within: Wait.sync, "\(Self.agentName)'s chat drew no session tabs")
+            snapshot("sg_agent-channel", settle: 3)
             goBack(app)
         }
         // A subset run that wants neither of the next two stops here: the
@@ -1789,10 +1785,17 @@ final class StyleguideScreenshots: XCTestCase {
         // plan and question live in that child's session (the Sessions tab).
         let jump = anyElement(app, identified: "jump-to-bottom")
         if jump.waitForExistence(timeout: 2), jump.isHittable { jump.tap() }
+        // The stub holds the root as a stored replay with an empty journal,
+        // so its feed may settle on the empty state (Android's walk alike).
         expect(
-            app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
+            app.descendants(matching: .any).matching(
+                NSPredicate(
+                    format: "identifier == %@ OR label CONTAINS %@ OR label CONTAINS %@",
+                    "agent-feed", "Waiting for activity", "No live transcript"
+                )
+            ).firstMatch,
             within: Wait.sync,
-            "The cold-start chat's Chat tab drew no session feed"
+            "The cold-start chat's Chat tab drew no session view"
         )
         snapshot("sg_chat-screen", settle: 2)
         guard sessionShots.contains(where: ScreenshotShots.isWanted) else {
