@@ -1,6 +1,6 @@
 import Foundation
 
-// EXP-1341/NEW-2: ONE session model ×4. A thread and an agent's conversation
+// EXP-1341/NEW-2: ONE session model ×4. A chat and an agent's conversation
 // run the same way; a conversation session (a root with `agentId`) is just
 // `persistent` (never ends, revived on its device's return). Branch on these
 // traits, never on the kind string: `kindOf(agentId:)` derives the kind from
@@ -31,13 +31,13 @@ public enum SessionKind {
         "agent": SessionTraits(persistent: true, linksIssues: false, triggers: true),
     ]
 
-    /// An unknown or missing kind = `thread`.
+    /// An unknown or missing kind = `chat`.
     public static func traits(_ kind: String?) -> SessionTraits {
         kind.flatMap { kinds[$0] } ?? kinds["thread"]!
     }
 
     /// NEW-2: the kind of a session row: `agent` when it is an agent's
-    /// conversation session (`agentId` set), else `thread`.
+    /// conversation session (`agentId` set), else `chat`.
     public static func kindOf(agentId: String?) -> String {
         (agentId?.isEmpty == false) ? DomainContract.sessionKindAgent : DomainContract.sessionKindThread
     }

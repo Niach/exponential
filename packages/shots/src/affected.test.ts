@@ -132,14 +132,16 @@ describe(`desktop attribution`, () => {
     // chips, so matching only the exact stem would leave the chipped one
     // stale. EXP-1259: the Agent home is that same page (`agent-home` shares
     // `chat`'s drive), and so is its open "+" menu (`composer-menu`).
-    // EXP-1293 retired the action-chip and Create action views. Thread
+    // EXP-1293 retired the action-chip and Create action views. Chat
     // 58cb32df: the `chat-*` styleguide views share the stem, a harmless
     // over-capture; EXP-1388 added `chat-selection` (the list's bulk bar).
     // EXP-1557: `search-list`'s desktop shot drives the `chat` screen (the
     // composer's `#` list), so the composer claims it too; EXP-1558 adds
     // `composer-slash-menu` (its `/` menu) the same way, and EXP-1659
     // `composer-skills-menu` (its + menu's Skills submenu), #EXP-1715
-    // `composer-teams-menu` (its Teams submenu).
+    // `composer-teams-menu` (its Teams submenu). EXP-1733: the chat screen's
+    // views (`chat-screen`, `chat-replies`, `chat-results`) share the stem too,
+    // and `session-slash-menu` drives `chat:$chat`, the same harmless over-capture.
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
@@ -148,6 +150,9 @@ describe(`desktop attribution`, () => {
       `chat-issues`,
       `chat-list`,
       `chat-menus`,
+      `chat-replies`,
+      `chat-results`,
+      `chat-screen`,
       `chat-selection`,
       `chat-transcript`,
       `composer-menu`,
@@ -155,6 +160,7 @@ describe(`desktop attribution`, () => {
       `composer-slash-menu`,
       `composer-teams-menu`,
       `search-list`,
+      `session-slash-menu`,
     ])
   })
 

@@ -250,7 +250,7 @@ class AgentComposerViewModel @Inject constructor(
 
     /** #EXP-1714: the team the `#` issues, `@` members and skills read —
      *  [teamId] unless that is the unsynced personal team (a resumed global
-     *  Assistant thread), then the selected team. Uploads/starts keep [teamId]. */
+     *  Assistant chat), then the selected team. Uploads/starts keep [teamId]. */
     private val browseTeamId: StateFlow<String?> =
         browseTeamIdFlow(dbFlow, teamId, selection.selectedId)
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
@@ -956,7 +956,7 @@ class AgentComposerViewModel @Inject constructor(
     /**
      * Upload the pending images sequentially (each id stamped as it lands,
      * so a retry after a mid-batch failure only uploads the rest), compose
-     * the text, then ONE `sessions.send` (a new thread root). The draft,
+     * the text, then ONE `sessions.send` (a new chat root). The draft,
      * images and subject clear only once the send was ACCEPTED — a refused
      * start keeps everything to retry.
      */

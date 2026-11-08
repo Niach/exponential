@@ -314,7 +314,7 @@ pub(crate) fn end_outcome_resolves<T>(result: &Result<T, api::ApiError>) -> bool
 /// is NOT a live [`LocalSessions`] entry — a same-process re-login keeps its
 /// running children, while a cold start (empty `LocalSessions`) treats every
 /// recorded id as left behind — is handed to the pickup's re-claim (NEW-5;
-/// it used to END threads and idle agents here).
+/// it used to END chats and idle agents here).
 ///
 /// EXP-295: `LocalSessions` only knows THIS process, so entries launched by
 /// another instance that is still alive on this machine are filtered out

@@ -1,12 +1,12 @@
 // EXP-1459: the locked state (fixtures/sealed-content.json `placeholder`),
-// replayed through openMessage, buildSessionThread and chatPreview.
+// replayed through openMessage, buildSessionChat and chatPreview.
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/sealed-content.json" with { type: "json" }
-import thread from "../fixtures/session-thread.json" with { type: "json" }
+import chat from "../fixtures/session-chat.json" with { type: "json" }
 import { chatPreview } from "./chats"
 import { lockedReason, openMessage, openTitle, SEALED_PLACEHOLDER } from "./sealed-content"
-import { buildSessionThread, type TreeMessage } from "./session-tree"
+import { buildSessionChat, type TreeMessage } from "./session-tree"
 
 const hex = (text: string) => new Uint8Array(Buffer.from(text, `hex`))
 const keysOf = (keys: Record<string, string>) => new Map(Object.entries(keys).map(([e, s]) => [Number(e), hex(s)]))
@@ -34,7 +34,7 @@ describe(`placeholder`, () => {
     expect(openTitle(null, new Map())).toBeNull()
   })
 
-  const base = thread.cases[0]!.input
+  const base = chat.cases[0]!.input
   for (const c of ph.rowCases) {
     test(`row: ${c.name}`, () => {
       const message = {
@@ -47,7 +47,7 @@ describe(`placeholder`, () => {
         createdAt: `2026-10-13T10:05:00.000Z`,
         ...c.message,
       } as TreeMessage
-      const view = buildSessionThread({ ...(base as never), messages: [message] })
+      const view = buildSessionChat({ ...(base as never), messages: [message] })
       expect(view.rows.filter((row) => row.id === c.message.id)).toEqual([c.expected as never])
     })
   }

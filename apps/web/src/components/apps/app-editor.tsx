@@ -49,7 +49,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  ThreadConversation,
+  ChatConversation,
   toast,
   useIsMobile,
   userMessageCaption,
@@ -68,7 +68,7 @@ import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { renderChatText } from "@/components/chat/chat-markdown"
 import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
@@ -90,7 +90,7 @@ import { cn } from "@/lib/utils"
 //
 // VAPP-177 (`editorTabs`): on md+ the header (glyph + name + the version
 // pill) ends in the Preview | Versions | Settings segmented control and the
-// body = two panes, the chat (the member's editor session: THE thread
+// body = two panes, the chat (the member's editor session: THE chat
 // conversation rows + THE session composer, no header strip) beside the
 // selected tab. Phones: Chat | Preview under the header, one pane, and the
 // header's `…` menu: Versions and Settings open THE SAME bodies as a bottom
@@ -482,7 +482,7 @@ export function AppEditor({
 
   const openSession = (session: SessionRow) =>
     void (session.parentId === null
-      ? navigate({ to: `/t/$teamSlug/threads/$threadId`, params: { teamSlug, threadId: session.id } })
+      ? navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } })
       : navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } }))
 
   const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
@@ -533,9 +533,9 @@ export function AppEditor({
   }
   const channel =
     root && messages.length > 0 ? (
-      <ThreadConversation
+      <ChatConversation
         rows={channelRows}
-        renderText={renderThreadText}
+        renderText={renderChatText}
         attachmentSrc={attachmentSrc}
         messageCaption={(row) =>
           userMessageCaption({

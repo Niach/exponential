@@ -5,7 +5,7 @@
 //! island's board line for line (apps/styleguide/src/entries/session-row.tsx):
 //! a "Running" caption over a live tree (APP-5 needing you, its working child,
 //! the idle grandchild), a working root and an ended one, the first row lit.
-//! The session CARD is `thread`'s, never this view's.
+//! The session CARD is `chat`'s, never this view's.
 
 use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::ActiveTheme as _;

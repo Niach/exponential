@@ -1,4 +1,4 @@
-//! S-3 inter-session links ×4 (`session-thread.json` "S-3 INTER-SESSION
+//! S-3 inter-session links ×4 (`session-chat.json` "S-3 INTER-SESSION
 //! LINKS", styleguide entry `session-xref`): THE compact header naming
 //! ANOTHER session = the muted lead `copy.xref[kind]`, the agent's mark (its
 //! 16px avatar, else the session glyph), the session's name and a muted `›`,
@@ -9,7 +9,7 @@
 use gpui::{div, prelude::FluentBuilder as _, px, AnyElement, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window};
 use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::session_tree::{SessionXref, THREAD};
+use domain::session_tree::{SessionXref, SESSION_CHAT};
 
 use crate::icons::registry;
 
@@ -22,10 +22,10 @@ const XREF_GAP_PX: f32 = 4.;
 
 /// The element id of a row's link (`testIds.xref` + the row / view id).
 pub(crate) fn xref_id(key: &str) -> SharedString {
-    SharedString::from(format!("{}-{key}", THREAD.test_ids.xref))
+    SharedString::from(format!("{}-{key}", SESSION_CHAT.test_ids.xref))
 }
 
-/// Open `session_id` as its screen (a thread root its thread, an agent's
+/// Open `session_id` as its screen (a chat root its chat, an agent's
 /// conversation its agent page, any other session its view), pushed on the
 /// back stack.
 pub(crate) fn open_xref(session_id: &str, window: &mut Window, cx: &mut App) {
@@ -58,7 +58,7 @@ pub(crate) fn session_xref_with(
     xref_line(id, xref, mark, Some(Box::new(on_click)), cx)
 }
 
-/// #EXP-1464 (thread-row-action.json): the line with no action (a report
+/// #EXP-1464 (chat-row-action.json): the line with no action (a report
 /// about the conversation's own root): no chevron, no hover, no press.
 pub(crate) fn session_xref_plain(key: &str, xref: &SessionXref, cx: &App) -> AnyElement {
     let mark = xref_mark(xref.agent_id.as_deref(), cx);
@@ -85,7 +85,7 @@ fn xref_line(
         .items_center()
         .text_xs()
         .text_color(muted)
-        .child(div().flex_shrink_0().child(SharedString::from(THREAD.copy.xref.lead(&xref.kind).to_string())))
+        .child(div().flex_shrink_0().child(SharedString::from(SESSION_CHAT.copy.xref.lead(&xref.kind).to_string())))
         .child(mark)
         .child(
             div()

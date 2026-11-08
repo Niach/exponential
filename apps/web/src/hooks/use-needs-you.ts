@@ -4,7 +4,7 @@ import { needsYou, type NeedsYouMessageInput, type NeedsYouRow, type NeedsYouSes
 import { resultAge } from "@exp/domain-contract/results-tab"
 import { offlineSince, stuckRow, type HoldReason, type StuckRow, type TeamMergeMode } from "@exp/domain-contract/merge-train"
 import { useLiveQuery } from "@tanstack/react-db"
-import { useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
+import { useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
 import { deviceCollection, sessionCollection } from "@/lib/collections"
 import { resolveSessionDevice } from "@/lib/session-device"
 import { useNow } from "@/hooks/use-now"
@@ -240,7 +240,7 @@ export function withApprovals(
 }
 
 /** Where a row opens, pure (fixture `opens`): a plan = plan-page.json's deep
- *  link, which lands on the Plan tab of its thread; a card = its CHAT's
+ *  link, which lands on the Plan tab of its chat; a card = its CHAT's
  *  Conversation (a child's card surfaces there too) with `?card=`, which
  *  scrolls to it the way THE waiting chip does; a PR = the Results tab, which
  *  holds the PR block; `chat` = an agent conversation, which has no such tab. */
@@ -266,8 +266,8 @@ export function needsYouDestination(
   if (target.to === `agent`) {
     return { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId: target.agentId }, ...search }
   }
-  if (target.to === `thread`) {
-    return { to: `/t/$teamSlug/threads/$threadId`, params: { teamSlug, threadId: target.threadId }, ...search }
+  if (target.to === `chat`) {
+    return { to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: target.chatId }, ...search }
   }
   return { to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: target.sessionId } }
 }

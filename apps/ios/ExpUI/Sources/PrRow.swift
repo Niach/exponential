@@ -5,7 +5,7 @@ import SwiftUI
 // `pr_rows.rs`, Android `PrRow.kt`; geometry = `list-item.json`): ONE line,
 // [ring lead · mono identifier · title · quiet word]. No branch line, no PR
 // number column, no counts, no age, no inline Merge. EXP-1306: back for the
-// thread Guide's stack block — a linear STACK never nests, it hangs off one
+// chat Guide's stack block — a linear STACK never nests, it hangs off one
 // rail down to its base branch (`StackRail`).
 
 /// The ring lead: an emerald ring (open PR), a filled centre (the current

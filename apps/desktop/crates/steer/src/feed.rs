@@ -534,7 +534,7 @@ impl AnswerState {
 // The feed
 // ---------------------------------------------------------------------------
 
-/// EXP-1245 — one fact of the owner's per-turn thread, in arrival order: a
+/// EXP-1245 — one fact of the owner's per-turn conversation, in arrival order: a
 /// person's message (main transcript only) or a turn edge, each with the
 /// publisher's time (unix ms; this client's clock for a local echo). The
 /// twin of the web `SessionTurnEvent`.
@@ -648,7 +648,7 @@ pub struct SteerFeed {
     /// EXP-1501: the tool call whose input is streaming (`turn.writing`).
     turn_writing: Option<crate::frames::TurnWriting>,
     /// EXP-1245: the person's messages and the turn EDGES, in order — what
-    /// the owner's thread splits into turns (the slot above is latest-wins).
+    /// the owner's conversation splits into turns (the slot above is latest-wins).
     turn_log: Vec<TurnEdge>,
     /// EXP-850 §2: the background-task strip, latest-wins whole.
     background_tasks: Vec<crate::frames::BackgroundTask>,
@@ -985,7 +985,7 @@ impl SteerFeed {
             scratch.apply_seq(seq, event);
         }
         // EXP-1245: the page's messages and turn edges join the owner's
-        // thread input too (all older than anything logged so far).
+        // conversation input too (all older than anything logged so far).
         if !scratch.turn_log.is_empty() {
             let mut log = std::mem::take(&mut scratch.turn_log);
             log.append(&mut self.turn_log);
@@ -1056,7 +1056,7 @@ impl SteerFeed {
         })
     }
 
-    /// EXP-1245: the owner's thread input — every main-transcript message
+    /// EXP-1245: the owner's conversation input — every main-transcript message
     /// and turn edge so far, oldest first.
     pub fn turn_log(&self) -> &[TurnEdge] {
         &self.turn_log
@@ -3435,7 +3435,7 @@ mod tests {
 
     // ── EXP-848: the turn slot ─────────────────────────────────────────────
 
-    /// EXP-1245: the owner's thread input — main-transcript messages and
+    /// EXP-1245: the owner's conversation input — main-transcript messages and
     /// the turn EDGES (a republished identical edge logs nothing), with the
     /// publisher's time.
     #[test]

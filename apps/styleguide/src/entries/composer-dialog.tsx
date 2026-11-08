@@ -5,7 +5,7 @@ import { ComposerSpecimen, composerMenuEntries } from "./composer-specimen.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1019 — the START-CODING DIALOG; EXP-1249 — its ONE "+" menu; EXP-1334
-// — the ONE composer (the start, the thread and the session view alike).
+// — the ONE composer (the start, the chat and the session view alike).
 //
 // Drawn from the REAL parts (`composer-specimen.tsx`): `ComposerFrame` /
 // `Composer` / `ComposerEditTools` / `ComposerOptionsRow` are the halves the
@@ -29,13 +29,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1019`,
   title: `Composer dialog`,
-  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it, and (EXP-1334) THE composer of a thread and a session view: one card everywhere. The SUBJECT leads a start: Implement + the removable issue chips, or (NEW-2) a prompt picked off the / menu, its chip alone; the field under it is the SECONDARY half ("Additional instructions (optional)…"). In the card: the "+" = the options menu (EXP-1249: Implement issue › and Message an agent › before a start only, Add file or image, Effort ›, Ultracode, MCP servers ›, Skills ›, Computer use; in a session the same rows change the live session through sessions.configure), then the inline edit tools (Add image, Attach files, #, emoji), Send ⇄ Stop on the right. Under the card the muted options line (see Composer options). A start = ONE sessions.send; the dialog shuts and the new thread opens.`,
+  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it, and (EXP-1334) THE composer of a chat and a session view: one card everywhere. The SUBJECT leads a start: Implement + the removable issue chips, or (NEW-2) a prompt picked off the / menu, its chip alone; the field under it is the SECONDARY half ("Additional instructions (optional)…"). In the card: the "+" = the options menu (EXP-1249: Implement issue › and Message an agent › before a start only, Add file or image, Effort ›, Ultracode, MCP servers ›, Skills ›, Computer use; in a session the same rows change the live session through sessions.configure), then the inline edit tools (Add image, Attach files, #, emoji), Send ⇄ Stop on the right. Under the card the muted options line (see Composer options). A start = ONE sessions.send; the dialog shuts and the new chat opens.`,
   status: {
     web: {
       state: `ok`,
       symbol: `LaunchDialogHost / LaunchComposer / SessionComposer / ComposerOptionsMenu`,
       file: `apps/web/src/components/launch-dialog/launch-dialog.tsx`,
-      note: `the start card is launch-composer.tsx, the thread/session card session-composer.tsx; both = @exp/ui ComposerFrame + composer-inline-tools.tsx (the hidden file input), the "+" (the only tool) = launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
+      note: `the start card is launch-composer.tsx, the chat/session card session-composer.tsx; both = @exp/ui ComposerFrame + composer-inline-tools.tsx (the hidden file input), the "+" (the only tool) = launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
     },
     desktop: {
       state: `ok`,
@@ -78,7 +78,7 @@ export const entry: StyleguideEntry = {
         <div className="grid w-[36rem] max-w-full gap-2">
           <Caption>A running session: Stop, model · Plan … the context ring under the card.</Caption>
           <ComposerSpecimen phase="running" placeholder="Type / for commands" />
-          <Caption>An idle thread: the same composer (it messages the dispatcher).</Caption>
+          <Caption>An idle chat: the same composer (it messages the dispatcher).</Caption>
           <ComposerSpecimen phase="idle" placeholder="Type / for commands" />
         </div>
         <div className="grid gap-2">

@@ -156,7 +156,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
 
 /** A ROOT agent conversation whose agent is its member's voice agent
  *  (`user_voice_settings.agent_id`): screen memory's precondition, and only
- *  its member answers its cards. Children, threads and other agents'
+ *  its member answers its cards. Children, chats and other agents'
  *  conversations never count. */
 export async function isVoiceConversation(
   session: Pick<Session, `id` | `rootId` | `agentId` | `userId`>,

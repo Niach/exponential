@@ -66,10 +66,10 @@ export interface IssueDraftEditorOptions {
   /** EXP-1635: a share's prefill of a FRESH draft. */
   initialTitle?: string
   initialDescription?: string
-  /** EXP-1284: `New issue in this thread` (`?thread=`, a root session id) —
-   *  the created issue is linked into that thread
+  /** EXP-1284: `New issue in this chat` (`?chat=`, a root session id) —
+   *  the created issue is linked into that chat
    *  (`issues.create({sessionId})`, EXP-1291). */
-  threadId?: string | null
+  chatId?: string | null
   /** The synced row — LIVE. Seeds the page ONCE when present on open;
    *  afterwards only its presence is read (EXP-1231). */
   draft?: IssueDraft
@@ -101,7 +101,7 @@ export function useIssueDraftEditor({
   initialStatusId = null,
   initialTitle = ``,
   initialDescription = ``,
-  threadId: requestedThreadId = null,
+  chatId: requestedChatId = null,
   draft,
   boards,
   labels,
@@ -144,10 +144,10 @@ export function useIssueDraftEditor({
   const [dueDate, setDueDateState] = useState<string | null>(
     seed?.dueDate ?? null
   )
-  // EXP-1284: the thread this draft files into — a reopened draft keeps its
-  // own (persisted by the upsert), a fresh page takes `?thread=`.
-  const [threadId] = useState<string | null>(
-    seed ? seed.sessionId : requestedThreadId
+  // EXP-1284: the chat this draft files into — a reopened draft keeps its
+  // own (persisted by the upsert), a fresh page takes `?chat=`.
+  const [chatId] = useState<string | null>(
+    seed ? seed.sessionId : requestedChatId
   )
   const [files, setFiles] = useState<FilesSectionFile[]>([])
   const [creating, setCreating] = useState(false)
@@ -180,7 +180,7 @@ export function useIssueDraftEditor({
     assigneeAgentId,
     labelIds,
     dueDate,
-    sessionId: threadId,
+    sessionId: chatId,
     attachmentCount: files.length,
   }
   const statusRef = useRef(status)
@@ -496,7 +496,7 @@ export function useIssueDraftEditor({
         dueDate: snapshot.dueDate ?? undefined,
         labelIds: snapshot.labelIds.length > 0 ? snapshot.labelIds : undefined,
         draftId: rowExistsRef.current ? draftId : undefined,
-        ...(threadId ? { sessionId: threadId } : {}),
+        ...(chatId ? { sessionId: chatId } : {}),
       }, SKIP_ERROR_TOAST)
       created = result.issue
       txId = result.txId
@@ -560,7 +560,7 @@ export function useIssueDraftEditor({
     assigneeAgentId,
     labelIds,
     dueDate,
-    threadId,
+    chatId,
     files,
     creating,
     uploading: uploadCount > 0,

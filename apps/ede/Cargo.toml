@@ -1,7 +1,7 @@
 # eDE, the Exponential Desktop Environment (#NEW-10): a Wayland compositor plus
 # a shell drawn in eUI. Its own Cargo workspace, apart from apps/desktop: the
 # compositor never links gpui, and eDE depends on the shared libraries, never
-# the other way round (plan v5, thread 196b5162). The shell (`ede-shell`) and
+# the other way round (plan v5, chat 196b5162). The shell (`ede-shell`) and
 # the control plane (`ede-protocol`) are members of apps/desktop since #EDE-51.
 [workspace]
 members = ["crates/*"]

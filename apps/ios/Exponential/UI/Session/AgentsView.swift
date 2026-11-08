@@ -19,7 +19,7 @@ import SwiftUI
 /// a run is the Agent page composer's device picker, EXP-909).
 ///
 /// EXP-825: machines ONLY (web parity, EXP-818) — sessions live in the
-/// Threads list. EXP-1295: a start is a `sessions` row the machine picks up
+/// Chats list. EXP-1295: a start is a `sessions` row the machine picks up
 /// from its shapes, so the list never waits on the steer relay.
 ///
 /// EXP-909: every device card LISTS ITS OWN LOGINS (`DeviceLogins`) — since

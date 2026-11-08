@@ -123,7 +123,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1248`,
   title: `Session row`,
-  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no device. small = one line, 32px (the rail's Running). EXP-1323: a live tree's children nest under the root in the Threads list and the rail (depth + TreeGuides, 14px a level, the 3px corner tee; a child opens that session); a bold title = an agent reply the viewer has not read.`,
+  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no device. small = one line, 32px (the rail's Running). EXP-1323: a live tree's children nest under the root in the Chats list and the rail (depth + TreeGuides, 14px a level, the 3px corner tee; a child opens that session); a bold title = an agent reply the viewer has not read.`,
   status: {
     web: {
       state: `ok`,
@@ -141,13 +141,13 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `SessionRow`,
       file: `apps/ios/ExpUI/Sources/SessionRow.swift`,
-      note: `the thread tree sheet (UI/Thread/ThreadMenuSheet.swift); shot = the capture-only SessionRowSpecimens (ThreadCardsScreen.swift)`,
+      note: `the chat tree sheet (UI/Chat/ChatStripMenuSheet.swift); shot = the capture-only SessionRowSpecimens (ChatCardsScreen.swift)`,
     },
     android: {
       state: `ok`,
       symbol: `SessionRow`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/SessionRow.kt`,
-      note: `shot = the capture-only SessionRowSpecimens (ui/styleguide/ThreadCardsScreen.kt)`,
+      note: `shot = the capture-only SessionRowSpecimens (ui/styleguide/ChatCardsScreen.kt)`,
     },
   },
   island: () => <SessionRowSpecimen />,

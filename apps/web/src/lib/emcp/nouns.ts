@@ -95,7 +95,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `comments`,
     group: `work`,
-    blurb: `Comments on an issue (plain GFM; threads one level deep; audience reporter emails a widget reporter; a report's reporter sees only that thread).`,
+    blurb: `Comments on an issue (plain GFM; replies one level deep; audience reporter emails a widget reporter; a report's reporter sees only that report).`,
     alwaysLoad: true,
     ops: { list: `comments_list`, create: `comments_create`, update: `comments_update`, delete: `comments_delete` },
   },
@@ -243,7 +243,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `sessions`,
     group: `sessions`,
-    blurb: `Sessions (threads, agents, children): get a tree (no id = yours), list, link/unlink issues, configure (model, account, effort; no message), escalate a waiting card to the managing agent's conversation, end one.`,
+    blurb: `Sessions (roots, agents, children): get a tree (no id = yours), list, link/unlink issues, configure (model, account, effort; no message), escalate a waiting card to the managing agent's conversation, end one.`,
     ops: {
       get: `sessions_get`,
       list: `sessions_list`,

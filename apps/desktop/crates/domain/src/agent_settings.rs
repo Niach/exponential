@@ -1,4 +1,4 @@
-//! EXP-1294 (Threads v2): Team settings → Agents — the Rust twin of
+//! EXP-1294: Team settings → Agents — the Rust twin of
 //! `packages/domain-contract/src/agent-settings.ts` (iOS
 //! `AgentSettings.swift`, Android `domain/AgentSettings.kt`), byte-locked by
 //! `fixtures/agent-settings.json` (`summaryCases`, `validationCases`,

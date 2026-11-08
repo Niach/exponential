@@ -7,7 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Thread e4a04d22: `conversations.digest` (jsonb) decodes off the shape row
+ * Session e4a04d22: `conversations.digest` (jsonb) decodes off the shape row
  * into JSON text the Chats list turns back into messages; a row without it
  * (an older server) still decodes with a NULL digest.
  */

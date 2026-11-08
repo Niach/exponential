@@ -423,8 +423,8 @@ struct PendingFileUpload {
 
 pub struct IssueDetailView {
     issue_id: Option<String>,
-    /// EXP-1316: the issue tab of a thread — the issue body WITHOUT its own
-    /// work header bar (Start, pin, `…`) and without the Threads row.
+    /// EXP-1316: the issue tab of a chat — the issue body WITHOUT its own
+    /// work header bar (Start, pin, `…`) and without the Chats row.
     embedded: bool,
     /// Focus target of the detail root: holding it puts `IssueDetail` on the
     /// dispatch path so the scoped J/K bindings fire (focused on
@@ -637,8 +637,8 @@ impl IssueDetailView {
             .into_any_element()
     }
 
-    /// EXP-1316: draw the issue as a thread's embedded tab (no work header
-    /// bar, no Threads row).
+    /// EXP-1316: draw the issue as a chat's embedded tab (no work header
+    /// bar, no Chats row).
     pub(crate) fn set_embedded(&mut self, embedded: bool) {
         self.embedded = embedded;
     }
@@ -1912,19 +1912,19 @@ impl IssueDetailView {
         // EXP-1162: the large title rides the scrolling body under the
         // FLOATING bar (EXP-1170: `work_header::scrolling_title_rows`, shared
         // with the New issue page).
-        // EXP-1294: the issue names its threads on their own line, between
+        // EXP-1294: the issue names its chats on their own line, between
         // the title and the property tray (the issue draft).
-        // EXP-1316: an embedded issue (a thread's tab) names no threads and
+        // EXP-1316: an embedded issue (a chat's tab) names no chats and
         // carries no cluster (Start / pin / `…`).
-        let threads = (!self.embedded)
-            .then(|| crate::thread_screen::issue_threads_row(&issue.id, cx))
+        let chats = (!self.embedded)
+            .then(|| crate::session_chat::issue_chats_row(&issue.id, cx))
             .flatten()
             .map(|row| div().w_full().pb_2().child(row).into_any_element());
         let right = if self.embedded { Vec::new() } else { right };
         let title = vec![
             parent_line.map(IntoElement::into_any_element),
             Some(self.render_title(under_parent_line, cx).into_any_element()),
-            threads,
+            chats,
         ]
         .into_iter()
         .flatten()

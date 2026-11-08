@@ -1,6 +1,6 @@
 package com.exponential.app.domain
 
-// NEW-8: messages live in conversations; a session's thread is the messages
+// NEW-8: messages live in conversations; a session's chat is the messages
 // of its own (kind `session`) conversation. Every message is keyed through
 // the `conversations` shape, never through a legacy `messages.session_id`.
 // Hand-ported from `packages/domain-contract/src/message-conversation.ts`,

@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Thread 58cb32df (owner 2026-10-23, #EXP-1373): CHATS, the phone app's
+ * Session 58cb32df (owner 2026-10-23, #EXP-1373): CHATS, the phone app's
  * WhatsApp-like list, the agent bubbles, the context menus ×4, the
  * transcript's divider lines and the inline surface's reply. The Android
  * mirror of `packages/domain-contract/src/chats.ts` (iOS ExpCore
@@ -100,6 +100,8 @@ object Chats {
         /** S-3 `copy.sections`: the Chats list's headers, only while an
          *  agent row exists. */
         const val SECTION_AGENTS = "Agents"
+        /** #EXP-1733: the Apps section's header, between Agents and the sessions. */
+        const val SECTION_APPS = "Apps"
         /** #FEED-191: the list's sections ([chatSections]). */
         const val SECTION_NEEDS_YOU = "Needs you"
         const val SECTION_WORKING = "Working"
@@ -148,7 +150,7 @@ object Chats {
         val TABS: List<String> = listOf("board", "chats", "apps", "team")
         val TAB_ICONS: Map<String, String> = linkedMapOf(
             "board" to "nav-issues",
-            "chats" to "nav-threads",
+            "chats" to "nav-chats",
             "apps" to "nav-apps",
         )
 
@@ -280,6 +282,8 @@ object Chats {
         const val JUMP_TO_BOTTOM = "jump-to-bottom"
         const val CHAT_ARCHIVED = "chat-archived"
         const val SELECTION_BAR = "bulk-action-bar"
+        /** #EXP-1733: an app row of the Chats list. */
+        const val APP_ROW = "chat-app-row"
     }
 
     /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
@@ -393,7 +397,7 @@ object Chats {
         val teamId: String,
         val title: String,
         val deviceId: String?,
-        val group: SessionTree.ThreadsGroupKey,
+        val group: SessionTree.ChatsGroupKey,
         val lead: ChatLead,
         val preview: ChatPreview,
         val activityAt: String,
@@ -402,7 +406,7 @@ object Chats {
         val unreadCount: Int,
         val needsYou: Boolean,
         val busy: Boolean,
-        val word: SessionTree.ThreadRowWord?,
+        val word: SessionTree.ChatRowWord?,
         /** S-3: the chat is DONE (every PR of the root merged and nothing
          *  works or needs you): it stays, dimmed ([Shell.DIM_OPACITY]). */
         val dim: Boolean = false,
@@ -422,8 +426,8 @@ object Chats {
      *  rest by activity; empty sections absent. */
     fun chatSections(rows: List<ChatRow>): List<ChatSection> {
         fun keyOf(row: ChatRow) = when {
-            row.group == SessionTree.ThreadsGroupKey.NeedsYou -> ChatSectionKey.NeedsYou
-            row.group == SessionTree.ThreadsGroupKey.Running -> ChatSectionKey.Working
+            row.group == SessionTree.ChatsGroupKey.NeedsYou -> ChatSectionKey.NeedsYou
+            row.group == SessionTree.ChatsGroupKey.Running -> ChatSectionKey.Working
             row.unreadCount > 0 -> ChatSectionKey.Unread
             else -> ChatSectionKey.Chats
         }
@@ -491,7 +495,7 @@ object Chats {
     // The Chats list never reads a transcript: the server keeps, on each
     // conversation row (`conversations.digest`), exactly the messages the
     // list's rules read; [digestMessages] turns it back into tree messages so
-    // `partitionThreads` and `chatList` run UNCHANGED over it.
+    // `partitionChats` and `chatList` run UNCHANGED over it.
 
     /** `conversations.digest` (JSON text) → its object; null / bad = none. */
     fun parseDigest(text: String?): JsonObject? {
@@ -748,18 +752,18 @@ object Chats {
 
     /**
      * The phone Chats list (`listCases`): the ROOT rows of
-     * [SessionTree.partitionThreads] (active team) flattened and sorted by
+     * [SessionTree.partitionChats] (active team) flattened and sorted by
      * activity desc (ties by id), each with its lead, preview, time and unread
      * count.
      */
     fun chatList(
-        groups: List<SessionTree.ThreadsListGroup>,
+        groups: List<SessionTree.ChatsListGroup>,
         messages: List<SessionTree.Message>,
         reads: List<SessionTree.SessionRead> = emptyList(),
         /** The ROOT's PR states by session id (absent = none). */
         prStates: Map<String, List<String>> = emptyMap(),
-        /** threadRowWord by session id (absent = none). */
-        words: Map<String, SessionTree.ThreadRowWord?> = emptyMap(),
+        /** chatRowWord by session id (absent = none). */
+        words: Map<String, SessionTree.ChatRowWord?> = emptyMap(),
         /** #EXP-1388: the chats, or the Archived page. */
         view: ChatListView = ChatListView.List,
         now: String,
@@ -773,7 +777,7 @@ object Chats {
         val rows = groups
             .flatMap { group -> group.rows.filter { it.depth == 0 }.map { it to group.key } }
             .map { (row, group) ->
-                val mark = SessionTree.threadRowMarkState(row.needsYou, row.busy)
+                val mark = SessionTree.chatRowMarkState(row.needsYou, row.busy)
                 val states = prStates[row.sessionId].orEmpty()
                 val lead = when (mark) {
                     SessionTree.SessionState.NeedsYou -> ChatLead.NeedsYou
@@ -813,7 +817,7 @@ object Chats {
 
     /** #EXP-1388 (`dotCases`): the Chats nav dot = an unread depth-0 chat
      *  outside the archive (a chat that needs you counts anyway). */
-    fun chatsUnread(groups: List<SessionTree.ThreadsListGroup>, reads: List<SessionTree.SessionRead> = emptyList()): Boolean {
+    fun chatsUnread(groups: List<SessionTree.ChatsListGroup>, reads: List<SessionTree.SessionRead> = emptyList()): Boolean {
         val archived = reads.filter { !it.archivedAt.isNullOrEmpty() }.map { it.sessionId }.toSet()
         return groups.any { group ->
             group.rows.any { it.depth == 0 && it.unread && (it.needsYou || it.sessionId !in archived) }
@@ -953,15 +957,94 @@ object Chats {
         }
     }
 
-    enum class ThreadMenuEntry(val wire: String) { Delete("delete") }
+    /** #EXP-1733: an app as [appChatRows] reads it. */
+    data class AppChatInput(
+        val appId: String,
+        override val slug: String,
+        override val name: String,
+        val icon: String?,
+        val color: String?,
+    ) : Apps.ListLike
+
+    /** #EXP-1733: an APP row of the Chats list (`appRowCases`), between the
+     *  Agents and the root sessions. */
+    data class AppChatRow(
+        val appId: String,
+        val slug: String,
+        /** The viewer's session with the app; null = none yet. */
+        val sessionId: String?,
+        val name: String,
+        val icon: String?,
+        val color: String?,
+        val preview: ChatPreview,
+        /** [chatTimeLabel] of [activityAt]; empty without a session. */
+        val time: String,
+        val activityAt: String?,
+        val unreadCount: Int,
+        val needsYou: Boolean,
+        val busy: Boolean,
+    )
+
+    /** #EXP-1733: the Chats list's APPS section (`appRowCases`): one row per
+     *  live team app in [Apps.sortApps] order, its preview / time / unread from
+     *  the viewer's session with the app (the root with `appId` and
+     *  `userId == me`); needs you / busy = that root's `needsInput` / `busy`.
+     *  Never selectable; none on the Archived page. */
+    fun appChatRows(
+        apps: List<AppChatInput>,
+        sessions: List<SessionTree.Session>,
+        messages: List<SessionTree.Message>,
+        reads: List<SessionTree.SessionRead> = emptyList(),
+        me: String?,
+        view: ChatListView = ChatListView.List,
+        now: String,
+        utcOffsetMinutes: Int,
+    ): List<AppChatRow> {
+        if (view == ChatListView.Archived) return emptyList()
+        return Apps.sortApps(apps).map { app ->
+            val session = if (me != null) {
+                sessions.firstOrNull { it.parentId == null && it.appId == app.appId && it.userId == me }
+            } else {
+                null
+            }
+            val id = session?.id
+            val needsYou = session?.needsInput ?: false
+            val busy = session?.busy ?: false
+            var newest: String? = null
+            if (id != null) {
+                for (m in messages) {
+                    if (m.sessionId != id) continue
+                    if (m.authorKind != DomainContract.messageAuthorKindUser && m.authorKind != DomainContract.messageAuthorKindAgent) continue
+                    if ((ms(m.createdAt) ?: 0L) > (ms(newest) ?: -1L)) newest = m.createdAt
+                }
+            }
+            val activityAt = newest ?: session?.createdAt
+            AppChatRow(
+                appId = app.appId,
+                slug = app.slug,
+                sessionId = id,
+                name = app.name,
+                icon = app.icon,
+                color = app.color,
+                preview = if (id != null) chatPreview(id, messages, needsYou, busy) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
+                time = activityAt?.let { chatTimeLabel(it, now, utcOffsetMinutes) } ?: "",
+                activityAt = activityAt,
+                unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,
+                needsYou = needsYou,
+                busy = busy,
+            )
+        }
+    }
+
+    enum class ChatMenuEntry(val wire: String) { Delete("delete") }
 
     /** A chat row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28) no
      *  Stop/End anywhere: Delete for a viewer who can steer the chat and may
      *  delete it (the chat's starter or a team owner, the server's
      *  `sessions.delete` rule, which ends what is live first); else nothing. */
     @Suppress("UNUSED_PARAMETER")
-    fun threadMenuEntries(rootStatus: String, canSteer: Boolean, canDelete: Boolean): List<ThreadMenuEntry> =
-        if (canSteer && canDelete) listOf(ThreadMenuEntry.Delete) else emptyList()
+    fun chatMenuEntries(rootStatus: String, canSteer: Boolean, canDelete: Boolean): List<ChatMenuEntry> =
+        if (canSteer && canDelete) listOf(ChatMenuEntry.Delete) else emptyList()
 
     enum class AgentMenuEntry(val wire: String) {
         Compact("compact"),
@@ -985,8 +1068,8 @@ object Chats {
         else -> null
     }
 
-    fun threadMenuLabel(entry: ThreadMenuEntry): String = when (entry) {
-        ThreadMenuEntry.Delete -> Copy.MENU_DELETE
+    fun chatMenuLabel(entry: ChatMenuEntry): String = when (entry) {
+        ChatMenuEntry.Delete -> Copy.MENU_DELETE
     }
 
     fun agentMenuLabel(entry: AgentMenuEntry): String = when (entry) {

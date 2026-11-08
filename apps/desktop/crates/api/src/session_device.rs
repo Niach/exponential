@@ -1,4 +1,4 @@
-//! Typed `sessions.*` DEVICE procedures (EXP-1292, Threads v2) — the half of
+//! Typed `sessions.*` DEVICE procedures (EXP-1292) — the half of
 //! the session router the machine that RUNS a session calls. Shapes verified
 //! against `apps/web/src/lib/trpc/sessions.ts`:
 //!
@@ -52,7 +52,7 @@ pub struct SessionBrief {
     #[serde(default)]
     pub parent_branch: Option<String>,
     /// #EXP-1383: the tree ROOT's `agent_id` (the agent whose conversation
-    /// the session belongs to, a child's too); `None` = a thread's tree, or
+    /// the session belongs to, a child's too); `None` = a chat's tree, or
     /// a server that does not send it yet.
     #[serde(default)]
     pub root_agent_id: Option<String>,

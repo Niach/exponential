@@ -3,16 +3,16 @@ import SwiftUI
 
 /// EXP-1248/EXP-1291: THE session row, ×4 (web `@exp/ui` `SessionRow`,
 /// desktop `run_rows::run_row`, Android `SessionRow.kt`; geometry =
-/// `list-item.json`, the row facts = `threads-list.json`). ONE line:
+/// `list-item.json`, the row facts = `chat-list.json`). ONE line:
 /// [tree guides][lead at 12 + 14·depth][mono id · title][state]. The state
 /// is label-free (EXP-1323: the bold title marks unread): the inline spinner while it works,
-/// the amber dot while it needs you. EXP-1309: the Threads list instead
-/// ends on ONE quiet `word` (web `ThreadsListItem`: `stack`, `question`…;
+/// the amber dot while it needs you. EXP-1309: the Chats list instead
+/// ends on ONE quiet `word` (web `ChatsListItem`: `stack`, `question`…;
 /// EXP-1339: no lock) and carries its state in the lead. No fold chevron, no trailing
 /// chevron, no buttons.
 ///
 /// The row is CONTENT: the host wraps it in its own NavigationLink/Button
-/// (ExpUI cannot see the app's routes) and hands the lead in (a thread's
+/// (ExpUI cannot see the app's routes) and hands the lead in (a chat's
 /// glyph, an agent's icon in its colour), sized here to the 14pt lead box.
 public struct SessionRow<Lead: View>: View {
     private let identifier: String?
@@ -29,7 +29,7 @@ public struct SessionRow<Lead: View>: View {
     private let lead: Lead
 
     /// - Parameters:
-    ///   - identifier: the thread's first linked issue (`APP-14`), nil = none.
+    ///   - identifier: the chat's first linked issue (`APP-14`), nil = none.
     ///   - guide: this row's connector (`TreeGuides.compute(depths:)[i]`);
     ///     its depth indents the lead 14pt per level.
     ///   - busy: a session of the tree works — the inline spinner.

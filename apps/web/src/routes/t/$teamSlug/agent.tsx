@@ -66,17 +66,17 @@ const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
 
 // EXP-1253: the team's AGENT page is HOME (composer-home.json): the team
-// index lands here. EXP-1293 (Threads v2, draft 1): top to bottom, centred,
+// index lands here. EXP-1293 (draft 1): top to bottom, centred,
 // the DAWN (FEED-100: the big Exponential mark's top half above the
 // composer), S-3 the agent row over the composer ("What do you want to
 // build?"; composer-home.json `agentRow`), then, while the team has no board, Getting started. No greeting, no
-// history button, no recent list: Threads (the rail) is where past work
+// history button, no recent list: Chats (the rail) is where past work
 // lives. EXP-1316 phones: the column stands at the BOTTOM (the dawn on the
 // card, the options row under it, keyboard-aware), Getting started above the
 // dawn, no Running list.
 //
 // The composer is THE launcher: a start is ONE `sessions.send` in this team
-// and lands on `/t/$teamSlug/threads/$threadId`. A deep link (a native
+// and lands on `/t/$teamSlug/sessions/$sessionId`. A deep link (a native
 // client, a notification, an old bookmark) may still seed it through the
 // search params, consumed once and stripped with a replace navigation:
 //
@@ -90,7 +90,7 @@ const str = (value: unknown): string | undefined =>
 // feedback kinds side by side, for the view catalog's `feedback-states`
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, FEED-160 `?dev=device-readiness` its specimen, EXP-1280 `?dev=plan-card`
-// THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
+// THE rich plan card's; chat 58cb32df `?dev=chat-list` / `chat-menus` /
 // `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json

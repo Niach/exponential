@@ -290,7 +290,7 @@ export function WebMcpReadTools() {
 
   useWebMCP({
     name: `get_issue`,
-    description: `Get the full detail of one issue: fields, description (GFM markdown), labels, and comment thread.`,
+    description: `Get the full detail of one issue: fields, description (GFM markdown), labels, and comment chat.`,
     inputSchema: { issue: issueRefSchema },
     annotations: readAnnotations,
     handler: async (input) => {
@@ -369,14 +369,14 @@ export function WebMcpReadTools() {
     name: `navigate`,
     description: `Navigate the app to a board, an issue, the notification inbox, or the Chats list of the current team. Changes what the user sees; modifies no data.`,
     inputSchema: {
-      to: z.enum([`board`, `issue`, `inbox`, `threads`]),
+      to: z.enum([`board`, `issue`, `inbox`, `chats`]),
       board: boardRefSchema,
       issue: issueRefSchema,
     },
     annotations: { idempotentHint: true },
     handler: async (input) => {
       const ctx = getWebMcpAppContext()
-      if (input.to === `inbox` || input.to === `threads`) {
+      if (input.to === `inbox` || input.to === `chats`) {
         ctx.navigate({ kind: input.to })
         return { navigated: input.to }
       }

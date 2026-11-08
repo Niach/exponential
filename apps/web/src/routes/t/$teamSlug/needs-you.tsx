@@ -42,7 +42,7 @@ function NeedsYouPage() {
   const press = useNeedsYouPress(open)
   const back = () => {
     if (router.history.canGoBack()) router.history.back()
-    else void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })
+    else void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } })
   }
   return (
     <div className="h-full overflow-y-auto">

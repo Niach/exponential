@@ -117,7 +117,7 @@ fn open_lock_file(data_dir: &Path) -> Option<std::fs::File> {
 }
 
 /// Which kind of session tree root the recorded session belongs to
-/// (EXP-1292, `sessions.kind`): a thread (children included) or a team
+/// (EXP-1292, `sessions.kind`): a chat (children included) or a team
 /// agent's channel, which never ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -128,7 +128,7 @@ pub enum RunKind {
 
 impl RunKind {
     /// The row's kind (NEW-2: derived from `agent_id`, never the legacy
-    /// `kind` shim; anything but an agent's conversation = a thread).
+    /// `kind` shim; anything but an agent's conversation = a chat; the wire value stays `thread`).
     pub fn of(row: &domain::rows::SessionRow) -> Self {
         if row.is_agent() {
             Self::Agent
@@ -450,7 +450,7 @@ pub const PENDING_CONSUMES_KEY: &str = "pendingConsumes";
 /// EXP-1292: the [`RunRecord::extra`] key marking a run whose final
 /// `ended` report never resolved — the next start's reconcile re-sends that
 /// END. Without it a host-less run is reported `idle` (a crash, a suspend),
-/// which keeps a thread resumable.
+/// which keeps a chat resumable.
 pub const UNREPORTED_END_KEY: &str = "unreportedEnd";
 
 /// EXP-1330: on a `/btw` aside's record, the PARENT session it forked: its
@@ -929,7 +929,7 @@ pub fn live_host_runs(data_dir: &Path) -> Vec<(String, PathBuf)> {
 
 /// EXP-1292: the live session (its host process still alive) other than
 /// `except` recorded on `branch` of `repository_id` on this machine — a
-/// second thread on the same issue must not share its worktree.
+/// second chat on the same issue must not share its worktree.
 pub fn live_branch_holder(
     data_dir: &Path,
     repository_id: &str,

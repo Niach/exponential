@@ -1624,7 +1624,7 @@ mod tests {
         let asked_in_hook = asked.clone();
         hooks.compact = Some(Arc::new(move |keep: Option<String>| {
             let verdict = match keep.as_deref() {
-                Some("open threads") => CompactVerdict::Accepted,
+                Some("open questions") => CompactVerdict::Accepted,
                 _ => CompactVerdict::Refused(CompactRefusal::TooEarly),
             };
             asked_in_hook.lock().unwrap().push(keep);
@@ -1635,11 +1635,11 @@ mod tests {
             PublishSpec { session_id: "sess-compact".to_string(), ..Default::default() },
             hooks,
         );
-        assert_eq!(compact("sess-compact", Some("open threads")), CompactVerdict::Accepted);
+        assert_eq!(compact("sess-compact", Some("open questions")), CompactVerdict::Accepted);
         assert_eq!(compact("sess-compact", None), CompactVerdict::Refused(CompactRefusal::TooEarly));
         assert_eq!(
             asked.lock().unwrap().clone(),
-            vec![Some("open threads".to_string()), None]
+            vec![Some("open questions".to_string()), None]
         );
         assert!(
             recorded.inputs.lock().unwrap().is_empty(),
@@ -1725,7 +1725,7 @@ mod tests {
             &[b"just a message".to_vec(), b"\r".to_vec()]
         );
         // A command name that is not in claude's catalog is prose too
-        // (thread 58cb32df: `/new` IS one now; `/cost` never was).
+        // (chat 58cb32df: `/new` IS one now; `/cost` never was).
         recorded.inputs.lock().unwrap().clear();
         send("/cost");
         send("\r");

@@ -79,22 +79,22 @@ final class AskDockTests: XCTestCase {
         }
     }
 
-    private func row(_ raw: [String: Any]) throws -> ThreadRow {
+    private func row(_ raw: [String: Any]) throws -> SessionChatRow {
         let id = try XCTUnwrap(raw["id"] as? String)
         switch raw["type"] as? String {
         case "plan":
-            return .plan(ThreadPlanRow(
+            return .plan(ChatPlanRow(
                 id: id,
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String),
                 plan: try XCTUnwrap(raw["plan"] as? String),
                 questions: (raw["questions"] as? [Any] ?? []).map { _ in
-                    ThreadPlanQuestion(id: "q", prompt: "?", options: [])
+                    ChatPlanQuestion(id: "q", prompt: "?", options: [])
                 },
                 decision: raw["decision"] as? String,
                 fresh: raw["fresh"] as? Bool ?? false
             ))
         case "question":
-            return .question(ThreadQuestionRow(
+            return .question(ChatQuestionRow(
                 id: id,
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String),
                 question: try XCTUnwrap(raw["question"] as? String),
@@ -108,13 +108,13 @@ final class AskDockTests: XCTestCase {
         }
     }
 
-    func testThreadCases() throws {
-        let all = try list("threadCases")
+    func testChatCases() throws {
+        let all = try list("chatCases")
         XCTAssertFalse(all.isEmpty)
         for c in all {
             let rows = try XCTUnwrap(c["rows"] as? [[String: Any]]).map(row)
             let names = c["sessionNames"] as? [String: String] ?? [:]
-            let got = AskDock.threadPendingAsks(rows) { names[$0] }
+            let got = AskDock.chatPendingAsks(rows) { names[$0] }
             let expected = try XCTUnwrap(c["expected"] as? [[String: Any]]).map(pending)
             XCTAssertEqual(got, expected, c["name"] as? String ?? "")
         }
@@ -124,11 +124,11 @@ final class AskDockTests: XCTestCase {
         let all = try list("sessionNameCases")
         XCTAssertFalse(all.isEmpty)
         for c in all {
-            let tabs = try XCTUnwrap(c["tabs"] as? [[String: Any]]).compactMap { raw -> ThreadTab? in
+            let tabs = try XCTUnwrap(c["tabs"] as? [[String: Any]]).compactMap { raw -> ChatTab? in
                 switch raw["kind"] as? String {
                 case "session":
                     let nested = (raw["nested"] as? [[String: Any]] ?? []).map { n in
-                        ThreadTabNestedSession(
+                        ChatTabNestedSession(
                             sessionId: n["sessionId"] as? String ?? "",
                             name: n["name"] as? String ?? "",
                             markState: (n["markState"] as? String).flatMap(SessionState.init(rawValue:)) ?? .idle,
@@ -144,7 +144,7 @@ final class AskDockTests: XCTestCase {
                 default: return .conversation
                 }
             }
-            let name = AskDock.threadSessionNames(tabs)
+            let name = AskDock.chatSessionNames(tabs)
             let lookups = try XCTUnwrap(c["lookups"] as? [String: Any])
             for (id, expected) in lookups {
                 XCTAssertEqual(name(id), expected as? String, "\(c["name"] ?? "") \(id)")

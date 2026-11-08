@@ -97,11 +97,11 @@ struct AgentSessionScreen: View {
 }
 
 /// EXP-1295: a SESSION's raw work — today's session view, opened from its
-/// card in a thread (or any session ref). A chat-style view of the session
+/// card in a chat (or any session ref). A chat-style view of the session
 /// over the scrubbed steer activity channel (eNet, VAPP-43): narration bubbles, compact tool
 /// rows, collapsible subagent runs, question cards. NO terminal rendering.
 ///
-/// The header is the back button, a back row naming the THREAD (its root,
+/// The header is the back button, a back row naming the CHAT (its root,
 /// EXP-1310) over the session's name (S-3: no Stop; the composer's
 /// stop-turn is the one); the composer box sends a `messages` row
 /// (`sessions.send({sessionId})`). The steer feed stays the LIVE layer (streaming
@@ -111,8 +111,8 @@ struct AgentSessionView: View {
     let accountId: String
     /// The row the screen opened on — the model observes it from there on.
     let session: SessionEntity
-    /// EXP-1343: a page of the thread screen — no header of its own (the
-    /// thread's band + strip are the ONE header).
+    /// EXP-1343: a page of the chat screen — no header of its own (the
+    /// chat's band + strip are the ONE header).
     var embedded = false
     /// EXP-1343: the claimed model, handed to the host (nil once the page
     /// left), keyed by this session's id.
@@ -122,9 +122,9 @@ struct AgentSessionView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
-    /// EXP-1347: inside a thread, an issue that is one of its tabs opens
+    /// EXP-1347: inside a chat, an issue that is one of its tabs opens
     /// that tab (the innermost outlet).
-    @Environment(\.threadIssueOutlet) private var threadIssueOutlet
+    @Environment(\.chatIssueOutlet) private var chatIssueOutlet
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
@@ -176,17 +176,17 @@ struct AgentSessionView: View {
     /// EXP-1280: this session's OWN tool-posted cards (`exponential_plan_propose`
     /// / `exponential_sessions_ask`: a `plan` / `question` message with no
     /// mirrored ACP ask) — the relay has no open ask for them, so they answer
-    /// through `sessions.answer`, in the ask dock like a thread's.
-    @State private var toolAsks: [ThreadRow] = []
+    /// through `sessions.answer`, in the ask dock like a chat's.
+    @State private var toolAsks: [SessionChatRow] = []
     /// EXP-1398: this session's cards (`AskDock.sessionCards`: the tool-posted
     /// plan / question cards above plus its `surface` cards), oldest first.
     @State private var sessionCards: [AskDock.SessionCard] = []
-    /// #EXP-1562: the thread header's waiting pick and the card it lit.
+    /// #EXP-1562: the chat header's waiting pick and the card it lit.
     @Environment(\.waitingFocus) private var waitingFocus
     @State private var highlightId: String?
     /// EXP-1398: the `surface` cards' rows, by message id.
-    @State private var surfaceRows: [String: ThreadRow] = [:]
-    /// S-3: the view's `origin` link (session-thread.json), its mark and
+    @State private var surfaceRows: [String: SessionChatRow] = [:]
+    /// S-3: the view's `origin` link (session-chat.json), its mark and
     /// the route its tap pushes; nil = a person started it.
     @State private var origin: (xref: SessionXref, mark: SessionXrefHeader.AgentMark?, route: AppRoute)?
     /// #VAPP-229 (via-app.json): the synced, live app this session's
@@ -213,7 +213,7 @@ struct AgentSessionView: View {
     var body: some View {
         withChrome(withSheets(withLifecycle(withAlerts(sessionContent))))
             // EXP-1172: a settled `sessions_show` row finds its picture in
-            // the thread's Guide (the ROOT's `guide`).
+            // the chat's Guide (the ROOT's `guide`).
             .environment(\.sessionResultsRaw, model?.root?.guide)
     }
 
@@ -324,7 +324,7 @@ struct AgentSessionView: View {
 
     /// The nav bar: the system back button, a two-line title (EXP-1310, web
     /// `session-header`, Android `SessionHeaderBar`): the back row naming
-    /// the THREAD over the session's name (S-3: no Stop).
+    /// the CHAT over the session's name (S-3: no Stop).
     @ViewBuilder
     private func withChrome(_ content: some View) -> some View {
         if embedded {
@@ -345,15 +345,15 @@ struct AgentSessionView: View {
 
     private var headerTitle: some View {
         VStack(spacing: 1) {
-            // The way back to the thread (a thread already on the stack is
+            // The way back to the chat (a chat already on the stack is
             // popped back to — `pushRoute`'s rule).
-            if let threadTitle = model?.threadTitle, !threadTitle.isEmpty {
+            if let chatTitle = model?.chatTitle, !chatTitle.isEmpty {
                 Button {
-                    pushRoute(.thread(accountId: accountId, threadId: session.rootId))
+                    pushRoute(.chat(accountId: accountId, chatId: session.rootId))
                 } label: {
                     HStack(spacing: 2) {
                         AppIcon(AppIcons.uiChevronLeft, size: 11)
-                        Text(threadTitle)
+                        Text(chatTitle)
                             .font(.caption)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -453,12 +453,12 @@ struct AgentSessionView: View {
                 claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)
                 onModel?(session.id, model)
-                // EXP-1323: opening a session view reads it (the Threads
+                // EXP-1323: opening a session view reads it (the Chats
                 // list's bold child row).
                 markRead()
             }
             // A newer agent message read here is read: re-stamp the session
-            // (the Android/Thread rule — keyed on the newest agent message).
+            // (the Android/Chat rule — keyed on the newest agent message).
             .onChange(of: model?.newestAgentMessageKey) { _, newest in
                 if newest != nil { markRead() }
             }
@@ -545,8 +545,8 @@ struct AgentSessionView: View {
             issueRefs: AgentIssueRefContext(
                 teamId: session.teamId,
                 db: deps.db,
-                onOpen: { [threadIssueOutlet] issueId in
-                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                onOpen: { [chatIssueOutlet] issueId in
+                    openIssueInnermost(issueId, outlet: chatIssueOutlet, deps: deps, accountId: accountId)
                 },
                 mentionMembers: ChatMentionMembers.members(
                     teamId: session.teamId, db: deps.db, accountId: accountId)
@@ -846,7 +846,7 @@ struct AgentSessionView: View {
                     slack: AgentSessionLayout.followSlack,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
-                // #EXP-1562: the thread header's waiting pick (an embedded
+                // #EXP-1562: the chat header's waiting pick (an embedded
                 // session page) scrolls here and lights the card.
                 .modifier(WaitingFocusScroll(
                     focus: waitingFocus, proxy: proxy, highlight: $highlightId, onScroll: { atBottom = false }
@@ -1194,9 +1194,9 @@ struct AgentSessionView: View {
     }
 
     /// EXP-1280: the session cards with these message ids, inline as THE
-    /// thread card (`ThreadAskCard`): a waiting one answerable by a viewer
+    /// chat card (`ChatAskCard`): a waiting one answerable by a viewer
     /// who may post, an answered one
-    /// closed with its picks; a `surface` card = THE thread's
+    /// closed with its picks; a `surface` card = THE chat's
     /// `SurfaceCardRow`.
     @ViewBuilder
     private func inlineToolCards(_ ids: [String], model: AgentSessionModel) -> some View {
@@ -1212,7 +1212,7 @@ struct AgentSessionView: View {
                 .padding(.top, DesignTokens.Transcript.gapBlock)
                 .accessibilityIdentifier("session-surface-card")
             } else if let row = toolAsks.first(where: { $0.id == id }) {
-                ThreadAskCard(
+                ChatAskCard(
                     row: row,
                     canAnswer: canAnswerCards,
                     answeringId: toolAnsweringId,
@@ -1227,19 +1227,19 @@ struct AgentSessionView: View {
         }
     }
 
-    /// S-3: this session's `origin` (`buildSessionThread` focused on it),
-    /// re-read only when its root's digest moves (`ThreadRows.signature`).
+    /// S-3: this session's `origin` (`buildSessionChat` focused on it),
+    /// re-read only when its root's digest moves (`ChatRows.signature`).
     private func observeOrigin() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let rootId = session.rootId.isEmpty ? session.id : session.rootId
         let id = session.id
         let accountId = accountId
         let observation = ValueObservation
-            .tracking { db in try ThreadRows.signature(db: db, rootId: rootId) }
+            .tracking { db in try ChatRows.signature(db: db, rootId: rootId) }
             .removeDuplicates()
         do {
             for try await _ in observation.values(in: pool) {
-                guard let rows = try await pool.read({ db in try ThreadRows.load(db: db, rootId: rootId) }) else {
+                guard let rows = try await pool.read({ db in try ChatRows.load(db: db, rootId: rootId) }) else {
                     origin = nil
                     continue
                 }
@@ -1281,13 +1281,13 @@ struct AgentSessionView: View {
                 let tree = messages.map(TreeMessage.init(messageRow:))
                 let byId = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 let cards = AskDock.sessionCards(tree)
-                var asks: [ThreadRow] = []
-                var surfaces: [String: ThreadRow] = [:]
+                var asks: [SessionChatRow] = []
+                var surfaces: [String: SessionChatRow] = [:]
                 for card in cards {
                     guard let message = byId[card.id] else { continue }
                     if card.kind == .surface {
-                        surfaces[card.id] = ThreadRow.surfaceCard(message)
-                    } else if let row = ThreadRow.askCard(message) {
+                        surfaces[card.id] = SessionChatRow.surfaceCard(message)
+                    } else if let row = SessionChatRow.askCard(message) {
                         asks.append(row)
                     }
                 }
@@ -1299,7 +1299,7 @@ struct AgentSessionView: View {
     }
 
     /// EXP-1398: a surface card's reply = the person's next message, through
-    /// the one send path (ThreadScreen `reply`).
+    /// the one send path (ChatScreen `reply`).
     private func replyFromSurface(_ text: String) {
         let api = deps.sessionsApi
         let accountId = accountId
@@ -1318,7 +1318,7 @@ struct AgentSessionView: View {
 
     /// EXP-1280: answer a tool-posted card (`sessions.answer`); a refusal
     /// toasts and the card stays answerable.
-    private func submitToolAnswer(_ card: ThreadCardAnswer) {
+    private func submitToolAnswer(_ card: ChatCardAnswer) {
         guard toolAnsweringId == nil else { return }
         toolAnsweringId = card.messageId
         let api = deps.sessionsApi
@@ -1618,7 +1618,7 @@ struct AgentSessionView: View {
 
     // MARK: - Bottom bar (steering input)
 
-    /// N-12: the composer never yields to a waiting card (session-thread.json
+    /// N-12: the composer never yields to a waiting card (session-chat.json
     /// retires `composerYieldsToCard`). EXP-621: it is tied to the SESSION,
     /// not the socket — it stays up through a reconnect and only goes away
     /// once the session is over. EXP-1295: a viewer who may not post (a
@@ -1642,7 +1642,7 @@ struct AgentSessionView: View {
                 // and `composerMenu` is what keeps them to one at a time.
                 composerMenuView(model)
                 // EXP-1316: THE floating composer (ExpUI), shared with a
-                // thread's Conversation.
+                // chat's Conversation.
                 FloatingComposer(
                     placeholder: model.composerPlaceholder,
                     open: composerOpen(model),
@@ -1874,7 +1874,7 @@ struct AgentSessionView: View {
             onReturn: { handleComposerReturn(model) },
             onSend: { sendMessage(model) },
             onIssueRefTap: { issueId in
-                openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                openIssueInnermost(issueId, outlet: chatIssueOutlet, deps: deps, accountId: accountId)
             },
             onArrow: { delta in
                 guard composerMenu(model) == .slash else { return false }
@@ -1887,7 +1887,7 @@ struct AgentSessionView: View {
                 return true
             },
             // #EXP-1625: the field beside `agent-composer-collapsed` (the
-            // thread's pair is `thread-composer-*`).
+            // chat's pair is `chat-composer-*`).
             fieldIdentifier: "agent-composer-field"
         )
         .onChange(of: model.draftText) { _, _ in
@@ -2169,7 +2169,7 @@ struct UserMessageBubble: View {
                     )
                     .padding(.top, parsed.text.isEmpty ? 0 : 4)
                 }
-                // Wave D: each file line = the comment thread's file row
+                // Wave D: each file line = the comment's file row
                 // (glyph + name, opens the attachment), never a broken image.
                 if !parsed.files.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
@@ -2250,7 +2250,7 @@ private struct BubbleCaptionLine: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(AgentFeed.queueRemoveLabel)
-                .accessibilityIdentifier("thread-queue-remove")
+                .accessibilityIdentifier("chat-queue-remove")
             }
         }
     }
@@ -2508,7 +2508,7 @@ struct QuestionCard: View {
     /// Image fetching for the prompt's markdown render (EXP-440).
     var markdownContext: AgentMarkdownContext? = nil
     /// THE ask dock (fixtures/ask-dock.json): the asking session's name, a
-    /// muted truncating caption beside the label (a thread's card).
+    /// muted truncating caption beside the label (a chat's card).
     var caption: String? = nil
     /// N-12: inside THE Dock's sheet (its header is the card's chrome): no
     /// glyph column, no card, the body never folds (the sheet scrolls).
@@ -2527,7 +2527,7 @@ struct QuestionCard: View {
     /// EXP-1280: the answered plan's feedback, under its decision (ONE
     /// `copy.feedbackLine`).
     var resolutionNote: String? = nil
-    /// EXP-1280: the form shows the answer itself (a thread question card's
+    /// EXP-1280: the form shows the answer itself (a chat question card's
     /// closed picks): no resolution line.
     var hidesResolution: Bool = false
     /// EXP-1280: the card's inline pictures (the rich card: radius 12 + the
@@ -2540,7 +2540,7 @@ struct QuestionCard: View {
     /// decision rows (`AskDock.Copy.feedbackPlaceholder`); it rides any
     /// decision as `feedback`, so the reject row no longer expands.
     var feedback: Binding<String>? = nil
-    /// #EXP-1464 (thread-row-action.json): trailing the label line (a
+    /// #EXP-1464 (chat-row-action.json): trailing the label line (a
     /// conversation row's expanded card: `Open chat`).
     var headerTrailing: AnyView? = nil
 
@@ -3950,7 +3950,7 @@ private struct CommandPill: View {
 /// stopped re-evaluating during scrolls on current iOS, leaving `atBottom`
 /// stuck true so the "Jump to bottom" pill never appeared and follow-scroll
 /// couldn't be escaped (EXP-212). Pre-18 keeps the preference path.
-/// EXP-1316 (1n): the thread Conversation follows with the same tracker.
+/// EXP-1316 (1n): the chat Conversation follows with the same tracker.
 struct FollowPinTracker: ViewModifier {
     @Binding var atBottom: Bool
     /// Within this many points of the bottom still counts as pinned.

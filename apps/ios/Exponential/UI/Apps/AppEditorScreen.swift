@@ -13,7 +13,7 @@ import SwiftUI
 /// pane:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
-///   `user_id` = me) as THE thread screen's channel (`ThreadScreen` with an
+///   `user_id` = me) as THE chat screen's channel (`ChatScreen` with an
 ///   editor slot: ChannelMessageRow rows, cards answering in place, THE
 ///   composer). No session yet = the same pane, empty (`copy.chatEmpty`),
 ///   whose composer's first send is `sessions.send({appId, text, deviceId})`
@@ -121,7 +121,7 @@ struct AppEditorScreen: View {
         Group {
             if let app = model.app {
                 if let rootId = model.rootId {
-                    ThreadScreen(rootId: rootId, editor: slot(app))
+                    ChatScreen(rootId: rootId, editor: slot(app))
                         .id(rootId)
                 } else {
                     AppEditorShell(title: title(app), band: band(app), pane: pane(app), trailing: menuButton(app)) {
@@ -131,7 +131,7 @@ struct AppEditorScreen: View {
             } else if model.missing {
                 ZStack {
                     AppBackground()
-                    EmptyState(.threadNotFound)
+                    EmptyState(.chatNotFound)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
@@ -272,8 +272,8 @@ struct AppEditorScreen: View {
 
     // MARK: - Chrome
 
-    private func slot(_ app: AppListEntry) -> ThreadEditorSlot {
-        ThreadEditorSlot(
+    private func slot(_ app: AppListEntry) -> ChatEditorSlot {
+        ChatEditorSlot(
             title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: menuButton(app),
             device: model.deviceMenu, appMove: model.deviceAppMove
         )
@@ -1563,7 +1563,7 @@ struct AppSettingsSheet: View {
 }
 
 /// The editor before its first message: the same
-/// chrome the thread screen gives an editor root — the title, the band, a
+/// chrome the chat screen gives an editor root — the title, the band, a
 /// pane covering the chat — over the empty chat.
 private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
     let title: Title

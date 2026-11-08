@@ -254,7 +254,7 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
     })
   })
 
-  it(`a thread root's plan: the session's title + needs you, the plan's first block`, async () => {
+  it(`a chat root's plan: the session's title + needs you, the plan's first block`, async () => {
     selectResults.push([root])
     delivered()
 
@@ -370,7 +370,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     })
   })
 
-  it(`derives an untitled thread's name from its first issue, else Untitled`, async () => {
+  it(`derives an untitled chat's name from its first issue, else Untitled`, async () => {
     selectResults.push([session])
     selectResults.push([]) // throttle
     // EXP-1341 session-title.json: the tree's links, then the input messages.

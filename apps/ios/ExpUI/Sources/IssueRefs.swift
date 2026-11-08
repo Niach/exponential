@@ -21,7 +21,7 @@ extension NSAttributedString.Key {
     public static let markdownChipBaseColor = NSAttributedString.Key("exp.markdownChipBaseColor")
 
     /// The `.font` a mention ran in before it took the pill's 13pt medium, so
-    /// un-chipping restores it (thread e4a04d22).
+    /// un-chipping restores it (session e4a04d22).
     public static let markdownChipBaseFont = NSAttributedString.Key("exp.markdownChipBaseFont")
 
     /// Editor only: the character right BEFORE a mention pill, kerned by the

@@ -1104,7 +1104,7 @@ impl Render for AgentDetailPane {
 
         // The board form's ONE identity row: icon, colour, name — icon and
         // colour save at once, the name on blur/Enter.
-        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let agent_id = agent.id.clone();
         let icon_picker = crate::board_form::icon_picker(
             "agent-detail",

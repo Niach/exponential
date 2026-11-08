@@ -1,7 +1,7 @@
 import ExpCore
 import SwiftUI
 
-/// S-3 inter-session links (session-thread.json, styleguide `session-xref`):
+/// S-3 inter-session links (session-chat.json, styleguide `session-xref`):
 /// the compact header naming ANOTHER session — the muted lead
 /// (`copy.xref[kind]`), the agent's mark (its icon in its colour, else the
 /// session glyph), the session's name and a muted `›`, one caption line,
@@ -42,7 +42,7 @@ public struct SessionXrefHeader: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(SessionTree.ThreadCopy.xrefTestId)
+        .accessibilityIdentifier(SessionTree.ChatCopy.xrefTestId)
     }
 
     private func line(chevron: Bool) -> some View {

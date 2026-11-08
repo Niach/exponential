@@ -112,9 +112,9 @@ data class IssueDraftUiState(
     /** EXP-1212: the row's files are listed (or there is no row). Until then
      *  a reopened draft counts as content: it may be file-only. */
     val attachmentsKnown: Boolean = false,
-    /** EXP-1284: the thread the issue files into — the route's `thread`,
+    /** EXP-1284: the chat the issue files into — the route's `chat`,
      *  else the reopened row's; it rides every upsert and the create. */
-    val threadId: String? = null,
+    val chatId: String? = null,
     /** EXP-1272: the row existed when the page opened (a Drafts list, a link
      *  to a saved draft): leaving keeps it with no prompt. */
     val reopened: Boolean = false,
@@ -148,9 +148,9 @@ class IssueDraftViewModel @Inject constructor(
     private val parentArg: String? = savedStateHandle.get<String>("parent")?.takeIf { it.isNotBlank() }
     private val statusArg: String? = savedStateHandle.get<String>("status")?.takeIf { it.isNotBlank() }
 
-    /** EXP-1284: "New issue in this thread" (the route) — the create links it
-     *  there; a reopened draft restores its own ([IssueDraftUiState.threadId]). */
-    private val threadArg: String? = savedStateHandle.get<String>("thread")?.takeIf { it.isNotBlank() }
+    /** EXP-1284: "New issue in this chat" (the route) — the create links it
+     *  there; a reopened draft restores its own ([IssueDraftUiState.chatId]). */
+    private val chatArg: String? = savedStateHandle.get<String>("chat")?.takeIf { it.isNotBlank() }
 
     /** Share mode: the `share-compose` route carries no draft id. */
     val shareMode: Boolean = draftIdArg == null
@@ -165,7 +165,7 @@ class IssueDraftViewModel @Inject constructor(
             boardId = savedStateHandle.get<String>("board")?.takeIf { it.isNotBlank() },
             seeded = deferUploads,
             attachmentsKnown = deferUploads,
-            threadId = threadArg,
+            chatId = chatArg,
         ),
     )
     val state: StateFlow<IssueDraftUiState> = _state
@@ -365,7 +365,7 @@ class IssueDraftViewModel @Inject constructor(
                             rowExists = true,
                             reopened = true,
                             boardId = it.boardId ?: row.boardId,
-                            threadId = it.threadId ?: row.threadId,
+                            chatId = it.chatId ?: row.chatId,
                         )
                     }
                     loadAttachments()
@@ -382,8 +382,8 @@ class IssueDraftViewModel @Inject constructor(
                             dueDate = row.dueDate,
                             labelIds = row.labelIds.toSet(),
                             boardId = row.boardId.ifBlank { null } ?: it.boardId,
-                            // EXP-1284: a reopened thread draft keeps its thread.
-                            threadId = it.threadId ?: row.threadId,
+                            // EXP-1284: a reopened chat draft keeps its chat.
+                            chatId = it.chatId ?: row.chatId,
                             rowExists = true,
                             reopened = true,
                             seeded = true,
@@ -684,7 +684,7 @@ class IssueDraftViewModel @Inject constructor(
             assigneeAgentId = s.assigneeAgentId,
             labelIds = (if (known.isEmpty()) s.labelIds else s.labelIds.filter { it in known }).sorted(),
             dueDate = s.dueDate,
-            threadId = s.threadId,
+            chatId = s.chatId,
         )
     }
 
@@ -706,7 +706,7 @@ class IssueDraftViewModel @Inject constructor(
                 // ALWAYS sent — an omitted list could never clear a selection.
                 labelIds = snap.labelIds,
                 dueDate = snap.dueDate,
-                threadId = snap.threadId,
+                chatId = snap.chatId,
             ),
         )
         lastWritten = snap
@@ -1041,7 +1041,7 @@ class IssueDraftViewModel @Inject constructor(
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                     draftId = draftId,
                     parentId = parentId,
-                    threadId = s.threadId,
+                    chatId = s.chatId,
                 ),
             )
             upsertCreatedLocally(accountId, created, labelIds)
@@ -1205,7 +1205,7 @@ private data class DraftSnapshot(
     val assigneeId: String?,
     val labelIds: List<String>,
     val dueDate: String?,
-    val threadId: String?,
+    val chatId: String?,
     val assigneeAgentId: String? = null,
 )
 
@@ -1219,5 +1219,5 @@ private fun com.exponential.app.data.db.IssueDraftEntity.toSnapshot() = DraftSna
     assigneeAgentId = assigneeAgentId,
     labelIds = labelIds.sorted(),
     dueDate = dueDate,
-    threadId = threadId,
+    chatId = chatId,
 )

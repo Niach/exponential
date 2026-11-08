@@ -73,7 +73,7 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     /// EXP-981: claude only — the model its subagents run on (always an
     /// explicit contract alias; the server drops a blank).
     public let subagentModel: String?
-    /// The dispatcher root's model (threads + team agents) on this agent.
+    /// The dispatcher root's model (chats + team agents) on this agent.
     public let threadModel: String?
     public let effort: String?
     public let ultracode: Bool?

@@ -71,9 +71,9 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     var pillMuted: Bool { publishedVersion == 0 }
 
     /// The glyph (the board icon set; an unknown name falls back to the
-    /// generic puzzle).
+    /// Apps glyph, `nav-apps`, ×4).
     var glyph: String {
-        BoardTypeDisplay.iconName(for: icon) ?? "puzzle"
+        BoardTypeDisplay.iconName(for: icon) ?? AppIcons.navApps
     }
 }
 
@@ -276,9 +276,9 @@ final class AppEditorModel {
     }
 
     /// #FEED-204: an ended root's next send, elsewhere; nil = a plain message.
-    var deviceAppMove: ThreadComposerDraft.AppMove? {
+    var deviceAppMove: ChatComposerDraft.AppMove? {
         guard deviceMove, let deviceId else { return nil }
-        return ThreadComposerDraft.AppMove(appId: boundAppId, deviceId: deviceId)
+        return ChatComposerDraft.AppMove(appId: boundAppId, deviceId: deviceId)
     }
 
     /// A pick is remembered per app on this device, never as the default.

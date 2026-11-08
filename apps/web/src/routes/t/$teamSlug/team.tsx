@@ -45,7 +45,7 @@ import {
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
 
-// Thread 58cb32df (#EXP-1373) → #EXP-1384 (chats.json `shell`, ×3 with iOS
+// Chat 58cb32df (#EXP-1373) → #EXP-1384 (chats.json `shell`, ×3 with iOS
 // and Android): the phone's TEAM tab. THE page header titled with the team's
 // name, the active team's avatar (84) + meta, a glass group of the viewer's
 // teams (the active one checked, a team with an unread notification an

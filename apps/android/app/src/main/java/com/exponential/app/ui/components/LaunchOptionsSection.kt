@@ -110,9 +110,9 @@ internal fun LaunchOptionsSection(
     /** EXP-981: claude's subagent model (always explicit). */
     subagentModel: String = DomainContract.deviceAgentDefaultsSubagentModel,
     onSubagentModelChange: ((String) -> Unit)? = null,
-    /** The dispatcher root's model (threads + team agents); null = no row. */
-    threadModel: String = defaultThreadModelFor(agent),
-    onThreadModelChange: ((String) -> Unit)? = null,
+    /** The dispatcher root's model (chats + team agents); null = no row. */
+    threadModel: String = defaultChatModelFor(agent),
+    onChatModelChange: ((String) -> Unit)? = null,
     noDeviceNote: String? = null,
     ultracode: Boolean = false,
     onUltracodeChange: (Boolean) -> Unit = {},
@@ -215,16 +215,16 @@ internal fun LaunchOptionsSection(
         // default entry: every model is explicit).
         ModelPickerRow(label = "Model", agent = agent, value = model, onSelect = onModelChange)
         // The dispatcher root's model, right under Model, per agent.
-        if (onThreadModelChange != null) {
+        if (onChatModelChange != null) {
             GroupDivider()
             ModelPickerRow(
-                label = THREAD_MODEL_LABEL,
+                label = CHAT_MODEL_LABEL,
                 agent = agent,
                 value = threadModel,
-                onSelect = onThreadModelChange,
+                onSelect = onChatModelChange,
             )
         }
-        // P25: Model · Thread model · Subagent model · Effort ×4.
+        // P25: Model · Chat model · Subagent model · Effort ×4.
         // EXP-981: the model a claude run's SUBAGENTS spend, stored per agent
         // in the machine's launch defaults. Offered only where the caller
         // edits it (the device sheet today); every other agent has none.

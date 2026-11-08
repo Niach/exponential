@@ -103,7 +103,7 @@ interface AgentDraft {
   model: string
   /** EXP-981: claude only; always explicit. */
   subagentModel?: string
-  /** The dispatcher root's model (threads + team agents). */
+  /** The dispatcher root's model (chats + team agents). */
   threadModel?: string
   effort: string
   ultracode: boolean
@@ -943,7 +943,7 @@ export function DeviceSettingsDialog({
               model={draft.model}
               onModelChange={(value) => patchDraft({ model: value })}
               threadModel={draft.threadModel ?? ``}
-              onThreadModelChange={(value) =>
+              onChatModelChange={(value) =>
                 patchDraft({ threadModel: value })
               }
               subagentModel={draft.subagentModel ?? ``}

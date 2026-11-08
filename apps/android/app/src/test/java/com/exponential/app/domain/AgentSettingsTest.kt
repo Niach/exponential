@@ -16,7 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-1291 Threads v2: Team settings → Agents is fixture-locked ×4 — every
+ * EXP-1291: Team settings → Agents is fixture-locked ×4 — every
  * `summaryCases` / `validationCases` / `accountValueCases` entry of `agent-settings.json` runs here
  * (TS `agent-settings.test.ts`), the validation output re-encoded in the
  * fixture's shape and compared WHOLE; the embedded copy and fields are proved

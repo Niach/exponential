@@ -8,7 +8,7 @@
 //! 1 of 2" in the header, the question, Back / Next in the footer).
 
 use domain::dock::{dock_rows, DockSource};
-use domain::session_tree::{PlanQuestion, QuestionOption, SessionThreadRow};
+use domain::session_tree::{PlanQuestion, QuestionOption, SessionChatRow};
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 
@@ -47,8 +47,8 @@ fn questions() -> Vec<PlanQuestion> {
 }
 
 /// The rich plan row the sheet draws.
-pub(super) fn rich_plan(id: &str) -> SessionThreadRow {
-    SessionThreadRow::Plan {
+pub(super) fn rich_plan(id: &str) -> SessionChatRow {
+    SessionChatRow::Plan {
         id: id.to_string(),
         session_id: "a".into(),
         plan: LONG_PLAN.to_string(),
@@ -88,11 +88,11 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let mut all: Vec<DockSource> = super::dock_card::sources().into_iter().take(3).collect();
     all.extend(asks());
     let rows = dock_rows(&all);
-    // The sheet at rest on page 0, the plan (web `ThreadPlanSheet`, iOS and
+    // The sheet at rest on page 0, the plan (web `ChatPlanSheet`, iOS and
     // Android draw the same page: Next in the footer, no step in the header).
     let plan_row = rich_plan("sg-ask-dock-sheet-plan");
     let sheet = crate::dock::sheet_host(|| {
-        crate::thread_screen::ask_row_sheet(&plan_row, &crate::thread_screen::ThreadText::default(), &images, window, cx)
+        crate::session_chat::ask_row_sheet(&plan_row, &crate::session_chat::ChatText::default(), &images, window, cx)
     })
     .map(|content| crate::dock::sheet_frame(&single[0], content, 420., cx));
     v_flex()

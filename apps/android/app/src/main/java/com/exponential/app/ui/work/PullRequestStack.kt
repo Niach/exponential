@@ -104,7 +104,7 @@ object PullRequestStack {
     /** One stack-rail row (desktop `pr_stack::StackViewRow`). */
     data class StackViewRow(
         val pullRequestId: String,
-        /** The thread a tap opens; null = not synced. */
+        /** The chat a tap opens; null = not synced. */
         val rootSessionId: String?,
         /** The representative issue's identifier, else `#<n>`. */
         val identifier: String,

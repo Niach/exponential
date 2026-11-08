@@ -3,7 +3,7 @@
 // contract addenda 1+2):
 //   - `text` = a body envelope to the target's ROOT key;
 //   - a root WITHOUT a key: an existing one gets it first
-//     (`sessionKeys.create`); a root the send creates (a new thread, the
+//     (`sessionKeys.create`); a root the send creates (a new chat, the
 //     first message to an agent or an app) carries it inline as
 //     `seal: {installId, publicKey, epoch: 1, wraps}`, which the server
 //     stores in the same transaction;

@@ -54,8 +54,8 @@ object PopRects {
      * `agent-composer-headline` (EXP-1038: the run's subject moved out of the
      * card, so the pop-out has to take it in) + `composer-agent-row` (S-3:
      * the agent row over the card; no options line) + `agent-composer`, `feed-question` (S-3: the relay's waiting question, inline),
-     * `work-merge-pr-section` (EXP-1154/1251: the Guide section page's white Merge capsule; EXP-1307: the thread Guide's own carries the fixture's `thread-guide-merge`, so the first match is the on-screen one), `notification-row`, plus the pre-existing `action-row`,
-     * `support-thread-row` and the EXP-642 `issue-row-<identifier>`) and are
+     * `work-merge-pr-section` (EXP-1154/1251: the Guide section page's white Merge capsule; EXP-1307: the chat Guide's own carries the fixture's `chat-guide-merge`, so the first match is the on-screen one), `notification-row`, plus the pre-existing `action-row`,
+     * `support-conversation-row` and the EXP-642 `issue-row-<identifier>`) and are
      * mirrored 1:1 as iOS accessibility identifiers.
      */
     val IDENTIFIERS: Map<String, List<String>> = mapOf(
@@ -65,7 +65,7 @@ object PopRects {
         "4_steering" to listOf("feed-question"),
         "6_actions" to listOf("action-row"),
         "7_inbox" to listOf("notification-row"),
-        "8_support" to listOf("support-thread-row"),
+        "8_support" to listOf("support-conversation-row"),
     )
 
     /**

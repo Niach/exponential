@@ -6,7 +6,7 @@ import com.exponential.app.data.api.trpcErrorMessage
  * EXP-1391: what a refused squash merge means for the UI.
  *
  * The refusal is a toast (`Couldn't merge the PR` / `the stack`, the server's
- * message verbatim, Retry) and the server posts it into the thread's root
+ * message verbatim, Retry) and the server posts it into the chat's root
  * session, whose agent takes it over (rebase, fix, wait). Nothing reads a
  * conflict any more: the Fix conflicts run is gone ×4. Mirrors web
  * `mergeFailure` (feedback-states.json `errors.mergeRefusal`).

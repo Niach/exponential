@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { PLAN_PAGE_SPECIMEN, PLAN_PAGE_TEST_IDS, planOutline } from "@exp/domain-contract/plan-page"
-import { threadAskRow } from "@exp/domain-contract/session-tree"
+import { chatAskRow } from "@exp/domain-contract/session-tree"
 import { PlanPage } from "./plan-page"
 import { PlanPageSpecimen } from "./plan-page-specimen"
 
@@ -31,7 +31,7 @@ describe(`PlanPage`, () => {
 
   it(`a picture inside the prose (mid-sentence) opens THE lightbox, never the renderer's own preview`, () => {
     const plan = `## A\n\nThe bar ![bar](/api/attachments/a) counts.\n\n![one](/api/attachments/b)\n\n![two](/api/attachments/c)`
-    const row = threadAskRow({
+    const row = chatAskRow({
       id: `m`,
       sessionId: `s`,
       authorKind: `agent`,
@@ -42,7 +42,7 @@ describe(`PlanPage`, () => {
       consumedAt: null,
       createdAt: new Date(0).toISOString(),
       authorSessionId: `s`,
-    }) as Extract<ReturnType<typeof threadAskRow>, { type: `plan` }>
+    }) as Extract<ReturnType<typeof chatAskRow>, { type: `plan` }>
     const ownPreview = vi.fn()
     // The renderer's own image preview (FeedText's) sits on the picture.
     const renderText = (text: string) => (

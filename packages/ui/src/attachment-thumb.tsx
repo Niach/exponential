@@ -188,7 +188,7 @@ export function AttachmentFileTile({
   )
 }
 
-/** A posted file as a message shows it: the comment thread's file chip
+/** A posted file as a message shows it: a comment's file chip
  *  (glyph + name), the whole chip opening the attachment in a new tab. */
 export function AttachmentFileLink({
   href,

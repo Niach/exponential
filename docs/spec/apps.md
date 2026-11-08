@@ -1,6 +1,6 @@
 # Apps: spec
 
-> Status: **approved 2026-11-01** (Danny; decisions in §18). **General availability: §20 (Milestone G, released 2026-11-03).** Batch-1 readiness: §20.1. Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + MCP Proxy), `packages/emcp`, genUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
+> Status: **approved 2026-11-01** (Danny; decisions in §18). **General availability: §20 (Milestone G, released 2026-11-03).** Batch-1 readiness: §20.1. Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + MCP Proxy), `packages/emcp`, genUI 0.3.0, the time-tracker check (session 2db0b7d0), ExponentialOS plan v5 (session 196b5162), Spezl #YO-32.
 > **The Engine** (Danny, 2026-11-05, #VAPP-259): §13.1 replaces S2 to S4; hosts in §16.
 > Legend: ✅ exists · 🟡 partial · ❌ missing · 🆕 proposed here (no issue yet). The mocks are drawn with genUI (React harness, exponential theme, dark).
 
@@ -945,7 +945,7 @@ Every host runs Apps on the Engine (§13.1) and fills in its providers (`package
 
 ## 17. Gap list and roadmap
 
-They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in thread 2db0b7d0. The first milestone is filed and done (✅, issues under #VAPP-175); the rest are proposals, not filed yet.
+They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in session 2db0b7d0. The first milestone is filed and done (✅, issues under #VAPP-175); the rest are proposals, not filed yet.
 
 **Phase 1: Records you can trust**
 

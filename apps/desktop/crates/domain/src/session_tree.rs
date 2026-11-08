@@ -1,18 +1,18 @@
-//! EXP-1294 (Threads v2): the session tree's view models — the Rust twin of
+//! EXP-1294: the session tree's view models — the Rust twin of
 //! `packages/domain-contract/src/session-tree.ts` (iOS ExpCore
 //! `SessionTree.swift`, Android `domain/SessionTree.kt`), byte-locked by the
 //! fixtures every mirror replays:
 //!
 //! * `fixtures/session-card.json`   → [`session_card`] (THE session card);
-//! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
+//! * `fixtures/session-chat.json` → [`build_session_chat`] (the chat
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
-//!   (the Guide's ONE PR) + [`thread_strip_mode`] (the strip, #EXP-1433);
-//! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
+//!   (the Guide's ONE PR) + [`chat_strip_mode`] (the strip, #EXP-1433);
+//! * `fixtures/chat-list.json`   → [`partition_chats`] (the Chats page:
 //!   Needs you · Running · Recent, live trees nested, EXP-1323) +
-//!   [`threads_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
+//!   [`chats_list_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
 //!
 //! The copy, icon concepts, tones and test ids come FROM the fixtures
-//! ([`SESSION_CARD`], [`THREAD`], [`THREADS_LIST`]), never re-typed. Inputs
+//! ([`SESSION_CARD`], [`SESSION_CHAT`], [`CHATS_LIST`]), never re-typed. Inputs
 //! are the synced domain rows themselves ([`SessionRow`], [`SessionIssueRow`],
 //! [`MessageRow`], [`PullRequestRow`]) plus a small [`TreeIssue`], so the UI
 //! converts nothing. Timestamps stay ISO strings (parsed with the crate's one
@@ -138,7 +138,7 @@ pub struct SessionCardSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ThreadCopy {
+pub struct ChatCopy {
     /// `Untitled`.
     pub untitled: String,
     /// The reply composer's placeholder (`Reply…`).
@@ -166,7 +166,7 @@ pub struct ThreadCopy {
     pub strip_group: String,
 }
 
-/// S-3: `session-thread.json` `copy.xref` (the [`SessionXref`] lead).
+/// S-3: `session-chat.json` `copy.xref` (the [`SessionXref`] lead).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct XrefCopy {
     pub message: String,
@@ -188,7 +188,7 @@ impl XrefCopy {
     }
 }
 
-/// EXP-1211: `session-thread.json` `copy.replies`.
+/// EXP-1211: `session-chat.json` `copy.replies`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RepliesCopy {
     /// The row's accessible label (`Quick replies`).
@@ -197,7 +197,7 @@ pub struct RepliesCopy {
     pub dismiss: String,
 }
 
-/// EXP-1323: `session-thread.json` `copy.suggestions` (`{count}` /
+/// EXP-1323: `session-chat.json` `copy.suggestions` (`{count}` /
 /// `{issue}` slots).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -218,7 +218,7 @@ pub struct SuggestionsCopy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ThreadTestIds {
+pub struct ChatTestIds {
     pub tabs: String,
     pub conversation: String,
     pub composer: String,
@@ -241,44 +241,44 @@ pub struct ThreadTestIds {
     pub group: String,
 }
 
-/// `fixtures/session-thread.json` minus its cases.
+/// `fixtures/session-chat.json` minus its cases.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadSpec {
-    pub copy: ThreadCopy,
-    pub test_ids: ThreadTestIds,
+pub struct ChatSpec {
+    pub copy: ChatCopy,
+    pub test_ids: ChatTestIds,
     /// #EXP-1433: the active group tab's label truncates at this width (px).
     pub strip_group_max_width: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ThreadsListGroupTitles {
+pub struct ChatsListGroupTitles {
     pub needs_you: String,
     pub running: String,
     pub recent: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ThreadsListCopy {
-    /// The page / rail entry name (`Threads`).
+pub struct ChatsListCopy {
+    /// The page / rail entry name (`Chats`).
     pub title: String,
     /// The rail section header (`Agents`).
     pub agents: String,
-    pub groups: ThreadsListGroupTitles,
+    pub groups: ChatsListGroupTitles,
     /// The empty page (`No sessions yet`).
     pub empty: String,
     /// EXP-1318: the rail band title (`Active`).
     pub rail: String,
     /// EXP-1318: the trailing words.
-    pub words: ThreadRowWords,
+    pub words: ChatRowWords,
 }
 
-/// `threads-list.json` `copy.words`. `deny_unknown_fields`: a word key
+/// `chat-list.json` `copy.words`. `deny_unknown_fields`: a word key
 /// re-added to the fixture must fail here as it does on iOS/Android, which
 /// assert the key set.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ThreadRowWords {
+pub struct ChatRowWords {
     pub stack: String,
     pub ready_to_merge: String,
     pub question: String,
@@ -295,20 +295,20 @@ pub struct AgentDefaults {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadsListTestIds {
+pub struct ChatsListTestIds {
     pub list: String,
     pub row: String,
     pub agent_row: String,
 }
 
-/// `fixtures/threads-list.json` minus its cases.
+/// `fixtures/chat-list.json` minus its cases.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadsListSpec {
-    pub copy: ThreadsListCopy,
+pub struct ChatsListSpec {
+    pub copy: ChatsListCopy,
     /// An agent row without its own icon/color.
     pub agent_defaults: AgentDefaults,
-    pub test_ids: ThreadsListTestIds,
+    pub test_ids: ChatsListTestIds,
     /// NEW-1: the Recent band's window + fill.
     pub recent: RecentRules,
     /// S-3: a nested child shows while active within this many minutes
@@ -316,7 +316,7 @@ pub struct ThreadsListSpec {
     pub recent_child_minutes: i64,
 }
 
-/// NEW-1: `threads-list.json` `recent`: every tree active within `hours`,
+/// NEW-1: `chat-list.json` `recent`: every tree active within `hours`,
 /// filled up to the last `max` by activity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub struct RecentRules {
@@ -326,22 +326,22 @@ pub struct RecentRules {
 
 const SESSION_CARD_JSON: &str =
     include_str!("../../../../../packages/domain-contract/fixtures/session-card.json");
-const SESSION_THREAD_JSON: &str =
-    include_str!("../../../../../packages/domain-contract/fixtures/session-thread.json");
-const THREADS_LIST_JSON: &str =
-    include_str!("../../../../../packages/domain-contract/fixtures/threads-list.json");
+const SESSION_CHAT_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/session-chat.json");
+const CHATS_LIST_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/chat-list.json");
 
 /// THE session card's copy, icons, tones and test id.
 pub static SESSION_CARD: LazyLock<SessionCardSpec> = LazyLock::new(|| {
     serde_json::from_str(SESSION_CARD_JSON).expect("session-card.json parses")
 });
-/// The thread screen's copy, title cap and test ids.
-pub static THREAD: LazyLock<ThreadSpec> = LazyLock::new(|| {
-    serde_json::from_str(SESSION_THREAD_JSON).expect("session-thread.json parses")
+/// The chat screen's copy, title cap and test ids.
+pub static SESSION_CHAT: LazyLock<ChatSpec> = LazyLock::new(|| {
+    serde_json::from_str(SESSION_CHAT_JSON).expect("session-chat.json parses")
 });
-/// The Threads page / rail Agents copy, agent defaults and test ids.
-pub static THREADS_LIST: LazyLock<ThreadsListSpec> = LazyLock::new(|| {
-    serde_json::from_str(THREADS_LIST_JSON).expect("threads-list.json parses")
+/// The Chats page / rail Agents copy, agent defaults and test ids.
+pub static CHATS_LIST: LazyLock<ChatsListSpec> = LazyLock::new(|| {
+    serde_json::from_str(CHATS_LIST_JSON).expect("chat-list.json parses")
 });
 
 // ---------------------------------------------------------------------------
@@ -479,7 +479,7 @@ pub fn visible_child(session: &SessionRow, now_ms: Option<i64>) -> bool {
         ms(session.updated_at.as_deref())
     };
     match (now_ms, last) {
-        (Some(at), Some(last)) => at - last <= THREADS_LIST.recent_child_minutes * 60 * 1000,
+        (Some(at), Some(last)) => at - last <= CHATS_LIST.recent_child_minutes * 60 * 1000,
         _ => false,
     }
 }
@@ -507,11 +507,11 @@ pub fn visible_tree<'a>(tree: &[&'a SessionRow], now_ms: Option<i64>) -> HashSet
     out
 }
 
-/// EXP-1312: a thread row's lead outside the Threads list (the rail's
+/// EXP-1312: a chat row's lead outside the Chats list (the rail's
 /// Running rows) ×4: needs you beats working, else the bare mark
-/// (`threads-list.json` `markCases`; the bare mark = [`SessionState::Idle`],
-/// the fixture's `waiting`, [`thread_row_mark_word`]).
-pub fn thread_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
+/// (`chat-list.json` `markCases`; the bare mark = [`SessionState::Idle`],
+/// the fixture's `waiting`, [`chat_row_mark_word`]).
+pub fn chat_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
     if needs_you {
         SessionState::NeedsYou
     } else if busy {
@@ -521,9 +521,9 @@ pub fn thread_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
     }
 }
 
-/// The wire word of a [`thread_row_mark_state`] (TS `threadRowMarkState`:
+/// The wire word of a [`chat_row_mark_state`] (TS `chatRowMarkState`:
 /// `needs_you` | `working` | `waiting`).
-pub fn thread_row_mark_word(state: SessionState) -> &'static str {
+pub fn chat_row_mark_word(state: SessionState) -> &'static str {
     match state {
         SessionState::NeedsYou => "needs_you",
         SessionState::Working => "working",
@@ -531,9 +531,9 @@ pub fn thread_row_mark_word(state: SessionState) -> &'static str {
     }
 }
 
-/// #EXP-1380: a thread row's PR lead (`threadRowLeadPr`): an open PR
+/// #EXP-1380: a chat row's PR lead (`chatRowLeadPr`): an open PR
 /// beats a merged one; none = the bare mark.
-pub fn thread_row_lead_pr<'a>(states: impl IntoIterator<Item = &'a str>) -> Option<PrLead> {
+pub fn chat_row_lead_pr<'a>(states: impl IntoIterator<Item = &'a str>) -> Option<PrLead> {
     let states: Vec<&str> = states.into_iter().collect();
     if states.contains(&"open") {
         Some(PrLead::Open)
@@ -544,7 +544,7 @@ pub fn thread_row_lead_pr<'a>(states: impl IntoIterator<Item = &'a str>) -> Opti
     }
 }
 
-/// [`thread_row_lead_pr`]'s answer.
+/// [`chat_row_lead_pr`]'s answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrLead {
     Open,
@@ -778,7 +778,7 @@ impl TreeIssue {
     }
 }
 
-/// NEW-1: a thread's issues = the UNION over its tree's rows: the sessions
+/// NEW-1: a chat's issues = the UNION over its tree's rows: the sessions
 /// in tree order (the root first, then creation order, [`tree_order`]), each
 /// one's rows by sort order then issue id, every issue once; unsynced issues
 /// drop out.
@@ -816,13 +816,13 @@ pub fn tree_issues(
 }
 
 // ---------------------------------------------------------------------------
-// The thread screen
+// The chat screen
 // ---------------------------------------------------------------------------
 
-/// One tab of the thread header strip.
+/// One tab of the chat header strip.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
-pub enum ThreadTab {
+pub enum ChatTab {
     /// The `+` (link / file an issue), LEFT of Conversation (EXP-1334).
     Add,
     Conversation,
@@ -831,7 +831,7 @@ pub enum ThreadTab {
     Issue {
         issue_id: String,
         identifier: String,
-        nested: Vec<ThreadTabNestedIssue>,
+        nested: Vec<ChatTabNestedIssue>,
     },
     /// EXP-1334: one of the dispatcher's DIRECT children; every deeper
     /// session folds into `nested`.
@@ -839,7 +839,7 @@ pub enum ThreadTab {
         session_id: String,
         name: String,
         mark_state: SessionTabMarkState,
-        nested: Vec<ThreadTabNestedSession>,
+        nested: Vec<ChatTabNestedSession>,
     },
 }
 
@@ -847,7 +847,7 @@ pub enum ThreadTab {
 /// to the chip (its children = 1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadTabNestedIssue {
+pub struct ChatTabNestedIssue {
     pub issue_id: String,
     pub identifier: String,
     pub depth: usize,
@@ -856,7 +856,7 @@ pub struct ThreadTabNestedIssue {
 /// EXP-1334: one row of a folded session chip's subtree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadTabNestedSession {
+pub struct ChatTabNestedSession {
     pub session_id: String,
     pub name: String,
     pub mark_state: SessionTabMarkState,
@@ -871,7 +871,7 @@ pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
     session_state(session)
 }
 
-/// EXP-1322: one option of a thread question card. The synced card carries
+/// EXP-1322: one option of a chat question card. The synced card carries
 /// `options` as bare labels with the parallel `optionDescriptions` sidecar
 /// (null / "" = none; the key omitted when no option has one); they zip here
 /// ([`question_options`]). The answer IS the label; the description renders
@@ -1013,16 +1013,16 @@ fn question_options(card: &Value) -> Vec<QuestionOption> {
         .collect()
 }
 
-/// Thread 58cb32df (chats.json SURFACE CARD): a `surface` message as its
-/// Conversation row (the thread's, and the session view's): the title
+/// Chat 58cb32df (chats.json SURFACE CARD): a `surface` message as its
+/// Conversation row (the chat's, and the session view's): the title
 /// trimmed (`None` when blank); no parseable surface = no row.
-pub fn surface_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
+pub fn surface_card_row(message: &MessageRow) -> Option<SessionChatRow> {
     let card = message.card.as_ref()?;
     if card_str(card, "kind") != Some(MESSAGE_CARD_KIND_SURFACE) {
         return None;
     }
     let surface = card_surface(card.get("surface"))?;
-    Some(SessionThreadRow::Surface {
+    Some(SessionChatRow::Surface {
         id: message.id.clone(),
         session_id: message.session_id.clone(),
         title: card_str(card, "title")
@@ -1034,12 +1034,12 @@ pub fn surface_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
 }
 
 /// EXP-1280: a `question` / `plan` message as its Conversation row (the
-/// thread's, and the session view's tool-posted card); any other message =
+/// chat's, and the session view's tool-posted card); any other message =
 /// `None`.
-pub fn ask_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
+pub fn ask_card_row(message: &MessageRow) -> Option<SessionChatRow> {
     let card = message.card.as_ref()?;
     Some(match card_str(card, "kind") {
-        Some(MESSAGE_CARD_KIND_QUESTION) => SessionThreadRow::Question {
+        Some(MESSAGE_CARD_KIND_QUESTION) => SessionChatRow::Question {
             id: message.id.clone(),
             session_id: message.session_id.clone(),
             question: js_string(card.get("question")),
@@ -1053,7 +1053,7 @@ pub fn ask_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
             answered: message.answered_at.is_some(),
             dismissed: (card.get("dismissed").and_then(Value::as_bool) == Some(true)).then_some(true),
         },
-        Some(MESSAGE_CARD_KIND_PLAN) => SessionThreadRow::Plan {
+        Some(MESSAGE_CARD_KIND_PLAN) => SessionChatRow::Plan {
             id: message.id.clone(),
             session_id: message.session_id.clone(),
             plan: js_string(card.get("plan")),
@@ -1094,10 +1094,10 @@ pub struct SessionXref {
     pub agent_id: Option<String>,
 }
 
-/// One row of the thread's Conversation (the TS `ThreadRow`).
+/// One row of the chat's Conversation (the TS `ChatRow`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
-pub enum SessionThreadRow {
+pub enum SessionChatRow {
     /// A card-less message: `author` = `user` | `agent` | `system`; a
     /// person's row is `queued` until the device consumed it.
     Message {
@@ -1185,14 +1185,14 @@ pub enum SessionThreadRow {
     },
     /// One muted line (`Linked EXP-12`, `Merged PR #45`). #EXP-1464:
     /// `session_id` = the synced session the line is about (its card's
-    /// `sessionId`), else `None`; thread-row-action.json opens it.
+    /// `sessionId`), else `None`; chat-row-action.json opens it.
     Event {
         id: String,
         event: String,
         text: String,
         session_id: Option<String>,
     },
-    /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
+    /// Chat 58cb32df (chats.json): a person's `/new` or `/compact` line,
     /// painted as the centred divider pill (`at` = the message's createdAt).
     Divider {
         id: String,
@@ -1206,7 +1206,7 @@ pub enum SessionThreadRow {
         reason: crate::sealed::LockedReason,
         author: String,
     },
-    /// Thread 58cb32df (chats.json): an agent's inline Exponential UI preview.
+    /// Chat 58cb32df (chats.json): an agent's inline Exponential UI preview.
     Surface {
         id: String,
         session_id: String,
@@ -1215,7 +1215,7 @@ pub enum SessionThreadRow {
     },
 }
 
-impl SessionThreadRow {
+impl SessionChatRow {
     /// The row's id (the message id it was built from).
     pub fn id(&self) -> &str {
         match self {
@@ -1267,7 +1267,7 @@ fn suggestions_row(
     titles: &HashMap<String, String>,
     issues: &HashMap<&str, &TreeIssue>,
     now: i64,
-) -> Option<SessionThreadRow> {
+) -> Option<SessionChatRow> {
     let Value::Array(raw_items) = card.get("items")? else {
         return None;
     };
@@ -1304,7 +1304,7 @@ fn suggestions_row(
     if items.is_empty() {
         return None;
     }
-    let copy = &THREAD.copy.suggestions;
+    let copy = &SESSION_CHAT.copy.suggestions;
     let started = items.iter().filter(|item| item.state == SuggestionState::Started).count();
     let count = if items.len() == 1 {
         copy.one.clone()
@@ -1316,7 +1316,7 @@ fn suggestions_row(
     } else {
         count
     };
-    Some(SessionThreadRow::Suggestions {
+    Some(SessionChatRow::Suggestions {
         id: message.id.clone(),
         session_id: message.session_id.clone(),
         header,
@@ -1325,27 +1325,27 @@ fn suggestions_row(
     })
 }
 
-/// Where the thread's composer sends (`sessions.send({sessionId})`).
+/// Where the chat's composer sends (`sessions.send({sessionId})`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadComposer {
+pub struct SessionChatComposer {
     pub session_id: String,
     pub placeholder: String,
 }
 
-/// The thread screen's model.
+/// The chat screen's model.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionThreadView {
+pub struct SessionChatView {
     pub root_id: String,
     pub title: String,
     /// `!root.shared`: a lock glyph beside the title.
     pub private: bool,
-    /// EXP-1316: the focused session (`None` = the thread).
+    /// EXP-1316: the focused session (`None` = the chat).
     pub focus_id: Option<String>,
-    pub tabs: Vec<ThreadTab>,
-    pub rows: Vec<SessionThreadRow>,
-    pub composer: ThreadComposer,
+    pub tabs: Vec<ChatTab>,
+    pub rows: Vec<SessionChatRow>,
+    pub composer: SessionChatComposer,
     /// Any non-ended session in the tree.
     pub live: bool,
     /// EXP-1323: the live tail (Tasks card + status line) reads this
@@ -1353,7 +1353,7 @@ pub struct SessionThreadView {
     pub live_session_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
-    /// NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+    /// NEW-6 (N-1): a chat with ONE session (the root alone, no child yet)
     /// shows that session's raw work as the main thing: its id, and the
     /// strip carries no Conversation tab. `None` once a second session exists.
     pub main_session_id: Option<String>,
@@ -1363,9 +1363,9 @@ pub struct SessionThreadView {
     pub origin: Option<SessionXref>,
 }
 
-/// [`build_session_thread`]'s input: what the caller synced.
+/// [`build_session_chat`]'s input: what the caller synced.
 #[derive(Debug, Clone, Copy)]
-pub struct SessionThreadInput<'a> {
+pub struct SessionChatInput<'a> {
     pub root: &'a SessionRow,
     /// The tree's sessions (others are ignored).
     pub sessions: &'a [&'a SessionRow],
@@ -1385,11 +1385,11 @@ fn event_text(
     let event = js_string(card.get("event"));
     // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
     // (merge-train.json copy.events); an unknown or missing outcome keeps
-    // session-thread's fallback.
+    // session-chat's fallback.
     let outcome = (event == "pr_merge").then(|| card_str(card, "mergeOutcome")).flatten();
     let mut text = match crate::merge_train::event_line(outcome) {
         Some(line) => line.to_string(),
-        None => THREAD.copy.events.get(&event)?.clone(),
+        None => SESSION_CHAT.copy.events.get(&event)?.clone(),
     };
     if text.contains("{issue}") {
         let issue = card_str(card, "issueId").and_then(|id| issues.get(id))?;
@@ -1415,7 +1415,7 @@ fn event_text(
     Some(text)
 }
 
-/// EXP-1306: the ONE pull request the thread's Guide speaks for (its stack
+/// EXP-1306: the ONE pull request the chat's Guide speaks for (its stack
 /// rail + the bottom Merge capsule): the newest open one, else the newest
 /// merged one (`created_at`, ties by the higher number); a closed PR never
 /// counts.
@@ -1458,7 +1458,7 @@ pub struct ComposerReplies {
     pub items: Vec<ComposerReply>,
 }
 
-/// EXP-1211 (`session-thread.json` `repliesCases`, TS `composerReplies`):
+/// EXP-1211 (`session-chat.json` `repliesCases`, TS `composerReplies`):
 /// the session's NEWEST `replies` card (created_at, then id) minus its sent,
 /// id-less and blank items; `None` when nothing is left. A replies card is
 /// never a Conversation row.
@@ -1494,10 +1494,10 @@ pub fn composer_replies(session_id: &str, messages: &[&MessageRow]) -> Option<Co
     (!items.is_empty()).then(|| ComposerReplies { message_id: newest.id.clone(), items })
 }
 
-// ── EXP-1334: the thread strip never scrolls ────────────────────────────────
+// ── EXP-1334: the chat strip never scrolls ────────────────────────────────
 
 /// Which chips get drawn, in order; the rest collapse into one "+N"
-/// (EXP-288/326/343, the work tab strip's packer, shared with the thread
+/// (EXP-288/326/343, the work tab strip's packer, shared with the chat
 /// strip). Chips pack in order until the next would not fit; the overflow
 /// chip's width is reserved only once something overflows; the ACTIVE
 /// chip's width is committed first so it is always visible (EXP-343: the
@@ -1546,7 +1546,7 @@ pub fn partition_tabs(
     visible
 }
 
-/// #EXP-1433: [`thread_strip_mode`]'s mode.
+/// #EXP-1433: [`chat_strip_mode`]'s mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StripMode {
@@ -1556,18 +1556,18 @@ pub enum StripMode {
     Group,
 }
 
-/// #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+/// #EXP-1433 (session-chat.json `stripModeCases`): the strip between
 /// Conversation and Results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ThreadStripMode {
+pub struct ChatStripMode {
     pub mode: StripMode,
     /// Issues + sessions (the group menu's row count).
     pub count: usize,
 }
 
 /// #EXP-1433: `chips` while at most ONE issue and NO session, else `group`.
-pub fn thread_strip_mode(issues: usize, sessions: usize) -> ThreadStripMode {
-    ThreadStripMode {
+pub fn chat_strip_mode(issues: usize, sessions: usize) -> ChatStripMode {
+    ChatStripMode {
         mode: if issues <= 1 && sessions == 0 { StripMode::Chips } else { StripMode::Group },
         count: issues + sessions,
     }
@@ -1645,16 +1645,16 @@ fn issue_fold_parent<'a>(
     None
 }
 
-/// The thread screen (EXP-1334): the header strip (`+` · Conversation · one
+/// The chat screen (EXP-1334): the header strip (`+` · Conversation · one
 /// chip per TOP-LEVEL linked issue, its linked sub-issues folded under it ·
 /// one chip per DIRECT child of the dispatcher, every deeper session folded
 /// under its top-level ancestor · Guide), the dispatcher's conversation as
 /// rows (no card of its own: its messages oldest first, a
 /// `session`/`thread_started` card becoming that session's card, a child's
 /// open question/plan card surfacing here) and the composer target (the
-/// root). `focus` = the session open in place ([`SessionThreadView::focus_id`]);
+/// root). `focus` = the session open in place ([`SessionChatView::focus_id`]);
 /// the chips stay the dispatcher's.
-/// #EXP-1682 (session-thread.json `$comment` ATTACHMENTS, TS
+/// #EXP-1682 (session-chat.json `$comment` ATTACHMENTS, TS
 /// `messageRowBody`): a message row's body = its body, then a blank line and
 /// one `![image](/api/attachments/<id>)` line per clear `attachment_ids`
 /// entry the body does not already name (the steer image block, the same one
@@ -1674,7 +1674,7 @@ pub fn message_row_body(body: &str, attachment_ids: &[String]) -> String {
     crate::image_message::build_steer_image_message(body, &missing)
 }
 
-pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) -> SessionThreadView {
+pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> SessionChatView {
     let root = input.root;
     let now = input.now_ms;
     let members: Vec<&SessionRow> = input
@@ -1741,7 +1741,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         .copied()
         .filter(|session| shown.contains(session.id.as_str()) || focus.is_some_and(|focus| focus.id == session.id))
         .collect();
-    let session_tabs: Vec<ThreadTab> = fold_forest(
+    let session_tabs: Vec<ChatTab> = fold_forest(
         &children,
         |session| session.id.as_str(),
         |session| match session.parent_id.as_deref() {
@@ -1750,13 +1750,13 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         },
     )
     .into_iter()
-    .map(|(top, nested)| ThreadTab::Session {
+    .map(|(top, nested)| ChatTab::Session {
         session_id: top.id.clone(),
         name: name_of(top),
         mark_state: session_tab_mark_state(top),
         nested: nested
             .into_iter()
-            .map(|(item, depth)| ThreadTabNestedSession {
+            .map(|(item, depth)| ChatTabNestedSession {
                 session_id: item.id.clone(),
                 name: name_of(item),
                 mark_state: session_tab_mark_state(item),
@@ -1767,18 +1767,18 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     .collect();
     let linked_ids: HashSet<&str> = issues.iter().map(|issue| issue.id.as_str()).collect();
     let issue_refs: Vec<&TreeIssue> = issues.iter().collect();
-    let issue_tabs: Vec<ThreadTab> = fold_forest(
+    let issue_tabs: Vec<ChatTab> = fold_forest(
         &issue_refs,
         |issue| issue.id.as_str(),
         |issue| issue_fold_parent(issue, &linked_ids, &issue_map),
     )
     .into_iter()
-    .map(|(top, nested)| ThreadTab::Issue {
+    .map(|(top, nested)| ChatTab::Issue {
         issue_id: top.id.clone(),
         identifier: top.identifier.clone(),
         nested: nested
             .into_iter()
-            .map(|(item, depth)| ThreadTabNestedIssue {
+            .map(|(item, depth)| ChatTabNestedIssue {
                 issue_id: item.id.clone(),
                 identifier: item.identifier.clone(),
                 depth,
@@ -1802,7 +1802,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             .cmp(&ms_or_zero(b.created_at.as_deref()))
             .then_with(|| a.id.cmp(&b.id))
     });
-    let mut rows: Vec<SessionThreadRow> = Vec::new();
+    let mut rows: Vec<SessionChatRow> = Vec::new();
     let messages_by_id: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();
     let mut escalated: HashSet<&str> = HashSet::new();
@@ -1813,7 +1813,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
                 _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
             };
-            rows.push(SessionThreadRow::Locked { id: message.id.clone(), reason, author: author.to_string() });
+            rows.push(SessionChatRow::Locked { id: message.id.clone(), reason, author: author.to_string() });
             continue;
         }
         let Some(card) = message.card.as_ref() else {
@@ -1830,14 +1830,14 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 .then(|| crate::chats::command_divider(message.body_text()))
                 .flatten();
             if let Some(kind) = divider {
-                rows.push(SessionThreadRow::Divider {
+                rows.push(SessionChatRow::Divider {
                     id: message.id.clone(),
                     kind,
                     at: message.created_at.clone().unwrap_or_default(),
                 });
                 continue;
             }
-            rows.push(SessionThreadRow::Message {
+            rows.push(SessionChatRow::Message {
                 id: message.id.clone(),
                 author: author.to_string(),
                 author_id: message.author_id.clone(),
@@ -1858,7 +1858,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
                     continue;
                 };
-                rows.push(SessionThreadRow::Session {
+                rows.push(SessionChatRow::Session {
                     id: message.id.clone(),
                     card: session_card(target, title_of(&titles, &target.id), now),
                 });
@@ -1866,7 +1866,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             Some(MESSAGE_CARD_KIND_QUESTION) | Some(MESSAGE_CARD_KIND_PLAN) => {
                 rows.extend(ask_card_row(message));
             }
-            Some(MESSAGE_CARD_KIND_SUBAGENT) => rows.push(SessionThreadRow::Subagent {
+            Some(MESSAGE_CARD_KIND_SUBAGENT) => rows.push(SessionChatRow::Subagent {
                 id: message.id.clone(),
                 title: js_string(card.get("title")),
                 status: js_string(card.get("status")),
@@ -1875,7 +1875,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 let Some(attachment_id) = card_str(card, "attachmentId") else {
                     continue;
                 };
-                rows.push(SessionThreadRow::Picture {
+                rows.push(SessionChatRow::Picture {
                     id: message.id.clone(),
                     attachment_id: attachment_id.to_string(),
                     width: card.get("width").and_then(Value::as_f64),
@@ -1888,10 +1888,10 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     continue;
                 };
                 let name = session_card(target, title_of(&titles, &target.id), now).name;
-                rows.push(SessionThreadRow::Report {
+                rows.push(SessionChatRow::Report {
                     id: message.id.clone(),
                     session_id: target.id.clone(),
-                    text: THREAD.copy.report.replacen("{session}", &name, 1),
+                    text: SESSION_CHAT.copy.report.replacen("{session}", &name, 1),
                     summary: card_str(card, "summary")
                         .map_or_else(|| message.body_text().to_string(), str::to_string),
                     xref: xref("report", Some(target.id.as_str())).expect("a synced report target"),
@@ -1912,7 +1912,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     let about = card_str(card, "sessionId")
                         .filter(|id| by_id.contains_key(id))
                         .map(str::to_string);
-                    rows.push(SessionThreadRow::Event {
+                    rows.push(SessionChatRow::Event {
                         id: message.id.clone(),
                         event: js_string(card.get("event")),
                         text,
@@ -1923,7 +1923,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             // NEW-1: a child's ask mirrored into its parent: the child's own
             // card already surfaces in the Conversation, so it draws nothing.
             // #EXP-1399: a mirror from ANOTHER tree (an agent's conversation
-            // watching a thread, `escalate`) = the origin's session card +
+            // watching a chat, `escalate`) = the origin's session card +
             // THE origin card, read from its message (first mirror wins).
             Some(MESSAGE_CARD_KIND_ASK) => {
                 let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
@@ -1945,7 +1945,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 if !escalated.insert(origin.id.as_str()) {
                     continue;
                 }
-                rows.push(SessionThreadRow::Session {
+                rows.push(SessionChatRow::Session {
                     id: message.id.clone(),
                     card: session_card(target, title_of(&titles, &target.id), now),
                 });
@@ -1957,8 +1957,8 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
-    // NEW-6 (N-1): the root alone = the thread IS that session.
-    // NEW-6 (N-1): the root alone = the thread IS that session (the
+    // NEW-6 (N-1): the root alone = the chat IS that session.
+    // NEW-6 (N-1): the root alone = the chat IS that session (the
     // Conversation tab opens its raw work, `main_session_id`); NEW-46: the
     // tab itself is always in the strip.
     let single = tree.iter().all(|session| session.id == root.id);
@@ -1979,25 +1979,25 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     });
     let origin = xref(if viewed.is_ended() { "reported" } else { "started" }, starter.as_deref());
     // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
-    let tabs = match thread_chat_mode(root.agent_id.as_deref()) {
-        ThreadChatMode::Bubbles => vec![ThreadTab::Conversation],
-        ThreadChatMode::Transcript => {
-            let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
+    let tabs = match chat_mode(root.agent_id.as_deref()) {
+        ChatMode::Bubbles => vec![ChatTab::Conversation],
+        ChatMode::Transcript => {
+            let mut tabs = vec![ChatTab::Add, ChatTab::Conversation];
             tabs.extend(issue_tabs);
             tabs.extend(session_tabs);
             tabs
         }
     };
-    SessionThreadView {
+    SessionChatView {
         root_id: root.id.clone(),
         title,
         private: !root.shared,
         focus_id: focus.map(|session| session.id.clone()),
         tabs,
         rows,
-        composer: ThreadComposer {
+        composer: SessionChatComposer {
             session_id: root.id.clone(),
-            placeholder: THREAD.copy.placeholder.clone(),
+            placeholder: SESSION_CHAT.copy.placeholder.clone(),
         },
         live: !live.is_empty(),
         live_session_id: (!root.is_ended()).then(|| root.id.clone()),
@@ -2009,16 +2009,16 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
 }
 
 // ---------------------------------------------------------------------------
-// The Threads page + the rail's Agents
+// The Chats page + the rail's Agents
 // ---------------------------------------------------------------------------
 
-/// One row of the Threads page.
+/// One row of the Chats page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadsListRow {
+pub struct ChatsListRow {
     pub session_id: String,
     pub team_id: String,
-    /// EXP-1323: 0 = the thread; #EXP-1461 every list row is a root, so
+    /// EXP-1323: 0 = the chat; #EXP-1461 every list row is a root, so
     /// always 0 with `parent_id` `None`.
     #[serde(default)]
     pub depth: usize,
@@ -2047,18 +2047,18 @@ pub struct ThreadsListRow {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ThreadsListKey {
+pub enum ChatsListKey {
     NeedsYou,
     Running,
     Recent,
 }
 
-impl ThreadsListKey {
-    pub const ALL: [ThreadsListKey; 3] = [Self::NeedsYou, Self::Running, Self::Recent];
+impl ChatsListKey {
+    pub const ALL: [ChatsListKey; 3] = [Self::NeedsYou, Self::Running, Self::Recent];
 
     /// The band title (`Needs you`, `Running`, `Recent`).
     pub fn title(self) -> &'static str {
-        let groups = &THREADS_LIST.copy.groups;
+        let groups = &CHATS_LIST.copy.groups;
         match self {
             Self::NeedsYou => &groups.needs_you,
             Self::Running => &groups.running,
@@ -2067,18 +2067,18 @@ impl ThreadsListKey {
     }
 }
 
-/// One band of the Threads page.
+/// One band of the Chats page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadsListGroup {
-    pub key: ThreadsListKey,
+pub struct ChatsListGroup {
+    pub key: ChatsListKey,
     pub title: String,
-    pub rows: Vec<ThreadsListRow>,
+    pub rows: Vec<ChatsListRow>,
 }
 
-/// [`partition_threads`]'s input.
+/// [`partition_chats`]'s input.
 #[derive(Debug, Clone, Copy)]
-pub struct ThreadsListInput<'a> {
+pub struct ChatsListInput<'a> {
     pub sessions: &'a [&'a SessionRow],
     pub session_issues: &'a [&'a SessionIssueRow],
     pub issues: &'a [TreeIssue],
@@ -2099,7 +2099,7 @@ pub type TreeState = SessionState;
 /// NEW-1 / S-3 (TS `treeState`): `needs_you` = a live session waits on a
 /// person (`needs_input`, a usage wall or a watchdog flag included);
 /// `working` = any live session queued or busy; `done` = every session
-/// ended, or every PR of the thread merged (none = never done this way);
+/// ended, or every PR of the chat merged (none = never done this way);
 /// else `idle`. `now_ms` is kept for the signature (no stale state).
 pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], _now_ms: i64) -> TreeState {
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
@@ -2118,11 +2118,11 @@ pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], _now_
     SessionState::Idle
 }
 
-/// The Threads page: roots of kind `thread` in scope grouped Needs you (a
+/// The Chats page: roots of kind `thread` in scope grouped Needs you (a
 /// live session of the tree waits on a person) · Running (any session
 /// queued or running) · Recent (the rest), each by the tree's newest
 /// `updated_at` desc (ties by id). Empty groups are omitted.
-pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
+pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
     let read_at: HashMap<&str, i64> = input
         .reads
         .iter()
@@ -2148,11 +2148,11 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
     for session in input.sessions {
         by_root.entry(session.root_id_or_self()).or_default().push(session);
     }
-    let mut buckets: HashMap<ThreadsListKey, Vec<ThreadsListRow>> = HashMap::new();
+    let mut buckets: HashMap<ChatsListKey, Vec<ChatsListRow>> = HashMap::new();
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
             // NEW-2: an agent's conversation (a root with `agent_id`) is no
-            // thread; VAPP-110: neither is an app's editor session (`app_id`).
+            // chat; VAPP-110: neither is an app's editor session (`app_id`).
             && !session.is_agent()
             && !session.is_app_editor()
             && input
@@ -2172,13 +2172,13 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         }
         let title = session_title(root, input.session_issues, input.issues, input.messages);
         let key = if needs_you {
-            ThreadsListKey::NeedsYou
+            ChatsListKey::NeedsYou
         } else if running {
-            ThreadsListKey::Running
+            ChatsListKey::Running
         } else {
-            ThreadsListKey::Recent
+            ChatsListKey::Recent
         };
-        let row = ThreadsListRow {
+        let row = ChatsListRow {
             session_id: root.id.clone(),
             team_id: root.team_id.clone().unwrap_or_default(),
             depth: 0,
@@ -2197,7 +2197,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         // child; the tree's state (needs you, working, unread) rolls up into it.
         buckets.entry(key).or_default().push(row);
     }
-    ThreadsListKey::ALL
+    ChatsListKey::ALL
         .into_iter()
         .filter_map(|key| {
             let mut rows = buckets.remove(&key)?;
@@ -2206,10 +2206,10 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     .cmp(&ms_or_zero(Some(&a.activity_at)))
                     .then_with(|| a.session_id.cmp(&b.session_id))
             });
-            if key == ThreadsListKey::Recent {
+            if key == ChatsListKey::Recent {
                 // NEW-1: every tree active in the last `recent.hours`, filled
                 // up to the last `recent.max` by activity.
-                let rules = THREADS_LIST.recent;
+                let rules = CHATS_LIST.recent;
                 let window = rules.hours * 60 * 60 * 1000;
                 rows = rows
                     .into_iter()
@@ -2223,7 +2223,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     .map(|(_, row)| row)
                     .collect();
             }
-            Some(ThreadsListGroup {
+            Some(ChatsListGroup {
                 key,
                 title: key.title().to_string(),
                 rows,
@@ -2233,17 +2233,17 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         .collect()
 }
 
-/// EXP-1323: the Threads nav dot = any thread (depth 0) row is unread
-/// (`threads-list.json` `unreadCases`).
-pub fn threads_unread(groups: &[ThreadsListGroup]) -> bool {
+/// EXP-1323: the Chats nav dot = any chat (depth 0) row is unread
+/// (`chat-list.json` `unreadCases`).
+pub fn chats_list_unread(groups: &[ChatsListGroup]) -> bool {
     groups.iter().any(|group| group.rows.iter().any(|row| row.depth == 0 && row.unread))
 }
 
-/// EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (EXP-1339:
+/// EXP-1309/1318: the ONE quiet trailing word of a chat row ×4 (EXP-1339:
 /// no lock; `Merged` has no text, it only turns the lead violet).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum ThreadRowWord {
+pub enum ChatRowWord {
     Stack,
     ReadyToMerge,
     Merged,
@@ -2252,7 +2252,7 @@ pub enum ThreadRowWord {
     Question,
 }
 
-impl ThreadRowWord {
+impl ChatRowWord {
     /// The fixture key (`readyToMerge`, …).
     pub fn key(self) -> &'static str {
         match self {
@@ -2267,7 +2267,7 @@ impl ThreadRowWord {
     /// The copy (`ready to merge`, …); `None` for `Merged` (EXP-1339: the
     /// violet pr-merged lead says it, no trailing text).
     pub fn text(self) -> Option<&'static str> {
-        let words = &THREADS_LIST.copy.words;
+        let words = &CHATS_LIST.copy.words;
         match self {
             Self::Stack => Some(&words.stack),
             Self::ReadyToMerge => Some(&words.ready_to_merge),
@@ -2297,9 +2297,9 @@ impl StackPr {
     }
 }
 
-/// An open PR of the thread sits in an open stack: based on another open
+/// An open PR of the chat sits in an open stack: based on another open
 /// PR, or another open PR is based on it (`team_prs` = the team's PRs).
-pub fn thread_in_stack(pull_requests: &[StackPr], team_prs: &[StackPr]) -> bool {
+pub fn chat_in_stack(pull_requests: &[StackPr], team_prs: &[StackPr]) -> bool {
     let open: std::collections::HashSet<&str> = team_prs
         .iter()
         .filter(|pr| pr.state == "open")
@@ -2315,39 +2315,39 @@ pub fn thread_in_stack(pull_requests: &[StackPr], team_prs: &[StackPr]) -> bool 
 
 /// Word order: an open PR in a stack → stack; an open PR while nothing
 /// works → ready to merge (working = no word); else merged; else a
-/// question when waiting on a person; else none. `states` = the thread's
-/// PR states. (#EXP-1703: [`thread_row_word_on`] with the row's `offline`.)
-pub fn thread_row_word<'a>(
+/// question when waiting on a person; else none. `states` = the chat's
+/// PR states. (#EXP-1703: [`chat_row_word_on`] with the row's `offline`.)
+pub fn chat_row_word<'a>(
     states: impl IntoIterator<Item = &'a str>,
     busy: bool,
     needs_you: bool,
     in_stack: bool,
-) -> Option<ThreadRowWord> {
-    thread_row_word_on(states, busy, needs_you, in_stack, false)
+) -> Option<ChatRowWord> {
+    chat_row_word_on(states, busy, needs_you, in_stack, false)
 }
 
-/// [`thread_row_word`] with #EXP-1703's `offline` ([`tree_offline`], the
-/// row's [`ThreadsListRow::offline`]): waiting on a person only because its
+/// [`chat_row_word`] with #EXP-1703's `offline` ([`tree_offline`], the
+/// row's [`ChatsListRow::offline`]): waiting on a person only because its
 /// device is away reads `device offline` instead of `question`.
-pub fn thread_row_word_on<'a>(
+pub fn chat_row_word_on<'a>(
     states: impl IntoIterator<Item = &'a str>,
     busy: bool,
     needs_you: bool,
     in_stack: bool,
     offline: bool,
-) -> Option<ThreadRowWord> {
+) -> Option<ChatRowWord> {
     let states: Vec<&str> = states.into_iter().collect();
     if states.contains(&"open") {
         if in_stack {
-            return Some(ThreadRowWord::Stack);
+            return Some(ChatRowWord::Stack);
         }
-        return (!busy).then_some(ThreadRowWord::ReadyToMerge);
+        return (!busy).then_some(ChatRowWord::ReadyToMerge);
     }
     if states.contains(&"merged") {
-        return Some(ThreadRowWord::Merged);
+        return Some(ChatRowWord::Merged);
     }
     if needs_you {
-        return Some(if offline { ThreadRowWord::Offline } else { ThreadRowWord::Question });
+        return Some(if offline { ChatRowWord::Offline } else { ChatRowWord::Question });
     }
     None
 }
@@ -2362,16 +2362,16 @@ pub fn tree_offline(tree: &[&SessionRow]) -> bool {
 
 /// The rail's Active band (`copy.rail`): every Needs you row, every Running
 /// row, then the Recent rows whose word still asks for a merge.
-pub fn rail_threads(
-    groups: &[ThreadsListGroup],
-    word_of: impl Fn(&ThreadsListRow) -> Option<ThreadRowWord>,
-) -> Vec<ThreadsListRow> {
+pub fn rail_chats(
+    groups: &[ChatsListGroup],
+    word_of: impl Fn(&ChatsListRow) -> Option<ChatRowWord>,
+) -> Vec<ChatsListRow> {
     groups
         .iter()
         .flat_map(|group| {
             group.rows.iter().filter(|row| {
-                group.key != ThreadsListKey::Recent
-                    || matches!(word_of(row), Some(ThreadRowWord::ReadyToMerge | ThreadRowWord::Stack))
+                group.key != ChatsListKey::Recent
+                    || matches!(word_of(row), Some(ChatRowWord::ReadyToMerge | ChatRowWord::Stack))
             })
         })
         .cloned()
@@ -2448,7 +2448,7 @@ pub fn list_agents(
             })
             .then_with(|| a.id.cmp(&b.id))
     });
-    let defaults = &THREADS_LIST.agent_defaults;
+    let defaults = &CHATS_LIST.agent_defaults;
     agents
         .into_iter()
         .map(|agent| {
@@ -2468,16 +2468,16 @@ pub fn list_agents(
         .collect()
 }
 
-/// S-3 (TS `threadChatMode`, session-thread.json `chatModeCases`): THE
-/// thread screen's mode: an agent conversation paints chat bubbles, a thread
+/// S-3 (TS `chatMode`, session-chat.json `chatModeCases`): THE
+/// chat screen's mode: an agent conversation paints chat bubbles, a chat
 /// its transcript.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ThreadChatMode {
+pub enum ChatMode {
     Bubbles,
     Transcript,
 }
 
-impl ThreadChatMode {
+impl ChatMode {
     pub fn key(self) -> &'static str {
         match self {
             Self::Bubbles => "bubbles",
@@ -2486,11 +2486,11 @@ impl ThreadChatMode {
     }
 }
 
-pub fn thread_chat_mode(agent_id: Option<&str>) -> ThreadChatMode {
+pub fn chat_mode(agent_id: Option<&str>) -> ChatMode {
     if agent_id.is_some_and(|id| !id.is_empty()) {
-        ThreadChatMode::Bubbles
+        ChatMode::Bubbles
     } else {
-        ThreadChatMode::Transcript
+        ChatMode::Transcript
     }
 }
 
@@ -2656,7 +2656,7 @@ mod tests {
 
     /// #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
     /// (merge-train.json copy.events); none or an unknown one keeps
-    /// session-thread's `Auto-merge of PR {pr}`.
+    /// session-chat's `Auto-merge of PR {pr}`.
     #[test]
     fn a_pr_merge_line_reads_by_its_outcome() {
         let issues = HashMap::new();
@@ -2673,7 +2673,7 @@ mod tests {
                 "{outcome}"
             );
         }
-        let fallback = THREAD.copy.events.get("pr_merge").unwrap().replace("{pr}", "#12");
+        let fallback = SESSION_CHAT.copy.events.get("pr_merge").unwrap().replace("{pr}", "#12");
         assert_eq!(fallback, "Auto-merge of PR #12");
         assert_eq!(
             line(json!({"kind": "event", "event": "pr_merge", "pullRequestId": "p1", "mergeOutcome": "future"})),
@@ -2758,12 +2758,12 @@ mod tests {
         assert_eq!(SessionState::NeedsYou.word(), "Needs you");
         assert_eq!(SessionState::Working.icon(), "coding-running");
         assert_eq!(SessionState::NeedsYou.tone(), "amber");
-        assert_eq!(THREAD.copy.placeholder, "Type / for commands");
-        assert_eq!(THREADS_LIST.copy.title, "Chats");
-        assert_eq!(ThreadsListKey::Recent.title(), "Recent");
-        assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
-        assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });
-        assert_eq!(THREADS_LIST.recent_child_minutes, 120);
+        assert_eq!(SESSION_CHAT.copy.placeholder, "Type / for commands");
+        assert_eq!(CHATS_LIST.copy.title, "Chats");
+        assert_eq!(ChatsListKey::Recent.title(), "Recent");
+        assert_eq!(CHATS_LIST.agent_defaults.icon, "bot");
+        assert_eq!(CHATS_LIST.recent, RecentRules { hours: 24, max: 20 });
+        assert_eq!(CHATS_LIST.recent_child_minutes, 120);
         assert_eq!(SESSION_CARD.copy.blocked_kinds.get("rate_limit").map(String::as_str), Some("Usage limit"));
         // S-3: restarted is invisible (no word); #EXP-1703: device_offline
         // names a device that stayed away.
@@ -2776,11 +2776,11 @@ mod tests {
     /// The fixture's `copy.words` key set IS the struct's: an extra key
     /// (one re-added to the fixture) fails to parse, as on iOS/Android.
     #[test]
-    fn thread_row_words_refuse_unknown_keys() {
-        let mut words = fixture(THREADS_LIST_JSON)["copy"]["words"].clone();
-        assert!(serde_json::from_value::<ThreadRowWords>(words.clone()).is_ok());
+    fn chat_row_words_refuse_unknown_keys() {
+        let mut words = fixture(CHATS_LIST_JSON)["copy"]["words"].clone();
+        assert!(serde_json::from_value::<ChatRowWords>(words.clone()).is_ok());
         words["merged"] = Value::String("merged".into());
-        assert!(serde_json::from_value::<ThreadRowWords>(words).is_err());
+        assert!(serde_json::from_value::<ChatRowWords>(words).is_err());
     }
 
     #[test]
@@ -2821,10 +2821,10 @@ mod tests {
         }
     }
 
-    /// `session-thread.json` `cases`, whole objects.
+    /// `session-chat.json` `cases`, whole objects.
     #[test]
-    fn build_session_thread_matches_the_fixture() {
-        let fixture = fixture(SESSION_THREAD_JSON);
+    fn build_session_chat_matches_the_fixture() {
+        let fixture = fixture(SESSION_CHAT_JSON);
         let cases = fixture["cases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
@@ -2840,8 +2840,8 @@ mod tests {
             let links: Vec<&SessionIssueRow> = links.iter().collect();
             let messages: Vec<&MessageRow> = messages.iter().collect();
             let prs: Vec<&PullRequestRow> = prs.iter().collect();
-            let view = build_session_thread(
-                SessionThreadInput {
+            let view = build_session_chat(
+                SessionChatInput {
                 root: &root,
                 sessions: &sessions,
                 session_issues: &links,
@@ -2856,11 +2856,11 @@ mod tests {
         }
     }
 
-    /// `threads-list.json` `cases` (partitionThreads), `agentCases`
+    /// `chat-list.json` `cases` (partitionChats), `agentCases`
     /// (listAgents), whole values, and `markCases` (EXP-1312).
     #[test]
-    fn threads_list_matches_the_fixture() {
-        let fixture = fixture(THREADS_LIST_JSON);
+    fn chats_list_matches_the_fixture() {
+        let fixture = fixture(CHATS_LIST_JSON);
         let cases = fixture["cases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
@@ -2875,7 +2875,7 @@ mod tests {
             let links: Vec<&SessionIssueRow> = links.iter().collect();
             let messages: Vec<&MessageRow> = messages.iter().collect();
             let reads: Vec<&SessionReadRow> = reads.iter().collect();
-            let groups = partition_threads(ThreadsListInput {
+            let groups = partition_chats(ChatsListInput {
                 sessions: &sessions,
                 session_issues: &links,
                 issues: &issues,
@@ -2901,7 +2901,7 @@ mod tests {
             let links: Vec<&SessionIssueRow> = links.iter().collect();
             let messages: Vec<&MessageRow> = messages.iter().collect();
             let reads: Vec<&SessionReadRow> = reads.iter().collect();
-            let groups = partition_threads(ThreadsListInput {
+            let groups = partition_chats(ChatsListInput {
                 sessions: &sessions,
                 session_issues: &links,
                 issues: &issues,
@@ -2912,7 +2912,7 @@ mod tests {
             });
             let recent: Vec<&str> = groups
                 .iter()
-                .find(|group| group.key == ThreadsListKey::Recent)
+                .find(|group| group.key == ChatsListKey::Recent)
                 .map(|group| {
                     group
                         .rows
@@ -2944,8 +2944,8 @@ mod tests {
         let unread_cases = fixture["unreadCases"].as_array().unwrap();
         assert!(!unread_cases.is_empty());
         for case in unread_cases {
-            let groups: Vec<ThreadsListGroup> = serde_json::from_value(case["groups"].clone()).unwrap();
-            assert_eq!(threads_unread(&groups), case["expected"].as_bool().unwrap(), "{}", case["name"]);
+            let groups: Vec<ChatsListGroup> = serde_json::from_value(case["groups"].clone()).unwrap();
+            assert_eq!(chats_list_unread(&groups), case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
         let agent_cases = fixture["agentCases"].as_array().unwrap();
         assert!(!agent_cases.is_empty());
@@ -2970,10 +2970,10 @@ mod tests {
         assert!(!mark_cases.is_empty());
         for case in mark_cases {
             let input = &case["input"];
-            let state = thread_row_mark_state(input["needsYou"].as_bool().unwrap(), input["busy"].as_bool().unwrap());
-            assert_eq!(Some(thread_row_mark_word(state)), case["expected"].as_str(), "{}", case["name"]);
+            let state = chat_row_mark_state(input["needsYou"].as_bool().unwrap(), input["busy"].as_bool().unwrap());
+            assert_eq!(Some(chat_row_mark_word(state)), case["expected"].as_str(), "{}", case["name"]);
         }
-        assert_eq!(THREADS_LIST.copy.rail, "Active");
+        assert_eq!(CHATS_LIST.copy.rail, "Active");
         let stack_cases = fixture["stackCases"].as_array().unwrap();
         assert!(!stack_cases.is_empty());
         for case in stack_cases {
@@ -2981,7 +2981,7 @@ mod tests {
             let prs: Vec<StackPr> = serde_json::from_value(input["pullRequests"].clone()).unwrap();
             let team: Vec<StackPr> = serde_json::from_value(input["teamPrs"].clone()).unwrap();
             assert_eq!(
-                thread_in_stack(&prs, &team),
+                chat_in_stack(&prs, &team),
                 case["expected"].as_bool().unwrap(),
                 "{}",
                 case["name"]
@@ -2997,7 +2997,7 @@ mod tests {
                 .iter()
                 .map(|pr| pr["state"].as_str().unwrap())
                 .collect();
-            let word = thread_row_word_on(
+            let word = chat_row_word_on(
                 states,
                 input["busy"].as_bool().unwrap(),
                 input["needsYou"].as_bool().unwrap(),
@@ -3005,7 +3005,7 @@ mod tests {
                 // #EXP-1703: absent = false.
                 input["offline"].as_bool().unwrap_or(false),
             );
-            assert_eq!(word.map(ThreadRowWord::key), case["expected"].as_str(), "{}", case["name"]);
+            assert_eq!(word.map(ChatRowWord::key), case["expected"].as_str(), "{}", case["name"]);
         }
         // #EXP-1703: `offlineCases` (treeOffline).
         let offline_cases = fixture["offlineCases"].as_array().unwrap();
@@ -3019,15 +3019,15 @@ mod tests {
         assert!(!rail_cases.is_empty());
         for case in rail_cases {
             let input = &case["input"];
-            let groups: Vec<ThreadsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
+            let groups: Vec<ChatsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
             let words = &input["words"];
-            let ids: Vec<String> = rail_threads(&groups, |row| {
+            let ids: Vec<String> = rail_chats(&groups, |row| {
                 [
-                    ThreadRowWord::Stack,
-                    ThreadRowWord::ReadyToMerge,
-                    ThreadRowWord::Merged,
-                    ThreadRowWord::Offline,
-                    ThreadRowWord::Question,
+                    ChatRowWord::Stack,
+                    ChatRowWord::ReadyToMerge,
+                    ChatRowWord::Merged,
+                    ChatRowWord::Offline,
+                    ChatRowWord::Question,
                 ]
                     .into_iter()
                     .find(|word| words[row.session_id.as_str()].as_str() == Some(word.key()))
@@ -3040,7 +3040,7 @@ mod tests {
         }
         // Release train 2026-10-23 (NEW-41): `leadCases`, the row lead's PR
         // glyph. The IDE leads with the root's Guide PR
-        // (`ui::threads_view::thread_row_lead`): merged → violet, else open
+        // (`ui::chats_view::chat_row_lead`): merged → violet, else open
         // emerald, none → no glyph.
         let lead_cases = fixture["leadCases"].as_array().unwrap();
         assert!(!lead_cases.is_empty());
@@ -3055,7 +3055,7 @@ mod tests {
 
     #[test]
     fn guide_pull_request_and_composer_match_the_fixture() {
-        let fixture = fixture(SESSION_THREAD_JSON);
+        let fixture = fixture(SESSION_CHAT_JSON);
         let cases = fixture["guidePullRequestCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
@@ -3069,10 +3069,10 @@ mod tests {
         }
     }
 
-    /// EXP-1211: `session-thread.json` `repliesCases`, whole values.
+    /// EXP-1211: `session-chat.json` `repliesCases`, whole values.
     #[test]
     fn composer_replies_match_the_fixture() {
-        let fixture = fixture(SESSION_THREAD_JSON);
+        let fixture = fixture(SESSION_CHAT_JSON);
         let cases = fixture["repliesCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
@@ -3082,8 +3082,8 @@ mod tests {
             let replies = composer_replies(input["sessionId"].as_str().unwrap(), &messages);
             assert_whole(&replies, &case["expected"], case["name"].as_str().unwrap());
         }
-        assert_eq!(THREAD.copy.replies.label, "Quick replies");
-        assert_eq!(THREAD.test_ids.replies, "thread-replies");
+        assert_eq!(SESSION_CHAT.copy.replies.label, "Quick replies");
+        assert_eq!(SESSION_CHAT.test_ids.replies, "chat-replies");
     }
 
     /// An active index past the chips is no active chip: the plain pack,
@@ -3098,30 +3098,30 @@ mod tests {
         assert_eq!(partition_tabs(&[], 100., 4., 30., Some(0)), Vec::<usize>::new());
     }
 
-    /// #EXP-1433: `session-thread.json` `stripModeCases`, whole values.
+    /// #EXP-1433: `session-chat.json` `stripModeCases`, whole values.
     #[test]
-    fn thread_strip_mode_matches_the_fixture() {
-        let fixture = fixture(SESSION_THREAD_JSON);
+    fn chat_strip_mode_matches_the_fixture() {
+        let fixture = fixture(SESSION_CHAT_JSON);
         let cases = fixture["stripModeCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
             let count = |key: &str| input[key].as_u64().unwrap() as usize;
-            let mode = thread_strip_mode(count("issues"), count("sessions"));
+            let mode = chat_strip_mode(count("issues"), count("sessions"));
             assert_whole(&mode, &case["expected"], case["name"].as_str().unwrap());
         }
-        assert_eq!(THREAD.strip_group_max_width, 160);
-        assert_eq!(THREAD.test_ids.group, "thread-strip-group");
+        assert_eq!(SESSION_CHAT.strip_group_max_width, 160);
+        assert_eq!(SESSION_CHAT.test_ids.group, "chat-strip-group");
     }
 
-    /// S-3: `session-thread.json` `chatModeCases` (TS `threadChatMode`).
+    /// S-3: `session-chat.json` `chatModeCases` (TS `chatMode`).
     #[test]
     fn chat_mode_matches_the_fixture() {
-        let fixture: Value = serde_json::from_str(SESSION_THREAD_JSON).unwrap();
+        let fixture: Value = serde_json::from_str(SESSION_CHAT_JSON).unwrap();
         let cases = fixture["chatModeCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
-            let mode = thread_chat_mode(case["root"]["agentId"].as_str());
+            let mode = chat_mode(case["root"]["agentId"].as_str());
             assert_eq!(Some(mode.key()), case["expected"].as_str(), "{}", case["name"]);
         }
     }

@@ -128,7 +128,7 @@ function IssueDraftRoute() {
       initialBoardId={initialBoard.id}
       initialStatusId={search.status}
       from={search.from}
-      threadId={search.thread}
+      chatId={search.chat}
       fromShare={Boolean(search.share)}
       share={share}
     />

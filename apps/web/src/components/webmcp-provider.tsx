@@ -101,8 +101,8 @@ export function WebMcpProvider({
         } else if (target.kind === `inbox`) {
           void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug } })
         } else {
-          // `threads`: the Threads page.
-          void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })
+          // `chats`: the Chats page.
+          void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } })
         }
       },
     })

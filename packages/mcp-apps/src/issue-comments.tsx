@@ -11,7 +11,7 @@ import {
 import { useMcpActions } from "./actions"
 import { Markdown } from "./markdown"
 import type { IssueComment } from "./model"
-import { commentCaption, formatDate, threadComments } from "./issue-detail-logic"
+import { commentCaption, formatDate, nestComments } from "./issue-detail-logic"
 
 const LoadingIcon = conceptIcon(`ui-loading`)
 
@@ -23,7 +23,7 @@ export interface IssueMember {
   image?: string | null
 }
 
-// EXP-1183 — the issue face's conversation: the one-level thread oldest
+// EXP-1183 — the issue face's conversation: the one-level nesting, oldest
 // first (replies under their root), each by its author's mark + name and the
 // "via MCP" / "reporter" caption ×4, bodies as read-only GFM; the composer
 // under it posts through `exponential_comments_create` and hands the new row
@@ -43,11 +43,11 @@ export function IssueComments({
   onOpenLink?: (url: string) => void
   onPosted: (comment: IssueComment | null) => void
 }) {
-  const thread = threadComments(comments)
+  const nested = nestComments(comments)
   return (
     <section className="-mx-4 flex flex-col">
       <GlassSectionHeader label="Comments" count={comments.length} />
-      {thread.map(({ comment, reply }) => (
+      {nested.map(({ comment, reply }) => (
         <CommentRow
           key={comment.id}
           comment={comment}

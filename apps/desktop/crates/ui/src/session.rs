@@ -66,7 +66,7 @@ pub fn upgrade_required_handler(cx: &mut App) -> sync::UpgradeRequiredFn {
 /// EXP-1487: plus every session that is idle, not over: one the registry
 /// still names (whatever process recorded it: a left-behind run is re-claimed
 /// AFTER this pass, "idle, waiting for its next message") and every synced
-/// row on this device that has not ended. An idle thread's scratch dir, run
+/// row on this device that has not ended. An idle chat's scratch dir, run
 /// record and journal ARE its transcript and its resume; purging them left
 /// the view on "The agent is starting" forever.
 fn sweep_scratch_dirs(cx: &mut App) {

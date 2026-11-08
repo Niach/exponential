@@ -22,7 +22,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `ChatSelectionSpecimen / ChatList / ChatSelectBadge (phones) / ChatLeadDisc selected / ChatArchivedRow / BulkBarCapsule + the Checkbox recipe (wide)`,
       file: `packages/ui/src/chat-specimens.tsx`,
-      note: `routes/t/$teamSlug/threads/index.tsx + components/thread/chat-selection-bar.tsx (?view=archived)`,
+      note: `routes/t/$teamSlug/chats/index.tsx + components/chat/chat-selection-bar.tsx (?view=archived)`,
     },
     desktop: {
       state: `ok`,

@@ -52,31 +52,8 @@ final class WebLinksTests: XCTestCase {
         XCTAssertNil(WebLinks.agent(instanceUrl: "https://app.exponential.at", teamSlug: " "))
     }
 
-    // EXP-1288: a thread link from Mail, Safari or a share sheet opens the
-    // Thread screen, like the in-app `AppLink.thread`.
-    func testParseThreadUrl() {
-        let url = URL(string: "https://app.exponential.at/t/acme/threads/7f0c2b1e-1111-4222-8333-944455556666")!
-        XCTAssertEqual(
-            WebLinks.parse(url),
-            .thread(teamSlug: "acme", threadId: "7f0c2b1e-1111-4222-8333-944455556666")
-        )
-        let trailing = URL(string: "https://app.exponential.at/t/acme/threads/abc/")!
-        XCTAssertEqual(WebLinks.parse(trailing), .thread(teamSlug: "acme", threadId: "abc"))
-    }
-
-    func testThreadLinkMintParseRoundTrip() throws {
-        let minted = try XCTUnwrap(
-            WebLinks.thread(instanceUrl: "https://app.exponential.at/", teamSlug: "acme", threadId: "abc")
-        )
-        XCTAssertEqual(minted.absoluteString, "https://app.exponential.at/t/acme/threads/abc")
-        XCTAssertEqual(WebLinks.parse(minted), .thread(teamSlug: "acme", threadId: "abc"))
-        XCTAssertNil(WebLinks.thread(instanceUrl: nil, teamSlug: "acme", threadId: "abc"))
-        XCTAssertNil(WebLinks.thread(instanceUrl: "https://app.exponential.at", teamSlug: " ", threadId: "abc"))
-        XCTAssertNil(WebLinks.thread(instanceUrl: "https://app.exponential.at", teamSlug: "acme", threadId: ""))
-    }
-
     // EXP-1291: the PR body footer links the ROOT session with
-    // `?view=guide` — the thread on its Guide; a bare session link opens it
+    // `?view=guide` — the chat on its Guide; a bare session link opens it
     // without.
     func testParseSessionUrlCarriesTheGuideView() {
         let guide = URL(string: "https://app.exponential.at/t/acme/sessions/abc?view=guide")!
@@ -120,8 +97,8 @@ final class WebLinksTests: XCTestCase {
             "/t/acme/agent/extra", "/agent",
             // Only the session page itself (EXP-1291).
             "/t/acme/sessions", "/t/acme/sessions/abc/files", "/sessions/abc",
-            // Only the thread page itself (EXP-1288).
-            "/t/acme/threads", "/t/acme/threads/abc/guide", "/threads/abc",
+            // EXP-1733: the chats list is not a link target; chats are sessions.
+            "/t/acme/chats", "/t/acme/chats/abc",
             "/invite", "/auth/login",
         ] {
             let url = URL(string: "https://app.exponential.at\(path)")!

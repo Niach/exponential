@@ -1,4 +1,4 @@
-//! Thread 58cb32df (#EXP-1373) → #EXP-1384: `phone-tab-bar` (Special
+//! Session 58cb32df (#EXP-1373) → #EXP-1384: `phone-tab-bar` (Special
 //! components): THE phone bottom bar (`fixtures/chats.json` `shell.tabs` +
 //! `shell.bar`). The IDE has no phone shell, so this twin paints the web
 //! entry's specimen statically in the same look: the glass tab capsule (the
@@ -70,7 +70,7 @@ fn tab(tab: Tab, look: Look, caret: bool, cx: &App) -> AnyElement {
     let (board, board_icon, board_color) = BOARDS[0];
     let (label, glyph): (String, AnyElement) = match tab {
         Tab::Board => (board.to_string(), board_glyph(board_icon, board_color, 20.)),
-        Tab::Chats => (tabs.chats.clone(), concept(registry::NAV_THREADS)),
+        Tab::Chats => (tabs.chats.clone(), concept(registry::NAV_CHATS)),
         Tab::Apps => (tabs.apps.clone(), concept(registry::NAV_APPS)),
         Tab::Team => (TEAM.to_string(), crate::user_avatar::team_glyph(20.)),
     };

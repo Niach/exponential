@@ -18,11 +18,11 @@ import { conceptIcon } from "./icons.generated"
 import { MenuPanel, type MenuEntry, type MenuSubmenuEntry } from "./menu"
 import { Pill } from "./pill"
 
-// #EXP-1611 (fixtures/pr-checks.json CHECKS LIST): the PR's CI on the thread
+// #EXP-1611 (fixtures/pr-checks.json CHECKS LIST): the PR's CI on the chat
 // header ×4, the `…` menu's Checks submenu over the synced
 // `pull_request_checks` rows. #EXP-1710 (merge-train.json STATUS PILL): THE
 // header pill is the merge STATUS pill (`statusPill`); its tap opens the same
-// Checks list. The web app (session-merge-button.tsx, thread-guide.tsx) owns
+// Checks list. The web app (session-merge-button.tsx, chat-guide.tsx) owns
 // the data and the confirms, this file only the faces.
 
 /** A check tone's glyph tint. */

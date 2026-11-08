@@ -418,8 +418,8 @@ class DeviceSettingsDefaultsTest {
     /**
      * Dispatcher roots: every model is explicit. No picker offers a
      * "Default" / "CLI default" row, a device that never set anything seeds
-     * the contract defaults (work model, thread model, subagent model), and
-     * the per-agent thread model rides the save beside the model.
+     * the contract defaults (work model, chat model, subagent model), and
+     * the per-agent chat model rides the save beside the model.
      */
     @Test
     fun `model pickers list every model and no default entry`() {
@@ -459,7 +459,7 @@ class DeviceSettingsDefaultsTest {
             ),
         ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject
         assertEquals(JsonPrimitive("sonnet"), sent.getValue("claude").jsonObject["threadModel"])
-        // A codex draft never stored rides codex's own thread default, and a
+        // A codex draft never stored rides codex's own chat default, and a
         // cross-agent value is clamped to it.
         assertEquals(
             JsonPrimitive(DomainContract.deviceAgentDefaultsCodexThreadModel),
@@ -467,7 +467,7 @@ class DeviceSettingsDefaultsTest {
         )
         assertEquals(
             DomainContract.deviceAgentDefaultsCodexThreadModel,
-            threadModelOf(codex.copy(threadModel = "haiku"), "codex"),
+            chatModelOf(codex.copy(threadModel = "haiku"), "codex"),
         )
     }
 }

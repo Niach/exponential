@@ -122,7 +122,7 @@ class DeviceEntityDecodeTest {
     /** Dispatcher roots: the per-agent `threadModel` survives the jsonb text
      *  and the retired-agent filter; absent stays null (= contract default). */
     @Test
-    fun `launch_defaults keeps each agent's thread model`() {
+    fun `launch_defaults keeps each agent's chat model`() {
         val row = """
             {
               "id": "row-1",

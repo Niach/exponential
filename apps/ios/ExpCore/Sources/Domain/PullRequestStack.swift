@@ -8,7 +8,7 @@ import Foundation
 /// Merge = `pullRequests.merge({pullRequestId: top, stack: true})`, landing
 /// the whole open chain bottom-up. The server refuses a plain merge of any
 /// open-stack member, so such a member's Merge control IS this one.
-/// EXP-1306: `stackView` = the thread Guide's stack rail
+/// EXP-1306: `stackView` = the chat Guide's stack rail
 /// (`pr-stack-view.json`, replayed by `PrStackViewTests`).
 public enum PullRequestStack {
     /// The confirm: `title` IS the primary button, `throughId` the PR merged
@@ -98,7 +98,7 @@ public enum PullRequestStack {
         /// The representative's title, else the PR's own.
         public let title: String
         public let prNumber: Int
-        /// The thread a tap opens; nil = none synced.
+        /// The chat a tap opens; nil = none synced.
         public let rootSessionId: String?
         /// The subject's PR: the row wears the active wash.
         public let isCurrent: Bool

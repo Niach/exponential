@@ -30,13 +30,13 @@ object EmptyStateCopy {
     val inbox = State("inbox", Size.Page, "nav-inbox", "All caught up", null, null)
     val myIssues = State("my-issues", Size.Page, "nav-my-issues", "No issues assigned to you", null, null)
     val drafts = State("drafts", Size.Page, "nav-drafts", "No drafts", null, null)
-    val threads = State("threads", Size.Page, "nav-threads", "No sessions yet", null, null)
+    val chats = State("chats", Size.Page, "nav-chats", "No sessions yet", null, null)
     val boards = State("boards", Size.Page, "nav-boards", "No boards yet", "Create a board to start tracking work.", "Create a board")
     val issues = State("issues", Size.Page, "nav-issues", "No issues yet", "Create an issue to start tracking work.", "New issue")
     val noTeam = State("no-team", Size.Page, "ui-team", "No team yet", "Create a team, or join one with an invite link.", null)
     val runNotFound = State("run-not-found", Size.Page, "action-run", "Session not found", null, "Go to Agent")
-    val threadNotFound = State(
-        "thread-not-found",
+    val chatNotFound = State(
+        "chat-not-found",
         Size.Page,
         "work-faces",
         "Chat not found",
@@ -77,12 +77,12 @@ object EmptyStateCopy {
         inbox,
         myIssues,
         drafts,
-        threads,
+        chats,
         boards,
         issues,
         noTeam,
         runNotFound,
-        threadNotFound,
+        chatNotFound,
         noSelectionIssue,
         noSelectionNotification,
         boardSwitcher,
@@ -127,7 +127,7 @@ object EmptyStateCopy {
         "nav-inbox" -> ExpIcons.navInbox
         "nav-issues" -> ExpIcons.navIssues
         "nav-my-issues" -> ExpIcons.navMyIssues
-        "nav-threads" -> ExpIcons.navThreads
+        "nav-chats" -> ExpIcons.navChats
         "settings-boards" -> ExpIcons.settingsBoards
         "settings-labels" -> ExpIcons.settingsLabels
         "settings-mcp" -> ExpIcons.settingsMcp

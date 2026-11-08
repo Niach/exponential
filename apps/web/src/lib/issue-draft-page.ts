@@ -33,8 +33,8 @@ export interface IssueDraftSearch {
   board?: string
   status?: string
   from?: string
-  /** EXP-1284: `New issue in this thread` — the created issue joins it. */
-  thread?: string
+  /** EXP-1284: `New issue in this chat` — the created issue joins it. */
+  chat?: string
   /** EXP-1635: the pending share prefills the page, Back returns to Share to. */
   share?: string
 }
@@ -48,7 +48,7 @@ export function parseIssueDraftSearch(
     board: pick(search.board),
     status: pick(search.status),
     from: pick(search.from),
-    thread: pick(search.thread),
+    chat: pick(search.chat),
     share: pick(search.share),
   }
 }
@@ -65,7 +65,7 @@ export function newDraftNavigation({
   boardId,
   status,
   from,
-  threadId,
+  chatId,
   share,
   draftId = crypto.randomUUID(),
 }: {
@@ -73,8 +73,8 @@ export function newDraftNavigation({
   boardId?: string
   status?: StatusRowOption
   from?: string
-  /** EXP-1284: file the issue into this thread. */
-  threadId?: string
+  /** EXP-1284: file the issue into this chat. */
+  chatId?: string
   /** EXP-1635: opened from the Share to page. */
   share?: boolean
   draftId?: string
@@ -83,7 +83,7 @@ export function newDraftNavigation({
   if (boardId) search.board = boardId
   if (status && !isFallbackStatusOption(status)) search.status = status.id
   if (from) search.from = from
-  if (threadId) search.thread = threadId
+  if (chatId) search.chat = chatId
   if (share) search.share = `1`
   return {
     to: `/t/$teamSlug/drafts/$draftId` as const,
@@ -163,29 +163,29 @@ export function canCreateDraft({
 
 /**
  * EXP-1284 (review T11): where a created draft lands. A "New issue in this
- * thread" draft lands back on the THREAD with the new issue's tab selected
+ * chat" draft lands back on the CHAT with the new issue's tab selected
  * (`?tab=issue&issue=<id>`, keeping `?from=`); every other draft lands on the
  * issue's page, keeping `?from=`.
  */
 export function draftLandingNavigation({
   teamSlug,
-  threadId,
+  chatId,
   boardSlug,
   issueId,
   identifier,
   from,
 }: {
   teamSlug: string
-  threadId: string | null
+  chatId: string | null
   boardSlug: string
   issueId: string
   identifier: string
   from?: string
 }) {
-  if (threadId) {
+  if (chatId) {
     return {
-      to: `/t/$teamSlug/threads/$threadId` as const,
-      params: { teamSlug, threadId },
+      to: `/t/$teamSlug/sessions/$sessionId` as const,
+      params: { teamSlug, sessionId: chatId },
       search: { tab: `issue` as const, issue: issueId, ...(from ? { from } : {}) },
     }
   }

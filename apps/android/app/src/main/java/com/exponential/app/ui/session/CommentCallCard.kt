@@ -243,12 +243,12 @@ fun CommentCallCard(
     /** Open the issue scrolled to the comment; null = inert. */
     onOpen: (() -> Unit)? = null,
 ) {
-    val style = threadCardTextStyle()
-    val muted = threadCardMuted()
+    val style = chatCardTextStyle()
+    val muted = chatCardMuted()
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .threadCard()
+            .chatCard()
             .padding(12.dp)
             .testTag(CommentCallCopy.TEST_ID),
     ) {

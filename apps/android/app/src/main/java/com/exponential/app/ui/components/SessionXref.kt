@@ -31,7 +31,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 val LocalAgentMarks = staticCompositionLocalOf<Map<String, AgentDefinitionEntity>> { emptyMap() }
 
 /**
- * S-3 inter-session links ×4 (`session-thread.json` "S-3 INTER-SESSION
+ * S-3 inter-session links ×4 (`session-chat.json` "S-3 INTER-SESSION
  * LINKS", `copy.xref`, `testIds.xref`; styleguide entry `session-xref`): THE
  * compact header naming ANOTHER session in ONE xs line = the muted lead
  * (`Message from` · `Report from` · `Started by` · `Reported to`), the
@@ -47,7 +47,7 @@ fun SessionXref(
     onOpen: ((sessionId: String) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val lead = SessionTree.ThreadCopy.XREF[xref.kind].orEmpty()
+    val lead = SessionTree.ChatCopy.XREF[xref.kind].orEmpty()
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val style = MaterialTheme.typography.bodySmall
     Row(
@@ -62,7 +62,7 @@ fun SessionXref(
             )
             .padding(vertical = 2.dp)
             .semantics(mergeDescendants = true) { contentDescription = "$lead ${xref.name}" }
-            .testTag(SessionTree.ThreadCopy.TEST_ID_XREF),
+            .testTag(SessionTree.ChatCopy.TEST_ID_XREF),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -82,7 +82,7 @@ fun SessionXref(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
-        // #EXP-1464 (thread-row-action.json): only a line that opens
+        // #EXP-1464 (chat-row-action.json): only a line that opens
         // something carries the chevron.
         if (onOpen != null) {
             Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))

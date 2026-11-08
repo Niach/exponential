@@ -1,5 +1,5 @@
 //! #EXP-1611 / #EXP-1710: `pr-checks` — CI and the merge train on the
-//! thread's PR (pr-checks.json CHECKS LIST, merge-train.json STATUS PILL),
+//! chat's PR (pr-checks.json CHECKS LIST, merge-train.json STATUS PILL),
 //! case for case with the web specimen (`packages/ui/src/pr-checks.tsx`
 //! `PrChecksSpecimen`): THE header merge STATUS pill in every merge-train
 //! `statusPill` case (case order, wrapping) over

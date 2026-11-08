@@ -27,7 +27,7 @@ type BoardSearch = {
    *  its main menu either way — the param only has to survive the round trip
    *  instead of being dropped on the way in. */
   from?: string
-  /** Thread 58cb32df (chats.json `shell.boardChips`): the board's chip — My
+  /** Chat 58cb32df (chats.json `shell.boardChips`): the board's chip — My
    *  issues or (phones) Drafts; absent = All issues. */
   chip?: `mine` | `drafts`
 }
@@ -72,7 +72,7 @@ function BoardPage() {
   // #EXP-1383: the team's agents (agent assignees, the picker's agent rows).
   const agents = useAgentRows(team?.id)
 
-  // Thread 58cb32df: the board's chips (All issues · My issues N · Drafts N).
+  // Chat 58cb32df: the board's chips (All issues · My issues N · Drafts N).
   // #FEED-191: md+ draws them too, without Drafts (its sidebar entry).
   const { data: authSession } = useSession()
   const mine = useMyIssuesData({

@@ -1,5 +1,5 @@
 import { createElement, useCallback, useMemo, useState } from "react"
-import { getDeviceIcon, suggestionKey, type ThreadSuggestionActions } from "@exp/ui"
+import { getDeviceIcon, suggestionKey, type ChatSuggestionActions } from "@exp/ui"
 import { modelLabel } from "@/components/launch-dialog/launch-options-pane"
 import { useSession } from "@/hooks/use-session"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
@@ -17,10 +17,10 @@ export function useSuggestionActions(input: {
   /** Members only; absent = the card is read-only. */
   enabled: boolean
   /** The agent CLI of a session of the tree (the card's posting session):
-   *  Start with… offers THAT agent's models (a codex thread's children run
+   *  Start with… offers THAT agent's models (a codex chat's children run
    *  codex). Unknown = claude. */
   agentFor?: (sessionId: string) => string | null | undefined
-}): ThreadSuggestionActions | undefined {
+}): ChatSuggestionActions | undefined {
   const { teamId, enabled, agentFor } = input
   const { data: session } = useSession()
   const { devices } = useSteerDevices({
@@ -120,6 +120,6 @@ export function useSuggestionActions(input: {
       devices: deviceRows,
       models,
       pending,
-    } satisfies ThreadSuggestionActions
+    } satisfies ChatSuggestionActions
   }, [enabled, run, deviceRows, models, pending])
 }

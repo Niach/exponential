@@ -14,7 +14,7 @@ import { TabsTrigger } from "./tabs"
 const noop = (): void => {}
 
 // ── mention-pill ─────────────────────────────────────────────────────────
-// Thread e4a04d22: a chat line with the REAL pill for a member beside an
+// Chat e4a04d22: a chat line with the REAL pill for a member beside an
 // unresolved `@x@y.com` that stays the written text.
 export function MentionPillSpecimen() {
   return (

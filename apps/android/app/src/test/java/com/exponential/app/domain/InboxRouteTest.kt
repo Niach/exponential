@@ -57,7 +57,7 @@ class InboxRouteTest {
             val e = case.getValue("expected").jsonObject
             val expected = when (e.str("kind")) {
                 "agent" -> InboxRoute.SessionTarget.Agent(e.str("agentId")!!)
-                "thread" -> InboxRoute.SessionTarget.Thread(e.str("threadId")!!, e.str("sessionId"))
+                "chat" -> InboxRoute.SessionTarget.Chat(e.str("chatId")!!, e.str("sessionId"))
                 "session" -> InboxRoute.SessionTarget.Session(e.str("sessionId")!!)
                 else -> error("unknown kind in ${case.str("name")}")
             }

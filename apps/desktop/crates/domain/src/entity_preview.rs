@@ -76,7 +76,7 @@ const NOUNS: &[(&str, &str, &str)] = &[
     ("notification", "notification", "notifications"),
     ("attachment", "attachment", "attachments"),
     ("list", "list", "lists"),
-    ("thread", "thread", "threads"),
+    ("thread", "chat", "chats"),
     ("prompt", "prompt", "prompts"),
     ("agent", "agent", "agents"),
     ("event", "event", "events"),

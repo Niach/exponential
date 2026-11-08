@@ -355,8 +355,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * EXP-1291: the issues the session's THREAD links (`session_issues` on its
-     * ROOT), in the thread's order — the header names what is worked on.
+     * EXP-1291: the issues the session's CHAT links (`session_issues` on its
+     * ROOT), in the chat's order — the header names what is worked on.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val issues: StateFlow<List<IssueEntity>> = session
@@ -377,7 +377,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** The thread's first issue (null for an issue-less session). */
+    /** The chat's first issue (null for an issue-less session). */
     val issue: StateFlow<IssueEntity?> = issues
         .map { it.firstOrNull() }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -732,7 +732,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     /**
      * EXP-1211: the quick replies above THIS session's composer
      * ([SessionTree.composerReplies] over its synced messages; null = none).
-     * The thread's composer reads its ROOT's, the raw view its own.
+     * The chat's composer reads its ROOT's, the raw view its own.
      */
     val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
@@ -781,17 +781,17 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }
 
-    /** The session's ROOT id (the thread it belongs to). */
+    /** The session's ROOT id (the chat it belongs to). */
     private val rootId: Flow<String?> = session
         .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }
         .distinctUntilChanged()
 
     /**
-     * EXP-1291: the header's back row — the THREAD's title — and this
+     * EXP-1291: the header's back row — the CHAT's title — and this
      * session's own name, both THE shared [SessionTree.sessionTitle]
      * (EXP-1341, fixtures/session-title.json; never `Session N`).
      */
-    data class Header(val threadTitle: String, val sessionName: String)
+    data class Header(val chatTitle: String, val sessionName: String)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val header: StateFlow<Header?> = rootId
@@ -836,7 +836,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         )
         val title = titles.getValue(rootRow.id)
         val name = titles.getValue(mine.id)
-        return Header(threadTitle = title, sessionName = name)
+        return Header(chatTitle = title, sessionName = name)
     }
 
     /** S-3: the synced agent definitions by id (the origin link's mark). */
@@ -864,11 +864,11 @@ class AgentSessionViewModel @AssistedInject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** S-3: the session page's `origin` link ([root] = the target is a
-     *  root: it opens as its thread, else as its session view). */
+     *  root: it opens as its chat, else as its session view). */
     data class OriginLink(val xref: SessionTree.SessionXref, val root: Boolean)
 
     /**
-     * S-3 (session-thread.json "S-3 INTER-SESSION LINKS"): who started THIS
+     * S-3 (session-chat.json "S-3 INTER-SESSION LINKS"): who started THIS
      * session = the view's `origin` with this session focused: its parent,
      * else (a root) the conversation of the agent that started it; null = a
      * person started it.
@@ -894,7 +894,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                         agentRoots.filter { it.agentId == agentId && it.userId == rootRow.userId }
                     }.orEmpty()
                     val rows = (tree + starters).distinctBy { it.id }
-                    val xref = SessionTree.buildSessionThread(
+                    val xref = SessionTree.buildSessionChat(
                         root = SessionTree.session(rootRow),
                         sessions = rows.map(SessionTree::session),
                         sessionIssues = links.map(SessionTree::sessionIssue),
@@ -1453,7 +1453,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      * answers through `sessions.answer` (the picks + the surface's data
      * model) and the device delivers the answer as the next turn.
      */
-    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.ThreadRow>>> = dbFlow
+    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.SessionChatRow>>> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
         .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
@@ -1461,7 +1461,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The plan / question rows of [sessionCards] (the dock's sources). */
-    val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = sessionCards
+    val toolAsks: StateFlow<List<SessionTree.SessionChatRow>> = sessionCards
         .map { cards -> cards.filter { it.first.kind != AskDock.SessionCardKind.Surface }.map { it.second } }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

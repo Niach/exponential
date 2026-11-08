@@ -136,22 +136,22 @@ describe(`draftOriginFrom`, () => {
   })
 })
 
-// EXP-1284 (review T11): a thread draft lands back on its thread with the new
+// EXP-1284 (review T11): a chat draft lands back on its chat with the new
 // issue's tab selected; any other draft lands on the issue, keeping ?from=.
 describe(`draftLandingNavigation`, () => {
-  it(`lands a thread draft on the thread, the new issue selected`, () => {
+  it(`lands a chat draft on the chat, the new issue selected`, () => {
     expect(
       draftLandingNavigation({
         teamSlug: `acme`,
-        threadId: `th1`,
+        chatId: `th1`,
         boardSlug: `web`,
         issueId: `iss-9`,
         identifier: `APP-9`,
         from: `inbox`,
       })
     ).toEqual({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `th1` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `th1` },
       search: { tab: `issue`, issue: `iss-9`, from: `inbox` },
     })
   })
@@ -160,7 +160,7 @@ describe(`draftLandingNavigation`, () => {
     expect(
       draftLandingNavigation({
         teamSlug: `acme`,
-        threadId: null,
+        chatId: null,
         boardSlug: `web`,
         issueId: `iss-9`,
         identifier: `APP-9`,
