@@ -220,7 +220,7 @@ pub(crate) fn with_stuck_rows(base: Vec<NeedsYouRow>, stuck: Vec<(NeedsYouRow, S
 #[derive(Clone, PartialEq, Eq)]
 struct RowsKey {
     team_id: String,
-    revisions: [u64; 6],
+    revisions: [u64; 5],
     owner: bool,
     /// The ages move with the minute.
     minute: i64,
@@ -244,7 +244,6 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
         team_id: team_id.to_string(),
         revisions: [
             collections.sessions.read(cx).revision(),
-            collections.conversations.read(cx).revision(),
             collections.pull_requests.read(cx).revision(),
             collections.agents.read(cx).revision(),
             collections.devices.read(cx).revision(),

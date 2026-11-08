@@ -191,7 +191,7 @@ pub(crate) fn store_surface(result: &TabResult, window: &mut Window, cx: &mut Ap
 
 #[derive(Clone, PartialEq, Eq)]
 struct ResultsKey {
-    revisions: [u64; 3],
+    revisions: [u64; 2],
     /// The ages move with the minute.
     minute: i64,
 }
@@ -213,7 +213,6 @@ pub(crate) fn results_of_root(root_id: &str, cx: &mut App) -> Rc<Vec<TabResult>>
         revisions: [
             collections.sessions.read(cx).revision(),
             collections.messages.read(cx).revision(),
-            collections.conversations.read(cx).revision(),
         ],
         minute: now / 60_000,
     };

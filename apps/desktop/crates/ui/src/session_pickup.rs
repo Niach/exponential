@@ -97,8 +97,6 @@ pub(crate) fn install(cx: &mut App) {
     };
     cx.observe(&collections.sessions, |_, cx| schedule(cx)).detach();
     cx.observe(&collections.messages, |_, cx| schedule(cx)).detach();
-    // NEW-8: a message's session is its conversation's.
-    cx.observe(&collections.conversations, |_, cx| schedule(cx)).detach();
     // EXP-1542: a move's record (and its hand-off) re-plans.
     cx.observe(&collections.events, |_, cx| schedule(cx)).detach();
     let local = LocalSessions::global(cx);
@@ -223,7 +221,7 @@ fn run_pass(cx: &mut App) {
     coding::sealing::note_users(
         collections.users.read(cx).iter().filter_map(|user| Some((user.id.clone(), user.email.clone()?))),
     );
-    // NEW-8: keyed through their conversation (`session_id` = resolved).
+    // #EXP-1730: keyed by their own `session_id`.
     let mut messages: Vec<MessageRow> =
         crate::session_data::keyed_messages(cx, |owner, _| hosted.contains(owner));
     // EXP-1458: agent-to-agent messages that came over eNet ahead of their

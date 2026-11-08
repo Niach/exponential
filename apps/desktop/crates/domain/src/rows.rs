@@ -832,6 +832,11 @@ pub struct SessionRow {
     /// editor session's app) — the session view reads `via <app>`.
     #[serde(default)]
     pub via_app_id: Option<String>,
+    /// #EXP-1730: the lists' digest of this session's messages (jsonb, the
+    /// domain-contract `conversationDigest`; [`crate::chats::digest_messages`]
+    /// reads it back). `None` on a server older than #EXP-1730.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub digest: Option<serde_json::Value>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -954,20 +959,20 @@ pub struct SessionIssueRow {
 /// unknown kind renders nothing). A person's message with `consumed_at`
 /// NULL is QUEUED (the device has not picked it up yet).
 ///
-/// NEW-8: a message lives in a CONVERSATION (`conversation_id`); its session
-/// is the session of that conversation, resolved through the `conversations`
-/// shape by [`crate::message_conversation::key_messages_by_session`]. The
-/// row's own legacy `session_id` column is NEVER decoded.
+/// #EXP-1730 (one-tree model): a message lives in a SESSION, its own
+/// `session_id` column (trigger-kept beside the legacy `conversation_id`
+/// until phase B drops it); the `conversations` shape is never read.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct MessageRow {
     pub id: String,
-    /// NEW-8: the conversation the row lives in (required on the wire).
+    /// NEW-8: the legacy conversation the row lives in. Never read to find
+    /// the session (#EXP-1730); empty when absent (phase B drops it).
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub conversation_id: String,
-    /// NEW-8: the RESOLVED session (the session its conversation belongs
-    /// to), filled by [`crate::message_conversation::key_messages_by_session`]
-    /// only; empty on a row straight off the store. Never decoded: a legacy
-    /// `session_id` on the server row is ignored.
-    #[serde(skip_deserializing)]
+    /// #EXP-1730: the session the row lives in (`messages.session_id`).
+    /// Empty = a dm/channel row, or a server older than #EXP-1730: such a
+    /// row belongs to no session's thread.
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub session_id: String,
     #[serde(default)]
     pub root_id: Option<String>,
@@ -1057,6 +1062,15 @@ pub struct SessionReadRow {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// A text column where SQL NULL / absent / not a string reads as `""`.
+fn null_as_empty<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = <Option<serde_json::Value> as Deserialize>::deserialize(deserializer)?;
+    Ok(match value {
+        Some(serde_json::Value::String(text)) => text,
+        _ => String::new(),
+    })
 }
 
 impl MessageRow {
@@ -1217,51 +1231,115 @@ pub struct PullRequestIssueRow {
 /// The server-only `instructions` and `trigger_state` never sync (tRPC
 /// `agents.get`). Named `AgentDefRow` so it never clashes with the Agents
 /// list's [`crate::session_tree::AgentRow`].
+///
+/// #EXP-1730 (one-tree model): the runner defaults (`device_id`, `cli`,
+/// `account`, `model`) are read ONLY from the jsonb `defaults` column
+/// (`{deviceId, cli, account, model}`, domain `AgentDefaults`); the legacy
+/// columns of the same names are never decoded (`AgentDefWire`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(from = "AgentDefWire")]
 pub struct AgentDefRow {
     pub id: String,
-    #[serde(default)]
     pub team_id: Option<String>,
-    #[serde(default)]
     pub name: Option<String>,
     /// An icon concept (contract `boardIcon`); `None` = the generic glyph.
-    #[serde(default)]
     pub icon: Option<String>,
     /// `#rrggbb`.
-    #[serde(default)]
     pub color: Option<String>,
     /// jsonb `AgentTrigger[]` (`{id, enabled, kind: schedule, cron, tz?}` |
     /// `{id, enabled, kind: event, name}`); the SERVER fires them.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub triggers: Option<serde_json::Value>,
-    #[serde(default)]
+    /// `defaults.deviceId` (empty = none).
     pub device_id: Option<String>,
-    #[serde(default)]
+    /// `defaults.cli`.
     pub cli: Option<String>,
-    #[serde(default)]
+    /// `defaults.account`.
     pub account: Option<String>,
-    #[serde(default)]
+    /// `defaults.model`.
     pub model: Option<String>,
     /// #EXP-1656: the team skills every run of this agent starts with
     /// (jsonb `string[]`; `null` = none).
-    #[serde(default, deserialize_with = "tolerant_id_list")]
     pub skill_ids: Vec<String>,
-    #[serde(default)]
     pub owner_id: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     /// S-3: contract `agentRole` (`assistant` | `agent`); an old row without
     /// it is a team agent.
-    #[serde(default = "default_agent_role", deserialize_with = "tolerant_agent_role")]
     pub role: String,
     /// #EXP-1383: when the instructions TEXT last changed (chats.json
     /// `agentHint`).
-    #[serde(default)]
     pub instructions_updated_at: Option<String>,
-    #[serde(default)]
     pub created_at: Option<String>,
-    #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// The `agents` row as it arrives (the store's TEXT cells or the wire):
+/// [`AgentDefRow`] with the runner defaults still in their `defaults`
+/// object. The legacy `device_id`/`cli`/`account`/`model` columns are not
+/// fields, so they are ignored.
+#[derive(Deserialize)]
+struct AgentDefWire {
+    id: String,
+    #[serde(default)]
+    team_id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    icon: Option<String>,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    triggers: Option<serde_json::Value>,
+    /// #EXP-1730: `{deviceId, cli, account, model}` (null, absent or
+    /// garbage = no defaults).
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    defaults: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    skill_ids: Vec<String>,
+    #[serde(default)]
+    owner_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    sort_order: Option<f64>,
+    #[serde(default = "default_agent_role", deserialize_with = "tolerant_agent_role")]
+    role: String,
+    #[serde(default)]
+    instructions_updated_at: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+}
+
+impl From<AgentDefWire> for AgentDefRow {
+    fn from(wire: AgentDefWire) -> Self {
+        let pick = |key: &str| -> Option<String> {
+            wire.defaults
+                .as_ref()
+                .and_then(|defaults| defaults.get(key))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+        let (device_id, cli, account, model) = (pick("deviceId"), pick("cli"), pick("account"), pick("model"));
+        AgentDefRow {
+            id: wire.id,
+            team_id: wire.team_id,
+            name: wire.name,
+            icon: wire.icon,
+            color: wire.color,
+            triggers: wire.triggers,
+            device_id,
+            cli,
+            account,
+            model,
+            skill_ids: wire.skill_ids,
+            owner_id: wire.owner_id,
+            sort_order: wire.sort_order,
+            role: wire.role,
+            instructions_updated_at: wire.instructions_updated_at,
+            created_at: wire.created_at,
+            updated_at: wire.updated_at,
+        }
+    }
 }
 
 fn default_agent_role() -> String {
@@ -1394,6 +1472,10 @@ pub struct AppRow {
     /// garbage reads as EMPTY, never a dropped row).
     #[serde(default, deserialize_with = "tolerant_id_list")]
     pub granted_tools: Vec<String>,
+    /// #EXP-1730: the app's agent (`agents` row); `None` = a standalone app
+    /// (or a server older than #EXP-1730).
+    #[serde(default)]
+    pub agent_id: Option<String>,
     #[serde(default)]
     pub deleted_at: Option<String>,
     #[serde(default)]
@@ -2485,9 +2567,9 @@ mod tests {
         .unwrap();
         assert!(queued.is_queued());
         assert_eq!(queued.card_kind(), None);
-        // NEW-8: the legacy column is never decoded; the conversation decides.
+        // #EXP-1730: the row's own session decides.
         assert_eq!(queued.conversation_id, "c-1");
-        assert_eq!(queued.session_id, "");
+        assert_eq!(queued.session_id, "s-1");
         let card: MessageRow = serde_json::from_value(json!({
             "id": "m-2",
             "conversation_id": "c-1",
@@ -2498,8 +2580,29 @@ mod tests {
         assert_eq!(card.card_kind(), Some("question"));
         assert!(!card.is_queued());
         assert_eq!(card.body_text(), "");
-        // NEW-8: a row without its conversation never hydrates.
-        assert!(serde_json::from_value::<MessageRow>(json!({"id": "m-3", "session_id": "s-1"})).is_err());
+        assert_eq!(card.session_id, "", "no session = no session's thread");
+        // #EXP-1730: a row without its legacy conversation still hydrates.
+        let bare: MessageRow = serde_json::from_value(json!({"id": "m-3", "session_id": "s-1", "conversation_id": null})).unwrap();
+        assert_eq!((bare.session_id.as_str(), bare.conversation_id.as_str()), ("s-1", ""));
+        // #EXP-1730: an agent's runner defaults come from `defaults` only.
+        let agent: AgentDefRow = serde_json::from_value(json!({
+            "id": "a-1",
+            "device_id": "legacy",
+            "cli": "codex",
+            "defaults": "{\"deviceId\":\"d-1\",\"cli\":\"claude\",\"account\":null,\"model\":\"opus\"}"
+        }))
+        .unwrap();
+        assert_eq!(
+            (agent.device_id.as_deref(), agent.cli.as_deref(), agent.account.as_deref(), agent.model.as_deref()),
+            (Some("d-1"), Some("claude"), None, Some("opus"))
+        );
+        let bare: AgentDefRow = serde_json::from_value(json!({"id": "a-2", "cli": "codex", "defaults": null})).unwrap();
+        assert_eq!(bare.cli, None);
+        let app: AppRow = serde_json::from_value(json!({"id": "app-1", "agent_id": "a-1"})).unwrap();
+        assert_eq!(app.agent_id.as_deref(), Some("a-1"));
+        let session: SessionRow =
+            serde_json::from_value(json!({"id": "s-1", "digest": "{\"agentAt\":\"2026-11-08T10:00:00Z\"}"})).unwrap();
+        assert_eq!(session.digest.as_ref().and_then(|d| d.get("agentAt")).and_then(|v| v.as_str()), Some("2026-11-08T10:00:00Z"));
         let conversation: ConversationRow = serde_json::from_value(json!({
             "id": "c-1",
             "kind": "session",
