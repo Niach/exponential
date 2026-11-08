@@ -575,6 +575,7 @@ fn document(ink: &Ink, track: &str, list_hover: &str) -> Value {
             muted("row_date", path("date"), COL_DATE),
             cell("row_status", COL_STATUS, ink.pill("row_status_pill", path("status"), false, None)),
             // EXP-862: a row's trash is a GHOST glyph, never a circle.
+            // a11y: named by the caller ("Delete <filename>", the node's accessibility label).
             ink.ghost_icon_button("row_delete", "trash-2", path("deleteLabel"), json!({"name": "delete", "context": {"key": path("key")}}), list_hover),
         ]});
     let rows = json!({"id": "rows", "component": "List", "visible": and(path("/pane/ready"), not(path("/pane/empty"))), "props": {"gap": "none"},
