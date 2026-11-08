@@ -116,7 +116,7 @@ function boardGrant(boardId: string, teamId: string): McpAccess {
 }
 
 describe(`mintSignedAttachmentUpload (EXP-929)`, () => {
-  it(`returns the sessions_results grant shape: a scoped 10-minute URL and a ready curl line, and writes nothing`, async () => {
+  it(`returns the upload grant shape: a scoped 10-minute URL and a ready curl line, and writes nothing`, async () => {
     const before = Date.now()
     const result = await mintSignedAttachmentUpload(mintInput)
     expect(Object.keys(result).sort()).toEqual([

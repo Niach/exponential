@@ -152,6 +152,7 @@ import {
   DEMO_TIMEZONE,
   DEMO_USER_ID,
   DEMO_BLOCKS,
+  DEMO_EXTRA_TEAMS,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
@@ -403,6 +404,7 @@ async function teardown() {
   // The starter's team goes by slug too: the sole-member rule below misses a
   // member-less leftover, and the unique slug would then collide on reseed.
   await db.delete(teams).where(eq(teams.slug, STARTER_TEAM_SLUG))
+  await db.delete(teams).where(inArray(teams.slug, DEMO_EXTRA_TEAMS.map((team) => team.slug)))
   const emails = [
     DEMO_EMAIL,
     NEWCOMER_EMAIL,
@@ -1970,6 +1972,20 @@ async function main() {
       createdAt: new Date(now - (4 - index) * 60_000),
     }))
   )
+
+  // #EXP-1715: the demo user's other teams (the composer's Teams pick).
+  for (const [index, extra] of DEMO_EXTRA_TEAMS.entries()) {
+    const [team] = await db
+      .insert(teams)
+      .values({ name: extra.name, slug: extra.slug })
+      .returning({ id: teams.id })
+    await db.insert(teamMembers).values({
+      teamId: team!.id,
+      userId: demoId,
+      role: `owner`,
+      createdAt: new Date(now - (2 - index) * 60_000),
+    })
+  }
 
   // An unconsumed invite for the `invite-accept` view. Deterministic token, but
   // never a stale one: teardown drops the team, and this row with it.

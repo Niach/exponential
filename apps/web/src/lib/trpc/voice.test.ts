@@ -170,16 +170,16 @@ describe(`voice.update`, () => {
   })
 
   // S-3: the device is the Assistant's (agents.update moves it).
-  it(`ignores an old client's voiceDeviceId`, async () => {
+  it(`strips an old client's voiceDeviceId (the input stays non-strict)`, async () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored }]]
-    const next = await caller.update({ voiceDeviceId: `d-other`, wakeWord: true })
+    const next = await caller.update({ voiceDeviceId: `d-other`, wakeWord: true } as never)
     expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, wakeWord: true })
     expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint` })
     expect(h.relayPostNudge).not.toHaveBeenCalledWith(expect.anything(), `me`, `d-other`)
   })
 
   it(`ignores None for the device or the agent: the Assistant keeps the voice`, async () => {
-    for (const change of [{ voiceDeviceId: null }, { agentId: null }]) {
+    for (const change of [{ voiceDeviceId: null } as never, { agentId: null }]) {
       h.state.selectQueue = [[{ userId: `me`, ...stored }]]
       expect(await caller.update(change)).toMatchObject({
         voiceDeviceId: `d-mint`,

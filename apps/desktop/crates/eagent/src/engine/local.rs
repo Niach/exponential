@@ -241,6 +241,10 @@ pub struct SubagentEdge {
     /// EXP-850 §4: the workflow card this agent belongs to, when its task id
     /// matched a workflow agent's `agentId`.
     pub workflow_id: Option<String>,
+    /// EXP-1731: a [`SubagentEdgeStatus::Completed`] edge the adapter stamped
+    /// `failed` (a workflow agent's error, a retired task): the child row
+    /// ends failed. Always `false` on the other edges.
+    pub failed: bool,
 }
 
 /// A local mirror of `crate::wire::frames::SubagentStatus`, so an adapter never has to
@@ -271,6 +275,7 @@ impl SubagentEdge {
             serde_json::Value::String(
                 match self.status {
                     SubagentEdgeStatus::Started => "started",
+                    SubagentEdgeStatus::Completed if self.failed => "failed",
                     SubagentEdgeStatus::Completed => "completed",
                     SubagentEdgeStatus::Duplicate => "duplicate",
                 }
@@ -314,7 +319,8 @@ impl SubagentEdge {
         }
         // The relay knows two states; an adapter's failed/cancelled edge is
         // a subagent that is no longer running, i.e. completed.
-        let status = match edge.get("status").and_then(serde_json::Value::as_str) {
+        let raw_status = edge.get("status").and_then(serde_json::Value::as_str);
+        let status = match raw_status {
             Some("completed" | "failed" | "cancelled" | "stopped" | "ended") => {
                 SubagentEdgeStatus::Completed
             }
@@ -346,6 +352,9 @@ impl SubagentEdge {
                 .get("workflowId")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string),
+            // EXP-1731: only an adapter's `failed` is a failure; a cancelled
+            // or stopped subagent simply ended.
+            failed: raw_status == Some("failed"),
         })
     }
 }
@@ -364,6 +373,7 @@ mod tests {
             tool_calls: Some(3),
             title: Some("Audit the shape proxies".to_string()),
             workflow_id: None,
+            failed: false,
         };
         assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
     }
@@ -381,8 +391,33 @@ mod tests {
             tool_calls: None,
             title: Some("slowpoke".to_string()),
             workflow_id: Some("toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()),
+            failed: false,
         };
         assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
+    }
+
+    /// EXP-1731: a failed edge is a completed one that remembers it failed.
+    #[test]
+    fn a_failed_edge_round_trips_as_a_failed_completion() {
+        let edge = SubagentEdge {
+            id: "task-2".to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentEdgeStatus::Completed,
+            detail: None,
+            tool_calls: None,
+            title: None,
+            workflow_id: None,
+            failed: true,
+        };
+        assert_eq!(SubagentEdge::from_meta(&edge.to_meta()), Some(edge));
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            SUBAGENT_META_KEY.to_string(),
+            serde_json::json!({"id": "task-3", "status": "cancelled"}),
+        );
+        let cancelled = SubagentEdge::from_meta(&meta).expect("a cancelled edge parses");
+        assert_eq!(cancelled.status, SubagentEdgeStatus::Completed);
+        assert!(!cancelled.failed);
     }
 
     #[test]
