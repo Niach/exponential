@@ -146,7 +146,7 @@ import com.exponential.app.domain.Prompts
  */
 enum class IssueListMode { Root, Pushed }
 
-// Thread 58cb32df: the board chips' keys (chats.json `shell.boardChips`).
+// Session 58cb32df: the board chips' keys (chats.json `shell.boardChips`).
 private const val BOARD_CHIP_ALL = "all"
 private const val BOARD_CHIP_MINE = "mine"
 private const val BOARD_CHIP_DRAFTS = "drafts"
@@ -211,7 +211,7 @@ fun IssueListScreen(
     // pushed board has no switcher.
     liveRunsByTeam: Map<String, TeamLiveRuns> = emptyMap(),
     selectedTeamId: String? = null,
-    /** Thread 58cb32df: a Drafts chip row reopens the New issue page. */
+    /** Session 58cb32df: a Drafts chip row reopens the New issue page. */
     onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
@@ -316,7 +316,7 @@ fun IssueListScreen(
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
     }
 
-    // Thread 58cb32df: the board chips' state + counts (Root mount only).
+    // Session 58cb32df: the board chips' state + counts (Root mount only).
     var boardChip by rememberSaveable { mutableStateOf(BOARD_CHIP_ALL) }
     val myIssuesViewModel: com.exponential.app.ui.myissues.MyIssuesViewModel? =
         if (mode == IssueListMode.Root) hiltViewModel() else null
@@ -340,7 +340,7 @@ fun IssueListScreen(
                 onBack = if (mode == IssueListMode.Pushed) onBack else null,
             )
 
-            // Thread 58cb32df (chats.json `shell.boardChips`): All issues ·
+            // Session 58cb32df (chats.json `shell.boardChips`): All issues ·
             // My issues N · Drafts N (Drafts only while there are drafts) as
             // select Pills; My issues = the viewer's assigned issues of the
             // active team grouped by status, Drafts = the team's drafts.

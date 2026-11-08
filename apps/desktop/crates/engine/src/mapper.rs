@@ -110,7 +110,7 @@ mod tests {
             domain::contract::STEER_WORKING_TOKEN_TICK_MS.max(0) as u64
         );
         assert_eq!(WORKING_PREVIEW_MAX, domain::contract::STEER_WORKING_PREVIEW_MAX);
-        assert_eq!(EMPTY_TURN_NOTICE, domain::session_tree::THREAD.copy.empty_turn);
+        assert_eq!(EMPTY_TURN_NOTICE, domain::session_tree::SESSION_CHAT.copy.empty_turn);
         assert_eq!(
             eagent::engine::host_tools::CODEMODE_SERVER_NAME,
             coding::codemode::SERVER_NAME

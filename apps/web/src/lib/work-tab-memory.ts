@@ -27,7 +27,7 @@ export function issueMemoryOwner(issueId: string): string {
   return `issue:${issueId}`
 }
 
-/** The memory owner of a session view (a thread, an agent's channel, one
+/** The memory owner of a session view (a chat, an agent's channel, one
  *  raw session: each is a `sessions` row). */
 export function sessionMemoryOwner(sessionId: string): string {
   return `session:${sessionId}`

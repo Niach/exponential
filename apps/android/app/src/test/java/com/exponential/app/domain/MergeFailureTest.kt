@@ -9,7 +9,7 @@ import org.junit.Test
 /**
  * EXP-1391: a refused merge toasts the server's message with Retry. A content
  * conflict is no longer special (the Fix conflicts run is gone; the server
- * hands the refusal to the thread).
+ * hands the refusal to the chat).
  */
 class MergeFailureTest {
 

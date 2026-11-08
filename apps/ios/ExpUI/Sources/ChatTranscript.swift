@@ -1,7 +1,7 @@
 import ExpCore
 import SwiftUI
 
-// Thread 58cb32df (chats.json TRANSCRIPT + SURFACE CARD, ×4): the phone
+// Session 58cb32df (chats.json TRANSCRIPT + SURFACE CARD, ×4): the phone
 // chat's transcript pieces — the centred divider pill a `/new` or
 // `/compact` line paints, the agent's left bubble, the live-arrival rise of
 // a new bubble, and the inline surface card's frame with its ENTER

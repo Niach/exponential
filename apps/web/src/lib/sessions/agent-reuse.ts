@@ -1,5 +1,5 @@
-// S-3 (owner 2026-10-28): when an agent's message may reuse a thread root
-// (`messageSession` → `agentFreshThread`). Pure: the thresholds are
+// S-3 (owner 2026-10-28): when an agent's message may reuse a chat root
+// (`messageSession` → `agentFreshSession`). Pure: the thresholds are
 // contract `sessionsSend.reuse*`.
 
 import { contract } from "@exp/domain-contract"
@@ -8,13 +8,13 @@ import type { Session } from "@exp/db-schema/schema"
 const HOUR = 60 * 60 * 1000
 
 /**
- * S-3: may an AGENT's message reuse this thread root? Only while it is not
+ * S-3: may an AGENT's message reuse this chat root? Only while it is not
  * ended or ended less than `sessionsSend.reuseMaxEndedHours` ago, its last
  * turn (else activity) is under `reuseMaxIdleHours` old and the tree holds
- * fewer than `reuseMaxChildren` sub-sessions. A thread waiting on an answer
+ * fewer than `reuseMaxChildren` sub-sessions. A chat waiting on an answer
  * (`needsInput`) or on the caller (#FEED-172 `awaitsCaller`: it asked in a
  * plain message) is always reused: the reply answers it, never forks. Null =
- * reuse; else the reason (the fresh thread's `warning`). Spec:
+ * reuse; else the reason (the fresh chat's `warning`). Spec:
  * packages/eagent/fixtures/reuse.json.
  */
 export function agentReuseRefusal(

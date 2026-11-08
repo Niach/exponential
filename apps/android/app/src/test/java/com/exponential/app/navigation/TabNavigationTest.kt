@@ -21,8 +21,8 @@ class TabNavigationTest {
     @Test
     fun `a tab root on the Agent root is that tab`() {
         assertEquals(MainTabs.TEAM, MainTabs.current(listOf(null, "agent-tab", "team")))
-        // Thread 58cb32df: the inbox is a page pushed inside a tab.
-        assertEquals(MainTabs.THREADS, MainTabs.current(listOf(null, "agent-tab", "threads", "personal")))
+        // Session 58cb32df: the inbox is a page pushed inside a tab.
+        assertEquals(MainTabs.CHATS, MainTabs.current(listOf(null, "agent-tab", "chats", "personal")))
     }
 
     @Test
@@ -39,8 +39,8 @@ class TabNavigationTest {
 
     @Test
     fun `the tab on the Agent root wins over the Agent tab`() {
-        val present = setOf("agent-tab", "threads")
-        assertEquals(MainTabs.THREADS, MainTabs.current { it in present })
+        val present = setOf("agent-tab", "chats")
+        assertEquals(MainTabs.CHATS, MainTabs.current { it in present })
         assertEquals(MainTabs.AGENT, MainTabs.current { it == "agent-tab" })
         assertNull(MainTabs.current { false })
     }
@@ -56,7 +56,7 @@ class TabNavigationTest {
         // NEW-7: the Actions tab is gone (prompts replaced actions); #EXP-1384:
         // Board · Chats · Apps · Team + the Agent root.
         assertEquals(
-            setOf("agent-tab", "home", "threads", "apps", "team"),
+            setOf("agent-tab", "home", "chats", "apps", "team"),
             MainTabs.routes,
         )
     }
@@ -64,7 +64,7 @@ class TabNavigationTest {
     @Test
     fun `only tab root to tab root is a swap`() {
         assertTrue(MainTabs.isRootSwap("agent-tab", "home"))
-        assertTrue(MainTabs.isRootSwap("threads", "agent-tab"))
+        assertTrue(MainTabs.isRootSwap("chats", "agent-tab"))
         // A push from a tab root and Back to it keep the slide.
         assertFalse(MainTabs.isRootSwap("home", "issue/{issueId}?comment={comment}"))
         assertFalse(MainTabs.isRootSwap("board/{boardId}", "home"))

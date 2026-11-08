@@ -41,7 +41,7 @@ interface SteerFileEntryPoint {
 
 /**
  * Wave D ×4: a user message's FILE lines (`[name](/api/attachments/<id>)`),
- * drawn as the file tile the comment thread uses for a non-image attachment
+ * drawn as the file tile the comment list uses for a non-image attachment
  * (glyph + name). A tap downloads the bytes into the per-id attachment cache
  * and hands them to whatever app opens the type, like a comment's file —
  * never a broken image.

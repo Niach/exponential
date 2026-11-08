@@ -127,33 +127,33 @@ class IssueDraftEntityDecodeTest {
         assertEquals("2026-12-24", entity.dueDate)
     }
 
-    /** EXP-1291: the thread root a "New issue" draft files into (`session_id`). */
+    /** EXP-1291: the chat root a "New issue" draft files into (`session_id`). */
     @Test
     fun `session_id decodes in both casings and defaults to none`() {
         val snake = json.decodeFromString(
             IssueDraftEntity.serializer(),
             """{"id":"d-1","session_id":"t-1"}""",
         )
-        assertEquals("t-1", snake.threadId)
+        assertEquals("t-1", snake.chatId)
         val camel = json.decodeFromString(
             IssueDraftEntity.serializer(),
             """{"id":"d-1","sessionId":"t-2"}""",
         )
-        assertEquals("t-2", camel.threadId)
-        assertNull(json.decodeFromString(IssueDraftEntity.serializer(), """{"id":"d-1"}""").threadId)
-        assertNull(json.decodeFromString(IssueDraftEntity.serializer(), """{"id":"d-1","session_id":null}""").threadId)
+        assertEquals("t-2", camel.chatId)
+        assertNull(json.decodeFromString(IssueDraftEntity.serializer(), """{"id":"d-1"}""").chatId)
+        assertNull(json.decodeFromString(IssueDraftEntity.serializer(), """{"id":"d-1","session_id":null}""").chatId)
     }
 
-    /** EXP-1284: the upsert carries the thread, and omits it for a plain draft. */
+    /** EXP-1284: the upsert carries the chat, and omits it for a plain draft. */
     @Test
     fun `the upsert input sends sessionId only when set`() {
-        val withThread = json.encodeToString(
+        val withChat = json.encodeToString(
             com.exponential.app.data.api.UpsertIssueDraftInput.serializer(),
             com.exponential.app.data.api.UpsertIssueDraftInput(
-                id = "d-1", teamId = "team-1", boardId = "b-1", title = "T", description = "", threadId = "t-1",
+                id = "d-1", teamId = "team-1", boardId = "b-1", title = "T", description = "", chatId = "t-1",
             ),
         )
-        assertTrue(withThread.contains(""""sessionId":"t-1""""))
+        assertTrue(withChat.contains(""""sessionId":"t-1""""))
         val plain = json.encodeToString(
             com.exponential.app.data.api.UpsertIssueDraftInput.serializer(),
             com.exponential.app.data.api.UpsertIssueDraftInput(

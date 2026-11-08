@@ -541,7 +541,7 @@ internal fun effortValuesFor(agent: String): List<String> = when (agent) {
 }
 
 /**
- * THE model vocabulary of every model pick (launch, thread, subagent,
+ * THE model vocabulary of every model pick (launch, chat, subagent,
  * computer use, the session's `/model`): the agent's own models, contract
  * order. No "Default" / "CLI default" entry: every model is explicit.
  */
@@ -554,7 +554,7 @@ internal fun defaultModelFor(agent: String): String = when (agent) {
 }
 
 /** The dispatcher root's default model (`deviceAgentDefaults.threadModel` / `codexThreadModel`). */
-internal fun defaultThreadModelFor(agent: String): String = when (agent) {
+internal fun defaultChatModelFor(agent: String): String = when (agent) {
     "codex" -> DomainContract.deviceAgentDefaultsCodexThreadModel
     else -> DomainContract.deviceAgentDefaultsThreadModel
 }
@@ -583,8 +583,8 @@ internal fun subagentModelLabel(value: String): String = modelLabel(value)
 
 internal const val SUBAGENT_MODEL_LABEL = "Subagent model"
 
-/** The dispatcher root's model row (threads + team agents), per agent. */
-internal const val THREAD_MODEL_LABEL = "Chat model"
+/** The dispatcher root's model row (chats + team agents), per agent. */
+internal const val CHAT_MODEL_LABEL = "Chat model"
 
 /**
  * EXP-1236: the Computer use model vocabulary = THE claude model list. A
@@ -608,7 +608,7 @@ internal fun seedComputerUseModel(stored: String?): String =
 /**
  * THE model picker row: [agent]'s whole model list (all four claude models /
  * the codex models), no default entry. Every settings-sheet model row (Model,
- * Thread model, Subagent model, Computer use model) is this one composable.
+ * Chat model, Subagent model, Computer use model) is this one composable.
  */
 @Composable
 internal fun ModelPickerRow(

@@ -1,0 +1,1288 @@
+import ExpUI
+import ExpCore
+import PhotosUI
+import SwiftUI
+import GRDB
+import UniformTypeIdentifiers
+
+// The activity timeline (EXP-240 redesign). Reads live comments + issue_events
+// from the local GRDB store (populated by Electric sync) and routes comment
+// edit/delete through tRPC. Renders a synthesized "created the issue" first
+// item, comments as glass cards with the author avatar in a leading gutter,
+// events as dot rows on a connecting vertical rail, and folds runs of >2
+// consecutive events behind a "Show N activity items" expander. Composing NEW
+// comments moved to the docked bottom-bar composer (IssueDetailBottomBar).
+//
+// EXP-741: a top-level card holds its replies — they sit indented under the
+// body behind one hairline, each with a 20pt avatar, and the "Leave a reply…"
+// row closes every top-level card. Tapping it hands the bottom-bar composer a
+// reply target (`CommentReplyTarget`), which posts with `parentId`.
+//
+// SLOP-4: a widget reporter's reply is a comment with no member author
+// (`source` reporter) — its card names the submission's reporter, wears the
+// `reporter` caption where "via MCP" sits and offers Delete only; a member's
+// `audience == reporter` comment wears `to reporter` (the words left the
+// team). Pinned ×4 by `fixtures/reporter-reply.json`.
+//
+// EXP-900/EXP-468: the event rows are folded at READ time by the shared
+// `ExpCore.foldActivity` (this issue's comments ride along as barriers), so a
+// dev's A → B → A round trip vanishes instead of filling the timeline; the
+// header's "Show all" pill returns the unfolded rows ("Show less" to re-fold).
+// Nothing is ever deleted server-side — the fold is a view of the synced rows.
+
+/// The comment the docked composer is replying to (EXP-741): set by the
+/// card's reply row, cleared by the bar on send, collapse or its ✕.
+struct CommentReplyTarget: Equatable {
+    let parentId: String
+    let authorName: String
+}
+
+/// The edit/delete callbacks of ONE comment — a top-level card and each
+/// reply under it get their own set (web `CommentCardProps`).
+struct CommentCardActions {
+    let onEdit: () -> Void
+    let onCancelEdit: () -> Void
+    /// Saves the edit with the FULL desired attachment id list; returns whether
+    /// the mutation went through (a failure keeps the composer open).
+    let onSaveEdit: ([String]) async -> Bool
+    let onDelete: () -> Void
+}
+
+struct CommentRepliesView: View {
+    let issue: IssueEntity
+    /// Solo teams hide the comment editors' @ affordance (EXP-246) — same
+    /// gate as the assignee chip, passed down from the detail view model.
+    let singleMemberTeam: Bool
+    /// SLOP-4: the widget submission's `reporterName` (server-only row the
+    /// detail view model fetches), naming the reporter's comments; nil (no
+    /// submission, or none yet) reads as the anonymous visitor.
+    var reporterName: String? = nil
+    /// The editor backing the comment currently being edited (re-seeded on each
+    /// Edit tap; only one comment edits at a time). Owned by the DETAIL view,
+    /// not by this timeline: its `@`/`#`/`:` menu is mounted screen-level, in
+    /// the bottom safe-area inset that rides above the keyboard (EXP-592).
+    @Binding var editEditor: IssueEditorModel
+    /// EXP-741: the reply the docked composer is composing, owned by the
+    /// detail view so the comment list and the bar share it.
+    @Binding var replyTarget: CommentReplyTarget?
+    /// Horizontal padding of the hosting column, escaped by the top rule so the
+    /// line runs edge to edge (EXP-327).
+    var hostPadding: CGFloat = 20
+    /// EXP-1241: the comment the screen opened scrolled to (a run's comment
+    /// card tap, web `?comment=<id>`). Once the timeline holds it the host
+    /// scrolls there (`onFocusShown`) and the comment flashes briefly.
+    var focusCommentId: String? = nil
+    var onFocusShown: (String) -> Void = { _ in }
+
+    /// EXP-1241: the comment wearing the brief highlight right now.
+    @State private var highlightedCommentId: String?
+    @State private var focusHandled = false
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.motion) private var motion
+    @State private var comments: [CommentEntity] = []
+    @State private var events: [IssueEventEntity] = []
+    @State private var users: [String: UserEntity] = [:]
+    /// #EXP-1383: every synced agent definition — agent actors (events,
+    /// comments, the creation row) and agent assignees resolve against it.
+    @State private var agents: [String: AgentDefinitionEntity] = [:]
+    /// #VAPP-186: the synced, live apps' names by id ("via <app>"; #VAPP-229
+    /// the creation row too).
+    @State private var appNames: [String: String] = [:]
+    @State private var labels: [String: LabelEntity] = [:]
+    @State private var boards: [String: BoardEntity] = [:]
+    /// EXP-630: every synced team row — the `estimate_changed` rows render
+    /// their points on this issue's team scale.
+    @State private var teams: [String: TeamEntity] = [:]
+    /// EXP-595: every synced team's `issue_statuses` rows — the status-change
+    /// rows' glyphs resolve against this issue's team subset, so the timeline
+    /// shows the same colored status icon the list and the picker do.
+    @State private var statusRows: [IssueStatusEntity] = []
+    /// EXP-554 — this issue's comment-linked attachment rows, grouped by
+    /// `comment_id` and ordered (created_at, id) like every other timeline list.
+    @State private var attachmentsByComment: [String: [AttachmentEntity]] = [:]
+    @State private var editingCommentId: String?
+    /// EXP-892 — the `#` menu's server half, one per view so a comment
+    /// edit's debounce survives its keystrokes.
+    @State private var issueRefAugmentor: IssueRefAugmentor?
+    // Opened event runs, keyed by the run's first event id (survives sync
+    // re-emits — see collapseTimeline).
+    @State private var expandedRuns: Set<String> = []
+    /// EXP-468: the header toggle — on, the timeline skips the fold and shows
+    /// every synced event row. Per issue (the header's "Show less" and a swipe
+    /// to another issue both put it back).
+    @State private var showAllActivity = false
+    // Each observation loop is stored and cancelled individually — a single
+    // wrapper task would NOT propagate cancellation into unstructured inner
+    // `Task {}` loops, and the view re-arms on every appear, so leaked loops
+    // would accumulate per push/pop.
+    @State private var observationTasks: [Task<Void, Never>] = []
+
+    private var humanComments: [CommentEntity] {
+        comments.filter { $0.commentKind == .regular }
+    }
+
+    /// EXP-741: replies ride inside their parent's card, so only the top-level
+    /// comments are timeline entries.
+    private var nested: CommentReplies {
+        nestComments(humanComments)
+    }
+
+    /// This issue's team statuses in render order (EXP-314). Empty while the
+    /// boards/statuses shapes are still syncing — `IssueStatusResolver.resolve`
+    /// degrades to the constructed builtin defaults, so rendering never fails.
+    private var teamStatuses: [ResolvedIssueStatus] {
+        guard let teamId = boards[issue.boardId]?.teamId else { return [] }
+        return IssueStatusResolver.teamStatuses(statusRows.filter { $0.teamId == teamId })
+    }
+
+    /// EXP-630: this issue's team estimate scale, nil until the team row has
+    /// synced (the phrase then falls back to plain points).
+    private var estimationType: String? {
+        guard let teamId = boards[issue.boardId]?.teamId else { return nil }
+        return teams[teamId]?.estimationType
+    }
+
+    private func phrase(_ event: IssueEventEntity) -> String? {
+        eventPhrase(
+            event, users: users, labels: labels, boards: boards, estimationType: estimationType, agents: agents
+        )
+    }
+
+    /// #EXP-1383 (agent-settings.json `actor`): who a row reads as — the
+    /// AGENT when its session acted, else the member.
+    private func actor(agentId: String?, userId: String?) -> AgentSettings.IssueActor? {
+        AgentSettings.issueActor(
+            actorAgentId: agentId, actorUserId: userId, agents: Array(agents.values)
+        )
+    }
+
+    /// The display name of an actor: the agent's name, else the member's.
+    private func actorName(agentId: String?, userId: String?) -> String {
+        if let agent = actor(agentId: agentId, userId: userId)?.agent { return agent.name }
+        return memberDisplayName(userId.flatMap { users[$0] }, id: userId)
+    }
+
+    /// EXP-900: the events this timeline draws. The fold runs over the FULL
+    /// list — suppressed `created` rows included, they belong to the run
+    /// boundaries — with this issue's comments (replies too) as barriers, so a
+    /// reviewer's note still splits a dev's round trip. "Show all" bypasses it.
+    private var foldedEvents: [IssueEventEntity] {
+        if showAllActivity { return events }
+        return foldActivity(
+            events,
+            barriers: humanComments.map {
+                ActivityBarrier(
+                    issueId: issue.id,
+                    // A reporter's reply (author NULL) is a barrier like any
+                    // other person's words.
+                    actorUserId: $0.authorId,
+                    actorAgentId: $0.authorAgentId,
+                    createdAt: $0.createdAt
+                )
+            }
+        )
+    }
+
+    // EXP-530: server `created` events are suppressed (nil phrase) — drop them
+    // HERE too, so collapsed-run counts never include hidden rows. Applied
+    // AFTER the fold (EXP-900): a hidden row still bounds a run.
+    private func visibleEvents(_ rows: [IssueEventEntity]) -> [IssueEventEntity] {
+        rows.filter { phrase($0) != nil }
+    }
+
+    /// Whether folding actually removed rows the timeline would have drawn —
+    /// the only reason to offer "Show all".
+    private var foldRemovedRows: Bool {
+        !showAllActivity && visibleEvents(foldedEvents).count < visibleEvents(events).count
+    }
+
+    private var timeline: [TimelineItem] {
+        let created = TimelineItem.created(
+            actorId: issue.creatorId,
+            agentId: issue.creatorAgentId,
+            createdAt: issue.createdAt,
+            source: issue.source
+        )
+        // (createdAt, id) — the deterministic tie-break Android uses, so
+        // same-timestamp items order identically on both platforms.
+        let shown = visibleEvents(foldedEvents)
+        let rest = (nested.topLevel.map { TimelineItem.comment($0) }
+            + shown.map { TimelineItem.event($0) })
+            .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        return [created] + rest
+    }
+
+    private var activityTitle: String {
+        let count = visibleEvents(foldedEvents).count + nested.count
+        return count > 0 ? "Activity (\(count))" : "Activity"
+    }
+
+    var body: some View {
+        let rows = collapseTimeline(timeline, expandedRuns: expandedRuns)
+        VStack(alignment: .leading, spacing: 8) {
+            // A rule the full width of the screen, not just the reading column:
+            // activity reads as its own region below the issue (EXP-327).
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 0.5)
+                .padding(.horizontal, -hostPadding)
+                .padding(.bottom, 4)
+            HStack {
+                // EXP-1676: web's `Activity (N)`: the drawn events + every comment.
+                Text(activityTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .accessibilityIdentifier("comment-replies-header")
+                Spacer()
+                // EXP-468: only when the fold actually hid something (or while
+                // it is off) — a timeline with nothing to unfold shows no pill.
+                if showAllActivity || foldRemovedRows {
+                    GlassPill(showAllActivity ? "Show less" : "Show all", mode: .action {
+                        // `motion.standard` is nil under Reduce Motion and
+                        // `withAnimation(nil)` applies the change instantly.
+                        withAnimation(motion.standard) {
+                            showAllActivity.toggle()
+                        }
+                    })
+                    .accessibilityIdentifier("activity-show-all")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    displayRow(
+                        row,
+                        showTop: index > 0,
+                        showBottom: index < rows.count - 1
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .environment(\.highlightedCommentId, highlightedCommentId)
+        .onAppear { startObserving() }
+        .onDisappear { stopObserving() }
+        // EXP-1241: land on the focused comment the first time it is here.
+        .onChange(of: comments.map(\.id), initial: true) { _, ids in
+            guard !focusHandled, let focus = focusCommentId, ids.contains(focus) else { return }
+            focusHandled = true
+            Task { @MainActor in
+                // One layout pass for the rows that just landed.
+                try? await Task.sleep(for: .milliseconds(100))
+                onFocusShown(focus)
+                withAnimation(motion.fast) { highlightedCommentId = focus }
+                try? await Task.sleep(for: .milliseconds(Self.highlightMs))
+                withAnimation(motion.slow) { highlightedCommentId = nil }
+            }
+        }
+        // The Work screen can swap the issue under a live view (EXP-893), and
+        // "show everything" is a decision about ONE issue's timeline.
+        .onChange(of: issue.id) { _, _ in showAllActivity = false }
+    }
+
+    /// How long a focused comment keeps its highlight.
+    private static let highlightMs = 1600
+
+    // MARK: - Rows
+
+    @ViewBuilder
+    private func displayRow(_ row: TimelineDisplayRow, showTop: Bool, showBottom: Bool) -> some View {
+        switch row {
+        case .item(let item):
+            switch item {
+            case let .created(actorId, agentId, createdAt, source):
+                createdRow(
+                    actorId: actorId, agentId: agentId, createdAt: createdAt, source: source,
+                    showTop: showTop, showBottom: showBottom
+                )
+            case .comment(let comment):
+                commentRow(comment, showTop: showTop, showBottom: showBottom)
+            case .event(let event):
+                eventRow(event, showTop: showTop, showBottom: showBottom)
+            }
+        case let .collapsedRun(key, runEvents):
+            collapsedRunRow(key: key, events: runEvents, showTop: showTop, showBottom: showBottom)
+        }
+    }
+
+    /// Synthesized first item: "«creator» created the issue" (widget/agent
+    /// issues have no user creator — their origin is the actor).
+    @ViewBuilder
+    private func createdRow(
+        actorId: String?, agentId: String?, createdAt: String, source: String?, showTop: Bool, showBottom: Bool
+    ) -> some View {
+        // #EXP-1383: an agent session's issue names the AGENT.
+        let agent = actor(agentId: agentId, userId: actorId)?.agent
+        let who = agent != nil
+            ? agent?.name ?? ""
+            : source == DomainContract.issueSourceWidget
+            ? "Feedback widget"
+            : source == DomainContract.issueSourceAgent
+                ? "Agent"
+                : memberDisplayName(actorId.flatMap { users[$0] }, id: actorId)
+        let time = relativeDate(createdAt)
+        // #VAPP-229 (via-app.json): an app's tool filed it = `· via <app>` on
+        // the muted tail (a deleted app = none).
+        let tail = withViaApp(
+            time.isEmpty ? "created the issue" : "created the issue · \(time)",
+            issue.viaAppId.flatMap { appNames[$0] }
+        )
+        TimelineRow(
+            showTop: showTop,
+            showBottom: showBottom,
+            markerSize: 16,
+            topPadding: 5,
+            bottomPadding: 5,
+            marker: { eventDot }
+        ) {
+            Text("\(who) \(tail)")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
+    }
+
+    // Compact Linear-style activity line for issue events (status/assignee/
+    // label/PR changes).
+    @ViewBuilder
+    private func eventRow(_ event: IssueEventEntity, showTop: Bool, showBottom: Bool) -> some View {
+        // #EXP-1383: an agent's session acted → the AGENT's name, the same
+        // per-type copy.
+        let who = actorName(agentId: event.actorAgentId, userId: event.actorUserId)
+        // Nil phrase = a suppressed event type (the timeline filter already
+        // drops them; this guard keeps a stray one from rendering munged).
+        if let phrase = phrase(event) {
+            // Append a relative timestamp (EXP-169) — only when it parses, so
+            // an unparseable created_at never leaves a dangling " · ".
+            let time = relativeDate(event.createdAt)
+            // EXP-1324: the event is a Trace line (size sm): its glyph in the
+            // timeline gutter, the sentence as the title, the relative time
+            // as the muted description.
+            TimelineRow(
+                showTop: showTop,
+                showBottom: showBottom,
+                markerSize: Trace.Geometry.sm.lineHeight,
+                topPadding: 5,
+                bottomPadding: 5,
+                marker: { eventMarker(event) }
+            ) {
+                TraceLine(
+                    title: "\(who) \(phrase)",
+                    description: time.isEmpty ? nil : time,
+                    size: .sm
+                ) { EmptyView() }
+            }
+        }
+    }
+
+    /// A folded run of consecutive events: one expander row; tapping opens the
+    /// run in place (animated unless Reduce Motion).
+    @ViewBuilder
+    private func collapsedRunRow(key: String, events: [IssueEventEntity], showTop: Bool, showBottom: Bool) -> some View {
+        TimelineRow(
+            showTop: showTop,
+            showBottom: showBottom,
+            markerSize: 28,
+            topPadding: 5,
+            bottomPadding: 5,
+            marker: {
+                AppIcon(AppIcons.uiMore, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        ) {
+            GlassPill("Show \(events.count) activity items", mode: .action {
+                // EXP-523: `motion.standard` is nil under Reduce Motion and
+                // `withAnimation(nil)` applies the change instantly, so the
+                // explicit branch this used to carry is gone.
+                withAnimation(motion.standard) {
+                    _ = expandedRuns.insert(key)
+                }
+            })
+        }
+    }
+
+    private var eventDot: some View {
+        Circle()
+            .fill(.white.opacity(0.25))
+            .frame(width: 6, height: 6)
+    }
+
+    /// The leading glyph of one event row (EXP-595 — web/desktop parity): the
+    /// event type's shared-registry concept icon in the muted text color, a
+    /// status change's resolved status icon in its color, and the plain dot
+    /// only for unknown event types.
+    @ViewBuilder
+    private func eventMarker(_ event: IssueEventEntity) -> some View {
+        switch eventGlyph(event, statuses: teamStatuses) {
+        case .status(let status)?:
+            AppIcon(status.iconName, size: Trace.Geometry.sm.icon)
+                .foregroundStyle(status.color)
+        case .plain(let name)?:
+            AppIcon(name, size: Trace.Geometry.sm.icon)
+                .foregroundStyle(DesignTokens.Palette.mutedForeground)
+        case nil:
+            eventDot
+        }
+    }
+
+    @ViewBuilder
+    private func commentRow(_ comment: CommentEntity, showTop: Bool, showBottom: Bool) -> some View {
+        TimelineRow(
+            showTop: showTop,
+            showBottom: showBottom,
+            markerSize: 28,
+            topPadding: 6,
+            bottomPadding: 6,
+            marker: { commentAvatar(comment, size: 28) }
+        ) {
+            RegularCommentRow(
+                comment: comment,
+                replies: nested.repliesByParent[comment.id] ?? [],
+                attachmentsByComment: attachmentsByComment,
+                issueId: issue.id,
+                users: users,
+                agents: agents,
+                appNames: appNames,
+                reporterName: reporterName,
+                currentUserId: deps.auth.userId,
+                editingCommentId: editingCommentId,
+                editEditor: editEditor,
+                singleMemberTeam: singleMemberTeam,
+                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                accountId: accountId,
+                httpClient: deps.httpClient,
+                mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+                teamId: boards[issue.boardId]?.teamId,
+                onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
+                actions: { row in cardActions(for: row) },
+                onReply: {
+                    replyTarget = CommentReplyTarget(
+                        parentId: comment.id,
+                        authorName: commentAuthorName(comment, users: users, agents: agents, reporterName: reporterName)
+                    )
+                }
+            )
+        }
+    }
+
+    /// The timeline-gutter avatar of one comment (28pt): the author's picture
+    /// or initials chip; a reporter's reply wears the initials of the name its
+    /// card reads (SLOP-4), never a member's.
+    private func commentAvatar(_ comment: CommentEntity, size: CGFloat) -> some View {
+        commentAvatarView(comment, users: users, agents: agents, reporterName: reporterName, size: size)
+    }
+
+    /// One comment's edit/delete callbacks — the same for a top-level card and
+    /// for each reply under it (EXP-741), so replies edit like their parent.
+    private func cardActions(for comment: CommentEntity) -> CommentCardActions {
+        CommentCardActions(
+            onEdit: {
+                // Fresh model per edit, seeded from the comment's markdown — the
+                // same rich block editor as the composer (images, mentions,
+                // lists, #issue-ref pills). Resolver/search set BEFORE load so
+                // existing refs decorate on seed.
+                let editor = IssueEditorModel()
+                editor.issueRefResolver = { resolveIssueRef($0) }
+                editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
+                editor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
+                // EXP-892: locally ranked rows now, the server's full-text
+                // hits spliced in behind them a beat later.
+                let augmentor = issueRefAugmentor ?? IssueRefAugmentor(
+                    scope: .issue(id: issue.id),
+                    db: deps.db,
+                    accountId: accountId,
+                    issuesApi: deps.issuesApi
+                )
+                issueRefAugmentor = augmentor
+                augmentor.attach(to: editor)
+                // EXP-824: media blocks in the edited body keep their player.
+                editor.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
+                editor.load(
+                    markdown: getCommentBodyText(comment.body),
+                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                )
+                editEditor = editor
+                editingCommentId = comment.id
+            },
+            onCancelEdit: { editingCommentId = nil },
+            onSaveEdit: { attachmentIds in
+                // The editor's own keyboard toolbar can still inline an
+                // image into the BODY (that path predates EXP-554 and stays
+                // as it was); `attachmentIds` is the new, separate list of
+                // linked rows — a FULL desired set, so anything the user
+                // removed is hard-deleted server-side.
+                let ok = await editEditor.commitPendingImages(uploader: makeCommentImageUploader())
+                guard ok, !editEditor.hasUncommittedDrafts else { return false }
+                let md = editEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !md.isEmpty || !attachmentIds.isEmpty else { return false }
+                do {
+                    try await deps.commentsApi.update(
+                        accountId: accountId,
+                        id: comment.id,
+                        text: md,
+                        attachmentIds: attachmentIds
+                    )
+                    editingCommentId = nil
+                    return true
+                } catch {
+                    return false
+                }
+            },
+            onDelete: {
+                Task { try? await deps.commentsApi.delete(accountId: accountId, id: comment.id) }
+            }
+        )
+    }
+
+    /// The comment-edit image uploader (the NEW-comment path lives in
+    /// IssueDetailBottomBar with its own copy).
+    private func makeCommentImageUploader() -> @Sendable (PendingImage) async throws -> String {
+        let api = deps.attachmentsApi
+        let acc = accountId
+        let issueId = issue.id
+        return { image in
+            let uploaded = try await api.upload(
+                accountId: acc, issueId: issueId,
+                data: image.data, filename: image.filename, contentType: image.contentType,
+                media: image.mediaUploadParts
+            )
+            return uploaded.url
+        }
+    }
+
+    /// identifier (e.g. `VER-12`) → local issue id for inline `#IDENTIFIER`
+    /// pills in comment bodies (render-only, same team only; unresolved
+    /// refs stay plain text).
+    private func resolveIssueRef(_ identifier: String) -> String? {
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
+            .issueId
+    }
+
+    /// identifier → issue title for the read-only chips (`#ID <title>`,
+    /// EXP-307); same team scoping as the id resolver.
+    private func resolveIssueRefTitle(_ identifier: String) -> String? {
+        IssueRefChipCache.chip(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)?
+            .title
+    }
+
+    /// identifier → the status glyph the chip paints over its `#` (EXP-423);
+    /// same team scoping as the resolvers above.
+    private func resolveIssueRefStatus(_ identifier: String) -> IssueRefStatusInfo? {
+        IssueRefChipCache.statusInfo(
+            identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
+    }
+
+    private func startObserving() {
+        stopObserving() // restartable: the view re-arms on every appear
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let issueId = issue.id
+
+        let commentObs = ValueObservation.tracking { db in
+            try CommentEntity
+                .filter(Column("issue_id") == issueId)
+                .order(Column("created_at").asc)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in commentObs.values(in: pool) {
+                    self.comments = rows
+                }
+            } catch {}
+        })
+
+        let userObs = ValueObservation.tracking { db in
+            try UserEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in userObs.values(in: pool) {
+                    self.users = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // #VAPP-186: the apps a comment's `viaAppId` resolves to (a deleted
+        // app falls back to "via MCP").
+        let appObs = ValueObservation.tracking { db in
+            try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in appObs.values(in: pool) {
+                    self.appNames = Dictionary(rows.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+                }
+            } catch {}
+        })
+
+        // #EXP-1383: the synced agents an agent actor resolves to.
+        let agentObs = ValueObservation.tracking { db in
+            try AgentDefinitionEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in agentObs.values(in: pool) {
+                    self.agents = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                }
+            } catch {}
+        })
+
+        let labelObs = ValueObservation.tracking { db in
+            try LabelEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in labelObs.values(in: pool) {
+                    self.labels = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // Board names for board_moved events (EXP-57).
+        let boardObs = ValueObservation.tracking { db in
+            try BoardEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in boardObs.values(in: pool) {
+                    self.boards = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // EXP-630: team rows for the estimate scale.
+        let teamObs = ValueObservation.tracking { db in
+            try TeamEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in teamObs.values(in: pool) {
+                    self.teams = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // EXP-554: attachments linked to a COMMENT on this issue. Issue-level
+        // rows (comment_id NULL) belong to the description/Files rail and are
+        // filtered out in SQL so the grouping below never has to guess.
+        let attachmentObs = ValueObservation.tracking { db in
+            try AttachmentEntity
+                .filter(Column("issue_id") == issueId)
+                .filter(Column("comment_id") != nil)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in attachmentObs.values(in: pool) {
+                    let ordered = rows.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+                    self.attachmentsByComment = Dictionary(
+                        grouping: ordered,
+                        by: { $0.commentId ?? "" }
+                    )
+                }
+            } catch {}
+        })
+
+        // Team statuses (EXP-595) — resolve the status-change rows' glyph +
+        // color against the same vocabulary every other status surface uses.
+        let statusObs = ValueObservation.tracking { db in
+            try IssueStatusEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in statusObs.values(in: pool) {
+                    self.statusRows = rows
+                }
+            } catch {}
+        })
+
+        let eventObs = ValueObservation.tracking { db in
+            try IssueEventEntity
+                .filter(Column("issue_id") == issueId)
+                .order(Column("created_at").asc)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in eventObs.values(in: pool) {
+                    self.events = rows
+                }
+            } catch {}
+        })
+    }
+
+    private func stopObserving() {
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
+    }
+}
+
+// MARK: - Gutter rail
+
+/// One timeline row: a fixed-width leading gutter holding the marker (dot or
+/// avatar) with a 1pt vertical rail connecting to the neighboring rows, drawn
+/// as a background so it spans the row's full height. `showTop`/`showBottom`
+/// trim the rail at the timeline's ends. EXP-698 r5 pinned the rail to
+/// `strokeCard` at one point — web and the IDE draw the same hairline, and the
+/// hand-typed `white 0.09` at 1.5 was a third, heavier line.
+private struct TimelineRow<Marker: View, Content: View>: View {
+    let showTop: Bool
+    let showBottom: Bool
+    /// Height of the marker slot; the marker centers in it and the rail
+    /// breaks around it.
+    let markerSize: CGFloat
+    let topPadding: CGFloat
+    let bottomPadding: CGFloat
+    @ViewBuilder let marker: () -> Marker
+    @ViewBuilder let content: () -> Content
+
+    private let gutterWidth: CGFloat = 26
+    private let railBreathing: CGFloat = 3
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            marker()
+                .frame(width: gutterWidth, height: markerSize)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, topPadding)
+        .padding(.bottom, bottomPadding)
+        .background(alignment: .leading) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(showTop ? GlassTokens.strokeCard : Color.clear)
+                    .frame(width: 1)
+                    .frame(height: max(0, topPadding - railBreathing))
+                Color.clear
+                    .frame(height: markerSize + railBreathing * 2)
+                Rectangle()
+                    .fill(showBottom ? GlassTokens.strokeCard : Color.clear)
+                    .frame(width: 1)
+                    .frame(maxHeight: .infinity)
+            }
+            .frame(width: gutterWidth)
+        }
+    }
+}
+
+// MARK: - Regular comment
+
+/// The nested card (EXP-741): the top-level comment's content, then its
+/// replies indented behind one hairline, then the "Leave a reply…" row.
+private struct RegularCommentRow: View {
+    let comment: CommentEntity
+    let replies: [CommentEntity]
+    let attachmentsByComment: [String: [AttachmentEntity]]
+    let issueId: String
+    let users: [String: UserEntity]
+    /// #EXP-1383: the synced agents an agent author resolves to.
+    let agents: [String: AgentDefinitionEntity]
+    /// #VAPP-186: the synced apps' names a `viaAppId` resolves to.
+    let appNames: [String: String]
+    /// SLOP-4: the submission's reporter, named on `source == reporter` rows.
+    let reporterName: String?
+    let currentUserId: String?
+    let editingCommentId: String?
+    let editEditor: IssueEditorModel
+    let singleMemberTeam: Bool
+    let baseURL: URL?
+    let accountId: String
+    let httpClient: HTTPClient?
+    let mentionMembers: [MentionMember]
+    /// #VAPP-258: the issue's team (the body's `#IDENT` chips resolve in it).
+    let teamId: String?
+    let onOpenIssue: (String) -> Void
+    let actions: (CommentEntity) -> CommentCardActions
+    let onReply: () -> Void
+
+    @Environment(\.highlightedCommentId) private var highlightedCommentId
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content(for: comment)
+
+            // The replies block + the reply row, behind one hairline.
+            Rectangle()
+                .fill(GlassTokens.strokeCard)
+                .frame(height: GlassTokens.hairline)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+            ForEach(replies) { reply in
+                HStack(alignment: .top, spacing: 8) {
+                    commentAvatarView(reply, users: users, agents: agents, reporterName: reporterName, size: 20)
+                        .padding(.top, 2)
+                    content(for: reply)
+                }
+                .padding(.vertical, 6)
+            }
+            Button(action: onReply) {
+                Text("Leave a reply…")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("comment-reply-\(comment.id)")
+        }
+        // Glass comment card (EXP-240) — the avatar lives in the timeline
+        // gutter, not inside the card. EXP-723 opened the paddings up
+        // (12 / 10 / 12) so the body breathes under the bigger header.
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func content(for row: CommentEntity) -> some View {
+        CommentCardContent(
+            comment: row,
+            attachments: attachmentsByComment[row.id] ?? [],
+            issueId: issueId,
+            authorName: commentAuthorName(row, users: users, agents: agents, reporterName: reporterName),
+            viaAppName: row.viaAppId.flatMap { appNames[$0] },
+            isAuthor: row.authorId != nil && row.authorId == currentUserId,
+            isEditing: editingCommentId == row.id,
+            editEditor: editEditor,
+            singleMemberTeam: singleMemberTeam,
+            baseURL: baseURL,
+            accountId: accountId,
+            httpClient: httpClient,
+            mentionMembers: mentionMembers,
+            teamId: teamId,
+            onOpenIssue: onOpenIssue,
+            actions: actions(row)
+        )
+        // EXP-1241: a focused deep link flashes this comment.
+        .background {
+            if highlightedCommentId == row.id {
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .fill(GlassTokens.fillActive)
+                    .padding(-6)
+                    .transition(.opacity)
+            }
+        }
+        // Re-seed the per-comment @State (edit attachments, display model)
+        // when the row underneath changes identity. Also the scroll target
+        // of a focused deep link (EXP-1241).
+        .id(row.id)
+    }
+}
+
+/// The header line + body/edit form + attachment strip of ONE comment — the
+/// top-level card's content, and each reply's (web `CommentCardContent`).
+private struct CommentCardContent: View {
+    let comment: CommentEntity
+    /// EXP-554 — the rows whose `comment_id` is this comment, already ordered.
+    let attachments: [AttachmentEntity]
+    /// Uploads target the ISSUE (the attachment rows are issue-scoped; the
+    /// comment link is stamped by `comments.create`/`update`).
+    let issueId: String
+    /// The card's title — resolved by `commentAuthorName` (member, pseudonym,
+    /// reporter or former member).
+    let authorName: String
+    /// #VAPP-186: the app whose MCP tool wrote it; nil = "via MCP".
+    let viaAppName: String?
+    let isAuthor: Bool
+    let isEditing: Bool
+    let editEditor: IssueEditorModel
+    let singleMemberTeam: Bool
+    let baseURL: URL?
+    let accountId: String
+    let httpClient: HTTPClient?
+    let mentionMembers: [MentionMember]
+    let teamId: String?
+    let onOpenIssue: (String) -> Void
+    let actions: CommentCardActions
+
+    @Environment(AppDependencies.self) private var deps
+
+    @State private var saving = false
+
+    // EXP-554 edit state: which already-linked rows survive the save, plus
+    // anything newly picked. Removals are permanent once saved (the server hard-
+    // deletes rows missing from the list), so nothing is uploaded or dropped
+    // until Save is pressed.
+    @State private var keptAttachmentIds: Set<String> = []
+    @State private var pendingAttachments: [PendingCommentAttachment] = []
+    // FEED-79: a rejected PICK (type, size, the per-comment cap) is input and
+    // stays inline; a failed UPLOAD on save is a toast.
+    @State private var attachmentError: String?
+    @Environment(\.toaster) private var toaster
+    @State private var showPhotoPicker = false
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
+
+    // Author-only, no global-admin bypass (EXP-398) — the server refuses the
+    // mutation for anyone else, so the menu would only ever be a dead end.
+    private var canEdit: Bool { isAuthor }
+    // SLOP-4: a reporter's reply has no author; any member may delete it
+    // (moderation) and nobody edits it.
+    private var canDelete: Bool { isAuthor || comment.isFromReporter }
+
+    private var keptAttachments: [AttachmentEntity] {
+        attachments.filter { keptAttachmentIds.contains($0.id) }
+    }
+
+    private var attachmentsFull: Bool {
+        keptAttachments.count + pendingAttachments.count >= AttachmentFiles.maxCommentAttachments
+    }
+
+    private var bodyText: String {
+        getCommentBodyText(comment.body)
+    }
+
+    /// The caption after the time: `reporter`, then `to reporter` (SLOP-4),
+    /// then `via MCP` (EXP-741) or `via <app>` (#VAPP-186); every part that
+    /// applies shows, or none.
+    private var sourceCaption: String? {
+        ReporterReply.caption(
+            source: comment.source, audience: comment.audience,
+            authorAgentId: comment.authorAgentId, viaAppName: viaAppName
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                // EXP-723 activity redesign: the author reads as the card's
+                // title (subheadline medium), the time + "edited" as one
+                // muted caption beside it — the same weights web, desktop and
+                // Android landed on.
+                Text(authorName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                Text(relativeDate(comment.createdAt))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                if comment.editedAt != nil {
+                    Text("· edited")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                // EXP-741: an agent posted it over MCP — the same caption on
+                // every client, so a bot's words never read as its key owner's.
+                // SLOP-4: the reporter's reply, or a member's words TO the
+                // reporter, wear their caption in the same slot.
+                if let caption = sourceCaption {
+                    Text("· \(caption)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                Spacer()
+                if canDelete && !isEditing {
+                    GlassMenu {
+                        if canEdit {
+                            GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: actions.onEdit)
+                        }
+                        GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: actions.onDelete)
+                    } label: {
+                        // EXP-698 r5: a BARE vertical ellipsis — the glass ring
+                        // it wore made a comment's overflow menu louder than
+                        // the comment. Same glyph, size and tone on all four
+                        // clients; the 32pt frame keeps the tap target.
+                        AppIcon(AppIcons.uiMoreVertical, size: 16)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                            .accessibilityLabel("Comment actions")
+                    }
+                }
+            }
+
+            if isEditing {
+                // The same rich block editor as the composer — formatting,
+                // images, @mentions, and #issue-refs all work in edit mode too.
+                MarkdownEditor(
+                    model: editEditor,
+                    placeholder: "Edit comment…",
+                    baseURL: baseURL,
+                    accountId: accountId,
+                    httpClient: httpClient,
+                    mentionMembers: mentionMembers,
+                    onIssueRefTap: { issueId in onOpenIssue(issueId) }
+                )
+                // Bounded scroller, not a bare frame clamp — overflow content
+                // rendered outside the clamp with the caret detached (EXP-246).
+                .boundedEditorHeight(minHeight: 60, maxHeight: 220)
+                .padding(.vertical, 2)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                // The `@`/`#`/`:` menu is NOT mounted here: a row deep in the
+                // timeline is as likely to sit behind the keyboard as under it.
+                // IssueDetailView renders it in its bottom safe-area inset for
+                // whichever of its editors holds the keyboard (EXP-592).
+
+                // Already-linked rows, each removable. Removals only take effect
+                // on Save — and then they are permanent.
+                if !keptAttachments.isEmpty {
+                    CommentAttachmentsStrip(attachments: keptAttachments) { id in
+                        keptAttachmentIds.remove(id)
+                        attachmentError = nil
+                    }
+                }
+                if !pendingAttachments.isEmpty {
+                    PendingAttachmentStrip(items: pendingAttachments) { id in
+                        pendingAttachments.removeAll { $0.id == id }
+                        attachmentError = nil
+                    }
+                }
+                if let attachmentError {
+                    Text(attachmentError)
+                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                }
+
+                HStack(spacing: 2) {
+                    Button {
+                        showPhotoPicker = true
+                    } label: {
+                        AppIcon(AppIcons.editorImage, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(saving || attachmentsFull)
+                    .opacity(saving || attachmentsFull ? 0.4 : 1)
+                    .accessibilityLabel("Add photo")
+
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        AppIcon(AppIcons.uiAttach, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(saving || attachmentsFull)
+                    .opacity(saving || attachmentsFull ? 0.4 : 1)
+                    .accessibilityLabel("Attach a file")
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        saving = true
+                        Task {
+                            await performSave()
+                            saving = false
+                        }
+                    } label: {
+                        if saving { ProgressView().controlSize(.small) } else { Text("Save") }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(saving)
+                    Button("Cancel", action: actions.onCancelEdit)
+                        .controlSize(.small)
+                        .disabled(saving)
+                }
+            } else {
+                // #VAPP-258: the read-only body is genUI's Markdown (the
+                // document density): resolved @mentions and `#IDENTIFIER`
+                // refs as chips, the stored markdown untouched (the edit
+                // path reseeds from it). EXP-554: an attachment-only comment
+                // has a blank body — no body view at all.
+                if !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    AgentMarkdownText(
+                        text: bodyText,
+                        context: AgentMarkdownContext(
+                            baseURL: baseURL,
+                            accountId: accountId,
+                            httpClient: httpClient,
+                            issueRefs: teamId.map { team in
+                                AgentIssueRefContext(
+                                    teamId: team, db: deps.db, onOpen: onOpenIssue, bareRefs: false,
+                                    mentionMembers: mentionMembers
+                                )
+                            }
+                        ),
+                        style: .document
+                    )
+                }
+
+                // EXP-554: linked attachments render BELOW the body as squared
+                // thumbs + file chips — never inlined into the markdown. Old
+                // comments that inlined `![](…)` keep rendering through the body
+                // above exactly as before.
+                CommentAttachmentsStrip(attachments: attachments)
+            }
+        }
+        // The card chrome lives on `RegularCommentRow` (EXP-741): this is the
+        // content of a top-level card OR of one reply inside it.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $photoItems,
+            maxSelectionCount: AttachmentFiles.maxCommentAttachments,
+            // EXP-824: videos too — normalised to 720p and queued as a media tile.
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: photoItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            Task { await ingestPhotos(newItems) }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result else { return }
+            Task { await ingestFiles(urls) }
+        }
+        // Entering edit mode seeds the "kept" set from what is linked today; the
+        // pending list starts empty on every fresh edit.
+        .onChange(of: isEditing) { _, editing in
+            if editing { seedEditAttachments() }
+        }
+        .onAppear {
+            if isEditing { seedEditAttachments() }
+        }
+    }
+
+    // MARK: - Edit-mode attachments (EXP-554)
+
+    private func seedEditAttachments() {
+        keptAttachmentIds = Set(attachments.map(\.id))
+        pendingAttachments = []
+        attachmentError = nil
+    }
+
+    /// Upload anything newly picked, then hand the FULL desired id list to the
+    /// save closure. Uploads stamp `uploadedId`, so a retry after a failure only
+    /// uploads what is left.
+    private func performSave() async {
+        attachmentError = nil
+        var attachmentIds = keptAttachments.map(\.id)
+        if !pendingAttachments.isEmpty {
+            let outcome = await CommentAttachmentUploads.uploadAll(
+                pendingAttachments,
+                accountId: accountId,
+                issueId: issueId,
+                attachmentsApi: deps.attachmentsApi
+            )
+            pendingAttachments = CommentAttachmentUploads.restamp(pendingAttachments, from: outcome.items)
+            if let failure = outcome.failure {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "upload", thing: "the attachments"),
+                    description: failure
+                )
+                return
+            }
+            attachmentIds += outcome.items.compactMap(\.uploadedId)
+        }
+        if await actions.onSaveEdit(attachmentIds) {
+            pendingAttachments = []
+        }
+    }
+
+    private func ingestPhotos(_ items: [PhotosPickerItem]) async {
+        defer { photoItems = [] }
+        attachmentError = nil
+        for item in items {
+            guard !attachmentsFull else {
+                attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
+                break
+            }
+            let outcome = await AttachmentPicks.ingestPhotoItem(item)
+            if let attachment = outcome.attachment {
+                pendingAttachments.append(attachment)
+            } else {
+                attachmentError = outcome.failure
+            }
+        }
+    }
+
+    private func ingestFiles(_ urls: [URL]) async {
+        attachmentError = nil
+        for url in urls {
+            guard !attachmentsFull else {
+                attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
+                break
+            }
+            let outcome = await AttachmentPicks.readPickedFile(at: url)
+            if let attachment = outcome.attachment {
+                pendingAttachments.append(attachment)
+            } else {
+                attachmentError = outcome.failure
+            }
+        }
+    }
+}
+
+// MARK: - Shared helpers
+
+/// The name a comment card reads (SLOP-4, pinned ×4): a reporter's reply
+/// names the submission's reporter (else the anonymous visitor); a comment
+/// with no synced author row (left the team, deleted) reads "Former member";
+/// a synced author resolves through the shared member display rule.
+/// #EXP-1383 (agent-settings.json `actor`): an agent's session wrote it → the
+/// card names the AGENT, never the member.
+private func commentAuthorName(
+    _ comment: CommentEntity, users: [String: UserEntity], agents: [String: AgentDefinitionEntity],
+    reporterName: String?
+) -> String {
+    if let agent = commentAuthorAgent(comment, agents: agents) { return agent.name }
+    let author = comment.authorId.flatMap { users[$0] }
+    if let override = ReporterReply.authorNameOverride(
+        source: comment.source, authorSynced: author != nil, reporterName: reporterName
+    ) {
+        return override
+    }
+    return memberDisplayName(author, id: comment.authorId)
+}
+
+// EXP-698 r4: the shared `UserAvatar` — a commenter's PICTURE when there is
+// one, and otherwise the hashed-hue initials chip every client paints. The 28pt
+// diameter is the timeline's marker size; replies wear 20. SLOP-4: a
+// reporter's reply (no author) and a former member's row paint the initials
+// of the name their card reads.
+@ViewBuilder
+private func commentAvatarView(
+    _ comment: CommentEntity, users: [String: UserEntity], agents: [String: AgentDefinitionEntity],
+    reporterName: String?, size: CGFloat
+) -> some View {
+    if let agent = commentAuthorAgent(comment, agents: agents) {
+        // #EXP-1383: THE AGENT MARK, never the member's avatar.
+        UserAvatar(agent: UserAvatarAgent(agent), size: size)
+    } else if let authorId = comment.authorId, let user = users[authorId], !comment.isFromReporter {
+        UserAvatar(user: user, id: authorId, size: size)
+    } else {
+        let name = commentAuthorName(comment, users: users, agents: agents, reporterName: reporterName)
+        UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size)
+    }
+}
+
+/// #EXP-1383: the agent whose session wrote a comment (`issueActor`), nil
+/// for a person's (or an unsynced agent's) comment.
+private func commentAuthorAgent(
+    _ comment: CommentEntity, agents: [String: AgentDefinitionEntity]
+) -> AgentSettings.ActorAgent? {
+    AgentSettings.issueActor(
+        actorAgentId: comment.authorAgentId, actorUserId: comment.authorId, agents: Array(agents.values)
+    )?.agent
+}
+
+/// Activity and comment times = the LONG wording ×4 ("5 minutes ago",
+/// polish round); `RelativeTime` parses both Electric wire forms (EXP-169).
+private func relativeDate(_ s: String) -> String {
+    RelativeTime.long(wire: s)
+}
+
+
+/// EXP-1241: the comment the timeline is flashing (a focused deep link).
+private struct HighlightedCommentIdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var highlightedCommentId: String? {
+        get { self[HighlightedCommentIdKey.self] }
+        set { self[HighlightedCommentIdKey.self] = newValue }
+    }
+}

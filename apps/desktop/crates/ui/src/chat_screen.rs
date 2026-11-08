@@ -33,7 +33,7 @@
 //! on the picked device (this machine or another), linking 1..N issues or
 //! naming an action. The hosting device picks the row up from its shapes
 //! ([`crate::session_pickup`]); the page lands on the new root
-//! (`Screen::Thread`) the moment the send answers, a dialog closes and lands
+//! (`Screen::Chat`) the moment the send answers, a dialog closes and lands
 //! its opener there.
 //!
 //! FEED-100: the page wears the DAWN — the faint brand mark's top half over
@@ -1868,7 +1868,7 @@ impl ChatScreenView {
                         // TOP of what it showed (Back returns there); the
                         // Home page gives way to the root it started.
                         navigation::defer_in_result_window(window, cx, move |window, cx| {
-                            let screen = Screen::Thread { session_id };
+                            let screen = Screen::Chat { session_id };
                             if in_dialog {
                                 navigation::navigate(window, cx, screen);
                             } else {

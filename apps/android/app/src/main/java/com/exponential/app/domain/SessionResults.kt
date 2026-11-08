@@ -537,25 +537,25 @@ fun tallImageStripRanges(height: Int, rows: Int = 4096): List<Pair<Int, Int>> {
     return ranges
 }
 
-// EXP-1175: the Run face's THREAD — what the run published, in the order it
+// EXP-1175: the Run face's result STREAM — what the run published, in the order it
 // published it, with the Summary text as the agent's reply at the end.
-// Fixture `session-results.json` `thread` (×4, web `sessionThread`).
+// Fixture `session-results.json` `stream` (×4, web `sessionResultStream`).
 
-sealed class ThreadItem {
-    data class Text(val topic: String, val text: String) : ThreadItem()
-    data class Picture(val entry: SessionResultEntry) : ThreadItem()
+sealed class StreamItem {
+    data class Text(val topic: String, val text: String) : StreamItem()
+    data class Picture(val entry: SessionResultEntry) : StreamItem()
 }
 
-data class SessionThread(
-    val items: List<ThreadItem>,
+data class SessionResultStream(
+    val items: List<StreamItem>,
     /** The Summary topic's text (its first non-blank one), drawn LAST as the
      *  agent's reply; null without one. */
     val reply: String?,
 )
 
-/** A thread piece with the server's write stamp (`at`, ms; null on an entry
+/** A stream piece with the server's write stamp (`at`, ms; null on an entry
  *  filed before EXP-1251): an item, or the Summary reply. */
-private data class ThreadPiece(val item: ThreadItem?, val reply: String?, val at: Long?)
+private data class StreamPiece(val item: StreamItem?, val reply: String?, val at: Long?)
 
 private fun JsonObject.stampMs(): Long? {
     val primitive = this["at"] as? JsonPrimitive ?: return null
@@ -564,8 +564,8 @@ private fun JsonObject.stampMs(): Long? {
     return if (value.isFinite() && value > 0) value.toLong() else null
 }
 
-private fun threadPieces(raw: String?): List<ThreadPiece> {
-    val pieces = mutableListOf<ThreadPiece>()
+private fun streamPieces(raw: String?): List<StreamPiece> {
+    val pieces = mutableListOf<StreamPiece>()
     val seenText = mutableSetOf<String>()
     var replied = false
     var pictures = 0
@@ -575,18 +575,18 @@ private fun threadPieces(raw: String?): List<ThreadPiece> {
         if (entry != null) {
             if (pictures >= MAX_SESSION_RESULTS) continue
             pictures += 1
-            pieces += ThreadPiece(ThreadItem.Picture(entry), null, at)
+            pieces += StreamPiece(StreamItem.Picture(entry), null, at)
             continue
         }
         val topic = row.text("topic") ?: continue
         val body = row.text("text") ?: continue
         if (isSummaryTopic(topic)) {
-            if (!replied) pieces += ThreadPiece(null, body, at)
+            if (!replied) pieces += StreamPiece(null, body, at)
             replied = true
             continue
         }
         if (!seenText.add(topic)) continue
-        pieces += ThreadPiece(ThreadItem.Text(topic, body), null, at)
+        pieces += StreamPiece(StreamItem.Text(topic, body), null, at)
     }
     return pieces
 }
@@ -595,24 +595,24 @@ private fun threadPieces(raw: String?): List<ThreadPiece> {
  * Array (publish) order, the group reader's tolerance and 60-picture cap: a
  * picture is an item where it sits; a topic's FIRST non-blank text is an item
  * where it sits (a later text of the same topic is dropped); the Summary
- * topic's text is [SessionThread.reply], never an item, while pictures filed
+ * topic's text is [SessionResultStream.reply], never an item, while pictures filed
  * under Summary stay in the stream.
  */
-fun sessionThread(raw: String?): SessionThread {
-    val items = mutableListOf<ThreadItem>()
+fun sessionResultStream(raw: String?): SessionResultStream {
+    val items = mutableListOf<StreamItem>()
     var reply: String? = null
-    for (piece in threadPieces(raw)) {
+    for (piece in streamPieces(raw)) {
         if (piece.item != null) items += piece.item else reply = piece.reply
     }
-    return SessionThread(items, reply)
+    return SessionResultStream(items, reply)
 }
 
-// EXP-1245: the thread as a CONVERSATION of turns, for the run's OWNER (the
+// EXP-1245: the stream as a CONVERSATION of turns, for the run's OWNER (the
 // relay feed is theirs alone): each turn = the person's message that opened
 // it (a bubble), its status row (`startedAt`/`endedAt` feed the per-turn
 // caption) and the results the server stamped (`at`) inside it, the Summary
 // as the reply of the turn that last wrote it. Teammates and an offline host
-// have no feed and keep today's single-row thread. Fixture
+// have no feed and keep today's single-row stream. Fixture
 // `session-results.json` `turns` (x4, web `sessionTurns`).
 
 /** One relay feed fact the turns read: a person's message or a turn edge. */
@@ -646,12 +646,12 @@ data class SessionTurn(
     val startedAt: Long?,
     /** The turn's `ended` edge (or the next message that cut in); null while live. */
     val endedAt: Long?,
-    val items: List<ThreadItem>,
+    val items: List<StreamItem>,
     val reply: String?,
 )
 
 data class SessionTurns(
-    /** False = no feed: ONE turn holding today's thread, drawn under the one
+    /** False = no feed: ONE turn holding today's stream, drawn under the one
      *  run-wide status row. */
     val perTurn: Boolean,
     val turns: List<SessionTurn>,
@@ -661,7 +661,7 @@ private class TurnBuilder(
     val message: SessionTurnMessage?,
     var startedAt: Long?,
     var endedAt: Long? = null,
-    val items: MutableList<ThreadItem> = mutableListOf(),
+    val items: MutableList<StreamItem> = mutableListOf(),
     var reply: String? = null,
 ) {
     val boundary: Long get() = message?.at ?: startedAt ?: 0L
@@ -704,10 +704,10 @@ fun sessionTurns(raw: String?, feed: List<SessionTurnEvent>? = null): SessionTur
         }
     }
     if (turns.isEmpty()) {
-        val thread = sessionThread(raw)
-        return SessionTurns(false, listOf(SessionTurn(null, null, null, thread.items, thread.reply)))
+        val stream = sessionResultStream(raw)
+        return SessionTurns(false, listOf(SessionTurn(null, null, null, stream.items, stream.reply)))
     }
-    for (piece in threadPieces(raw)) {
+    for (piece in streamPieces(raw)) {
         var target = turns.first()
         if (piece.at != null) {
             for (turn in turns) if (turn.boundary <= piece.at) target = turn

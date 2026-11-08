@@ -5,19 +5,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // EXP-1295: THE session composer box — the reply box EVERYWHERE (the session
-// view, a thread's Conversation, a team agent's channel). One `GlassComposer`
+// view, a chat's Conversation, a team agent's channel). One `GlassComposer`
 // holding the markdown field, the pending picture/file strip, the footer
 // (`SessionComposerFooter`: the `+`, the composer's ONLY tool, and the usage
 // ring) and the round send glyph; a send is ONE `sessions.send({sessionId,
 // text, attachmentIds})` after every pick uploaded to the session once.
 // S-3 (composer-menu.json, surface session | agent): with `controls` the `+`
-// opens THE "+" sheet (`ThreadComposerPlusMenu`): Photo or file (THE Camera | Photos
+// opens THE "+" sheet (`ChatComposerPlusMenu`): Photo or file (THE Camera | Photos
 // | File sub-choice), Issue › (a pick inserts `#IDENT` at the caret),
 // Account › (#EXP-1535: the usage wall's session account switch), Model ›
 // (`/model <alias>`). A bare box's `+` is Photo | File.
 
 /// The draft one composer edits: the session view's model (it outlives the
-/// screen, EXP-621) or a thread's own (`ThreadComposerDraft`).
+/// screen, EXP-621) or a chat's own (`ChatComposerDraft`).
 @MainActor
 protocol SessionComposerDraft: AnyObject {
     var draftEditor: IssueEditorModel { get }
@@ -248,7 +248,7 @@ struct SessionComposerAttach: Equatable {
 struct SessionComposerCard<Draft: SessionComposerDraft>: View {
     let draft: Draft
     let placeholder: String
-    /// The session view's own footer controls; nil = a thread's bare box.
+    /// The session view's own footer controls; nil = a chat's bare box.
     var controls: SessionComposerFooter.Controls?
     @Binding var attach: SessionComposerAttach
     /// Whether Send may go (the owner's gates: a viewer who may not post, a
@@ -380,9 +380,9 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
     }
 
     /// THE "+" sheet (composer-menu.json, surface session | agent).
-    private func plusMenu(_ controls: SessionComposerFooter.Controls) -> ThreadComposerPlusMenu {
+    private func plusMenu(_ controls: SessionComposerFooter.Controls) -> ChatComposerPlusMenu {
         let editor = draft.draftEditor
-        return ThreadComposerPlusMenu(
+        return ChatComposerPlusMenu(
             conditions: controls.menuConditions,
             surface: controls.surface,
             agent: controls.agent,

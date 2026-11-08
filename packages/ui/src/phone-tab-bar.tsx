@@ -5,7 +5,7 @@ import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { cn } from "./cn"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 
-// Thread 58cb32df (#EXP-1373, fixture `chats.json` `shell.tabs`): the PHONE
+// Chat 58cb32df (#EXP-1373, fixture `chats.json` `shell.tabs`): the PHONE
 // bottom bar's tab capsule — on Android and web-mobile the look-alike of the
 // iOS Liquid Glass tab bar, painted on THE floating chrome recipe
 // (`FAB_CHROME_CLASS`): each tab an icon over its label, the selected one on

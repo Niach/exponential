@@ -15,8 +15,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // restores; the purge cascade removes it. Every column is synced — the
 // draft's attachments are server-only rows (`attachments.draft_id`, excluded
 // from the attachments shape) fetched via `issueDrafts.listAttachments`.
-/** The synced columns (EXP-1291: `session_id` = the thread a "New issue in
- *  this thread" draft files into). Checked against the schema by
+/** The synced columns (EXP-1291: `session_id` = the chat a "New issue in
+ *  this chat" draft files into). Checked against the schema by
  *  `shape-columns.test.ts`. */
 export const ISSUE_DRAFT_COLUMNS = [
   `id`,

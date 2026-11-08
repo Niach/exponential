@@ -102,8 +102,8 @@ pub struct IssuesCreateInput {
     /// `/api/attachments/{id}` URL owned by that draft.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_id: Option<String>,
-    /// EXP-1284 → EXP-1291: "New issue in this thread" — the server links
-    /// the new issue into that session's thread root (source `user`) in the
+    /// EXP-1284 → EXP-1291: "New issue in this chat" — the server links
+    /// the new issue into that session's root (source `user`) in the
     /// create's transaction. Skipped when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,

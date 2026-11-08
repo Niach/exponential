@@ -2,7 +2,7 @@
 //! twin, iOS ExpCore `PlanPage.swift`, Android `domain/PlanPage.kt`): a
 //! plan's markdown split into blocks (prose, h2 sections, picture groups),
 //! its outline, its counts line, the wide picture group's tiles and where a
-//! session's waiting plan opens. #EXP-1662: the plan is a TAB of its thread:
+//! session's waiting plan opens. #EXP-1662: the plan is a TAB of its chat:
 //! the `title` block, the row's and the chip's label, the tab's target.
 //! Byte-locked by `fixtures/plan-page.json` (its `$comment` is the spec); pure.
 
@@ -178,9 +178,9 @@ fn flush_prose(blocks: &mut Vec<PlanBlock>, prose: &mut Vec<String>) {
     prose.clear();
 }
 
-/// #EXP-1662 / #FEED-191: the plan a thread's tab shows (`tabCases`; `plans`
+/// #EXP-1662 / #FEED-191: the plan a chat's tab shows (`tabCases`; `plans`
 /// = (id, decision), oldest first): the newest waiting one, else `kept` while
-/// it is an approved or rejected plan of the thread (the plan the tab showed
+/// it is an approved or rejected plan of the chat (the plan the tab showed
 /// during THIS visit of the chat; the host clears it when the person leaves),
 /// else none: a decided plan leaves the strip.
 pub fn plan_tab_target<'a>(plans: &[(&'a str, Option<&str>)], kept: Option<&str>) -> Option<&'a str> {
@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(PLAN_PAGE.layout.outline_width, 240.0);
         assert_eq!(PLAN_PAGE.mosaic.large_fraction, 0.6);
         assert_eq!(PLAN_PAGE.test_ids.page, "plan-page");
-        assert_eq!(PLAN_PAGE.test_ids.tab, "thread-tab-plan");
+        assert_eq!(PLAN_PAGE.test_ids.tab, "chat-tab-plan");
         assert_eq!(PLAN_PAGE.copy.needs_you, "Needs you");
         assert_eq!(PLAN_PAGE.layout.title_size, 28.0);
         assert_eq!(PLAN_PAGE.layout.row_height, 44.0);

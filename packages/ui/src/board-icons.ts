@@ -53,3 +53,12 @@ export function getActionIcon(action: {
   }
   return ICON_COMPONENTS[SEMANTIC_ICONS[`action-default`]]
 }
+
+/** #EXP-1733: an app's glyph ×4: its curated icon, else the Apps glyph
+ *  (`nav-apps`; desktop `icons::app_icon`, iOS `AppsModel.glyph`, Android `AppGlyph`). */
+export function getAppIcon(app: { icon?: string | null }): LucideIcon {
+  if (app.icon && app.icon in BOARD_ICON_COMPONENTS) {
+    return BOARD_ICON_COMPONENTS[app.icon as BoardIcon]
+  }
+  return ICON_COMPONENTS[SEMANTIC_ICONS[`nav-apps`]]
+}

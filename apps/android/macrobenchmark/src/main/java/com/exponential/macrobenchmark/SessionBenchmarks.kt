@@ -27,11 +27,11 @@ import org.junit.runner.RunWith
  * - [sendThenBack]: type a message, send it and press back at once; the
  *   frames until the previous screen settles must not freeze (the 2–3 s stall).
  *
- * The app must already be signed in to an instance where the thread named by
- * the `threadId` instrumentation argument holds a session card titled
+ * The app must already be signed in to an instance where the chat named by
+ * the `chatId` instrumentation argument holds a session card titled
  * `sessionTitle` whose device publishes a long feed (README.md: the
  * screenshot seed + `SCREENSHOT_FEED_REPEAT=40 bun run screenshots:desktop`).
- * Both journeys open the thread through the `exponential://session/<id>` deep
+ * Both journeys open the chat through the `exponential://session/<id>` deep
  * link, then the session from its card.
  */
 @RunWith(AndroidJUnit4::class)
@@ -39,8 +39,8 @@ class SessionBenchmarks {
     @get:Rule
     val rule = MacrobenchmarkRule()
 
-    private val threadId: String
-        get() = InstrumentationRegistry.getArguments().getString("threadId") ?: DEFAULT_THREAD_ID
+    private val chatId: String
+        get() = InstrumentationRegistry.getArguments().getString("chatId") ?: DEFAULT_CHAT_ID
 
     private val sessionTitle: String
         get() = InstrumentationRegistry.getArguments().getString("sessionTitle") ?: DEFAULT_SESSION_TITLE
@@ -105,7 +105,7 @@ class SessionBenchmarks {
     }
 
     /**
-     * Cold-open the thread, then the session: the join replays the whole feed,
+     * Cold-open the chat, then the session: the join replays the whole feed,
      * which used to be folded on the main thread in one block (EXP-1522).
      * [SessionOpenFrameMetric] reads the frames after the card's tap: the
      * `Choreographer#doFrame%` Max is the cold process's first frame (EGL +
@@ -128,7 +128,7 @@ class SessionBenchmarks {
         iterations = ITERATIONS,
         setupBlock = { pressHome() },
     ) {
-        openThread()
+        openChat()
         openSessionCard()
     }
 
@@ -148,8 +148,8 @@ class SessionBenchmarks {
         iterations = ITERATIONS,
         setupBlock = {
             openSession()
-            // On a phone the session is a page of its thread's pager: Back
-            // leaves the thread, the Conversation tab returns to it.
+            // On a phone the session is a page of its chat's pager: Back
+            // leaves the chat, the Conversation tab returns to it.
             device.wait(Until.findObject(By.res(CONVERSATION_TAB_TAG)), WAIT_MS)?.click()
                 ?: error("no Conversation tab")
             device.wait(Until.gone(By.res(FEED_TAG)), WAIT_MS)
@@ -171,7 +171,7 @@ class SessionBenchmarks {
         iterations = ITERATIONS,
         setupBlock = { pressHome() },
     ) {
-        openThread()
+        openChat()
         openSessionCard()
         check(device.wait(Until.hasObject(By.res(DOCK_PILE_TAG)), WAIT_MS) == true) { "no Dock card" }
     }
@@ -186,7 +186,7 @@ class SessionBenchmarks {
             TraceSectionMetric("Choreographer#doFrame%", TraceSectionMetric.Mode.Max),
             TraceSectionMetric("SteerConnection.commitStaging", TraceSectionMetric.Mode.Sum),
             TraceSectionMetric("SteerConnection.frame", TraceSectionMetric.Mode.Sum),
-            TraceSectionMetric("ThreadsViewModel.groups", TraceSectionMetric.Mode.Sum),
+            TraceSectionMetric("ChatsViewModel.groups", TraceSectionMetric.Mode.Sum),
             TraceSectionMetric("AgentSessionViewModel.header", TraceSectionMetric.Mode.Sum),
         ),
         compilationMode = CompilationMode.Full(),
@@ -209,24 +209,24 @@ class SessionBenchmarks {
 
     private fun MacrobenchmarkScope.openSession() {
         pressHome()
-        openThread()
+        openChat()
         openSessionCard()
     }
 
-    private fun MacrobenchmarkScope.openThread() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("exponential://session/$threadId"))
+    private fun MacrobenchmarkScope.openChat() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("exponential://session/$chatId"))
             .setPackage(PACKAGE)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivityAndWait(intent)
         check(device.wait(Until.hasObject(By.res(CONVERSATION_TAG)), WAIT_MS) == true) {
-            "thread `$threadId` did not open: is the app signed in?"
+            "chat `$chatId` did not open: is the app signed in?"
         }
         device.waitForIdle()
     }
 
     private fun MacrobenchmarkScope.openSessionCard() {
         val conversation = device.wait(Until.findObject(By.res(CONVERSATION_TAG)), WAIT_MS)
-            ?: error("thread `$threadId` did not open: is the app signed in?")
+            ?: error("chat `$chatId` did not open: is the app signed in?")
         conversation.setGestureMargin(device.displayWidth / 5)
         // The card must sit in the middle third: the transcript scrolls under
         // the floating header band and the composer band, and a card found
@@ -248,7 +248,7 @@ class SessionBenchmarks {
             device.waitForIdle()
             card = device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))
         }
-        (card ?: error("no session card `$sessionTitle` in thread `$threadId`")).click()
+        (card ?: error("no session card `$sessionTitle` in chat `$chatId`")).click()
         // One retry: the first tap can still land on a settling list.
         if (device.wait(Until.hasObject(By.res(FEED_TAG)), WAIT_MS / 3) != true) {
             device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))?.click()
@@ -277,11 +277,11 @@ class SessionBenchmarks {
 
     private companion object {
         const val PACKAGE = "at.exponential"
-        /** The screenshot seed's demo thread (`DEMO_THREAD_ID`) and its steered session. */
-        const val DEFAULT_THREAD_ID = "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
+        /** The screenshot seed's demo chat (`DEMO_CHAT_ID`) and its steered session. */
+        const val DEFAULT_CHAT_ID = "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
         const val DEFAULT_SESSION_TITLE = "Profile the launch path"
-        const val CONVERSATION_TAG = "thread-conversation"
-        const val CONVERSATION_TAB_TAG = "thread-tab-conversation"
+        const val CONVERSATION_TAG = "chat-conversation"
+        const val CONVERSATION_TAB_TAG = "chat-tab-conversation"
         const val SESSION_CARD_TAG = "session-card"
         const val FEED_TAG = "agent-feed"
         const val BUBBLE_TAG = "session-agent-bubble"

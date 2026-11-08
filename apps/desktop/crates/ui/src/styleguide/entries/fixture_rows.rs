@@ -1,4 +1,4 @@
-//! EXP-1294: the Threads v2 entries' shared demo kit, not an entry — the
+//! EXP-1294: the Chats entries' shared demo kit, not an entry — the
 //! contract fixtures' camelCase rows read as the synced-shape (snake_case)
 //! `domain::rows` the painters take, their ISO clock as epoch ms, and a
 //! demo pull-request stack.
@@ -8,10 +8,10 @@ use domain::rows::{Issue, MessageRow, PullRequestIssueRow, PullRequestRow};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-pub(crate) const SESSION_THREAD_JSON: &str =
-    include_str!("../../../../../../../packages/domain-contract/fixtures/session-thread.json");
-pub(crate) const THREADS_LIST_JSON: &str =
-    include_str!("../../../../../../../packages/domain-contract/fixtures/threads-list.json");
+pub(crate) const SESSION_CHAT_JSON: &str =
+    include_str!("../../../../../../../packages/domain-contract/fixtures/session-chat.json");
+pub(crate) const CHATS_LIST_JSON: &str =
+    include_str!("../../../../../../../packages/domain-contract/fixtures/chat-list.json");
 
 /// `teamId` → `team_id`.
 fn snake(key: &str) -> String {

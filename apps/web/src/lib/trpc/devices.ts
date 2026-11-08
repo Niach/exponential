@@ -176,7 +176,7 @@ function clampLaunchDefaults(
       ) {
         entry.subagentModel = d.subagentModel
       }
-      // The dispatcher root's model (threads + team agents), per agent.
+      // The dispatcher root's model (chats + team agents), per agent.
       if (typeof d.threadModel === `string` && agentModelValues(agent).includes(d.threadModel)) {
         entry.threadModel = d.threadModel
       }

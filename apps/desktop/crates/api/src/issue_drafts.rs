@@ -58,8 +58,8 @@ pub struct IssueDraftUpsertInput {
     /// issue field (REV2-49).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<String>,
-    /// EXP-1284 → EXP-1291: the thread (a session; the server stores its
-    /// root) a "New issue in this thread" draft files into (`sessionId`);
+    /// EXP-1284 → EXP-1291: the chat (a session; the server stores its
+    /// root) a "New issue in this chat" draft files into (`sessionId`);
     /// omitted = keep the row's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -221,7 +221,7 @@ mod tests {
         input.assignee_id = Some("u-1".into());
         input.label_ids = vec!["l-1".into()];
         input.due_date = Some("2026-09-14".into());
-        // EXP-1291: the draft's thread (a session) rides last.
+        // EXP-1291: the draft's chat (a session) rides last.
         input.session_id = Some("th-1".into());
         issue_drafts_upsert(&client(&base), &input).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

@@ -344,11 +344,11 @@ import com.exponential.app.ui.components.DockAutoOpen
 import com.exponential.app.ui.components.DockCards
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetScope
-import com.exponential.app.ui.thread.PlanAskCard
-import com.exponential.app.ui.thread.SurfaceCard
-import com.exponential.app.ui.thread.ThreadAnswer
-import com.exponential.app.ui.thread.ThreadAskCard
-import com.exponential.app.ui.thread.ThreadPlanDecision
+import com.exponential.app.ui.chat.PlanAskCard
+import com.exponential.app.ui.chat.SurfaceCard
+import com.exponential.app.ui.chat.ChatAnswer
+import com.exponential.app.ui.chat.ChatAskCard
+import com.exponential.app.ui.chat.ChatPlanDecision
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -451,7 +451,7 @@ fun RunFace(
      *  `sessions_guide` card's `Open Guide` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
     /** S-3: the feed's `Started by` / `Reported to` link pushes that session
-     *  ([root] = open it as its thread); null = no origin line. */
+     *  ([root] = open it as its chat); null = no origin line. */
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
@@ -469,8 +469,8 @@ fun RunFace(
 /**
  * EXP-1291: the RAW SESSION VIEW (`session/{sessionId}`) — ONE session's live
  * transcript, streamed from the device over eNet (VAPP-43), opened from its card
- * in the thread. Header ([SessionHeaderBar]): back · a back row named after
- * the THREAD (→ [onOpenThread], its root) over the session's own name with
+ * in the chat. Header ([SessionHeaderBar]): back · a back row named after
+ * the CHAT (→ [onOpenChat], its root) over the session's own name with
  * its state mark · Stop while it is live and the viewer may stop it (shared
  * or own). No face toggle, no Show work, no device caption. The bottom is THE
  * session composer: a message = `sessions.send({sessionId})` — it resumes an
@@ -481,8 +481,8 @@ fun AgentSessionScreen(
     sessionId: String,
     onBack: () -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    /** The session's thread (its ROOT), `thread/{rootId}`. */
-    onOpenThread: (rootSessionId: String) -> Unit,
+    /** The session's chat (its ROOT), `chat/{rootId}`. */
+    onOpenChat: (rootSessionId: String) -> Unit,
     /** S-3: an inter-session link to a non-root session (its view, pushed). */
     onOpenSession: (sessionId: String) -> Unit = {},
 ) {
@@ -498,12 +498,12 @@ fun AgentSessionScreen(
         containerColor = Color.Transparent,
         topBar = {
             SessionHeaderBar(
-                threadTitle = header?.threadTitle,
+                chatTitle = header?.chatTitle,
                 sessionName = header?.sessionName ?: row?.title?.takeIf { it.isNotBlank() } ?: "",
                 agent = row?.cli,
                 state = row?.let { SessionTree.sessionState(SessionTree.session(it)) },
                 onBack = onBack,
-                onOpenThread = rootId?.let { id -> { onOpenThread(id) } },
+                onOpenChat = rootId?.let { id -> { onOpenChat(id) } },
             )
         },
     ) { padding ->
@@ -514,19 +514,19 @@ fun AgentSessionScreen(
             padding = padding,
             onOpenIssue = onOpenIssue,
             trailingBarSlot = null,
-            onOpenOrigin = { id, root -> if (root) onOpenThread(id) else onOpenSession(id) },
+            onOpenOrigin = { id, root -> if (root) onOpenChat(id) else onOpenSession(id) },
         )
         }
     }
 }
 
 /**
- * EXP-1343: a session chip's page in its THREAD — the raw session view's body
+ * EXP-1343: a session chip's page in its CHAT — the raw session view's body
  * ([RunFace]: the session's raw work + THE session composer) without its own
- * [SessionHeaderBar]: the thread's ONE header (the strip) stays on top.
- * The view model lives in the page's own store (the thread pager's
+ * [SessionHeaderBar]: the chat's ONE header (the strip) stays on top.
+ * The view model lives in the page's own store (the chat pager's
  * `PageViewModelStore`), so only the shown page holds the live session.
- * [onOpenIssue] = the THREAD's handler (EXP-1347: a linked issue opens its tab).
+ * [onOpenIssue] = the CHAT's handler (EXP-1347: a linked issue opens its tab).
  */
 @Composable
 fun SessionPage(
@@ -551,30 +551,30 @@ fun SessionPage(
 /**
  * EXP-1291: the raw session view's header, stateless. The shared [com.exponential.app.ui.work.WorkTopBar]
  * (back · title; S-3: no Stop) whose title is two lines: the back row naming the
- * thread (`session-open-thread`, muted, a chevron) over the session's name
+ * chat (`session-open-chat`, muted, a chevron) over the session's name
  * with its [AgentRunMark] (the ×4 state on the agent's mark).
  */
 @Composable
 fun SessionHeaderBar(
-    threadTitle: String?,
+    chatTitle: String?,
     sessionName: String,
     agent: String?,
     state: SessionTree.SessionState?,
     onBack: () -> Unit,
-    /** Null hides the back row (no thread resolved yet). */
-    onOpenThread: (() -> Unit)?,
+    /** Null hides the back row (no chat resolved yet). */
+    onOpenChat: (() -> Unit)?,
 ) {
     com.exponential.app.ui.work.WorkTopBar(
         title = sessionName,
         titleContent = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (onOpenThread != null && !threadTitle.isNullOrBlank()) {
+                if (onOpenChat != null && !chatTitle.isNullOrBlank()) {
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onOpenThread)
+                            .clickable(onClick = onOpenChat)
                             .padding(horizontal = 4.dp, vertical = 1.dp)
-                            .testTag("session-open-thread"),
+                            .testTag("session-open-chat"),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -585,7 +585,7 @@ fun SessionHeaderBar(
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
                         Text(
-                            threadTitle,
+                            chatTitle,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             maxLines = 1,
@@ -748,7 +748,7 @@ private fun RunFaceContent(
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
     // EXP-1323: opening a session view reads it (bold rows + the nav dot);
-    // news landing while it is open is read too, like the thread screen.
+    // news landing while it is open is read too, like the chat screen.
     val newestAgentMessage by viewModel.newestAgentMessageAt.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel.codingSessionId, newestAgentMessage) { viewModel.markRead() }
     // EXP-888: a sweep end is not an end — the composer stays live.
@@ -867,7 +867,7 @@ private fun RunFaceContent(
             (!everRendered && phase == AgentPhase.Live && latestDiff == null)
         )
     // Every answer is one semantic `answer` frame keyed by the card's wire
-    // id (EXP-249) — shared by the transcript and the thread (EXP-1175).
+    // id (EXP-249) — shared by the transcript and the chat (EXP-1175).
     val onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit = { question, keys, text ->
         // The picked labels (a typed free-text reply
         // wins over its row's "Type something"
@@ -892,7 +892,7 @@ private fun RunFaceContent(
     }
     // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
     // relay ask: THE rich card answers it through `sessions.answer`.
-    val answerToolCard: ThreadAnswer = { messageId, a, settled ->
+    val answerToolCard: ChatAnswer = { messageId, a, settled ->
         viewModel.answerCard(
             AnswerInput(
                 messageId = messageId,
@@ -904,7 +904,7 @@ private fun RunFaceContent(
             settled,
         )
     }
-    val decideToolPlan: ThreadPlanDecision = { messageId, d, settled ->
+    val decideToolPlan: ChatPlanDecision = { messageId, d, settled ->
         viewModel.answerCard(
             AnswerInput(
                 messageId = messageId,
@@ -1135,7 +1135,7 @@ private fun RunFaceContent(
                                 )
                             }
                             // #VAPP-229 (via-app.json): one muted small line
-                            // under the origin; the thread header stays
+                            // under the origin; the chat header stays
                             // caption-free.
                             if (via != null) {
                                 Text(
@@ -1154,7 +1154,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = { row ->
                         when (row) {
-                            is SessionTree.ThreadRow.Surface -> SurfaceCard(
+                            is SessionTree.SessionChatRow.Surface -> SurfaceCard(
                                 row = row,
                                 animate = false,
                                 onReply = { text -> viewModel.sendCommand(text) },
@@ -1162,7 +1162,7 @@ private fun RunFaceContent(
                             else -> androidx.compose.runtime.CompositionLocalProvider(
                                 LocalCardDismiss provides dismissToolCard,
                             ) {
-                                ThreadAskCard(row, answerToolCard, decideToolPlan)
+                                ChatAskCard(row, answerToolCard, decideToolPlan)
                             }
                         }
                     },
@@ -1176,14 +1176,14 @@ private fun RunFaceContent(
             bottomInset = bottomInset,
             // An expanded composer card is its own surface.
             visible = !composerExpanded,
-            // EXP-1256: the thread's bottom edge in the page's own ground.
+            // EXP-1256: the chat's bottom edge in the page's own ground.
             ground = true,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(bottom = bottomInset),
         ) {
-        // THE session composer (shared with the thread + the agent channel);
+        // THE session composer (shared with the chat + the agent channel);
         // the face hands it its banners and the strips around the menus.
         SessionComposer(
             viewModel = viewModel,
@@ -1198,7 +1198,7 @@ private fun RunFaceContent(
         }
     }
 
-    // ── The Usage overlay — THE sheet, shared with the thread's composer ring.
+    // ── The Usage overlay — THE sheet, shared with the chat's composer ring.
     SessionUsageSheet(
         viewModel = viewModel,
         open = usageSheetOpen,
@@ -1210,7 +1210,7 @@ private fun RunFaceContent(
  * THE Usage sheet (EXP-688/EXP-909) behind a session composer's ring and the
  * rate-limit wall's "Switch account": the run's account, its windows, the
  * context window and the other logins to switch to. The session view and the
- * thread / agent channel (the ROOT's view model) open the same one.
+ * chat / agent channel (the ROOT's view model) open the same one.
  */
 @Composable
 internal fun SessionUsageSheet(
@@ -1681,7 +1681,7 @@ private fun ActivityFeed(
     docked: AgentFeedRow? = null,
     /** EXP-1398: the session's own cards, where each draws ([renderCard]). */
     sessionCards: SessionCardSlots = SessionCardSlots.None,
-    renderCard: @Composable (SessionTree.ThreadRow) -> Unit = {},
+    renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1742,7 +1742,7 @@ private fun ActivityFeed(
     val answered = remember(answerStates) {
         answerStates.filterValues { it.locksCard() }.keys
     }
-    // EXP-1175: the card inputs, shared with the thread's pending cards.
+    // EXP-1175: the card inputs, shared with the chat's pending cards.
     // EXP-1521: one instance per input change, so the card rows can skip.
     val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp) {
         AnswerCards(
@@ -1995,7 +1995,7 @@ private fun ActivityFeed(
                             // a workflow's own duplicates render under its card.
                             is AgentFeedItem.DuplicateAgent -> DuplicateAgentRow(item)
                             is AgentFeedItem.UserMessage -> {
-                                // Thread 58cb32df (chats.json): a person's
+                                // Session 58cb32df (chats.json): a person's
                                 // `/new` or `/compact` line is the centred
                                 // divider pill, never a bubble.
                                 val divider = Chats.commandDivider(item.text)
@@ -2106,7 +2106,7 @@ private fun ActivityFeed(
         // (`HeaderEdgeChrome`), over every face alike. EXP-1175: the list
         // starts below the status row (and the tabs), so its own head dissolves.
         run {
-            // EXP-1256: the thread's edge in the page's own ground, no tint.
+            // EXP-1256: the chat's edge in the page's own ground, no tint.
             EdgeFade(
                 FadeEdge.Top,
                 modifier = Modifier
@@ -2124,13 +2124,13 @@ private fun ActivityFeed(
  *  ([AskDock.anchorSessionCards]) and the rows they draw as. */
 internal class SessionCardSlots(
     private val anchors: AskDock.Anchors,
-    private val rows: Map<String, SessionTree.ThreadRow>,
+    private val rows: Map<String, SessionTree.SessionChatRow>,
 ) {
     /** The cards with no call in the feed, at the transcript's head. */
-    val head: List<SessionTree.ThreadRow> get() = anchors.unanchored.mapNotNull(rows::get)
+    val head: List<SessionTree.SessionChatRow> get() = anchors.unanchored.mapNotNull(rows::get)
 
     /** The cards a feed row's calls posted, oldest first. */
-    fun after(row: AgentFeedRow): List<SessionTree.ThreadRow> {
+    fun after(row: AgentFeedRow): List<SessionTree.SessionChatRow> {
         if (anchors.after.isEmpty()) return emptyList()
         val ids = when (row) {
             is AgentFeedRow.Single -> listOf(row.item.id)
@@ -2149,7 +2149,7 @@ internal class SessionCardSlots(
 
 /** One session card in the transcript, the block gap above it. */
 @Composable
-private fun SessionCardRow(row: SessionTree.ThreadRow, render: @Composable (SessionTree.ThreadRow) -> Unit) {
+private fun SessionCardRow(row: SessionTree.SessionChatRow, render: @Composable (SessionTree.SessionChatRow) -> Unit) {
     TranscriptRow(TranscriptGap.Block) {
         Box(Modifier.testTag("session-tool-card")) { render(row) }
     }
@@ -2157,7 +2157,7 @@ private fun SessionCardRow(row: SessionTree.ThreadRow, render: @Composable (Sess
 
 /**
  * EXP-1175: everything a plan/question card needs, held once so the
- * transcript and the thread draw the SAME cards from the same inputs.
+ * transcript and the chat draw the SAME cards from the same inputs.
  */
 private class AnswerCards(
     /** Lock keys of the steps whose answer is out (sent or acknowledged). */
@@ -2487,7 +2487,7 @@ internal fun rememberSessionTaskQueue(
  * the list with the remove glyphs) and the status banners (the lost
  * connection, the usage wall + Switch account,
  * compacting, the rate-limit window, starting) in the host's words. The
- * session view and the thread (its ROOT's view model) share it.
+ * session view and the chat (its ROOT's view model) share it.
  */
 @Stable
 internal class SessionDock(
@@ -2724,7 +2724,7 @@ internal fun SessionDockCards(
 }
 
 /**
- * EXP-1323: a thread's live tail — THE Queue (EXP-1324: the same block as the
+ * EXP-1323: a chat's live tail — THE Queue (EXP-1324: the same block as the
  * session view's transcript bottom) and its working status line (mid-turn,
  * nothing parked), both off [activity] = that session's relay state. Nothing
  * shows while neither has anything to say.
@@ -2742,7 +2742,7 @@ internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity
     )
     // N-12: THE Queue moved into THE Dock; the tail keeps the Working row.
     Column(
-        modifier = Modifier.fillMaxWidth().testTag("thread-live-tail"),
+        modifier = Modifier.fillMaxWidth().testTag("chat-live-tail"),
     ) {
         if (working) {
             WorkingIndicatorRow(
@@ -3429,7 +3429,7 @@ private fun AnsweredAskCard(
 /** N-12: an AskCard drawn inside THE Dock's sheet: no glass, no header. */
 internal val LocalAskCardPlain = androidx.compose.runtime.staticCompositionLocalOf { false }
 
-/** #EXP-1464 (thread-row-action.json): the trailing slot of an [AskCard]'s
+/** #EXP-1464 (chat-row-action.json): the trailing slot of an [AskCard]'s
  *  label line (an expanded session row's `Open chat`); null = none. */
 internal val LocalAskCardTrailing = androidx.compose.runtime.compositionLocalOf<(@Composable () -> Unit)?> { null }
 
@@ -4477,7 +4477,7 @@ private fun ExpToolPicture(attachmentId: String?) {
 /**
  * One published picture as the transcript's inline tile (EXP-1172) — fitted to
  * the width at the inline height, opening the full preview. Shared by a
- * settled `sessions_show` row and the thread's pictures (EXP-1175).
+ * settled `sessions_show` row and the chat's pictures (EXP-1175).
  */
 @Composable
 private fun InlineResultPicture(entry: SessionResultEntry, modifier: Modifier = Modifier) {
@@ -4745,8 +4745,8 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 // ── Steering input ───────────────────────────────────────────────────────────
 
 /**
- * THE session composer ×4 (dispatcher roots, thread 2eb4b1a1): one box for the
- * session view, the THREAD (fed by its ROOT session's view model, so the
+ * THE session composer ×4 (dispatcher roots, session 2eb4b1a1): one box for the
+ * session view, the CHAT (fed by its ROOT session's view model, so the
  * message rides `sessions.send({sessionId: root})`) and the agent channel —
  * the queue strip, the `/` menu (steerCommands ∪ agent commands) and the
  * `@`/`#`/`:` autocomplete above the card, and the card's footer: `+`, the
@@ -4766,7 +4766,7 @@ internal fun SessionComposer(
     placeholder: String = STEER_COMPOSER_PLACEHOLDER,
     capsuleTestTag: String = "steer-composer-capsule",
     onOpenUsage: (() -> Unit)? = null,
-    /** The queue strip above the card. The thread + agent channel pass false:
+    /** The queue strip above the card. The chat + agent channel pass false:
      *  their Conversation already renders queued rows with the Remove X
      *  (EXP-1317). */
     showQueue: Boolean = true,
@@ -5453,7 +5453,7 @@ internal fun SteerComposer(
     trailing: (@Composable () -> Unit)?,
     /** EXP-1191: the collapsed bar's Merge circle, right of the capsule. */
     merge: (@Composable () -> Unit)? = null,
-    /** The host's copy (the thread's `Reply…`, an agent channel's). */
+    /** The host's copy (the chat's `Reply…`, an agent channel's). */
     placeholder: String = STEER_COMPOSER_PLACEHOLDER,
     capsuleTestTag: String = "steer-composer-capsule",
 ) {
@@ -5462,7 +5462,7 @@ internal fun SteerComposer(
     // to come back (EXP-621), and the placeholder says so.
     val shownPlaceholder = if (live) placeholder else "$placeholder (reconnecting…)"
     // EXP-1316: the fold / expand / collapse-on-blur machinery is THE
-    // [FloatingComposer] the thread wears too; this keeps the steer card.
+    // [FloatingComposer] the chat wears too; this keeps the steer card.
     // EXP-893: the folded composer IS the Work screen's bar — the placeholder
     // capsule that opens the card, the host's circle on the right.
     FloatingComposer(

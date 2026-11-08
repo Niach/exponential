@@ -14,7 +14,7 @@ import org.junit.Test
  * asserted byte-for-byte on purpose.
  *
  * NEW-2 (owner 2026-10-21): the catalog = the contract builtins ONLY
- * (compact, new, model, effort; clear and btw are gone; thread 58cb32df
+ * (compact, new, model, effort; clear and btw are gone; session 58cb32df
  * added `/new`, a fresh conversation in the same session) and commands the agent CLI
  * advertises (`config_state.commands`) are never merged in: the API has no
  * path for them at all.
@@ -53,7 +53,7 @@ class SlashCommandsTest {
         assertEquals(listOf("effort"), SlashCommands.matches("/e", "codex").map { it.name })
         // Not a prefix of anything.
         assertTrue(SlashCommands.matches("/zzz", "claude").isEmpty())
-        // Thread 58cb32df: `/new` is a builtin (a fresh conversation).
+        // Session 58cb32df: `/new` is a builtin (a fresh conversation).
         assertEquals(listOf("new"), SlashCommands.matches("/ne", "codex").map { it.name })
         assertEquals("/new", SlashCommands.all.single { it.name == "new" }.insertion)
         // Outside the catalog, whatever the CLI ships.

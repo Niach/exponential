@@ -320,8 +320,8 @@ interface IssueDraftDao {
     suspend fun clear()
 }
 
-// EXP-1291 Threads v2: the session tree. Roots (`parent_id IS NULL`) are
-// threads (`kind = thread`) and team agents (`kind = agent`); every session
+// EXP-1291: the session tree. Roots (`parent_id IS NULL`) are
+// chats (`kind = thread`) and team agents (`kind = agent`); every session
 // of one tree shares `root_id`.
 @Dao
 abstract class SessionDao {
@@ -340,7 +340,7 @@ abstract class SessionDao {
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND app_id = :appId AND user_id = :userId ORDER BY created_at DESC LIMIT 1")
     abstract suspend fun appConversation(appId: String, userId: String): SessionEntity?
 
-    // Every visible session (the Threads list derives groups per tree off it).
+    // Every visible session (the Chats list derives groups per tree off it).
     // EXP-1635: a team's newest chats (the sharing shortcuts): roots that are
     // neither an agent's conversation nor an app's editor nor encrypted, unarchived.
     @Query(
@@ -390,7 +390,7 @@ abstract class SessionDao {
     abstract fun rawObserveLive(): Flow<List<SessionEntity>>
     fun observeLive(): Flow<List<SessionEntity>> = rawObserveLive().openedSessions()
 
-    // The roots (threads) an issue sits in, newest activity first.
+    // The roots (chats) an issue sits in, newest activity first.
     @Query(
         "SELECT s.* FROM sessions s INNER JOIN session_issues si ON si.session_id = s.id " +
             "WHERE si.issue_id = :issueId ORDER BY s.updated_at DESC, s.created_at DESC, s.id",
@@ -416,7 +416,7 @@ abstract class SessionDao {
     abstract suspend fun clear()
 }
 
-// EXP-1291: a thread's issues (always on the ROOT), display order.
+// EXP-1291: a chat's issues (always on the ROOT), display order.
 @Dao
 interface SessionIssueDao {
     @Query("SELECT * FROM session_issues ORDER BY session_id, sort_order, created_at, id")
@@ -445,7 +445,7 @@ abstract class MessageDao {
     abstract fun rawObserveAll(): Flow<List<MessageEntity>>
     fun observeAll(): Flow<List<MessageEntity>> = rawObserveAll().openedMessages()
 
-    // NEW-8: a session's thread = the messages of its own conversation (the
+    // NEW-8: a session's chat = the messages of its own conversation (the
     // `conversations` row with that `session_id`); a message whose
     // conversation has not synced yet is held back until it does.
     @Query(
@@ -532,7 +532,7 @@ abstract class ConversationDao {
     abstract fun rawObserveAll(): Flow<List<ConversationEntity>>
     fun observeAll(): Flow<List<ConversationEntity>> = rawObserveAll().openedConversations(observeRoots())
 
-    // Thread e4a04d22: one team's conversations (the Chats list reads their digests).
+    // Session e4a04d22: one team's conversations (the Chats list reads their digests).
     @Query("SELECT * FROM conversations WHERE team_id = :teamId")
     abstract fun rawObserveByTeam(teamId: String): Flow<List<ConversationEntity>>
     fun observeByTeam(teamId: String): Flow<List<ConversationEntity>> = rawObserveByTeam(teamId).openedConversations(observeRoots())
@@ -757,7 +757,7 @@ interface PullRequestDao {
     @Query("SELECT * FROM pull_requests WHERE team_id = :teamId ORDER BY created_at, id")
     fun observeByTeam(teamId: String): Flow<List<PullRequestEntity>>
 
-    // A thread's PRs (`root_session_id`), opening order.
+    // A chat's PRs (`root_session_id`), opening order.
     @Query("SELECT * FROM pull_requests WHERE root_session_id = :rootId ORDER BY created_at, id")
     fun observeByRoot(rootId: String): Flow<List<PullRequestEntity>>
 

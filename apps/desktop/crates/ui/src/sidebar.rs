@@ -11,9 +11,9 @@
 //!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
 //!   EXP-863). Middle (scrolling): the tool-window
 //!   selectors — **Agent / Needs you / Chats / Devices / Drafts**
-//!   (EXP-1192: Agent first, the landing page; EXP-1294: Threads replaced
+//!   (EXP-1192: Agent first, the landing page; EXP-1294: Chats replaced
 //!   Reviews), Pinned, the team's **Agents** (EXP-1294), its boards, the
-//!   **Running** section (my live threads, hidden while empty), then
+//!   **Running** section (my live chats, hidden while empty), then
 //!   **This device**: **Files / Source Control** (Source Control carries an
 //!   amber badge while the trunk needs attention — a paused conflict, local
 //!   commits, or a dirty tree, EXP-346 — and opens the changes screen
@@ -510,7 +510,7 @@ pub(crate) fn computer_button(state: &ComputerState, cx: &App) -> gpui::AnyEleme
 
 /// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
 /// the plain dot): the classic colored dot (EXP-699: Inbox primary;
-/// EXP-1294: Threads amber/green — the mobile tab-bar palette), a
+/// EXP-1294: Chats amber/green — the mobile tab-bar palette), a
 /// small status ICON (SC attention triangle / error cross), or the spinning
 /// refresh glyph while a sync is pulling.
 #[derive(Clone)]
@@ -731,7 +731,7 @@ impl RailView {
             // dialog, which also marks it seen) must repaint the rail.
             cx.observe(&coding_hub, |_, _, cx| cx.notify()),
         ];
-        // EXP-1294: the Threads dot, the Agents rows and the Running section
+        // EXP-1294: the Chats dot, the Agents rows and the Running section
         // are live reads over the session tree (+ the issues that title it).
         subscriptions.extend(crate::session_data::observe_session_collections(cx));
         // #NEW-97: the footer's voice button follows the tray (its host, the
@@ -881,9 +881,9 @@ pub(crate) fn left_column_divider(cx: &App) -> gpui::AnyElement {
 
 /// EXP-1294 — a Running row's mark state off its tree's facts: needs you
 /// first, then working, else the quiet waiting mark (EXP-1312: the ×4
-/// `thread_row_mark_state`). Pure.
+/// `chat_row_mark_state`). Pure.
 pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_tree::SessionState {
-    domain::session_tree::thread_row_mark_state(needs_you, busy)
+    domain::session_tree::chat_row_mark_state(needs_you, busy)
 }
 
 impl RailView {

@@ -255,7 +255,7 @@ internal fun SettingsRow(
     subtitle: String? = null,
     trailingIcon: ImageVector = ExpIcons.uiChevronRight,
     showChevron: Boolean = true,
-    /** Thread 58cb32df: the Team tab's counts (Members 8 · Boards 3). */
+    /** Session 58cb32df: the Team tab's counts (Members 8 · Boards 3). */
     trailingCount: Int? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -435,7 +435,7 @@ private fun TeamGroupBlock(
 }
 
 
-// ── The Team tab (thread 58cb32df, chats.json `shell`) ──────────────────────
+// ── The Team tab (session 58cb32df, chats.json `shell`) ──────────────────────
 
 /** What the Team tab reads about the ACTIVE team. */
 data class TeamTabState(
@@ -522,7 +522,7 @@ class TeamTabViewModel @Inject constructor(
 }
 
 /**
- * Thread 58cb32df: the TEAM tab (chats.json `shell`): the active team's mark
+ * Session 58cb32df: the TEAM tab (chats.json `shell`): the active team's mark
  * (84) + name + `copy.team.meta`, a glass group of the viewer's teams (the
  * active one checked, a team with an unread notification an amber dot; a tap
  * SWITCHES — the only place a phone switches its team), then the team's

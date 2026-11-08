@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { JumpToBottomButton } from "@exp/ui"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 
-// EXP-1316 (1n): a thread's Conversation scrolls like the session feed —
+// EXP-1316 (1n): a chat's Conversation scrolls like the session feed —
 // opens at the newest row, follows while pinned, stays put once the reader
 // scrolled up (THE jump button shows) and jumps back.
 

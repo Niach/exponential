@@ -46,8 +46,8 @@ import {
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS } from "@exp/domain-contract/needs-you"
 import { InboxPopover } from "@/components/team/inbox-popover"
 import { useNeedsYou } from "@/hooks/use-needs-you"
-import { useAgents, useSessionReads, useThreadsList } from "@/hooks/use-session-tree"
-import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
+import { useAgents, useSessionReads, useChatsList } from "@/hooks/use-session-tree"
+import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
@@ -62,14 +62,14 @@ import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import {
   SidebarRunningSection,
-  threadsNavState,
-  type SidebarThreads,
+  chatsNavState,
+  type SidebarChats,
 } from "@/components/team/sidebar-running"
 import { SidebarAgentsSection } from "@/components/team/sidebar-agents"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import {
   TeamLiveDot,
-  ThreadsLiveBadge,
+  ChatsLiveBadge,
   UserAvatar,
   UserMenuItems,
 } from "@/components/team/sidebar-shared"
@@ -114,7 +114,7 @@ const NavAgentIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavNeedsYouIcon = conceptIcon(`nav-needs-you`)
-const NavThreadsIcon = conceptIcon(`nav-threads`)
+const NavChatsIcon = conceptIcon(`nav-chats`)
 const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
@@ -175,16 +175,16 @@ export function TeamSidebar({
   const draftCount = useDraftCount(team?.id)
   // #FEED-191 (needs-you.json): Needs you lists only while a card waits.
   const needsYou = useNeedsYou(team?.id, session?.user?.id)
-  // EXP-1293: ONE Threads list read for the sidebar — the Threads entry's
+  // EXP-1293: ONE Chats list read for the sidebar — the Chats entry's
   // dot, and the Running section.
-  const threadsList = useThreadsList(team?.id)
+  const chatsList = useChatsList(team?.id)
   const teamPrs = useTeamPullRequestsByRoot(team?.id)
-  const threads: SidebarThreads = {
-    groups: threadsList.groups,
-    wordOf: (row) => threadWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
+  const chats: SidebarChats = {
+    groups: chatsList.groups,
+    wordOf: (row) => chatWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
   }
   const sessionReads = useSessionReads()
-  const threadsNav = threadsNavState(threadsList.groups, sessionReads)
+  const chatsNav = chatsNavState(chatsList.groups, sessionReads)
   const { agents } = useAgents(team?.id, session?.user?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
@@ -384,7 +384,7 @@ export function TeamSidebar({
                             any), Chats, Devices, Drafts (while any). */}
                         <SidebarMenu>
                           {/* EXP-818 / EXP-1293: the Agent page — HOME, the
-                              composer. No live dot: Threads carries it. */}
+                              composer. No live dot: Chats carries it. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
@@ -410,21 +410,21 @@ export function TeamSidebar({
                               </SidebarMenuTrailing>
                             </SidebarMenuItem>
                           )}
-                          {/* EXP-1293: Threads replaced Reviews and the
-                              Agent page's history — green while a thread of the
+                          {/* EXP-1293: Chats replaced Reviews and the
+                              Agent page's history — green while a chat of the
                               team runs, yellow while one needs you. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link
-                                to="/t/$teamSlug/threads"
+                                to="/t/$teamSlug/chats"
                                 params={{ teamSlug }}
-                                data-testid="nav-threads"
+                                data-testid="nav-chats"
                               >
-                                <NavThreadsIcon className="h-4 w-4" />
+                                <NavChatsIcon className="h-4 w-4" />
                                 <span>{CHATS_COPY.title}</span>
                               </Link>
                             </SidebarMenuButton>
-                            <ThreadsLiveBadge state={threadsNav} />
+                            <ChatsLiveBadge state={chatsNav} />
                           </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
@@ -541,9 +541,9 @@ export function TeamSidebar({
                       </SidebarGroupContent>
                     </SidebarGroup>
                     {/* EXP-923 / EXP-1293 / EXP-1318: the ACTIVE group — the
-                        team's threads that need you, run or wait on a
+                        team's chats that need you, run or wait on a
                         merge, under the boards. Hidden when empty. */}
-                    <SidebarRunningSection teamSlug={teamSlug} threads={threads} />
+                    <SidebarRunningSection teamSlug={teamSlug} chats={chats} />
                   </SidebarContent>
                   {/* EXP-164: dismissable "What's new" teaser for the latest
                       changelog entry — hidden again until the next release

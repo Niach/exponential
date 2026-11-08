@@ -301,9 +301,9 @@ export async function dismissSuggestion(
   })
 }
 
-/** The board a thread files issues on: its first linked issue's board, else
- *  a visible board of the thread's repository. Null = none. */
-export async function threadBoardId(rootId: string): Promise<string | null> {
+/** The board a chat files issues on: its first linked issue's board, else
+ *  a visible board of the chat's repository. Null = none. */
+export async function chatBoardId(rootId: string): Promise<string | null> {
   const [linked] = await db
     .select({ boardId: issues.boardId })
     .from(sessionIssues)
@@ -335,7 +335,7 @@ export async function threadBoardId(rootId: string): Promise<string | null> {
   return board?.id ?? null
 }
 
-/** File as issue: `issues.create` on the thread's board, linked to the root
+/** File as issue: `issues.create` on the chat's board, linked to the root
  *  (its `sessionId`), then the item's `issueId`. `createIssue` = the issues
  *  router as the caller (its access + link rules). The create runs in its
  *  own transaction, so the item is LOCKED (FOR UPDATE) and re-checked open
@@ -354,7 +354,7 @@ export async function fileSuggestion(
 ): Promise<{ issueId: string; txid: number }> {
   const { message, session, card } = await loadSuggestionCard(userId, input.messageId)
   const item = openItem(card, input.itemId)
-  const boardId = await threadBoardId(session.rootId)
+  const boardId = await chatBoardId(session.rootId)
   if (!boardId) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,

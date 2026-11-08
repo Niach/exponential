@@ -5,7 +5,7 @@ import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.domain.ARG_ACTION
 import com.exponential.app.domain.ARG_ISSUES
 import com.exponential.app.domain.ARG_PR
-import com.exponential.app.domain.ARG_THREAD
+import com.exponential.app.domain.ARG_CHAT
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -17,14 +17,14 @@ import kotlinx.coroutines.flow.map
 /**
  * EXP-1186: what a route names that OWNS a team — a saved prompt (the agent
  * route's `action` arg, NEW-2), else the issue a
- * `pr` / `issues` seed names, else the thread a `thread` seed starts into
+ * `pr` / `issues` seed names, else the chat a `chat` seed starts into
  * (EXP-1284). Null = nothing team-owned (an empty composer,
  * a builtin): the screen keeps the SELECTED team.
  */
 sealed interface RouteSubject {
     data class Prompt(val id: String) : RouteSubject
     data class Issue(val id: String) : RouteSubject
-    data class Thread(val id: String) : RouteSubject
+    data class Chat(val id: String) : RouteSubject
 }
 
 /** The [RouteSubject] off a route's args, [get] answering one key at a time. */
@@ -35,7 +35,7 @@ fun routeSubject(get: (String) -> String?): RouteSubject? {
     if (pr != null) return RouteSubject.Issue(pr)
     val issue = get(ARG_ISSUES)?.split(',')?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
     if (issue != null) return RouteSubject.Issue(issue)
-    return get(ARG_THREAD)?.takeIf { it.isNotEmpty() }?.let { RouteSubject.Thread(it) }
+    return get(ARG_CHAT)?.takeIf { it.isNotEmpty() }?.let { RouteSubject.Chat(it) }
 }
 
 /**
@@ -64,7 +64,7 @@ fun routeTeamIdFlow(
                     db.issueDao().observeById(subject.id),
                     db.boardDao().observeAll(),
                 ) { issue, boards -> boards.firstOrNull { it.id == issue?.boardId }?.teamId }
-                is RouteSubject.Thread -> db.sessionDao().observeById(subject.id).map { it?.teamId }
+                is RouteSubject.Chat -> db.sessionDao().observeById(subject.id).map { it?.teamId }
             }
         }
     }

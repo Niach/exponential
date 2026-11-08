@@ -37,7 +37,7 @@ class DeepLinkRoutesTest {
     fun `fills the other deep-link route patterns`() {
         assertEquals(
             "support/t1",
-            DeepLinkRoutes.concreteRoute("support/{threadId}", args("threadId" to "t1")),
+            DeepLinkRoutes.concreteRoute("support/{conversationId}", args("conversationId" to "t1")),
         )
         assertEquals(
             "invite/tok",
@@ -95,7 +95,7 @@ class DeepLinkRoutesTest {
     @Test
     fun `fills the full agent pattern`() {
         assertEquals(
-            "agent?issues=&action=p-1&device=&pr=i-1&text=&icon=&thread=",
+            "agent?issues=&action=p-1&device=&pr=i-1&text=&icon=&chat=",
             DeepLinkRoutes.concreteRoute(
                 AGENT_ROUTE_PATTERN,
                 args(
@@ -105,7 +105,7 @@ class DeepLinkRoutesTest {
                     "pr" to "i-1",
                     "text" to "",
                     "icon" to "",
-                    "thread" to "",
+                    "chat" to "",
                 ),
             ),
         )
@@ -148,7 +148,7 @@ class DeepLinkRoutesTest {
         // Cold start and every bottom-bar root: the drain must navigate.
         assertFalse(DeepLinkRoutes.isOnTop("home", args(), "issue/A"))
         assertFalse(
-            DeepLinkRoutes.isOnTop("support/{threadId}", args("threadId" to "A"), "issue/A")
+            DeepLinkRoutes.isOnTop("support/{conversationId}", args("conversationId" to "A"), "issue/A")
         )
     }
 

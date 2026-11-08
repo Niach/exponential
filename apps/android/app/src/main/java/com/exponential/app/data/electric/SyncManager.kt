@@ -616,7 +616,7 @@ class SyncManager @Inject constructor(
                 onDelete = { issueDraftDao.deleteById(it.id) },
                 onRefetch = { issueDraftDao.clear() },
             ),
-            // EXP-1291 Threads v2: the session tree (threads, agents and their
+            // EXP-1291: the session tree (chats, agents and their
             // sub-sessions) — `shared OR user_id = me` inside the member teams.
             launchShape(
                 shape = "sessions", path = "/api/shapes/sessions", tableName = "sessions",
@@ -627,7 +627,7 @@ class SyncManager @Inject constructor(
                 onDelete = { sessionDao.deleteById(it.id) },
                 onRefetch = { sessionDao.clear() },
             ),
-            // A thread's issues (on the ROOT), hidden with the issue's board.
+            // A chat's issues (on the ROOT), hidden with the issue's board.
             launchShape(
                 shape = "session_issues", path = "/api/shapes/session-issues", tableName = "session_issues",
                 serializer = SessionIssueEntity.serializer(),

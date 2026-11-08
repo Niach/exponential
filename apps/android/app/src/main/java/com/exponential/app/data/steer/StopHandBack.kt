@@ -2,7 +2,7 @@ package com.exponential.app.data.steer
 
 /**
  * EXP-1342 ("one message on Stop" ×4): a `sessions.stop` that bypasses the
- * relay (the thread header's Stop, the composer's Stop while disconnected)
+ * relay (the chat header's Stop, the composer's Stop while disconnected)
  * hands the page's queued messages back to its composer FIRST, exactly as
  * [SteerConnection.interrupt] does — and puts the draft back the way it was
  * if the stop itself fails (web `session-stop.ts`: `noteStopped`, then

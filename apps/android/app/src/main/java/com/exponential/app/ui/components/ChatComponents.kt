@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SealedPlaceholder
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.apps.AppGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.parseColor
@@ -52,7 +53,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// Thread 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
+// Session 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
 // phone shell (the header is the shared [PageHeader]) — the section headers,
 // the flat WhatsApp row with its 52 lead disc, THE chat
 // menu sheet (long-press) + its delete confirm, and the transcript's divider
@@ -243,7 +244,6 @@ fun ChatSectionHeader(label: String, modifier: Modifier = Modifier) {
  * Assistant = the brand mark), its name, the conversation's preview, time
  * and unread badge. A tap opens the agent's chat.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AgentChatRowItem(
     row: Chats.AgentChatRow,
@@ -253,10 +253,93 @@ fun AgentChatRowItem(
     onLongClick: (() -> Unit)? = null,
     divider: Boolean = true,
 ) {
-    val unread = row.unreadCount > 0
+    PinnedChatRow(
+        name = row.name,
+        time = row.time,
+        preview = row.preview,
+        unreadCount = row.unreadCount,
+        needsYou = row.needsYou,
+        testTag = "chat-agent-row",
+        needsYouTag = "chat-agent-row-needs-you",
+        onClick = onClick,
+        onLongClick = onLongClick,
+        divider = divider,
+        modifier = modifier,
+    ) {
+        AgentBubbleDisc(
+            icon = row.icon,
+            color = row.color,
+            assistant = row.assistant,
+            size = Chats.Shell.LEAD_DISC.dp,
+            ring = Color.Transparent,
+            ringWidth = 0.dp,
+            ringGap = 0.dp,
+            glyph = (Chats.Shell.LEAD_DISC * 0.5f).dp,
+        )
+    }
+}
+
+/**
+ * #EXP-1733 (chats.json APPS, `appChatRows`): ONE app row between the
+ * Agents and the sessions = the agent row's look with the app's glyph (the
+ * Apps list's [AppGlyph]) in the disc, the viewer's session with the app for
+ * preview, time and unread. Never selectable; a tap opens the app's editor.
+ */
+@Composable
+fun AppChatRowItem(
+    row: Chats.AppChatRow,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    divider: Boolean = true,
+) {
+    PinnedChatRow(
+        name = row.name,
+        time = row.time,
+        preview = row.preview,
+        unreadCount = row.unreadCount,
+        needsYou = row.needsYou,
+        testTag = Chats.TestIds.APP_ROW,
+        needsYouTag = "${Chats.TestIds.APP_ROW}-needs-you",
+        onClick = onClick,
+        onLongClick = null,
+        divider = divider,
+        modifier = modifier,
+    ) {
+        Box(
+            Modifier
+                .size(Chats.Shell.LEAD_DISC.dp)
+                .clip(CircleShape)
+                .background(DiscFill, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            AppGlyph(row.icon, row.color, size = (Chats.Shell.LEAD_DISC * 0.5f).dp)
+        }
+    }
+}
+
+/** The agent and app rows' shared layout: [disc] as the lead (needs you =
+ *  the chat lead's amber badge on it), the name, the preview, the time and
+ *  the unread badge. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PinnedChatRow(
+    name: String,
+    time: String,
+    preview: Chats.ChatPreview,
+    unreadCount: Int,
+    needsYou: Boolean,
+    testTag: String,
+    needsYouTag: String,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    divider: Boolean,
+    modifier: Modifier,
+    disc: @Composable () -> Unit,
+) {
+    val unread = unreadCount > 0
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     val timeColor = when {
-        row.needsYou -> NeedsInputAmber
+        needsYou -> NeedsInputAmber
         unread -> MaterialTheme.colorScheme.onSurface
         else -> muted
     }
@@ -264,7 +347,7 @@ fun AgentChatRowItem(
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .testTag("chat-agent-row")
+            .testTag(testTag)
             .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -272,17 +355,8 @@ fun AgentChatRowItem(
         // preview, never as the working mark); needs you = the chat lead's
         // amber badge on it (web `ChatLeadDisc` `run-mark-badge`).
         Box(modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp)) {
-            AgentBubbleDisc(
-                icon = row.icon,
-                color = row.color,
-                assistant = row.assistant,
-                size = Chats.Shell.LEAD_DISC.dp,
-                ring = Color.Transparent,
-                ringWidth = 0.dp,
-                ringGap = 0.dp,
-                glyph = (Chats.Shell.LEAD_DISC * 0.5f).dp,
-            )
-            if (row.needsYou) {
+            disc()
+            if (needsYou) {
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
@@ -293,7 +367,7 @@ fun AgentChatRowItem(
                         .padding(2.dp)
                         .clip(CircleShape)
                         .background(NeedsInputAmber, CircleShape)
-                        .testTag("chat-agent-row-needs-you"),
+                        .testTag(needsYouTag),
                 )
             }
         }
@@ -302,25 +376,25 @@ fun AgentChatRowItem(
             Column(modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        row.name,
+                        name,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (unread || row.needsYou) FontWeight.SemiBold else FontWeight.Medium,
+                        fontWeight = if (unread || needsYou) FontWeight.SemiBold else FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (row.time.isNotEmpty()) {
+                    if (time.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
-                        Text(row.time, style = MaterialTheme.typography.labelMedium, color = timeColor, maxLines = 1)
+                        Text(time, style = MaterialTheme.typography.labelMedium, color = timeColor, maxLines = 1)
                     }
                 }
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ChatPreviewText(row.preview, Modifier.weight(1f))
+                    ChatPreviewText(preview, Modifier.weight(1f))
                     if (unread) {
                         Spacer(Modifier.width(8.dp))
-                        UnreadBadge(row.unreadCount, amber = row.needsYou)
+                        UnreadBadge(unreadCount, amber = needsYou)
                     }
                 }
             }
@@ -528,9 +602,9 @@ private fun ChatPreviewText(preview: Chats.ChatPreview, modifier: Modifier = Mod
     )
 }
 
-/** The row word (threadRowWord) with its glyph (`stack` wears the stack). */
+/** The row word (chatRowWord) with its glyph (`stack` wears the stack). */
 @Composable
-private fun ChatRowWord(word: SessionTree.ThreadRowWord) {
+private fun ChatRowWord(word: SessionTree.ChatRowWord) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -539,7 +613,7 @@ private fun ChatRowWord(word: SessionTree.ThreadRowWord) {
     ) {
         // #EXP-1469: only `stack` wears a glyph ×4 (web ChatRowText, iOS
         // ChatsView, desktop word_glyph); the lead disc already shows the PR.
-        val icon = if (word == SessionTree.ThreadRowWord.Stack) ExpIcons.prStack else null
+        val icon = if (word == SessionTree.ChatRowWord.Stack) ExpIcons.prStack else null
         if (icon != null) Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
         Text(word.text.orEmpty(), style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1)
     }
@@ -634,8 +708,8 @@ data class ChatMenuItem(
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */
-fun chatMenuIcon(entry: Chats.ThreadMenuEntry): ImageVector = when (entry) {
-    Chats.ThreadMenuEntry.Delete -> ExpIcons.uiDelete
+fun chatMenuIcon(entry: Chats.ChatMenuEntry): ImageVector = when (entry) {
+    Chats.ChatMenuEntry.Delete -> ExpIcons.uiDelete
 }
 
 /** The icon CONCEPT of an agent menu entry (`agentMenuCases`). */
@@ -725,14 +799,14 @@ fun ChatMenuSheetFace(title: String, items: List<ChatMenuItem>, modifier: Modifi
     }
 }
 
-/** The chat menu's entries for a chat row: [Chats.threadMenuEntries] with
+/** The chat menu's entries for a chat row: [Chats.chatMenuEntries] with
  *  their copy and icon; Delete asks first ([onDelete]). S-3: no Stop. */
 fun chatMenuItems(
-    entries: List<Chats.ThreadMenuEntry>,
+    entries: List<Chats.ChatMenuEntry>,
     onDelete: () -> Unit,
 ): List<ChatMenuItem> = entries.map { entry ->
     ChatMenuItem(
-        label = Chats.threadMenuLabel(entry),
+        label = Chats.chatMenuLabel(entry),
         icon = chatMenuIcon(entry),
         onClick = onDelete,
         destructive = true,
@@ -784,7 +858,7 @@ fun ChatDeleteConfirm(
 }
 
 /**
- * A transcript divider (session-thread.json `divider` row): a person's `/new`
+ * A transcript divider (session-chat.json `divider` row): a person's `/new`
  * or `/compact` line painted as the centred glass pill
  * `copy.dividers.<kind> · HH:mm` (icon ui-clean / coding-compact), never a
  * bubble. EXP-1459: kind `locked-noKey` | `locked-unreadable` = the same pill

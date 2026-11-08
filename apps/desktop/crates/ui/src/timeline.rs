@@ -100,7 +100,7 @@ const TIMELINE_ROW_MIN_H: f32 = 32.;
 /// EXP-698 round 5 — ONE activity row: a 28px gutter carrying the row's
 /// marker (dot / event glyph / comment avatar) with a 1px `STROKE_CARD` rail
 /// running through it, and the row's content beside it. The mobile
-/// `TimelineRow` (`CommentThreadView.swift`, `CommentThread.kt`) is the
+/// `TimelineRow` (`CommentRepliesView.swift`, Android's issue comments) is the
 /// reference; web gained the same component in `comment-rows/timeline-row.tsx`.
 ///
 /// `line_above` is false on the first RENDERED row, `line_below` on the last,
@@ -258,7 +258,7 @@ pub(crate) struct PendingCommentAttachment {
 }
 
 /// Which composer a pending list belongs to — the create composer at the
-/// bottom of the thread, the inline editor of the comment being edited, or
+/// bottom of the timeline, the inline editor of the comment being edited, or
 /// the reply composer under a top-level card (EXP-741).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingScope {
@@ -315,7 +315,7 @@ pub struct IssueTimeline {
     /// every issue switch. ON = the send carries `audience: reporter`.
     reply_to_reporter: bool,
     /// EXP-1241: the issue detail's body scroll, so a focused comment (the
-    /// run thread's comment card) can scroll itself into view.
+    /// run chat's comment card) can scroll itself into view.
     scroll: Option<gpui::ScrollHandle>,
     _subscriptions: Vec<Subscription>,
 }
@@ -1312,11 +1312,11 @@ impl IssueTimeline {
 
     // -- reads ----------------------------------------------------------------
 
-    /// EXP-741: this issue's comments folded into threads (web
-    /// `threadComments`) — only the top-level cards are timeline entries.
-    fn threads(&self, cx: &App) -> Threads {
+    /// EXP-741: this issue's comments nested under their cards (web
+    /// `nestComments`) — only the top-level cards are timeline entries.
+    fn nested_comments(&self, cx: &App) -> NestedComments {
         let Some(issue_id) = self.issue_id.as_deref() else {
-            return Threads::default();
+            return NestedComments::default();
         };
         let comments: Vec<Comment> = Store::global(cx)
             .collections()
@@ -1326,7 +1326,7 @@ impl IssueTimeline {
             .filter(|comment| comment.issue_id == issue_id)
             .cloned()
             .collect();
-        thread_comments(comments)
+        nest_comments(comments)
     }
 
     fn merged_items(&self, top_level: Vec<Comment>, cx: &App) -> MergedTimeline {
@@ -1576,10 +1576,10 @@ impl Render for IssueTimeline {
         // EXP-741: replies ride inside their parent's card, so only top-level
         // comments are timeline entries; the header count still counts every
         // row.
-        let Threads {
+        let NestedComments {
             top_level,
             replies_by_parent,
-        } = self.threads(cx);
+        } = self.nested_comments(cx);
         let reply_count: usize = replies_by_parent.values().map(Vec::len).sum();
         let MergedTimeline { items, raw_events } = self.merged_items(top_level, cx);
         let collections = Store::global(cx).collections();
@@ -1790,7 +1790,7 @@ impl Render for IssueTimeline {
                             pending: &reply.pending,
                             emoji_open: self.emoji_open(PendingScope::Reply),
                         });
-                    // EXP-1241: the comment (or a reply) a run thread's
+                    // EXP-1241: the comment (or a reply) a run chat's
                     // comment card asked to open at.
                     let mut focus_ids: Vec<&str> = vec![comment.id.as_str()];
                     if let Some(list) = replies_by_parent.get(&comment.id) {
@@ -1871,36 +1871,36 @@ impl Render for IssueTimeline {
     }
 }
 
-/// EXP-741: one issue's comments folded into threads — the top-level cards
-/// and each card's replies keyed by parent id (web `threadComments`).
+/// EXP-741: one issue's comments nested — the top-level cards
+/// and each card's replies keyed by parent id (web `nestComments`).
 #[derive(Default)]
-pub(crate) struct Threads {
+pub(crate) struct NestedComments {
     pub top_level: Vec<Comment>,
     pub replies_by_parent: HashMap<String, Vec<Comment>>,
 }
 
-/// Threads are ONE level deep by construction (`comments.create` re-parents
+/// Replies are ONE level deep by construction (`comments.create` re-parents
 /// a reply-to-a-reply onto the root), so a row is a reply exactly when
 /// `parent_id` is set. A reply whose parent is NOT in the list (still
 /// syncing, or gone from a partial snapshot) surfaces as a top-level card
 /// rather than disappearing. Replies sort by (created_at, id) — the same
 /// tie-break the timeline applies to its entries.
-pub(crate) fn thread_comments(comments: Vec<Comment>) -> Threads {
+pub(crate) fn nest_comments(comments: Vec<Comment>) -> NestedComments {
     let ids: HashSet<String> = comments.iter().map(|comment| comment.id.clone()).collect();
-    let mut threads = Threads::default();
+    let mut nested = NestedComments::default();
     for comment in comments {
         match comment.parent_id.as_deref() {
             Some(parent) if parent != comment.id && ids.contains(parent) => {
-                threads
+                nested
                     .replies_by_parent
                     .entry(parent.to_string())
                     .or_default()
                     .push(comment);
             }
-            _ => threads.top_level.push(comment),
+            _ => nested.top_level.push(comment),
         }
     }
-    for replies in threads.replies_by_parent.values_mut() {
+    for replies in nested.replies_by_parent.values_mut() {
         replies.sort_by(|a, b| {
             let at = |comment: &Comment| {
                 comment
@@ -1912,7 +1912,7 @@ pub(crate) fn thread_comments(comments: Vec<Comment>) -> Threads {
             at(a).cmp(&at(b)).then_with(|| a.id.cmp(&b.id))
         });
     }
-    threads
+    nested
 }
 
 /// Unix seconds now (for relative times).
@@ -3041,14 +3041,14 @@ mod tests {
     /// EXP-741: replies group under their parent in time order, an orphan
     /// reply surfaces as a top-level card, and nothing nests under itself.
     #[test]
-    fn thread_comments_groups_replies_and_surfaces_orphans() {
+    fn nest_comments_groups_replies_and_surfaces_orphans() {
         let row = |id: &str, parent: Option<&str>, at: &str| -> Comment {
             serde_json::from_value(json!({
                 "id": id, "issue_id": "i-1", "parent_id": parent, "created_at": at
             }))
             .unwrap()
         };
-        let threads = thread_comments(vec![
+        let nested = nest_comments(vec![
             row("a", None, "2026-07-03T10:00:00Z"),
             row("a2", Some("a"), "2026-07-03T12:00:00Z"),
             row("b", None, "2026-07-03T11:00:00Z"),
@@ -3056,14 +3056,14 @@ mod tests {
             row("orphan", Some("gone"), "2026-07-03T13:00:00Z"),
             row("self", Some("self"), "2026-07-03T14:00:00Z"),
         ]);
-        let top: Vec<&str> = threads.top_level.iter().map(|c| c.id.as_str()).collect();
+        let top: Vec<&str> = nested.top_level.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(top, vec!["a", "b", "orphan", "self"]);
-        let replies: Vec<&str> = threads.replies_by_parent["a"]
+        let replies: Vec<&str> = nested.replies_by_parent["a"]
             .iter()
             .map(|c| c.id.as_str())
             .collect();
         assert_eq!(replies, vec!["a1", "a2"]);
-        assert_eq!(threads.replies_by_parent.len(), 1);
+        assert_eq!(nested.replies_by_parent.len(), 1);
     }
 
     #[test]

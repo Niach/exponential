@@ -1,6 +1,6 @@
 // EXP-630: shared test fixtures — a small Linear snapshot shaped like the
 // Metric workspace (two teams, one project, three custom states, a
-// duplicate pair, an upload in a description and a threaded comment) and
+// duplicate pair, an upload in a description and a nested reply) and
 // the bundle it produces under team routing.
 import type { ImportBundle, ImportPreview } from "@/lib/import/bundle"
 import type { LinearSnapshot } from "@/lib/import/linear/snapshot"

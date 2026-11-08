@@ -6,7 +6,7 @@ package com.exponential.app.domain
  * iOS ExpCore `AskDock.swift`): N-12: a question or plan card waiting on the
  * viewer is a DockCard of THE Dock ([Dock], fixtures/dock.json); the composer
  * never leaves. This file keeps the cards' own words: the label and title,
- * the plan options, a thread's waiting cards. `AskDockTest` replays the
+ * the plan options, a chat's waiting cards. `AskDockTest` replays the
  * fixture and compares whole objects.
  */
 object AskDock {
@@ -37,7 +37,7 @@ object AskDock {
         val kind: Kind,
         /** The plan, or the question's text (markdown). */
         val text: String,
-        /** The asking session's name in a thread; null in the session view. */
+        /** The asking session's name in a chat; null in the session view. */
         val sessionName: String?,
         /** Order, oldest first. */
         val createdAt: Long,
@@ -110,27 +110,27 @@ object AskDock {
 
     fun label(kind: Kind): String = if (kind == Kind.Plan) Copy.PLAN_READY else Copy.QUESTION
 
-    /** A thread's waiting cards, Conversation order: every plan row with no
+    /** A chat's waiting cards, Conversation order: every plan row with no
      *  decision and every unanswered question row, of ANY session in the
      *  tree; [sessionName] names the asking session (null = unnamed);
      *  a plan carries its question count. */
-    fun threadPendingAsks(
-        rows: List<SessionTree.ThreadRow>,
+    fun chatPendingAsks(
+        rows: List<SessionTree.SessionChatRow>,
         sessionName: (String) -> String?,
     ): List<Pending> = rows.mapIndexedNotNull { index, row ->
         when {
-            row is SessionTree.ThreadRow.Plan && row.decision == null ->
+            row is SessionTree.SessionChatRow.Plan && row.decision == null ->
                 Pending(row.id, Kind.Plan, row.plan, sessionName(row.sessionId), index.toLong(), row.questions.size)
-            row is SessionTree.ThreadRow.Question && !row.answered ->
+            row is SessionTree.SessionChatRow.Question && !row.answered ->
                 Pending(row.id, Kind.Question, row.question, sessionName(row.sessionId), index.toLong())
             else -> null
         }
     }
 
-    /** A thread's card captions: each session TAB's name (nested ones
+    /** A chat's card captions: each session TAB's name (nested ones
      *  included); the root (no tab) = null. */
-    fun threadSessionNames(tabs: List<SessionTree.ThreadTab>): (String) -> String? {
-        val names = tabs.filterIsInstance<SessionTree.ThreadTab.SessionTab>().flatMap { tab ->
+    fun chatSessionNames(tabs: List<SessionTree.ChatTab>): (String) -> String? {
+        val names = tabs.filterIsInstance<SessionTree.ChatTab.SessionTab>().flatMap { tab ->
             listOf(tab.sessionId to tab.name) + tab.nested.map { it.sessionId to it.name }
         }.toMap()
         return { id -> names[id] }

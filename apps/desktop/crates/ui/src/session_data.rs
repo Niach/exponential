@@ -1,7 +1,7 @@
 //! EXP-1294 — the read helpers over the ONE session tree.
 //!
-//! Five synced collections carry Threads v2: `sessions` (roots of kind
-//! `thread` | `agent` and their child sessions), `session_issues` (root ↔
+//! Five synced collections carry the chats: `sessions` (roots of kind
+//! `thread` (wire kind) | `agent` and their child sessions), `session_issues` (root ↔
 //! issue), `messages` (every conversation row and card), `pull_requests` and
 //! `pull_request_issues`. Every screen reads them through here and feeds the
 //! pure `domain::session_tree` / `domain::pr_stack` functions (the Rust
@@ -9,7 +9,7 @@
 //! collection itself (masterplan-v3 §4.1, the `queries.rs` rule).
 //!
 //! The functions taking `&App` are plain reads; the two list reads every rail
-//! render asks for ([`thread_lists`], [`rail_threads_badge`]) memoise per
+//! render asks for ([`chat_lists`], [`rail_chats_badge`]) memoise per
 //! store change and take `&mut App`. Pure cores sit next to their `cx`
 //! wrappers and carry the tests.
 
@@ -22,9 +22,9 @@ use domain::rows::{
     Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow,
 };
 use domain::session_tree::{
-    build_session_thread, list_agents, partition_threads, session_card, tree_order,
-    AgentRow, SessionCard, SessionThreadInput, SessionThreadView, ThreadsListGroup, ThreadsListInput,
-    ThreadsListKey, TreeIssue,
+    build_session_chat, list_agents, partition_chats, session_card, tree_order,
+    AgentRow, SessionCard, SessionChatInput, SessionChatView, ChatsListGroup, ChatsListInput,
+    ChatsListKey, TreeIssue,
 };
 use gpui::App;
 use sync::Store;
@@ -261,7 +261,7 @@ pub(crate) fn session_card_of(session_id: &str, now_ms: i64, cx: &App) -> Option
 pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
-    // #EXP-1380 PERF: the tab strip asks this for every thread tab on every
+    // #EXP-1380 PERF: the tab strip asks this for every chat tab on every
     // frame (twice: measure + paint); memoised per store change, it used to
     // walk and clone every synced message each time.
     let revisions = [
@@ -314,7 +314,7 @@ fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
         .filter_map(|link| all_issues.get(&link.issue_id))
         .map(TreeIssue::from_issue)
         .collect();
-    // Thread e4a04d22: the first prompt is the conversation digest's
+    // Session e4a04d22: the first prompt is the conversation digest's
     // `first` (no read of a long chat's messages at all).
     let messages: Vec<MessageRow> = digest_messages(cx, |owner| owner == session_id)
         .into_iter()
@@ -360,7 +360,7 @@ fn sort_links(links: &mut [&SessionIssueRow]) {
     });
 }
 
-/// The thread roots an issue sits in (the issue's Threads row), newest
+/// The chat roots an issue sits in (the issue's Chats row), newest
 /// activity first.
 pub(crate) fn roots_of_issue(issue_id: &str, cx: &App) -> Vec<SessionRow> {
     let Some(store) = Store::try_global(cx) else {
@@ -375,8 +375,8 @@ pub(crate) fn roots_of_issue(issue_id: &str, cx: &App) -> Vec<SessionRow> {
         .filter(|link| link.issue_id == issue_id)
         .filter_map(|link| sessions.get(&link.session_id))
         // Release train 2026-10-23 (VAPP-110): an app editor's session is the
-        // editor's chat, never a thread on the issue.
-        .filter(|root| root.is_root() && root.is_thread() && !root.is_app_editor())
+        // editor's chat, never a chat on the issue.
+        .filter(|root| root.is_root() && root.is_chat() && !root.is_app_editor())
         .cloned()
         .collect();
     roots.sort_by(|a, b| {
@@ -418,10 +418,10 @@ pub(crate) fn conversation_sessions(cx: &App) -> ConversationSessions {
     domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter())
 }
 
-/// Thread e4a04d22 (#EXP-1380 on every form factor): THE lists' messages —
+/// Session e4a04d22 (#EXP-1380 on every form factor): THE lists' messages —
 /// each session conversation's synced DIGEST read back
 /// ([`domain::chats::digest_messages`]), kept where `keep(session_id)`
-/// holds. The titles, the Threads bands and the Chats list read these and
+/// holds. The titles, the Chats bands and the Chats list read these and
 /// never the transcript; the open chat, unread marking and pickup stay on
 /// [`keyed_messages`].
 pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<MessageRow> {
@@ -610,24 +610,24 @@ pub(crate) fn team_pr_snapshot(team_id: &str, cx: &App) -> PrSnapshot {
 }
 
 // ---------------------------------------------------------------------------
-// The thread screen
+// The chat screen
 // ---------------------------------------------------------------------------
 
-/// The thread screen's model for `root_id` (`build_session_thread`): the
+/// The chat screen's model for `root_id` (`build_session_chat`): the
 /// tabs, the conversation rows, the composer target; `None` while the root
 /// has not synced. Works for an agent root too (its channel). #EXP-1380:
 /// with the root's own messages (oldest first) off the SAME scan.
 /// `whole_tree` (VAPP-110) = an app EDITOR's channel over the WHOLE tree's
 /// messages (web `useTreeMessages`): the editor session's children (and a
 /// pre-FEED-134 continuation child) post there too.
-pub(crate) fn thread_view_and_messages(
+pub(crate) fn chat_view_and_messages(
     root_id: &str,
     focus: Option<&str>,
     now_ms: i64,
     whole_tree: bool,
     cx: &App,
-) -> Option<(SessionThreadView, Vec<MessageRow>)> {
-    thread_view(root_id, focus, now_ms, whole_tree, cx)
+) -> Option<(SessionChatView, Vec<MessageRow>)> {
+    chat_view(root_id, focus, now_ms, whole_tree, cx)
 }
 
 /// #EXP-1380: a card-less input that may name `owner` (another team
@@ -645,19 +645,19 @@ fn is_first_prompt_candidate(message: &MessageRow, owner: &str) -> bool {
         && domain::session_title::first_line(message.body_text()).is_some()
 }
 
-fn thread_view(
+fn chat_view(
     root_id: &str,
     focus: Option<&str>,
     now_ms: i64,
     whole_tree: bool,
     cx: &App,
-) -> Option<(SessionThreadView, Vec<MessageRow>)> {
+) -> Option<(SessionChatView, Vec<MessageRow>)> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
     let root = sessions.get(root_id)?;
     // The team's sessions, not just the tree: an agent channel's
-    // `thread_started` cards name OTHER roots.
+    // `thread_started` (wire kind) cards name OTHER roots.
     let team_sessions: Vec<&SessionRow> = sessions
         .iter()
         .filter(|session| session.team_id == root.team_id || session.root_id_or_self() == root_id)
@@ -830,8 +830,8 @@ fn thread_view(
         .iter()
         .filter(|pull| pull.team_id == root.team_id)
         .collect();
-    let view = build_session_thread(
-        SessionThreadInput {
+    let view = build_session_chat(
+        SessionChatInput {
             root,
             sessions: &team_sessions,
             session_issues: &links,
@@ -855,7 +855,7 @@ fn thread_view(
 }
 
 // ---------------------------------------------------------------------------
-// The Threads page, the rail and the team picker
+// The Chats page, the rail and the team picker
 // ---------------------------------------------------------------------------
 
 /// The rail's Agents section: the agent DEFINITIONS of `team_id` (NEW-2,
@@ -871,14 +871,14 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
     let sessions = store.collections().sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions.iter().collect();
     // An agent's spinner / needs-you dot is the viewer's conversation only:
-    // the threads it spawns are their own roots (the Threads entry lights
+    // the chats it spawns are their own roots (the Chats entry lights
     // for them).
     let team_ids = synced_team_ids(cx);
     let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
     list_agents(&agents, &rows, Some(team_id), &team_ids, me.as_deref())
 }
 
-/// The store state one [`thread_lists`] answer derives from.
+/// The store state one [`chat_lists`] answer derives from.
 #[derive(Clone, PartialEq, Eq)]
 struct ListsKey {
     team_id: String,
@@ -886,14 +886,14 @@ struct ListsKey {
 }
 
 #[derive(Default)]
-struct ListsMemo(Option<(ListsKey, Rc<Vec<ThreadsListGroup>>)>);
+struct ListsMemo(Option<(ListsKey, Rc<Vec<ChatsListGroup>>)>);
 
 impl gpui::Global for ListsMemo {}
 
-/// The Threads page bands of `team_id` (`partition_threads`: Needs you ·
+/// The Chats page bands of `team_id` (`partition_chats`: Needs you ·
 /// Running · Recent, empty bands omitted). Memoised per store change: the
 /// rail's dot reads it on every render.
-pub(crate) fn thread_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ThreadsListGroup>> {
+pub(crate) fn chat_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ChatsListGroup>> {
     let Some(store) = Store::try_global(cx) else {
         return Rc::new(Vec::new());
     };
@@ -913,12 +913,12 @@ pub(crate) fn thread_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ThreadsListGro
             return lists.clone();
         }
     }
-    let lists = Rc::new(derive_thread_lists(team_id, cx));
+    let lists = Rc::new(derive_chat_lists(team_id, cx));
     cx.global_mut::<ListsMemo>().0 = Some((key, lists.clone()));
     lists
 }
 
-fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
+fn derive_chat_lists(team_id: &str, cx: &App) -> Vec<ChatsListGroup> {
     let collections = Store::global(cx).collections();
     let sessions = collections.sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions
@@ -945,7 +945,7 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
     // A session's own messages title it; EXP-1323: the tree's agent messages
     // decide its unread bold (and each child's own).
     let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
-    // EXP-1341: every session's own first prompt names it; thread e4a04d22:
+    // EXP-1341: every session's own first prompt names it; session e4a04d22:
     // read off each conversation's digest, never the transcript.
     let keyed: Vec<MessageRow> = digest_messages(cx, |owner| in_team.contains(owner));
     let messages: Vec<&MessageRow> = keyed.iter().collect();
@@ -954,7 +954,7 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
         .iter()
         .filter(|read| in_team.contains(read.session_id.as_str()))
         .collect();
-    partition_threads(ThreadsListInput {
+    partition_chats(ChatsListInput {
         sessions: &rows,
         session_issues: &links,
         issues: &issues,
@@ -978,12 +978,14 @@ pub(crate) struct ChatsModel {
     pub(crate) archived: domain::chats::ChatList,
     /// S-3: the AGENT rows pinned on top.
     pub(crate) agent_rows: Vec<domain::chats::AgentChatRow>,
+    /// #EXP-1733: the APP rows between the agents and the sessions.
+    pub(crate) app_rows: Vec<domain::chats::AppChatRow>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
 struct ChatsKey {
     team_id: String,
-    revisions: [u64; 8],
+    revisions: [u64; 9],
     /// The time labels move with the local hour (today → Yesterday).
     hour: i64,
 }
@@ -1012,6 +1014,8 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
             collections.agents.read(cx).revision(),
             // #EXP-1714: the synced teams tell a global Assistant apart.
             collections.teams.read(cx).revision(),
+            // #EXP-1733: the app rows.
+            collections.apps.read(cx).revision(),
         ],
         hour: now_ms() / 3_600_000,
     };
@@ -1020,13 +1024,13 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
             return model.clone();
         }
     }
-    let groups = thread_lists(team_id, cx);
+    let groups = chat_lists(team_id, cx);
     let model = Rc::new(derive_chats_model(team_id, &groups, cx));
     cx.global_mut::<ChatsMemo>().0 = Some((key, model.clone()));
     model
 }
 
-fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> ChatsModel {
+fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> ChatsModel {
     let collections = Store::global(cx).collections();
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
     let agents = agents_in_team(team_id, cx);
@@ -1045,11 +1049,12 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         .chain(
             team_sessions
                 .iter()
-                .filter(|session| session.is_root() && session.agent_id.is_some())
+                // #EXP-1733: + my app sessions (the app rows).
+                .filter(|session| session.is_root() && (session.agent_id.is_some() || session.is_app_editor()))
                 .map(|session| session.id.as_str()),
         )
         .collect();
-    // Thread e4a04d22: the digest's messages, never the transcript.
+    // Session e4a04d22: the digest's messages, never the transcript.
     let keyed: Vec<MessageRow> = digest_messages(cx, |owner| roots.contains(owner));
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     let session_reads = collections.session_reads.read(cx);
@@ -1070,12 +1075,12 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
             pr_states.entry(root.to_string()).or_default().push(pull.state.clone().unwrap_or_default());
         }
     }
-    let words: HashMap<String, domain::session_tree::ThreadRowWord> = groups
+    let words: HashMap<String, domain::session_tree::ChatRowWord> = groups
         .iter()
         .flat_map(|group| group.rows.iter())
         .filter(|row| row.depth == 0)
         .filter_map(|row| {
-            crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, row.offline, &pulls)
+            crate::chats_view::chat_word(&row.session_id, row.busy, row.needs_you, row.offline, &pulls)
                 .map(|word| (row.session_id.clone(), word))
         })
         .collect();
@@ -1108,16 +1113,32 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         now: &now,
         utc_offset_minutes: offset,
     });
-    ChatsModel { list, archived, agent_rows }
+    // #EXP-1733: the team's live apps (the sidebar's apps), my session each.
+    let app_store = collections.apps.read(cx);
+    let apps: Vec<&domain::rows::AppRow> = app_store
+        .iter()
+        .filter(|app| app.team_id.as_deref() == Some(team_id) && app.deleted_at.is_none())
+        .collect();
+    let app_rows = domain::chats::app_chat_rows(domain::chats::AppChatRowsInput {
+        apps: &apps,
+        sessions: &team_sessions,
+        messages: &messages,
+        reads: &reads,
+        me: me.as_deref(),
+        view: domain::chats::ChatListView::List,
+        now: &now,
+        utc_offset_minutes: offset,
+    });
+    ChatsModel { list, archived, agent_rows, app_rows }
 }
 
-/// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has
-/// an agent reply the viewer has not read (`threads_unread`).
+/// EXP-1323: the Chats entry's unread dot — any chat of `team_id` has
+/// an agent reply the viewer has not read (`chats_list_unread`).
 /// #EXP-1388: an archived chat never lights it (`chats_unread`).
-pub(crate) fn rail_threads_unread(team_id: &str, cx: &mut App) -> bool {
-    let groups = thread_lists(team_id, cx);
+pub(crate) fn rail_chats_unread(team_id: &str, cx: &mut App) -> bool {
+    let groups = chat_lists(team_id, cx);
     let Some(store) = Store::try_global(cx) else {
-        return domain::session_tree::threads_unread(&groups);
+        return domain::session_tree::chats_list_unread(&groups);
     };
     let session_reads = store.collections().session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads.iter().filter(|read| read.archived_at.is_some()).collect();
@@ -1182,7 +1203,7 @@ struct ReadScans(HashMap<String, (u64, u64, u64, u64)>);
 impl gpui::Global for ReadScans {}
 
 /// EXP-1323: `sessions.markRead` once `session_id` shows news the viewer
-/// has not read ([`unread_marker`]): the thread (`whole_tree`, a root) or a
+/// has not read ([`unread_marker`]): the chat (`whole_tree`, a root) or a
 /// session view. A background write: a failure only logs (never a toast).
 pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut App) {
     let Some(store) = Store::try_global(cx) else {
@@ -1215,24 +1236,24 @@ pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut A
     cx.background_executor()
         .spawn(async move {
             if let Err(err) = api::sessions::mark_read(&trpc, &session_id) {
-                log::warn!("[threads] mark {session_id} read failed: {err}");
+                log::warn!("[chats] mark {session_id} read failed: {err}");
             }
         })
         .detach();
 }
 
-/// The rail Threads entry's dot: `(needs_you, running)` — some thread of
+/// The rail Chats entry's dot: `(needs_you, running)` — some chat of
 /// `team_id` waits on a person / is queued or running.
-pub(crate) fn rail_threads_badge(team_id: &str, cx: &mut App) -> (bool, bool) {
-    threads_badge_of(&thread_lists(team_id, cx))
+pub(crate) fn rail_chats_badge(team_id: &str, cx: &mut App) -> (bool, bool) {
+    chats_badge_of(&chat_lists(team_id, cx))
 }
 
-fn threads_badge_of(groups: &[ThreadsListGroup]) -> (bool, bool) {
-    let has = |key: ThreadsListKey| groups.iter().any(|group| group.key == key && !group.rows.is_empty());
-    (has(ThreadsListKey::NeedsYou), has(ThreadsListKey::Running))
+fn chats_badge_of(groups: &[ChatsListGroup]) -> (bool, bool) {
+    let has = |key: ChatsListKey| groups.iter().any(|group| group.key == key && !group.rows.is_empty());
+    (has(ChatsListKey::NeedsYou), has(ChatsListKey::Running))
 }
 
-/// EXP-1075 / EXP-1294 — one team's tally of MY live threads: how many are
+/// EXP-1075 / EXP-1294 — one team's tally of MY live chats: how many are
 /// working, and whether any waits on me (the team switcher's dot turns amber).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TeamLiveRuns {
@@ -1240,17 +1261,17 @@ pub(crate) struct TeamLiveRuns {
     pub(crate) needs_input: bool,
 }
 
-/// The thread roots whose tree holds a session I started (`user_id` = the
+/// The chat roots whose tree holds a session I started (`user_id` = the
 /// starter) that is working ([`session_is_working`]) or waits on a person,
 /// grouped by root id. The ONE liveness rule the rail's Running section and
 /// the team switcher's dot share.
 fn my_live_trees<'a>(sessions: &[&'a SessionRow], me: &str) -> BTreeMap<&'a str, Vec<&'a SessionRow>> {
-    let thread_roots: HashMap<&str, &SessionRow> = sessions
+    let chat_roots: HashMap<&str, &SessionRow> = sessions
         .iter()
         .copied()
         // Release train 2026-10-23 (VAPP-110): a working app editor is not a
-        // thread, so it stays out of Running and the switcher's dot.
-        .filter(|session| session.is_root() && session.is_thread() && !session.is_app_editor())
+        // chat, so it stays out of Running and the switcher's dot.
+        .filter(|session| session.is_root() && session.is_chat() && !session.is_app_editor())
         .map(|session| (session.id.as_str(), session))
         .collect();
     let mut trees: BTreeMap<&str, Vec<&SessionRow>> = BTreeMap::new();
@@ -1262,7 +1283,7 @@ fn my_live_trees<'a>(sessions: &[&'a SessionRow], me: &str) -> BTreeMap<&'a str,
             continue;
         }
         let root_id = session.root_id_or_self();
-        if thread_roots.contains_key(root_id) {
+        if chat_roots.contains_key(root_id) {
             trees.entry(root_id).or_default().push(session);
         }
     }
@@ -1289,7 +1310,7 @@ pub(crate) fn own_live_roots_by_team_from(sessions: &[&SessionRow], me: &str) ->
     by_team
 }
 
-/// The team switcher's dot: per team, my live threads
+/// The team switcher's dot: per team, my live chats
 /// ([`own_live_roots_by_team_from`]). Replaces the run-era
 /// `queries::own_live_runs_by_team_now`.
 pub(crate) fn own_live_roots_by_team(cx: &App) -> BTreeMap<String, TeamLiveRuns> {
@@ -1304,7 +1325,7 @@ pub(crate) fn own_live_roots_by_team(cx: &App) -> BTreeMap<String, TeamLiveRuns>
     own_live_roots_by_team_from(&rows, &me)
 }
 
-/// One row of the rail's Active band (EXP-1318): a thread the shapes make
+/// One row of the rail's Active band (EXP-1318): a chat the shapes make
 /// visible that needs you, runs, or still asks for a merge — the mark and
 /// the title, no identifier, no caption. #EXP-1461: a ROOT only (its
 /// tree's state rolled up; no nested children, no fold row).
@@ -1323,16 +1344,16 @@ pub(crate) struct LiveRootRow {
     pub(crate) session_ids: Vec<String>,
 }
 
-/// Pure core of [`live_roots_for_rail`]: the contract's `railThreads` over
-/// the Threads bands (`groups`, every visible thread, not only mine), the
+/// Pure core of [`live_roots_for_rail`]: the contract's `railChats` over
+/// the Chats bands (`groups`, every visible chat, not only mine), the
 /// words off the team's pull requests; group order.
 pub(crate) fn live_roots_from(
-    groups: &[ThreadsListGroup],
+    groups: &[ChatsListGroup],
     sessions: &[&SessionRow],
     team_pulls: &[PullRequestRow],
 ) -> Vec<LiveRootRow> {
-    domain::session_tree::rail_threads(groups, |row| {
-        crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, row.offline, team_pulls)
+    domain::session_tree::rail_chats(groups, |row| {
+        crate::chats_view::chat_word(&row.session_id, row.busy, row.needs_you, row.offline, team_pulls)
     })
     .into_iter()
     .map(|row| {
@@ -1357,7 +1378,7 @@ pub(crate) fn live_roots_from(
 
 /// The rail's Active band for `team_id` ([`live_roots_from`]).
 pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRow> {
-    let groups = thread_lists(team_id, cx);
+    let groups = chat_lists(team_id, cx);
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
@@ -1441,7 +1462,7 @@ mod tests {
         assert!(!session_is_working(&over));
     }
 
-    /// The switcher counts a thread ONCE however many of my sessions run in
+    /// The switcher counts a chat ONCE however many of my sessions run in
     /// it, only my sessions count, idle and ended never do, and needs-you
     /// lifts only its own team.
     #[test]
@@ -1489,15 +1510,15 @@ mod tests {
     }
 
     /// EXP-1318: the Active band = needs you + running + the recent rows
-    /// still asking for a merge, every visible thread (not only mine).
+    /// still asking for a merge, every visible chat (not only mine).
     #[test]
     fn the_rail_lists_needs_you_running_and_ready_to_merge() {
-        let band = |key: ThreadsListKey, ids: &[&str]| ThreadsListGroup {
+        let band = |key: ChatsListKey, ids: &[&str]| ChatsListGroup {
             key,
             title: key.title().to_string(),
             rows: ids
                 .iter()
-                .map(|id| domain::session_tree::ThreadsListRow {
+                .map(|id| domain::session_tree::ChatsListRow {
                     session_id: id.to_string(),
                     team_id: "t1".into(),
                     depth: 0,
@@ -1513,7 +1534,7 @@ mod tests {
                 })
                 .collect(),
         };
-        let groups = [band(ThreadsListKey::Running, &["r1"]), band(ThreadsListKey::Recent, &["r2", "r3"])];
+        let groups = [band(ChatsListKey::Running, &["r1"]), band(ChatsListKey::Recent, &["r2", "r3"])];
         let sessions = [
             root("r1", "t1", "someone", "running"),
             child("c1", "r1", "t1", "me", "running", "2026-10-13T11:00:00.000Z"),
@@ -1533,10 +1554,10 @@ mod tests {
 
     #[test]
     fn the_badge_reads_the_needs_you_and_running_bands() {
-        let band = |key: ThreadsListKey| ThreadsListGroup {
+        let band = |key: ChatsListKey| ChatsListGroup {
             key,
             title: key.title().to_string(),
-            rows: vec![domain::session_tree::ThreadsListRow {
+            rows: vec![domain::session_tree::ChatsListRow {
                 session_id: "r".into(),
                 team_id: "t".into(),
                 depth: 0,
@@ -1551,11 +1572,11 @@ mod tests {
                 offline: false,
             }],
         };
-        assert_eq!(threads_badge_of(&[]), (false, false));
-        assert_eq!(threads_badge_of(&[band(ThreadsListKey::Recent)]), (false, false));
-        assert_eq!(threads_badge_of(&[band(ThreadsListKey::Running)]), (false, true));
+        assert_eq!(chats_badge_of(&[]), (false, false));
+        assert_eq!(chats_badge_of(&[band(ChatsListKey::Recent)]), (false, false));
+        assert_eq!(chats_badge_of(&[band(ChatsListKey::Running)]), (false, true));
         assert_eq!(
-            threads_badge_of(&[band(ThreadsListKey::NeedsYou), band(ThreadsListKey::Running)]),
+            chats_badge_of(&[band(ChatsListKey::NeedsYou), band(ChatsListKey::Running)]),
             (true, true)
         );
     }

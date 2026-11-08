@@ -80,7 +80,7 @@ internal data class CommentCardActions(
     val onDelete: () -> Unit,
 )
 
-// One human comment in the thread: a rounded glass card (author + relative
+// One human comment in the comment list: a rounded glass card (author + relative
 // time + markdown body) with the avatar sitting in the timeline gutter
 // (EXP-240), rail segments above/below keeping the line continuous like the
 // event rows. The edit/delete overflow is AUTHOR-ONLY (EXP-398) — matching the
@@ -92,7 +92,7 @@ internal data class CommentCardActions(
 // submission's reporter with an initials avatar and the "reporter" caption
 // where "via MCP" sits; a member reply emailed out carries "to reporter".
 //
-// EXP-741: the card is the THREAD — its replies sit indented under the body
+// EXP-741: the card is the TOP of its replies — its replies sit indented under the body
 // behind one hairline, each with a 20dp avatar, and the "Leave a reply…" row
 // closes every top-level card (it hands the docked composer a reply target).
 /** #EXP-1383: the agent whose session wrote [comment], else null (`issueActor`). */

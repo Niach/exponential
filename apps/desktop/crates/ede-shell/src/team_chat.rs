@@ -72,10 +72,10 @@ pub struct AgentGlyph {
     pub color: u32,
 }
 
-/// An agent's glyph: its stored icon and colour, else `threads-list.json`
+/// An agent's glyph: its stored icon and colour, else `chat-list.json`
 /// `agentDefaults` (the IDE's `agent_glyph` / `agent_tint`).
 pub fn agent_glyph(icon: Option<&str>, color: Option<&str>) -> AgentGlyph {
-    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+    let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
     AgentGlyph {
         icon: icon.filter(|i| !i.is_empty()).unwrap_or(&defaults.icon).to_string(),
         color: color.and_then(hex).or_else(|| hex(&defaults.color)).unwrap_or(0x737373),
@@ -125,7 +125,7 @@ pub fn agent_inputs(agents: &[AgentDefRow], team_id: &str, team_ids: &[&str], me
 }
 
 /// The chat model's input: the home with the team's agents, or the open
-/// session's thread as the domain builds it (session-thread.json).
+/// session's chat as the domain builds it (session-chat.json).
 pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     let agents = agents(&rows.account, &chat.team_id);
     let mut input = ChatInput { agent_id: agents.first().map(|a| a.id.clone()), agents, ..Default::default() };
@@ -140,8 +140,8 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     let session_issues: Vec<_> = rows.account.session_issues.iter().collect();
     let issues: Vec<domain::session_tree::TreeIssue> = rows.account.issues.iter().map(domain::session_tree::TreeIssue::from_issue).collect();
     let prs: Vec<_> = rows.account.pull_requests.iter().collect();
-    let view = domain::session_tree::build_session_thread(
-        domain::session_tree::SessionThreadInput { root, sessions: &tree, session_issues: &session_issues, issues: &issues, messages: &message_refs, pull_requests: &prs, now_ms },
+    let view = domain::session_tree::build_session_chat(
+        domain::session_tree::SessionChatInput { root, sessions: &tree, session_issues: &session_issues, issues: &issues, messages: &message_refs, pull_requests: &prs, now_ms },
         None,
     );
     let by_id: HashMap<&str, &MessageRow> = keyed.iter().map(|m| (m.id.as_str(), m)).collect();
@@ -149,7 +149,7 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     let agent = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id));
     input.icon = agent.map(|a| a.icon.clone()).unwrap_or_default();
     input.title = if root.agent_id.is_some() { agent.map(|a| a.name.clone()).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
-    input.bubbles = domain::session_tree::thread_chat_mode(root.agent_id.as_deref()) == domain::session_tree::ThreadChatMode::Bubbles;
+    input.bubbles = domain::session_tree::chat_mode(root.agent_id.as_deref()) == domain::session_tree::ChatMode::Bubbles;
     input.busy = view.busy;
     input.session_id = Some(root.id.clone());
     input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
@@ -223,7 +223,7 @@ pub fn demo_input() -> ChatInput {
         slash_commands: true,
         agents,
         rows: vec![
-            message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a thread:", "09:02"),
+            message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a chat:", "09:02"),
             uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()) },
             message("m2", "user", "Label the Android ones too, and check the board every hour.", "09:14"),
             message("m3", "agent", "Done, 3 issues labelled android.", "09:14"),
@@ -297,7 +297,7 @@ mod tests {
     fn an_agent_s_glyph_is_its_icon_in_its_colour_else_the_fixture_s_defaults() {
         assert_eq!(agent_icon("a2"), "ide:agent:a2", "the IDE rail's name");
         assert_eq!(agent_glyph(Some("bug"), Some("#a855f7")), AgentGlyph { icon: "bug".into(), color: 0xa855f7 });
-        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let fallback = agent_glyph(None, Some("purple"));
         assert_eq!(fallback.icon, defaults.icon);
         assert_eq!(Some(fallback.color), hex(&defaults.color), "the default colour is a hex");

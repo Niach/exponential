@@ -5,7 +5,7 @@ use gpui::{App, Div, Window};
 
 /// The typed pickers' shared demo kit, not an entry (VAPP-93).
 pub(crate) mod picker;
-/// The Threads v2 entries' fixture rows + demo pull requests (EXP-1294).
+/// The Chats entries' fixture rows + demo pull requests (EXP-1294).
 pub(crate) mod fixture_rows;
 pub(crate) mod picker_board;
 pub(crate) mod picker_issue;
@@ -33,7 +33,7 @@ pub(crate) mod issue_context_menu;
 pub(crate) mod session_row;
 pub(crate) mod pr_row;
 pub(crate) mod pr_graph_badge;
-// #EXP-1611 / #EXP-1710: CI and the merge train on the thread's PR (the status pill, the Checks submenu).
+// #EXP-1611 / #EXP-1710: CI and the merge train on the chat's PR (the status pill, the Checks submenu).
 pub(crate) mod pr_checks;
 pub(crate) mod device_settings;
 // NEW-59: the Work screen picker.
@@ -47,9 +47,9 @@ pub(crate) mod device_attention;
 pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
-pub(crate) mod session_thread;
+pub(crate) mod session_chat;
 pub(crate) mod work_card;
-pub(crate) mod thread_parts;
+pub(crate) mod chat_parts;
 pub(crate) mod ask_dock;
 pub(crate) mod dock_card;
 pub(crate) mod plan_card;
@@ -97,7 +97,7 @@ pub(crate) mod voice_level;
 pub(crate) mod agent_home;
 pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
-// Thread 58cb32df (#EXP-1373): Chats.
+// Session 58cb32df (#EXP-1373): Chats.
 pub(crate) mod chat_list;
 pub(crate) mod phone_tab_bar;
 pub(crate) mod phone_board_menu;
@@ -109,7 +109,7 @@ pub(crate) mod chat_menus;
 pub(crate) mod chat_selection;
 // EXP-1459: sealed content this install cannot open (yet).
 pub(crate) mod sealed_locked;
-// Thread e4a04d22: mention pills in chats.
+// Session e4a04d22: mention pills in chats.
 pub(crate) mod mention_pill;
 pub(crate) mod entity_chip;
 // #FEED-191: the Results tab + Needs you.
@@ -213,10 +213,10 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: results_guide::ID, owner: results_guide::OWNER, render: results_guide::render },
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
-    Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
+    Entry { id: session_chat::ID, owner: session_chat::OWNER, render: session_chat::render },
     Entry { id: composer_agent_row::ID, owner: composer_agent_row::OWNER, render: composer_agent_row::render },
     Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
-    Entry { id: thread_parts::ID, owner: thread_parts::OWNER, render: thread_parts::render },
+    Entry { id: chat_parts::ID, owner: chat_parts::OWNER, render: chat_parts::render },
     Entry { id: ask_dock::ID, owner: ask_dock::OWNER, render: ask_dock::render },
     Entry { id: dock_card::ID, owner: dock_card::OWNER, render: dock_card::render },
     Entry { id: plan_card::ID, owner: plan_card::OWNER, render: plan_card::render },

@@ -47,9 +47,9 @@ class CrossTeamTest {
         // The Chat FAB names nothing: the selected team stands.
         assertNull(routeSubject(emptyMap<String, String>()::get))
         assertNull(routeSubject(mapOf("action" to "builtin:create-action")::get))
-        // EXP-1284: a start into a thread works in the THREAD's team; an
+        // EXP-1284: a start into a chat works in the CHAT's team; an
         // issue seed still wins.
-        assertEquals(RouteSubject.Thread("t-1"), routeSubject(mapOf("thread" to "t-1")::get))
-        assertEquals(RouteSubject.Issue("i-1"), routeSubject(mapOf("issues" to "i-1", "thread" to "t-1")::get))
+        assertEquals(RouteSubject.Chat("t-1"), routeSubject(mapOf("chat" to "t-1")::get))
+        assertEquals(RouteSubject.Issue("i-1"), routeSubject(mapOf("issues" to "i-1", "chat" to "t-1")::get))
     }
 }

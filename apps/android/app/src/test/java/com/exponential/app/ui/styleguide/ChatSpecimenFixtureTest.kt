@@ -15,7 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Thread 58cb32df: the chat-list styleguide specimen draws THE FIXTURE ×4 —
+ * Session 58cb32df: the chat-list styleguide specimen draws THE FIXTURE ×4 —
  * chats.json `listCases[0].expected`, what the
  * web entry and the desktop twin render. The app has no fixture at runtime,
  * so [ChatListSpecimen] spells it and this proves it equal.
@@ -83,6 +83,30 @@ class ChatSpecimenFixtureTest {
                     put("icon", row.icon)
                     put("color", row.color)
                     put("assistant", row.assistant)
+                    put("preview", buildJsonObject { put("kind", row.preview.kind); put("text", row.preview.text) })
+                    put("time", row.time)
+                    put("activityAt", nullable(row.activityAt))
+                    put("unreadCount", row.unreadCount)
+                    put("needsYou", row.needsYou)
+                    put("busy", row.busy)
+                }
+            },
+        )
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `the app rows specimen is appRowCases 0 expected (EXP-1733)`() {
+        val expected = fixture.getValue("appRowCases").jsonArray[0].jsonObject.getValue("expected")
+        val actual = JsonArray(
+            ChatListSpecimen.APP_ROWS.map { row ->
+                buildJsonObject {
+                    put("appId", row.appId)
+                    put("slug", row.slug)
+                    put("sessionId", nullable(row.sessionId))
+                    put("name", row.name)
+                    put("icon", nullable(row.icon))
+                    put("color", nullable(row.color))
                     put("preview", buildJsonObject { put("kind", row.preview.kind); put("text", row.preview.text) })
                     put("time", row.time)
                     put("activityAt", nullable(row.activityAt))

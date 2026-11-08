@@ -277,8 +277,7 @@ fn link_team(link: &AppLink) -> Option<String> {
         | AppLink::Board { team_slug, .. }
         | AppLink::Session { team_slug, .. }
         | AppLink::Plan { team_slug, .. }
-        | AppLink::Thread { team_slug, .. }
-        | AppLink::Threads { team_slug }
+        | AppLink::Chats { team_slug }
         | AppLink::Agent { team_slug, .. }
         | AppLink::AgentHome { team_slug }
         | AppLink::Inbox { team_slug }
@@ -335,15 +334,7 @@ fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
                 target => target,
             }
         }
-        AppLink::Thread { thread_id, .. } => session_target(
-            thread_id,
-            team_id,
-            Landing::Screen(Screen::Thread {
-                session_id: thread_id.clone(),
-            }),
-            cx,
-        ),
-        AppLink::Threads { .. } => found(Screen::Threads),
+        AppLink::Chats { .. } => found(Screen::Chats),
         AppLink::Agent { agent_id, .. } => {
             let agent = crate::session_data::agent_def(&crate::agent_screen::resolve_agent_id(agent_id, cx), cx);
             let screen = Screen::Agent {

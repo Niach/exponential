@@ -35,7 +35,7 @@ pub(crate) const OWNER: &str = "EXP-1154";
 pub(crate) fn groups() -> Vec<SessionResultGroup> {
     parse_session_result_groups(Some(&serde_json::json!([
         {"topic": "Sessions as one tree", "text": "Every session hangs off one root; its conversation lists a card per session.",
-         "files": ["apps/desktop/crates/ui/src/thread_screen.rs", "apps/desktop/crates/ui/src/screens.rs"]},
+         "files": ["apps/desktop/crates/ui/src/session_chat.rs", "apps/desktop/crates/ui/src/screens.rs"]},
         {"topic": "Summary", "text": "The Guide is a tab of the conversation now, and it reads the report over the diff."},
         {"topic": "Results as the Guide", "text": "Each section's Changes row opens the diff of just its files.",
          "files": ["apps/desktop/crates/ui/src/session_results.rs"]},
@@ -47,7 +47,7 @@ pub(crate) fn groups() -> Vec<SessionResultGroup> {
 /// nobody does (it lands in Other changes).
 fn loaded() -> Vec<PaneFile> {
     vec![
-        PaneFile::from_parts("apps/desktop/crates/ui/src/thread_screen.rs", DiffStatus::Modified, 12, 9),
+        PaneFile::from_parts("apps/desktop/crates/ui/src/session_chat.rs", DiffStatus::Modified, 12, 9),
         PaneFile::from_parts("apps/desktop/crates/ui/src/session_results.rs", DiffStatus::Modified, 140, 22),
         PaneFile::from_parts("apps/desktop/crates/ui/src/lib.rs", DiffStatus::Modified, 1, 0),
     ]

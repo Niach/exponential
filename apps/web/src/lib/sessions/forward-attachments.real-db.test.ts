@@ -8,7 +8,7 @@ import { generateTreeKey, sealBody, wrapTreeKey } from "@exp/domain-contract/sea
 
 // #EXP-1682: a file a sender can read (a person's pasted screenshot on the
 // message an agent answers) forwards by id through `sessions.send
-// {attachmentIds}` into an existing thread, a new thread or a child: a NEW
+// {attachmentIds}` into an existing chat, a new chat or a child: a NEW
 // row + blob copy on the new message, no re-upload; a sealed body is never
 // touched; another member's private file is refused.
 
@@ -77,7 +77,7 @@ async function world() {
         .values({ teamId, uploaderId, filename, contentType: `image/png`, sizeBytes: 3, storageKey: `k-${id8()}`, url: `x` })
         .returning({ id: attachments.id })
     )[0]!.id
-  /** A thread whose person message carries one pasted image. */
+  /** A chat whose person message carries one pasted image. */
   const pasted = async (userId = owner, extra: Record<string, unknown> = {}) => {
     const file = await upload(userId)
     const sent = await sendSession({ userId, input: { teamId, deviceId, text: `look [Image #1]`, attachmentIds: [file], ...extra } })
@@ -104,14 +104,14 @@ describe(`retargetBody`, () => {
 })
 
 describe.skipIf(!ready.ok)(`forwarding a message's files (sessions.send attachmentIds)`, () => {
-  it(`an agent forwards its person's pasted image into a new thread, a child and an existing thread, each a fresh copy`, async () => {
+  it(`an agent forwards its person's pasted image into a new chat, a child and an existing chat, each a fresh copy`, async () => {
     const w = await world()
     const { rootId, file: source } = await w.pasted()
     expect(await answeredMessageFiles(db, rootId)).toEqual([source])
     const other = (await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `other` } })).sessionId
     const asAgent = { userId: w.owner, callerSessionId: rootId, viaMcp: true }
     const targets = [
-      { teamId: w.teamId, deviceId: w.deviceId, text: `new thread` },
+      { teamId: w.teamId, deviceId: w.deviceId, text: `new chat` },
       { parentId: rootId, text: `child` },
       { sessionId: other, text: `existing ![shot](/api/attachments/${source})` },
     ]

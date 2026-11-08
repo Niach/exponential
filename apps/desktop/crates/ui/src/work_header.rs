@@ -29,7 +29,7 @@ use domain::merge_train::{PillGlyph, PillTap, PillTone, StatusPillInput, StatusP
 pub(crate) const WORK_COLUMN_W: f32 = 896.;
 
 /// #EXP-1547 — THE chat column (`tokens.json` `chat.columnWidth`, web
-/// `CHAT_COLUMN_CLASS`): a thread's conversation, an agent's channel, a
+/// `CHAT_COLUMN_CLASS`): a chat's conversation, an agent's channel, a
 /// session's transcript and the Dock band with THE composer all centre in it
 /// (content inset by [`WORK_GUTTER`]), so the transcript and the composer
 /// share one pair of edges at every pane width.
@@ -171,7 +171,7 @@ fn train_size(train_id: &str, cx: &App) -> i64 {
     i64::try_from(count.max(1)).unwrap_or(1)
 }
 
-/// The live status pill of `pull` (THE thread header, every viewer; a
+/// The live status pill of `pull` (THE chat header, every viewer; a
 /// closed PR has none). `member` approves in `approval` mode; a viewer's
 /// `Needs approval` is a plain status. Its tap opens the PR's check rows as
 /// a menu (no rows = readonly).

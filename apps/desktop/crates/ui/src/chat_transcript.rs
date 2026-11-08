@@ -1,5 +1,5 @@
 //! #EXP-1380 — a chat's transcript rules ×4 (`fixtures/chats.json` WINDOW,
-//! FOLLOW + JUMP, `transcript`), shared by the thread screen and the agent
+//! FOLLOW + JUMP, `transcript`), shared by the chat screen and the agent
 //! chat: both paint their rows through a virtualised `gpui::list` whose
 //! [`ListState`] follows the tail.
 //!
@@ -25,7 +25,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{h_flex, ActiveTheme as _, Sizable as _};
 
 use domain::chats::CHATS;
-use domain::session_tree::SessionThreadRow;
+use domain::session_tree::SessionChatRow;
 
 use crate::transcript_rows::ListOp;
 
@@ -59,14 +59,14 @@ impl TranscriptWindow {
 }
 
 /// The indexes (into `rows`) of WAITING plan / question cards: a plan with
-/// no decision, an unanswered question (`ask_dock::thread_pending_asks`).
-pub(crate) fn waiting_indexes<'a>(rows: impl IntoIterator<Item = &'a SessionThreadRow>) -> Vec<usize> {
+/// no decision, an unanswered question (`ask_dock::chat_pending_asks`).
+pub(crate) fn waiting_indexes<'a>(rows: impl IntoIterator<Item = &'a SessionChatRow>) -> Vec<usize> {
     rows.into_iter()
         .enumerate()
         .filter(|(_, row)| {
             matches!(
                 row,
-                SessionThreadRow::Plan { decision: None, .. } | SessionThreadRow::Question { answered: false, .. }
+                SessionChatRow::Plan { decision: None, .. } | SessionChatRow::Question { answered: false, .. }
             )
         })
         .map(|(index, _)| index)
@@ -216,8 +216,8 @@ mod tests {
 
     #[test]
     fn waiting_rows_are_open_plans_and_unanswered_questions() {
-        let rows: Vec<SessionThreadRow> = vec![
-            SessionThreadRow::Event { id: "e".into(), event: "linked".into(), text: "Linked".into(), session_id: None },
+        let rows: Vec<SessionChatRow> = vec![
+            SessionChatRow::Event { id: "e".into(), event: "linked".into(), text: "Linked".into(), session_id: None },
             plan("p1", None),
             plan("p2", Some("approved")),
             question("q1", false),
@@ -268,8 +268,8 @@ mod tests {
         assert!(list.is_following_tail(), "a row arrived: back on the tail");
     }
 
-    fn plan(id: &str, decision: Option<&str>) -> SessionThreadRow {
-        SessionThreadRow::Plan {
+    fn plan(id: &str, decision: Option<&str>) -> SessionChatRow {
+        SessionChatRow::Plan {
             id: id.into(),
             session_id: "s".into(),
             plan: "Plan".into(),
@@ -283,8 +283,8 @@ mod tests {
         }
     }
 
-    fn question(id: &str, answered: bool) -> SessionThreadRow {
-        SessionThreadRow::Question {
+    fn question(id: &str, answered: bool) -> SessionChatRow {
+        SessionChatRow::Question {
             id: id.into(),
             session_id: "s".into(),
             question: "Which?".into(),

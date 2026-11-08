@@ -15,7 +15,7 @@ private data class NotificationIssueInput(@SerialName("issueId") val issueId: St
 @Serializable
 private object NotificationsEmptyInput
 
-/** Thread 58cb32df: `notifications.markAllRead({ teamId })` — only that
+/** Session 58cb32df: `notifications.markAllRead({ teamId })` — only that
  *  team's rows (phones show ONE active team). */
 @Serializable
 private data class NotificationsTeamInput(@SerialName("teamId") val teamId: String)

@@ -4,7 +4,7 @@ import { stripTabClass } from "./entity-chip"
 import { conceptIcon } from "./icons.generated"
 
 // EXP-1334: THE strip chip — ONE tab component for every strip of chips: the
-// thread header's issue + session chips (`ThreadTabs`) and the work tabs
+// chat header's issue + session chips (`ChatTabs`) and the work tabs
 // strip above the content card (`work-tabs-strip.tsx`). The box is THE strip
 // tab box (`stripTabClass`: h-8, text-sm, rounded-md, a hairline while it is
 // a chip at rest, the glass wash while active); inside: the lead glyph · the

@@ -99,8 +99,8 @@ vi.mock(`@/components/issue-title-field`, () => ({
   IssueTitleField: () => null,
 }))
 vi.mock(`@/components/pr-graph-badge`, () => ({ PrGraphBadge: () => null }))
-// EXP-1284: the Threads row reads the synced thread shapes.
-vi.mock(`@/components/thread/issue-threads-row`, () => ({ IssueThreadsRow: () => null }))
+// EXP-1284: the Chats row reads the synced chat shapes.
+vi.mock(`@/components/chat/issue-chats-row`, () => ({ IssueChatsRow: () => null }))
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
   uploadIssueAttachment: vi.fn(),
 }))

@@ -175,7 +175,7 @@ describe(`SlashCommandMenu`, () => {
     expect(screen.getByText(`/compact`)).toBeTruthy()
     expect(screen.getByText(`/model`)).toBeTruthy()
     expect(screen.getByText(`/effort`)).toBeTruthy()
-    // Thread 58cb32df: `/new` (a fresh conversation) is a builtin.
+    // Chat 58cb32df: `/new` (a fresh conversation) is a builtin.
     expect(screen.getByText(`/new`)).toBeTruthy()
     // `/clear` and `/btw` are gone; nothing outside the catalog shows.
     expect(screen.queryByText(`/clear`)).toBeNull()

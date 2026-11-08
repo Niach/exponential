@@ -245,8 +245,8 @@ export function privateText(child: Pick<Session, `id`>, lead: string): string {
  *  as the child's own message. Blank = nothing. S-3: a team agent's
  *  conversation that WATCHES the child (not its parent) is not woken per
  *  turn: it hears the child's ask, wall, PR and report only, so a busy
- *  thread never spams its agent. #FEED-194: the agent that STARTED the
- *  thread does hear each turn: it asked for the work and waits on it. */
+ *  chat never spams its agent. #FEED-194: the agent that STARTED the
+ *  chat does hear each turn: it asked for the work and waits on it. */
 export async function busRelayTurn(
   tx: Tx,
   child: Pick<Session, `id` | `parentId` | `startedByAgentId`>,
@@ -599,7 +599,7 @@ export async function watchSessions(
   return live.map((entry) => entry.id)
 }
 
-/** #FEED-206: a revived thread root (`reviveRoot`) is WATCHED again, as at
+/** #FEED-206: a revived chat root (`reviveRoot`) is WATCHED again, as at
  *  its start: its report had dropped every watch (`forgetWatched`), so
  *  without this its new turns and its next report reach nobody. Its
  *  STARTER (the live session carrying its `thread_started` card: the team

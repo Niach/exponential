@@ -1,19 +1,19 @@
 //! #EDE-65: the chats the icon rail lists, from the session rows the shell
 //! has: the current team's (the account's synced `sessions` shape) or the
-//! Local desktop's (elocal's store). The IDE's threads rule
-//! (`domain::session_tree::partition_threads`): a root that is neither an
+//! Local desktop's (elocal's store). The IDE's chats rule
+//! (`domain::session_tree::partition_chats`): a root that is neither an
 //! agent's conversation nor an app's editor session; it needs you or is
 //! busy while any live session of its tree does; its activity is the
 //! tree's newest `updated_at`; its agent is the working session's CLI, else
 //! the root's; unread is the IDE's own (#EXP-1323/#EXP-1724): the tree's
 //! newest agent message (the conversations' digests) newer than the
-//! viewer's `session_reads` mark, from `partition_threads` itself.
+//! viewer's `session_reads` mark, from `partition_chats` itself.
 //! `uicore_model::chats::chat_rows` orders and marks them.
 
 use std::collections::{HashMap, HashSet};
 
 use domain::rows::{ConversationRow, MessageRow, SessionReadRow, SessionRow};
-use domain::session_tree::{partition_threads, session_state, SessionState, ThreadsListInput};
+use domain::session_tree::{partition_chats, session_state, SessionState, ChatsListInput};
 use serde_json::{json, Map, Value};
 use uicore_model::chats::{chat_rows, ChatInput};
 
@@ -28,7 +28,7 @@ pub fn sessions(rows: Vec<Map<String, Value>>) -> Vec<SessionRow> {
 }
 
 /// The roots of `team_id` the IDE's Chats list shows bold: the agent wrote
-/// after the viewer's read mark (`partition_threads`, the IDE's rule).
+/// after the viewer's read mark (`partition_chats`, the IDE's rule).
 pub fn unread_roots(sessions: &[SessionRow], conversations: &[ConversationRow], reads: &[SessionReadRow], team_id: &str) -> HashSet<String> {
     let in_team: HashSet<&str> = sessions.iter().filter(|s| s.team_id.as_deref() == Some(team_id)).map(|s| s.id.as_str()).collect();
     let messages: Vec<MessageRow> = conversations
@@ -42,7 +42,7 @@ pub fn unread_roots(sessions: &[SessionRow], conversations: &[ConversationRow], 
     let rows: Vec<&SessionRow> = sessions.iter().filter(|s| in_team.contains(s.id.as_str())).collect();
     let messages: Vec<&MessageRow> = messages.iter().collect();
     let reads: Vec<&SessionReadRow> = reads.iter().filter(|r| in_team.contains(r.session_id.as_str())).collect();
-    partition_threads(ThreadsListInput { sessions: &rows, session_issues: &[], issues: &[], messages: &messages, team_id: Some(team_id), reads: &reads, now_ms: None })
+    partition_chats(ChatsListInput { sessions: &rows, session_issues: &[], issues: &[], messages: &messages, team_id: Some(team_id), reads: &reads, now_ms: None })
         .into_iter()
         .flat_map(|group| group.rows)
         .filter(|row| row.depth == 0 && row.unread)
@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_is_a_root_thread_of_the_team_with_its_trees_state() {
+    fn a_chat_is_a_root_session_of_the_team_with_its_trees_state() {
         let rows = vec![
             row(json!({"id": "r1", "team_id": "t1", "title": "Fix it", "cli": "claude", "status": "active", "updated_at": "2026-11-08T09:00:00.000Z"})),
             row(json!({"id": "k1", "team_id": "t1", "parent_id": "r1", "root_id": "r1", "depth": 1, "cli": "codex", "status": "active", "busy": true, "updated_at": "2026-11-08T11:00:00.000Z"})),

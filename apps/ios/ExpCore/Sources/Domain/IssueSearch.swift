@@ -300,7 +300,7 @@ public enum IssueSearch {
         var exact = false
 
         /// `eager` lowercases and splits the description now (a pooled
-        /// entry, read from several ranks and threads) instead of on first
+        /// entry, read from several ranks and chats) instead of on first
         /// use (a one-shot rank).
         init(value: T, index: Int, row: Row, eager: Bool) {
             self.value = value

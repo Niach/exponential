@@ -69,7 +69,7 @@ const keyedRoot: SealSessionRow = {
 }
 
 describe(`sealSendInput`, () => {
-  it(`a new thread carries its first key inline, wrapped for my installs and the target device`, async () => {
+  it(`a new chat carries its first key inline, wrapped for my installs and the target device`, async () => {
     const { holder } = holderWith()
     const sealed = await sealSendInput(
       { teamId: `t1`, deviceId: `machine-1`, text: `Ship it @dana@acme.dev #EXP-12 #NOPE-1`, name: `Launch` },

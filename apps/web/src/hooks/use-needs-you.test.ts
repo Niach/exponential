@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock(`@/lib/collections`, () => ({ sessionCollection: { get: () => undefined }, deviceCollection: {} }))
 vi.mock(`@/hooks/use-session-tree`, () => ({}))
 vi.mock(`@/hooks/use-team-data`, () => ({}))
-vi.mock(`@/components/thread/threads-list`, () => ({}))
+vi.mock(`@/components/chat/chats-list`, () => ({}))
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => vi.fn() }))
 
 const { needsYouDestination, prDeviceOfflineSince, withApprovals, withStuckRows } = await import(`./use-needs-you`)
@@ -28,8 +28,8 @@ describe(`needsYouDestination`, () => {
 
   it(`a child's question = the root's Conversation, scrolled to the card`, () => {
     expect(go({ sessionId: `c`, rootId: `r`, opens: `card` })).toEqual({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `r` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `r` },
       search: { card: `m` },
     })
   })
@@ -46,8 +46,8 @@ describe(`needsYouDestination`, () => {
 
   it(`a PR = the Results tab; an agent conversation's = its chat`, () => {
     expect(go({ sessionId: `r`, rootId: `r`, opens: `results` })).toEqual({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `r` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `r` },
       search: { tab: `results` },
     })
     expect(go({ sessionId: `a`, rootId: `a`, opens: `chat` })).toEqual({

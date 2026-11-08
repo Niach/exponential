@@ -43,8 +43,8 @@ object InboxRoute {
         /** The viewer's own agent conversation root: the agent's page (its channel). */
         data class Agent(val agentId: String) : SessionTarget
 
-        /** A thread root ([sessionId] null) or a thread's child inside it. */
-        data class Thread(val threadId: String, val sessionId: String?) : SessionTarget
+        /** A chat root ([sessionId] null) or a chat's child inside it. */
+        data class Chat(val chatId: String, val sessionId: String?) : SessionTarget
 
         /** Anything else under an agent: the session on its own screen. */
         data class Session(val sessionId: String) : SessionTarget
@@ -66,6 +66,6 @@ object InboxRoute {
         if (!agentId.isNullOrEmpty()) {
             return if (root == id && userId == viewerId) SessionTarget.Agent(agentId) else SessionTarget.Session(id)
         }
-        return SessionTarget.Thread(root, if (root == id) null else id)
+        return SessionTarget.Chat(root, if (root == id) null else id)
     }
 }

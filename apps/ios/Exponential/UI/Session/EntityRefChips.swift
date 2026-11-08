@@ -44,7 +44,7 @@ struct EntityRefChips: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
-    @Environment(\.threadIssueOutlet) private var threadIssueOutlet
+    @Environment(\.chatIssueOutlet) private var chatIssueOutlet
     @State private var target: EntityRefTarget?
 
     private var groups: [EntityPreview.Group] { EntityPreview.groupRefs(refs) }
@@ -77,7 +77,7 @@ struct EntityRefChips: View {
             if let context {
                 context.onOpen(id)
             } else {
-                openIssueInnermost(id, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                openIssueInnermost(id, outlet: chatIssueOutlet, deps: deps, accountId: accountId)
             }
         case let .board(id):
             pushRoute(.board(accountId: accountId, id: id))

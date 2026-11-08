@@ -60,7 +60,7 @@ describe(`liveRunsByTeam`, () => {
       [
         run({ agentId: `agent-def-1` }),
         run({ rootId: `agent-1` }),
-        run({ teamId: `team-b`, rootId: `thread-1` }),
+        run({ teamId: `team-b`, rootId: `chat-1` }),
       ],
       { me: `u-me`, agentRootIds: new Set([`agent-1`]) }
     )
@@ -114,9 +114,9 @@ describe(`otherTeamsLive`, () => {
 describe(`countsAsLiveSession`, () => {
   const agents = new Set([`agent-1`])
 
-  it(`counts a live thread root and its children`, () => {
+  it(`counts a live chat root and its children`, () => {
     expect(countsAsLiveSession(run(), agents)).toBe(true)
-    expect(countsAsLiveSession(run({ rootId: `thread-1` }), agents)).toBe(true)
+    expect(countsAsLiveSession(run({ rootId: `chat-1` }), agents)).toBe(true)
   })
 
   it(`never counts an agent root, its children or an ended row`, () => {

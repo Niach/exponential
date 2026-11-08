@@ -3,8 +3,8 @@ import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useConversationSessions, useDigestMessages } from "@/hooks/use-session-tree"
 import { trpc } from "@/lib/trpc-client"
 
-// EXP-1323: opening a thread or a session marks it read
-// (`sessions.markRead`, the synced `session_reads` row the Threads list's
+// EXP-1323: opening a chat or a session marks it read
+// (`sessions.markRead`, the synced `session_reads` row the Chats list's
 // bold rows and the nav dot read). ONE call per open, debounced, and again
 // whenever a newer agent message lands while the view stays open. A failed
 // mark is background work: never a toast.

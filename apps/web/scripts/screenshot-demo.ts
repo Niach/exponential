@@ -275,7 +275,7 @@ export const DEMO_API_KEYS = [
  * `--views issue-comments` run, most of an hour by the time the web-mobile
  * lane reaches this view in a full refresh, and longer still for the native
  * styleguide lanes that run last. With the old sub-day offsets the label was
- * hour-granular and a bucket is one hour wide, so the same unchanged thread
+ * hour-granular and a bucket is one hour wide, so the same unchanged chat
  * photographed "22 hours ago" one run and "23 hours ago" the next, rewriting
  * every issue-comments shot for nothing.
  *
@@ -285,7 +285,7 @@ export const DEMO_API_KEYS = [
  * while iOS, Android and desktop floor on calendar boundaries ("1 day" is
  * 24-48h). Their boundaries therefore fall every 12 hours, and an offset only
  * survives the gap if it sits just ABOVE one — which is also where the two
- * rules agree on what to print, so the same thread reads the same on all five
+ * rules agree on what to print, so the same chat reads the same on all five
  * platforms in the gallery.
  *
  * `screenshot-demo.test.ts` checks both rules against
@@ -298,7 +298,7 @@ export const DEMO_SHOWCASE_COMMENT_HOURS_AGO = {
   jonas: 49,
   /** The demo user (Alex) posts the CI results. */
   demo: 26,
-  /** Sofia's @mention + #issue-ref reply, the newest in the thread. */
+  /** Sofia's @mention + #issue-ref reply, the newest in the chat. */
   sofia: 25,
 } as const
 
@@ -317,15 +317,15 @@ export const DEMO_SHOWCASE_COMMENT_HOURS_AGO = {
 export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-load the markdown editor too, or open the PR with what we have?`
 
 /**
- * EXP-1293 (Threads v2): the session tree's capture-addressable rows, pinned
+ * EXP-1293: the session tree's capture-addressable rows, pinned
  * fixed v4 UUIDs so a route can name them BEFORE the seed runs and a reseed is
- * byte-stable. A thread IS a root `sessions` row (kind `thread`); a team agent
+ * byte-stable. A chat IS a root `sessions` row (kind `thread`); a team agent
  * a root of kind `agent`; children are sub-sessions (`parent_id`).
  *
- *   DEMO_THREAD_ID   the `thread` view: "Reduce cold start below 800 ms"
+ *   DEMO_CHAT_ID   the `chat-screen` view: "Reduce cold start below 800 ms"
  *                    (APP-5 + APP-10 + FB-3), waiting on a person through its
  *                    child.
- *   DEMO_SESSION_ID  the `session` / `steering` views: that thread's child
+ *   DEMO_SESSION_ID  the `session` / `steering` views: that chat's child
  *                    "Profile the launch path" (running, needs input). The
  *                    raw session view's feed is relay-fed by
  *                    `screenshot-desktop.ts`, keyed by this id. Kept at the
@@ -334,24 +334,24 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
  *   DEMO_AGENT_ID    the `agent-channel` / `settings-team-agent` views: the
  *                    Triage agent (NEW-2: an `agents` row).
  */
-export const DEMO_THREAD_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
+export const DEMO_CHAT_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
 export const DEMO_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
 export const DEMO_AGENT_ID = `6530c2d7-ed10-46b0-ac66-c78020fd73d9`
 /** #EXP-1659: the `settings-skill` view's skill (db-migration). */
 export const DEMO_SKILL_ID = `3f6b2a1d-8c4e-4d7a-9b2f-5e1c7a9d0b63`
-/** EXP-1323: the cold-start thread's ENDED child (started from its suggested
+/** EXP-1323: the cold-start chat's ENDED child (started from its suggested
  *  tasks card, its end = the `Report from …` line). */
 export const DEMO_REPORT_SESSION_ID = `2b8e6f1c-4d7a-4e3b-9c5f-1a6d8e2f7b40`
-/** EXP-1341: the cold-start thread's UNNAMED child holding two assigned issues. */
+/** EXP-1341: the cold-start chat's UNNAMED child holding two assigned issues. */
 export const DEMO_GROUPED_SESSION_ID = `5c2d8a1e-7f3b-4c6d-8e9a-0b1c2d3e4f51`
-/** EXP-1536: APP-15's thread's child whose start FAILED on its device
+/** EXP-1536: APP-15's chat's child whose start FAILED on its device
  *  (blocked start_failed): its session card reads `Couldn't start`. */
 export const DEMO_START_FAILED_SESSION_ID = `8d4b1f6e-2a7c-4e5d-9b3f-6c1a8e2d4f72`
 
 /**
  * The session the relay stub publishes its scripted feed for (the `steering`
  * view's anchor is that feed's closing question). Since EXP-1293 it IS the
- * thread's child session — an alias, not a second row.
+ * chat's child session — an alias, not a second row.
  */
 export const DEMO_STEERED_SESSION_ID = DEMO_SESSION_ID
 
@@ -387,20 +387,20 @@ export const DEMO_ASSISTANT_CONVERSATION_ID = `3d7a91c4-52e8-4f0b-9a16-c84e2b5d7
 export const DEMO_ASSISTANT_QUESTION = `Ship the board snapshot cache today, or wait for the editor bundle fix?`
 
 /**
- * The other thread roots, one per Threads-list state:
+ * The other chat roots, one per Chats-list state:
  *
  *   groupByAssignee  APP-14, running + busy, its open PR STACKED on
  *                    batchLabels' open PR (Running, "stack").
  *   sortReports      FB-9, running, spawned by the Triage agent (the
- *                    agent channel's "started a thread" card opens it).
+ *                    agent channel's "started a chat" card opens it).
  *   offlineSpike     no issue, PRIVATE (not shared), running (the lock).
  *   batchLabels      APP-15, idle, an open PR ready to merge + a Guide
- *                    (the `guide` view's thread).
+ *                    (the `guide` view's chat).
  *   scrollRestore    APP-16, ended, its PR merged (Recent, "merged"). Its
  *                    `ended_at` is the re-clock anchor (lib/demo-reclock.ts).
  */
-export const DEMO_THREAD_IDS = {
-  coldStart: DEMO_THREAD_ID,
+export const DEMO_CHAT_IDS = {
+  coldStart: DEMO_CHAT_ID,
   groupByAssignee: `9d3d6bab-3fe7-40bd-b8e7-b5eaef137aaf`,
   sortReports: `be4bcc34-92de-4ea0-a87f-c4f1d160348c`,
   offlineSpike: `373e1d40-91a5-4b4e-9cd9-0a5cd82df514`,
@@ -408,13 +408,13 @@ export const DEMO_THREAD_IDS = {
   scrollRestore: `39cb3777-33f9-4201-84e4-220da9cd0bce`,
 } as const
 
-/** The thread the `guide` view opens on its Guide tab (`?tab=guide`). */
-export const DEMO_GUIDE_THREAD_ID = DEMO_THREAD_IDS.batchLabels
+/** The chat the `guide` view opens on its Guide tab (`?tab=guide`). */
+export const DEMO_GUIDE_CHAT_ID = DEMO_CHAT_IDS.batchLabels
 
-/** The thread whose PR carries the REAL GitHub diff (APP-14's, stacked on
+/** The chat whose PR carries the REAL GitHub diff (APP-14's, stacked on
  *  batchLabels): the `review-diff` and `guide-section` pages under its Guide
  *  (EXP-1308: APP-15's Guide draws no Changes row, as on iOS + Android). */
-export const DEMO_DIFF_THREAD_ID = DEMO_THREAD_IDS.groupByAssignee
+export const DEMO_DIFF_CHAT_ID = DEMO_CHAT_IDS.groupByAssignee
 
 /**
  * The seeded `pull_requests` rows (EXP-1293: PR state lives there, never on
@@ -438,7 +438,7 @@ export const DEMO_PULL_REQUEST_IDS = {
  */
 export const DEMO_AGENT_CHANNEL_TIMES = {
   report: new Date(`2026-10-12T07:02:00Z`),
-  threadStarted: new Date(`2026-10-12T07:02:20Z`),
+  chatStarted: new Date(`2026-10-12T07:02:20Z`),
   request: new Date(`2026-10-12T07:14:00Z`),
   reply: new Date(`2026-10-12T07:14:40Z`),
 } as const
@@ -513,7 +513,7 @@ export const DEMO_APP_CHAT_TIMES = {
  * call posted (EXP-1259, the `comment-call-card` view): the seed stamps this id
  * on an `mcp`-sourced comment by the demo user, and the stand-in desktop's
  * settle names it in its preview, so the card renders the REAL synced row.
- * It sits on the image-cache issue, never the showcase APP-5, whose thread is
+ * It sits on the image-cache issue, never the showcase APP-5, whose chat is
  * photographed by `issue-detail` / `issue-comments` on every platform.
  */
 export const DEMO_AGENT_COMMENT_ID = `3e8a1c7d-2b4f-4d96-8a15-9c0e7f2b6d43`

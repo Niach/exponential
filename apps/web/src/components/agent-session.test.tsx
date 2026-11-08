@@ -55,8 +55,8 @@ vi.mock(`@/lib/collections`, () => ({
   deviceCollection: { values: () => [] },
   userCollection: { values: () => [] },
 }))
-vi.mock(`@/components/thread/thread-markdown`, () => ({
-  renderThreadText: (text: string) => <p>{text}</p>,
+vi.mock(`@/components/chat/chat-markdown`, () => ({
+  renderChatText: (text: string) => <p>{text}</p>,
 }))
 
 const { AgentSessionView } = await import(`./agent-session`)

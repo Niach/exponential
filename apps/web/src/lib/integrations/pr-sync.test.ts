@@ -220,7 +220,7 @@ describe(`planPrAutomationTransition`, () => {
   })
 })
 
-// EXP-1334: a thread link starts its issues; parents wait for sub-issues.
+// EXP-1334: a chat link starts its issues; parents wait for sub-issues.
 describe(`the started automation + the issue tree`, () => {
   const builtinInProgress = { id: `s-in-progress`, builtinKey: `in_progress`, category: `started` as const }
 

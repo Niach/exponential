@@ -11,9 +11,9 @@ import { isSealedCard, validSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
 
 // #EXP-1399: ESCALATE a waiting question / plan card into the team agent's
-// conversation that manages its thread. The escalated card is an `ask`
+// conversation that manages its chat. The escalated card is an `ask`
 // mirror ({sessionId, messageId}, like the bus's), so every client draws
-// THE origin card there (session-thread.json): one row, answered through
+// THE origin card there (session-chat.json): one row, answered through
 // `sessions.answer(origin)` with the origin's own auth, first answer wins,
 // and `closeAskMirrors` closes the mirror with it. A root's own cards reach
 // the conversation that started it already (it watches the root); this op
@@ -95,7 +95,7 @@ async function escalationTarget(
   if (row!.answeredAt) throw bad(`That card is already answered`)
   const target = await managingConversation(database, root, origin)
   if (!target) {
-    throw bad(`No team agent manages this thread: escalate works in a thread an agent's conversation started or watches`)
+    throw bad(`No team agent manages this session: escalate works in a root session an agent's conversation started or watches`)
   }
   if (target.id === root.id) throw bad(`That card is already in the agent's conversation`)
   return { card, target }
@@ -158,7 +158,7 @@ export async function escalateCard(input: {
     if (input.caller.rootId !== root.id && input.caller.rootId !== target.id) {
       throw new TRPCError({
         code: `FORBIDDEN`,
-        message: `Escalate a card of your own thread, or one of a thread your conversation manages`,
+        message: `Escalate a card of your own session tree, or one of a root session your conversation manages`,
       })
     }
     if (input.sealedCard) assertSealedCopy(input.sealedCard, card, target)

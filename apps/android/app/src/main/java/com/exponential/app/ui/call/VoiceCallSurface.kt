@@ -78,7 +78,7 @@ import com.exponential.app.domain.VoiceCall
 import com.exponential.app.domain.parseDeviceDoctor
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ExponentialMark
-import com.exponential.app.ui.thread.AgentGlyph
+import com.exponential.app.ui.chat.AgentGlyph
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
@@ -524,7 +524,7 @@ class AgentCallViewModel @Inject constructor(
 
 /**
  * THE telephone in the agent chat's header, left of `…`: the header's ghost
- * button ([com.exponential.app.ui.thread.ChatHeaderButton], like the menu). Disabled = dimmed, its reason on long
+ * button ([com.exponential.app.ui.chat.ChatHeaderButton], like the menu). Disabled = dimmed, its reason on long
  * press (the app's tooltip). A tap asks for the microphone once, then calls.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -544,7 +544,7 @@ fun AgentCallButton(
     }
     val enabled = target.availability.enabled && agentId != null
     val button: @Composable () -> Unit = {
-        com.exponential.app.ui.thread.ChatHeaderButton(
+        com.exponential.app.ui.chat.ChatHeaderButton(
             ExpIcons.voiceCall,
             VoiceCall.Copy.call(agentName),
             onClick = {

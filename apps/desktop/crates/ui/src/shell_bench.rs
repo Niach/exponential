@@ -213,13 +213,13 @@ fn sample() -> IdeSidebarInput {
         screen: "board:b1".into(),
         needs_you: 5,
         drafts: 2,
-        threads_dot: Some(IdeDot::Amber),
+        chats_dot: Some(IdeDot::Amber),
         owner: true,
         pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash on launch".into() }],
         agents: vec![agent("a1", "Triage", true, false), agent("a2", "Release", false, true), agent("a3", "Designer", false, false)],
         apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
         boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
-        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-threads".into(), session_ids: vec!["r1".into()], unread: true }],
+        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],
     }
 }
 

@@ -7,14 +7,14 @@ import {
   commandDivider,
 } from "@exp/domain-contract/chats"
 import {
-  THREAD_QUEUE_CLOSED_TTL_MS,
-  THREAD_QUEUE_PROBE_DEADLINE_MS,
-  threadDockQueue,
-  threadQueueChildState,
-  threadQueueProbe,
+  CHAT_QUEUE_CLOSED_TTL_MS,
+  CHAT_QUEUE_PROBE_DEADLINE_MS,
+  chatDockQueue,
+  chatQueueChildState,
+  chatQueueProbe,
   type DockRow,
   type DockSource,
-  type ThreadQueueProbe,
+  type ChatQueueProbe,
 } from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
@@ -49,8 +49,8 @@ import {
   DockSheetBody,
   markDockOpen,
   AskPrompt,
-  ThreadDock,
-  ThreadConversation,
+  ChatDock,
+  ChatConversation,
   TranscriptDivider,
   useLiveArrivals,
   ASK_CARD_COPY,
@@ -158,7 +158,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { useOpenPlan } from "@/hooks/use-open-plan"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { renderChatText } from "@/components/chat/chat-markdown"
 import { FeedText } from "@/components/feed-text"
 import { workingCaption, type WorkingWriting } from "@/lib/working-caption"
 import {
@@ -188,17 +188,17 @@ import { ReadMarkdown } from "@/components/read-markdown"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { SessionAccountSwitchButton } from "@/components/session-account-switch"
-import { sendAgentLine } from "@/components/thread/chat-menu"
+import { sendAgentLine } from "@/components/chat/chat-menu"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
-  buildSessionThread,
+  buildSessionChat,
   sessionBanner,
   toTreeMessage,
   toTreeSession,
   type SessionRow,
-  type ThreadRow,
+  type SessionChatRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { STEER_ENET_NO_FEED_IDLE, steerNoFeedAway, steerNoFeedState } from "@exp/domain-contract/steer-enet"
@@ -231,10 +231,10 @@ const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 // Work / Script / Tasks cards — never raw PTY bytes. Question and plan
 // answers ride the semantic `answer` frame (steer protocol v2, EXP-249).
 //
-// EXP-1293 Threads v2: this is the RAW WORK of one session, opened from its
+// EXP-1293: this is the RAW WORK of one session, opened from its
 // session card (`/t/$teamSlug/sessions/$sessionId`). It ALWAYS shows the work
 // (no Show work, no faces, no Guide, no merge, no issue header, no run
-// switching): the route owns the header (back to the thread, the title,
+// switching): the route owns the header (back to the chat, the title,
 // Stop) and the reply box (`SessionComposer`), handed in as slots.
 
 // ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
@@ -308,7 +308,7 @@ export function AgentSessionView({
 }: {
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
-  /** The route's header (back to the thread, the title, Stop). */
+  /** The route's header (back to the chat, the title, Stop). */
   header?: ReactNode
   /** The reply box under the feed (`SessionComposer`). */
   composer?: ReactNode
@@ -358,7 +358,7 @@ export function AgentSessionView({
   ) => store.answerQuestion(item, keys, labels, text)
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
-  // (`useFollowScroll`, shared with the thread Conversation, EXP-1316).
+  // (`useFollowScroll`, shared with the chat Conversation, EXP-1316).
   const follow = useFollowScroll([feed, phase.kind, session.needsInput, compactingNow])
   const { scrollRef, atBottom, jumpToBottom } = follow
 
@@ -390,7 +390,7 @@ export function AgentSessionView({
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
-   *  open ask for them, so they render as THE thread card and answer via
+   *  open ask for them, so they render as THE chat card and answer via
    *  `sessions.answer` only. A waiting one takes the ask dock when no relay
    *  card does; the rest sit after the call that posted them. */
   const sessionMessages = useSessionMessages(session.id)
@@ -403,7 +403,7 @@ export function AgentSessionView({
   const [dockHeight, setDockHeight] = useState(0)
   const sessionDock = useSessionDock(session)
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
-  // Thread 58cb32df (chats.json SURFACE CARD): an agent's inline preview
+  // Chat 58cb32df (chats.json SURFACE CARD): an agent's inline preview
   // (`session_self_show`) sits right after the call that posted it, like a
   // tool-posted card; a `reply` press sends its text as the next message.
   const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
@@ -427,9 +427,9 @@ export function AgentSessionView({
         if (!row) return null
         return (
           <div key={`${keyPrefix}-${id}`} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-tool-card">
-            <ThreadConversation
+            <ChatConversation
               rows={[row]}
-              renderText={renderThreadText}
+              renderText={renderChatText}
               attachmentSrc={attachmentUrl}
               onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
@@ -705,7 +705,7 @@ export function AgentSessionView({
         return wrap(<ToolRow item={item} flush live={item.id === liveRowId} />)
       }
       case `user_message`: {
-        // Thread 58cb32df (chats.json TRANSCRIPT): `/new` and `/compact`
+        // Chat 58cb32df (chats.json TRANSCRIPT): `/new` and `/compact`
         // are THE divider pill, never a bubble.
         const divider = commandDivider(item.text)
         if (divider) {
@@ -990,10 +990,10 @@ export function AgentSessionView({
               cards (the relay's, the tool-posted ones), THE Queue, the
               queued messages and the status banners, then the composer (a
               phone's floats in the work bar instead). */}
-          <ThreadDock
+          <ChatDock
             rows={NO_ROWS}
             sessionName={noSessionName}
-            renderText={renderThreadText}
+            renderText={renderChatText}
             attachmentSrc={attachmentUrl}
             pending={cardsPending}
             onAnswer={(rowId, input) => void answerCard(rowId, input)}
@@ -1019,12 +1019,12 @@ export function AgentSessionView({
 /** EXP-1280: a tool-posted card's pictures resolve against the app. */
 const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
 const noSessionName = () => null
-const NO_ROWS: ThreadRow[] = []
+const NO_ROWS: SessionChatRow[] = []
 const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
 /** EXP-1280: this session's TOOL-posted cards (ask-dock.json
- *  `sessionCards`) in THE thread row form, oldest first. */
-function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
+ *  `sessionCards`) in THE chat row form, oldest first. */
+function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]): SessionChatRow[] {
   const ids = new Set(
     sessionCards(messages.map(toTreeMessage))
       .filter((card) => card.kind !== `surface`)
@@ -1032,7 +1032,7 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
   )
   const cards = messages.filter((message) => ids.has(message.id))
   if (cards.length === 0) return []
-  return buildSessionThread({
+  return buildSessionChat({
     root: toTreeSession(session),
     sessions: [],
     sessionIssues: [],
@@ -1045,11 +1045,11 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
 
 type MessageRowLike = Parameters<typeof toTreeMessage>[0]
 
-/** Thread 58cb32df: this session's `surface` cards as THE thread rows. */
-function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
+/** Chat 58cb32df: this session's `surface` cards as THE chat rows. */
+function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): SessionChatRow[] {
   const cards = messages.filter((message) => (message.card as { kind?: unknown } | null)?.kind === `surface`)
   if (cards.length === 0) return []
-  return buildSessionThread({
+  return buildSessionChat({
     root: toTreeSession(session),
     sessions: [],
     sessionIssues: [],
@@ -1066,7 +1066,7 @@ function rowItemIds(row: { kind: string; item?: { id: number }; items?: readonly
   return row.items ? row.items.map((item) => item.id) : []
 }
 
-/** EXP-1323 (#EXP-1333): a THREAD's live tail ×4 — while the root's session
+/** EXP-1323 (#EXP-1333): a CHAT's live tail ×4 — while the root's session
  *  works the Conversation ends on ONE status line (the "Working…" row).
  *  N-12: THE Queue left the transcript for the Dock (`useSessionDock`).
  *  Same relay store as the raw view (one connection per session, shared). */
@@ -1097,7 +1097,7 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
   })
   if (!working) return null
   return (
-    <div data-testid="thread-live-tail" className="flex flex-col gap-2">
+    <div data-testid="chat-live-tail" className="flex flex-col gap-2">
       {working && (
         <WorkingIndicatorRow
           agent={session.cli}
@@ -1603,7 +1603,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
   // Wave D: file lines are peeled off like the embeds and drawn as the
-  // comment thread's file chips, never as broken images or raw links.
+  // comment chat's file chips, never as broken images or raw links.
   const hasAttachments = hasImages || files.length > 0
   // Clamp the PROSE, never the wire message: four embed lines are four more
   // "lines" of nothing, and they used to push a two-line steer into the fold
@@ -1801,7 +1801,7 @@ function QuestionPrompt({
     (editing || item.resolved !== true)
 
   // EXP-1316: THE card's prompt (`@exp/ui` AskPrompt, shared with the
-  // thread conversation); a plan reject's typed feedback follows as the next
+  // chat conversation); a plan reject's typed feedback follows as the next
   // message (`freeAnswerFor`).
   const answer = (keys: string[], labels: string[], text?: string) => {
     if (item.planMode && text !== undefined) {
@@ -1926,8 +1926,8 @@ export function useAgentHintDock(session: SessionRow | null): {
  *  account switch, EXP-724 the compaction strip, EXP-784 the rate-limit
  *  window, the starting line), as `DockSource`s with their sheets and
  *  actions (dock.json `banner`: the host's words). The session view and
- *  the thread's Conversation share it (one relay store per session). */
-/** #EXP-1545: a thread's children (each with the name its tabs show). */
+ *  the chat's Conversation share it (one relay store per session). */
+/** #EXP-1545: a chat's children (each with the name its tabs show). */
 export interface DockChild {
   session: SessionRow
   name: string
@@ -1936,7 +1936,7 @@ export interface DockChild {
 const NO_CHILDREN: readonly DockChild[] = []
 
 /** #EXP-1678 (dock.json ONE CHILD STREAM): children read closed, by session
- *  id, keyed by their activeAt then; kept across thread mounts. */
+ *  id, keyed by their activeAt then; kept across chat mounts. */
 const closedQueueReads = new Map<string, { activeAt: number | null; at: number }>()
 const NO_SUBSCRIBE = () => () => {}
 const NO_SNAPSHOT = () => null
@@ -1956,10 +1956,10 @@ function snapshotQueueOpen(snapshot: SteerSessionSnapshot): boolean {
   return Boolean(sessionTaskQueue({ taskList, backgroundTasks, feed, now: Date.now() })?.todo.items.length)
 }
 
-/** #EXP-1545 (dock.json THREAD QUEUE) + #EXP-1678 (ONE CHILD STREAM): the
- *  relay snapshot of the ONE Live child `threadQueueProbe` names (LOCAL
+/** #EXP-1545 (dock.json CHAT QUEUE) + #EXP-1678 (ONE CHILD STREAM): the
+ *  relay snapshot of the ONE Live child `chatQueueProbe` names (LOCAL
  *  FIRST: the per-session store's last-known slots while it dials); the
- *  thread never opens a stream per Live child (a burst of joins to one
+ *  chat never opens a stream per Live child (a burst of joins to one
  *  device). An ended child is not read at all. */
 function useChildSnapshots(
   children: readonly DockChild[],
@@ -1976,16 +1976,16 @@ function useChildSnapshots(
   const snapshot = useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, store?.getSnapshot ?? NO_SNAPSHOT)
   const heldOpen = useMemo(() => (snapshot ? snapshotQueueOpen(snapshot) : false), [snapshot])
   const now = Date.now()
-  const probes: ThreadQueueProbe[] = live.map((child) => {
+  const probes: ChatQueueProbe[] = live.map((child) => {
     const id = child.session.id
     const at = activeAt(child.session)
     const seen = closedQueueReads.get(id)
-    const remembered = !!seen && seen.activeAt === at && now - seen.at < THREAD_QUEUE_CLOSED_TTL_MS
+    const remembered = !!seen && seen.activeAt === at && now - seen.at < CHAT_QUEUE_CLOSED_TTL_MS
     const mine = held && held.id === id && snapshot ? snapshot : null
     const stream = mine && held ? { phase: streamPhase(mine.phase), replayed: mine.replayed, attachedMs: now - held.at } : null
-    return { sessionId: id, activeAt: at, state: threadQueueChildState({ open: !!mine && heldOpen, remembered, stream }) }
+    return { sessionId: id, activeAt: at, state: chatQueueChildState({ open: !!mine && heldOpen, remembered, stream }) }
   })
-  const wanted = threadQueueProbe(rootOpen, probes)
+  const wanted = chatQueueProbe(rootOpen, probes)
   const closedKey = probes
     .filter((probe) => probe.state === `closed`)
     .map((probe) => `${probe.sessionId}:${probe.activeAt}`)
@@ -1995,7 +1995,7 @@ function useChildSnapshots(
     for (const probe of probes) {
       if (probe.state !== `closed`) continue
       const seen = closedQueueReads.get(probe.sessionId)
-      if (!seen || seen.activeAt !== probe.activeAt || at - seen.at >= THREAD_QUEUE_CLOSED_TTL_MS) {
+      if (!seen || seen.activeAt !== probe.activeAt || at - seen.at >= CHAT_QUEUE_CLOSED_TTL_MS) {
         closedQueueReads.set(probe.sessionId, { activeAt: probe.activeAt, at })
       }
     }
@@ -2004,7 +2004,7 @@ function useChildSnapshots(
   }, [wanted, heldId, closedKey])
   // Re-read once the probe deadline passes, and (every child read closed)
   // once the closed memory runs out.
-  const rearmMs = held ? THREAD_QUEUE_PROBE_DEADLINE_MS : wanted === null && live.length > 0 && !rootOpen ? THREAD_QUEUE_CLOSED_TTL_MS : null
+  const rearmMs = held ? CHAT_QUEUE_PROBE_DEADLINE_MS : wanted === null && live.length > 0 && !rootOpen ? CHAT_QUEUE_CLOSED_TTL_MS : null
   useEffect(() => {
     if (rearmMs === null) return
     const timer = setTimeout(() => setTick((n) => n + 1), rearmMs)
@@ -2062,7 +2062,7 @@ export function useSessionDock(
     () => sessionTaskQueue({ taskList, backgroundTasks, feed, now: tick.getTime() }),
     [taskList, backgroundTasks, feed, tick]
   )
-  // #EXP-1545 (dock.json THREAD QUEUE): ONE tasks card, the root's while it
+  // #EXP-1545 (dock.json CHAT QUEUE): ONE tasks card, the root's while it
   // is open, else the most recently active Live child's, named.
   const queueOwner = useMemo(() => {
     const models = new Map(
@@ -2071,7 +2071,7 @@ export function useSessionDock(
         { child, snap, model: sessionTaskQueue({ taskList: snap.taskList, backgroundTasks: snap.backgroundTasks, feed: snap.feed, now: tick.getTime() }) },
       ])
     )
-    const chosen = threadDockQueue([
+    const chosen = chatDockQueue([
       { sessionId: session.id, name: ``, root: true, ended: sessionEnded, activeAt: null, open: Boolean(rootQueueModel?.todo.items.length) },
       ...[...models.values()].map(({ child, model }) => ({
         sessionId: child.session.id,

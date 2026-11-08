@@ -30,9 +30,9 @@
 //! * [`session_results`] — EXP-879 the Guide reader (`sessions.guide`): the
 //!   tolerant reader, the topic grouping and the tile geometry (web
 //!   `lib/session-results.ts`'s twin);
-//! * [`session_tree`] — EXP-1294 Threads v2: the session card, the thread
-//!   screen, the Threads page and the rail's Agents, byte-locked ×4 by
-//!   `fixtures/{session-card,session-thread,threads-list}.json`;
+//! * [`session_tree`] — EXP-1294: the session card, the chat
+//!   screen, the Chats page and the rail's Agents, byte-locked ×4 by
+//!   `fixtures/{session-card,session-chat,chat-list}.json`;
 //! * [`message_conversation`] — NEW-8: a message belongs to the session of
 //!   its conversation (`conversations` shape), byte-locked ×4 by
 //!   `fixtures/message-conversation.json`;
@@ -82,11 +82,11 @@
 //!   Exponential tool row's `preview.refs` (icon concept, noun, clamped
 //!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
 //! * [`inbox_route`] — #EXP-1456: where an inbox row / toast opens (issue,
-//!   session, nothing) and where a session opens (agent page, thread,
+//!   session, nothing) and where a session opens (agent page, chat,
 //!   session), byte-locked ×4 by `fixtures/inbox-route.json`;
-//! * [`thread_row_action`] — #EXP-1464: what a conversation's session row
+//! * [`chat_row_action`] — #EXP-1464: what a conversation's session row
 //!   does when tapped (expand into its card, open, nothing), byte-locked ×4
-//!   by `fixtures/thread-row-action.json`;
+//!   by `fixtures/chat-row-action.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
 //!   byte-locked ×4 by `fixtures/app-link.json`.
@@ -102,7 +102,7 @@ pub mod contract {
 }
 
 pub mod activity_fold;
-// THE ask cards' words (titles, plan options, a thread's waiting cards), fixture-locked ×4.
+// THE ask cards' words (titles, plan options, a chat's waiting cards), fixture-locked ×4.
 pub mod ask_dock;
 // EXP-1294: Team settings → Agents (trigger summary, validation), fixture-locked ×4.
 pub mod agent_settings;
@@ -129,7 +129,7 @@ pub mod app_link;
 // #EXP-1674: a bare in-app URL in agent prose reads as its chip, fixture-locked ×4.
 pub mod prose_links;
 pub mod board;
-// Thread 58cb32df: Chats (menus, dividers, the surface card's reply rule), fixture-locked ×4.
+// Chat 58cb32df: Chats (menus, dividers, the surface card's reply rule), fixture-locked ×4.
 pub mod chats;
 pub mod client_version;
 // EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
@@ -176,7 +176,7 @@ pub mod needs_you;
 // #FEED-191: a chat tree's results (the session screen's last tab), fixture-locked ×4.
 pub mod results_tab;
 pub mod placeholder_status;
-// #EXP-1611: CI on the thread's PR (Merge pill, Checks submenu), fixture-locked ×4.
+// #EXP-1611: CI on the chat's PR (Merge pill, Checks submenu), fixture-locked ×4.
 pub mod pr_checks;
 pub mod pr_graph;
 pub mod pr_stack;
@@ -195,7 +195,7 @@ pub mod session_results;
 // EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
 pub mod session_kind;
 pub mod session_title;
-// EXP-1294: the session tree's views (card, thread, Threads page, Agents), fixture-locked ×4.
+// EXP-1294: the session tree's views (card, chat, Chats page, Agents), fixture-locked ×4.
 pub mod session_tree;
 // #EXP-1660: team skills (fixtures/skills.json), fixture-locked ×4.
 pub mod skills;
@@ -210,7 +210,7 @@ pub mod waiting_cards;
 // NEW-59: the Work screen picker's options + copy, fixture-locked ×4.
 pub mod work_screen;
 // #EXP-1464: what a conversation's session rows do (expand / open / none), fixture-locked ×4.
-pub mod thread_row_action;
+pub mod chat_row_action;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

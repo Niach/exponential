@@ -868,7 +868,7 @@ html {
   white-space: nowrap;
 }
 
-/* THE mention pill (thread e4a04d22): the ROUND `@Name` capsule every
+/* THE mention pill (chat e4a04d22): the ROUND `@Name` capsule every
    surface paints for a resolved `@<email>` mention, the `<MentionPill>`
    component (./mention-pill.tsx, chat text) and the editors' decoration
    (the app's lib/mention-pill-extension.ts) alike. Unlayered like

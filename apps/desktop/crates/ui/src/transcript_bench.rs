@@ -1,9 +1,9 @@
 //! #EXP-1546 / #VAPP-258 — the read-only Markdown timed HEADLESS under the
-//! platform's real text system: the thread transcript scrolled over a VERY
+//! platform's real text system: the chat transcript scrolled over a VERY
 //! long plan card (headings, prose, lists, code, tables, many pictures, an
 //! inline eUI surface), a long description laid out cold, and an agent reply
 //! streamed in chunk by chunk. The rows are the Conversation's own
-//! ([`crate::thread_screen::card_row`], [`crate::thread_screen::agent_prose`])
+//! ([`crate::session_chat::card_row`], [`crate::session_chat::agent_prose`])
 //! in the Conversation's `gpui::list`. Run with
 //! `cargo test -p ui --release -- --ignored bench_ --nocapture`.
 use std::sync::Arc;
@@ -15,10 +15,10 @@ use gpui::{
 };
 use gpui_component::v_flex;
 
-use domain::session_tree::{CardSurface, SessionThreadRow};
+use domain::session_tree::{CardSurface, SessionChatRow};
 
 use crate::markdown::ImageCache;
-use crate::thread_screen::{agent_prose, card_row, message_markdown, ThreadText};
+use crate::session_chat::{agent_prose, card_row, message_markdown, ChatText};
 
 /// The plan's sections: one = a heading, prose with marks and refs, a
 /// list, a code block, a table and two pictures.
@@ -73,10 +73,10 @@ fn surface() -> CardSurface {
     }
 }
 
-pub(crate) fn rows() -> Vec<SessionThreadRow> {
+pub(crate) fn rows() -> Vec<SessionChatRow> {
     let mut rows = Vec::new();
     for n in 0..12 {
-        rows.push(SessionThreadRow::Message {
+        rows.push(SessionChatRow::Message {
             id: format!("m{n}"),
             author: domain::contract::MESSAGE_AUTHOR_KIND_AGENT.into(),
             author_id: None,
@@ -86,7 +86,7 @@ pub(crate) fn rows() -> Vec<SessionThreadRow> {
             author_session_id: None,
         });
     }
-    rows.push(SessionThreadRow::Plan {
+    rows.push(SessionChatRow::Plan {
         id: "plan".into(),
         session_id: "s".into(),
         plan: long_plan(SECTIONS),
@@ -99,7 +99,7 @@ pub(crate) fn rows() -> Vec<SessionThreadRow> {
         surface_data: None,
     });
     for n in 12..18 {
-        rows.push(SessionThreadRow::Message {
+        rows.push(SessionChatRow::Message {
             id: format!("m{n}"),
             author: domain::contract::MESSAGE_AUTHOR_KIND_AGENT.into(),
             author_id: None,
@@ -113,10 +113,10 @@ pub(crate) fn rows() -> Vec<SessionThreadRow> {
 }
 
 struct Transcript {
-    rows: Vec<SessionThreadRow>,
+    rows: Vec<SessionChatRow>,
     list: ListState,
     images: Entity<ImageCache>,
-    text: ThreadText,
+    text: ChatText,
 }
 
 impl Render for Transcript {
@@ -126,8 +126,8 @@ impl Render for Transcript {
             cx.processor(|this, ix: usize, window, cx| {
                 let row = this.rows[ix].clone();
                 let content = match &row {
-                    SessionThreadRow::Message { id, body, .. } => agent_prose(
-                        message_markdown(format!("thread-message-{id}").into(), body, &this.text, &this.images),
+                    SessionChatRow::Message { id, body, .. } => agent_prose(
+                        message_markdown(format!("chat-message-{id}").into(), body, &this.text, &this.images),
                         cx,
                     ),
                     _ => card_row(&row, "root", &this.rows, &this.text, &this.images, window, cx)
@@ -139,7 +139,7 @@ impl Render for Transcript {
                     .child(
                         v_flex()
                             .w_full()
-                            .max_w(px(crate::thread_screen::CONVERSATION_W))
+                            .max_w(px(crate::session_chat::CONVERSATION_W))
                             .mx_auto()
                             .px(px(crate::work_header::WORK_GUTTER))
                             .pt_5()
@@ -193,12 +193,12 @@ fn bench_long_plan_transcript() {
     let mut cx = headless();
     let rows = rows();
     let count = rows.len();
-    let list = ListState::new(count, ListAlignment::Top, crate::thread_screen::CONVERSATION_OVERDRAW);
+    let list = ListState::new(count, ListAlignment::Top, crate::session_chat::CONVERSATION_OVERDRAW);
     let state = list.clone();
     let window = cx
         .open_window(size(px(VIEWPORT.0), px(VIEWPORT.1)), move |_, cx| {
             let images = cx.new(|_| ImageCache::new(None));
-            cx.new(|_| Transcript { rows, list: state, images, text: ThreadText::team(None) })
+            cx.new(|_| Transcript { rows, list: state, images, text: ChatText::team(None) })
         })
         .expect("a headless window");
     let plan_ix = 12;
@@ -236,7 +236,7 @@ impl Render for Doc {
             .autolink(self.chat)
             .images(self.images.clone())
             .streaming(self.streaming); // BENCH-STREAMING
-        div().size_full().child(div().w(px(crate::thread_screen::CONVERSATION_W)).child(view))
+        div().size_full().child(div().w(px(crate::session_chat::CONVERSATION_W)).child(view))
     }
 }
 

@@ -26,7 +26,7 @@ export interface DraftSnapshot {
   assigneeAgentId: string | null
   labelIds: string[]
   dueDate: string | null
-  /** EXP-1291: the thread (root session) a "New issue in this thread"
+  /** EXP-1291: the chat (root session) a "New issue in this chat"
    *  draft files into. */
   sessionId: string | null
   /** Rows already uploaded against this draft (eager uploads, EXP-878). */
@@ -82,7 +82,7 @@ export interface DraftDialogSeed {
   assigneeAgentId: string | null
   labelIds: string[]
   dueDate: string | null
-  /** EXP-1291: the thread (root session) it files into (null = none). */
+  /** EXP-1291: the chat (root session) it files into (null = none). */
   sessionId: string | null
 }
 

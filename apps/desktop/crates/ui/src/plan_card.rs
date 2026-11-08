@@ -1,7 +1,7 @@
 //! EXP-1280 — THE rich plan / question card's interactive half ×4
 //! (`packages/domain-contract/fixtures/plan-card.json`; web
-//! `packages/ui/src/session-thread-view.tsx` + `ask-card.tsx`). The thread's
-//! cards (`crate::thread_screen::question_card`), THE plan tab's questions rail, THE ask dock
+//! `packages/ui/src/session-chat-view.tsx` + `ask-card.tsx`). The chat's
+//! cards (`crate::session_chat::question_card`), THE plan tab's questions rail, THE ask dock
 //! and the session view's TOOL-posted card all paint through here:
 //!
 //! - the inline Exponential UI surface (`surface` {root, data}) through the
@@ -226,7 +226,7 @@ fn draft_mut<'a>(message_id: &str, cx: &'a mut App) -> &'a mut CardDraft {
 }
 
 /// A sent card's draft goes (its fields, its surface view) once its answer
-/// LANDED ([`crate::thread_screen::answer_card`]'s success): the card is
+/// LANDED ([`crate::session_chat::answer_card`]'s success): the card is
 /// `Answering…` with its picks still in it, then closed — a refusal (409,
 /// 400, the network) re-opens it with everything intact. Never at render
 /// time: two views of one id must not fight over it.
@@ -928,7 +928,7 @@ pub(crate) fn plan_sheet(
 ) -> crate::dock::SheetContent {
     let message_id = facts.message_id;
     let decided = facts.decision.is_some();
-    let answering = crate::thread_screen::answering(message_id, cx);
+    let answering = crate::session_chat::answering(message_id, cx);
     let interactive = !decided && !answering;
     prepare_plan(facts, window, cx);
     let count = facts.questions.len();
@@ -966,7 +966,7 @@ pub(crate) fn plan_sheet(
         footer = footer.children(step_buttons(message_id, page, pages));
     }
     if answering {
-        footer = footer.child(crate::thread_screen::card_answering(cx));
+        footer = footer.child(crate::session_chat::card_answering(cx));
     } else if let Some(decision) = facts.decision {
         footer = footer.child(closed_decision(facts, decision, cx));
     }
@@ -1019,7 +1019,7 @@ pub(crate) struct PlanParts {
 pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> PlanParts {
     let message_id = facts.message_id;
     let decided = facts.decision.is_some();
-    let answering = crate::thread_screen::answering(message_id, cx);
+    let answering = crate::session_chat::answering(message_id, cx);
     let interactive = answer && !decided && !answering;
     prepare_plan(facts, window, cx);
     let count = facts.questions.len();
@@ -1065,7 +1065,7 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
         );
     }
     if answering && !decided {
-        footer.push(crate::thread_screen::card_answering(cx));
+        footer.push(crate::session_chat::card_answering(cx));
     }
     PlanParts {
         step,
@@ -1206,7 +1206,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
         let on_tab = facts.on_tab.then(|| facts.session_id.to_string());
         Rc::new(move |decision: &str, fresh: bool, cx: &mut App| {
             if let Some(session_id) = &on_tab {
-                crate::thread_screen::decide_on_plan_tab(&id, session_id, cx);
+                crate::session_chat::decide_on_plan_tab(&id, session_id, cx);
             }
             send_plan(&id, decision, fresh, &questions, surface.as_ref(), cx);
         })
@@ -1223,9 +1223,9 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
     if rejecting {
         let decide = decide.clone();
         trailing = trailing
-            .child(footer_button(format!("thread-plan-{message_id}-cancel"), &copy.cancel, false).on_click(set_rejecting(false)))
+            .child(footer_button(format!("chat-plan-{message_id}-cancel"), &copy.cancel, false).on_click(set_rejecting(false)))
             .child(
-                footer_button(format!("thread-plan-{message_id}-decide"), change_label, true).on_click(move |_, _, cx| {
+                footer_button(format!("chat-plan-{message_id}-decide"), change_label, true).on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     decide("rejected", false, cx);
                 }),
@@ -1233,7 +1233,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
     } else {
         let approve_decide = decide.clone();
         let mut split = h_flex().id(SharedString::from(format!("{}-{message_id}", ids.decision))).items_center().child(
-            footer_button(format!("thread-plan-{message_id}-decide"), approve_label, true)
+            footer_button(format!("chat-plan-{message_id}-decide"), approve_label, true)
                 .rounded_r_none()
                 .disabled(blocked.is_some())
                 .on_click(move |_, _, cx| {
@@ -1247,7 +1247,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
             // window, a sheet host), opening above the footer.
             use crate::controls::PointerMenuButtonExt as _;
             split = split.child(
-                Button::new(SharedString::from(format!("thread-plan-{message_id}-fresh")))
+                Button::new(SharedString::from(format!("chat-plan-{message_id}-fresh")))
                     .primary()
                     .small()
                     .cursor_pointer()
@@ -1267,7 +1267,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
             );
         }
         trailing = trailing
-            .child(footer_button(format!("thread-plan-{message_id}-reject"), change_label, false).on_click(set_rejecting(true)))
+            .child(footer_button(format!("chat-plan-{message_id}-reject"), change_label, false).on_click(set_rejecting(true)))
             .child(split);
     }
     let row = h_flex()
@@ -1340,7 +1340,7 @@ fn send_plan(message_id: &str, decision: &str, fresh: bool, questions: &[PlanQue
         surface_data: surface_data(message_id, surface, cx),
         ..Default::default()
     };
-    crate::thread_screen::answer_card(input, cx);
+    crate::session_chat::answer_card(input, cx);
 }
 
 // ---------------------------------------------------------------------------
@@ -1413,14 +1413,14 @@ fn question_content(facts: &QuestionFacts, interactive: bool, images: &Entity<Im
 /// ([`question_sheet`]); FEED-140: with `answer` the inline card answers
 /// too (the same draft), else it is read-only.
 pub(crate) fn question_parts(facts: &QuestionFacts, answer: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
-    let answering = crate::thread_screen::answering(facts.message_id, cx);
+    let answering = crate::session_chat::answering(facts.message_id, cx);
     let interactive = answer && !facts.answered && !answering;
     prepare_question(facts, window, cx);
     let (content, picked) = question_content(facts, interactive, images, window, cx);
     let controls = if facts.answered {
         closed_answer(facts, &picked, cx)
     } else if answering {
-        crate::thread_screen::card_answering(cx)
+        crate::session_chat::card_answering(cx)
     } else if interactive {
         h_flex().mt_3().w_full().child(answer_button(facts, cx)).into_any_element()
     } else {
@@ -1458,7 +1458,7 @@ pub(crate) fn question_sheet(
     cx: &mut App,
 ) -> crate::dock::SheetContent {
     let message_id = facts.message_id;
-    let answering = crate::thread_screen::answering(message_id, cx);
+    let answering = crate::session_chat::answering(message_id, cx);
     let interactive = !facts.answered && !answering;
     prepare_question(facts, window, cx);
     let (content, picked) = question_content(facts, interactive, images, window, cx);
@@ -1469,7 +1469,7 @@ pub(crate) fn question_sheet(
         .child(question)
         .children(content);
     let action = if answering {
-        crate::thread_screen::card_answering(cx)
+        crate::session_chat::card_answering(cx)
     } else if facts.answered {
         closed_answer(facts, &picked, cx)
     } else {
@@ -1496,7 +1496,7 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
     let surface = facts.surface.cloned();
     let options = facts.options.to_vec();
     let (multi, custom) = (facts.multi, facts.custom);
-    Button::new(SharedString::from(format!("thread-question-{}-answer", facts.message_id)))
+    Button::new(SharedString::from(format!("chat-question-{}-answer", facts.message_id)))
         .primary()
         .small()
         .cursor_pointer()
@@ -1515,7 +1515,7 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
                 surface_data: surface_data(&id, surface.as_ref(), cx),
                 ..Default::default()
             };
-            crate::thread_screen::answer_card(input, cx);
+            crate::session_chat::answer_card(input, cx);
         })
         .into_any_element()
 }

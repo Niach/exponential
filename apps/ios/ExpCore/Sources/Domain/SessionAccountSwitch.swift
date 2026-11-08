@@ -36,7 +36,7 @@ public enum SessionAccountSwitch {
     public static let reasonNeedsRelogin = "This account needs a re-login on that machine."
     public static let reasonAlready = "This session is already on this account."
 
-    /// Who may steer a session (Threads v2 visibility ×4): a session on a
+    /// Who may steer a session (Chats v2 visibility ×4): a session on a
     /// team-SHARED device = every member, any other = its starter only.
     public static func canSteer(shared: Bool, userId: String, currentUserId: String?) -> Bool {
         if shared { return true }

@@ -93,7 +93,7 @@ impl ApiError {
 
     /// tRPC `CONFLICT` (HTTP 409): the server's copy moved under a write
     /// (a draft's stale stamp, a name already taken). No merge reads it any
-    /// more (EXP-1391: a refused merge goes into the thread).
+    /// more (EXP-1391: a refused merge goes into the chat).
     pub fn is_conflict(&self) -> bool {
         matches!(self, ApiError::Http { status: 409, .. })
     }

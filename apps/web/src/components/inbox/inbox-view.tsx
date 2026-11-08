@@ -115,7 +115,7 @@ export function InboxView({
   teamId,
   onRowOpen,
 }: {
-  /** Thread 58cb32df (chats.json `shell`): phones filter the stream to the
+  /** Chat 58cb32df (chats.json `shell`): phones filter the stream to the
    *  ONE active team; absent = every team (md+). */
   teamId?: string
   /** #FEED-191: the wide popover's rows: no reading column, no scroller of its
@@ -269,7 +269,7 @@ export function InboxView({
   // #EXP-1456: the S-3 rule (lib/session-back.ts): the viewer's own agent
   // conversation opens the agent's page, where its question waits in the
   // dock; anything else opens through the session route, which lands a
-  // thread's sessions inside their thread.
+  // chat's sessions inside their chat.
   const openSession = (session: { teamSlug: string; sessionId: string }) => {
     const search = from ? { from } : {}
     const planId = planPageFor(

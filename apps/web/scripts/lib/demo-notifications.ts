@@ -84,7 +84,7 @@ export async function restoreDemoNotifications(
  * `session_reads.archived_at`). The `chat-selection` recipe archives a chat so
  * its shot shows the Archived entry; left in place, that chat drops out of
  * every later Chats list, here and in the native lanes that capture over the
- * same database afterwards (Android's sg_threads gates on the ended APP-16
+ * same database afterwards (Android's sg_chats gates on the ended APP-16
  * chat). Keyed by the read row; a row the run created restores to NULL.
  */
 export interface ChatArchiveState {

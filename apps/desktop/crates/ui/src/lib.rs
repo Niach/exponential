@@ -43,7 +43,7 @@ mod board_form;
 mod changelog;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
 mod chat_launch;
-// Thread 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
+// Session 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
 mod chat_actions;
 mod chat_list;
 mod chat_transcript;
@@ -161,7 +161,7 @@ mod plan_page;
 // #EXP-1493: THE Outline + THE Mosaic (the plan page's low-level pieces).
 mod outline;
 mod mosaic;
-// Thread 58cb32df: the transcript's surface card + command dividers.
+// Session 58cb32df: the transcript's surface card + command dividers.
 mod surface_card;
 // #FEED-191: the session screen's Results tab body + THE PR review pane.
 mod results_tab;
@@ -172,7 +172,7 @@ mod inbox_popover;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;
-// #EXP-1611: CI on the thread's PR (Checks submenu, failing-merge confirm).
+// #EXP-1611: CI on the chat's PR (Checks submenu, failing-merge confirm).
 mod pr_checks;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
 mod pr_rows;
@@ -208,11 +208,11 @@ mod steer_viewer;
 mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
-// EXP-1294: the thread screen and the Threads page.
-mod thread_screen;
+// EXP-1294: the chat screen and the Chats page.
+mod session_chat;
 // #EXP-1561 / #EXP-1562: a waiting card's ×, the dismissed line, the strip's waiting chips.
 mod waiting_cards;
-mod threads_view;
+mod chats_view;
 mod work_card;
 mod script_card;
 // EXP-1324: THE Trace + THE CodeBlock.
@@ -281,7 +281,7 @@ use gpui_component::dock::register_panel;
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
     eui_gpui::view::init(cx);
-    // Thread 58cb32df: every motion token honours the OS's Reduce Motion.
+    // Session 58cb32df: every motion token honours the OS's Reduce Motion.
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
     // VAPP-90: the SDK's generic controls read the IDE's token values.
@@ -315,7 +315,7 @@ pub fn init(cx: &mut App) {
     // Bulk select: cmd-a/ctrl-a select-all +
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);
-    threads_view::init(cx);
+    chats_view::init(cx);
     // Create-flow dialog actions (§4.2): NewBoard (sidebar `+`), CreateTeam
     // (team picker). EXP-1170: NewIssue opens the New issue PAGE — its
     // handler lives with the other navigations (`navigation::init`).

@@ -64,7 +64,7 @@ macro_rules! id {
     };
 }
 
-id!(SessionId, Session, "A session (a thread, a child, an agent conversation).");
+id!(SessionId, Session, "A session (a chat root, a child, an agent conversation).");
 id!(RunId, Run, "One agent run inside a session.");
 id!(SpaceId, Space, "An agent space on a device.");
 id!(WindowId, Window, "A window in a space.");

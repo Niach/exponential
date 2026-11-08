@@ -269,7 +269,7 @@ enum LinkOpener {
     }
 
     /// The kind → screen map, for a member of the link's team. A destination
-    /// with `found: false` = a screen that says not found by itself (thread,
+    /// with `found: false` = a screen that says not found by itself (chat,
     /// plan page, agent page).
     private static func target(
         of link: AppLink, teamId: String, teamSlug: String, accountId: String, pool: DatabasePool, deps: AppDependencies
@@ -287,13 +287,13 @@ enum LinkOpener {
             guard let id else { return Target(found: false, teamId: teamId) }
             return Target(teamId: teamId, destination: .board(id))
         case let .session(_, sessionId):
-            // EXP-1291: a root (or an id not synced here: the thread screen
-            // resolves or says not found) opens its thread, a child its session.
+            // EXP-1291: a root (or an id not synced here: the chat screen
+            // resolves or says not found) opens its chat, a child its session.
             let row = session(sessionId, pool: pool)
             let route: AppRoute = if let row, !row.isRoot {
                 AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps)
             } else {
-                AppRoute.thread(accountId: accountId, threadId: sessionId, child: nil)
+                AppRoute.chat(accountId: accountId, chatId: sessionId, child: nil)
             }
             return Target(found: row != nil, teamId: row?.teamId ?? teamId, destination: .push(route, over: nil))
         case let .plan(_, sessionId, messageId):
@@ -302,14 +302,8 @@ enum LinkOpener {
                 found: row != nil, teamId: row?.teamId ?? teamId,
                 destination: .push(AppRoute.openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps), over: nil)
             )
-        case let .thread(_, threadId):
-            let row = session(threadId, pool: pool)
-            return Target(
-                found: row != nil, teamId: row?.teamId ?? teamId,
-                destination: .push(.thread(accountId: accountId, threadId: threadId, child: nil), over: nil)
-            )
-        case .threads:
-            return Target(teamId: teamId, destination: .tab(.threads))
+        case .chats:
+            return Target(teamId: teamId, destination: .tab(.chats))
         case let .agent(_, agentId):
             let id = rowId(
                 #"SELECT "id" FROM "agents" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, agentId, pool: pool
@@ -322,7 +316,7 @@ enum LinkOpener {
             return Target(teamId: teamId, destination: .tab(.agent))
         case .inbox:
             // EXP-1373: the Inbox is a page pushed over the Chats tab.
-            return Target(teamId: teamId, destination: .push(.myWork, over: .threads))
+            return Target(teamId: teamId, destination: .push(.myWork, over: .chats))
         case .devices:
             return Target(teamId: teamId, destination: .push(
                 .teamSettingsSection(accountId: accountId, teamId: teamId, section: .devices), over: .team

@@ -81,14 +81,14 @@ import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
-// EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
+// EXP-1293: THE reply box ×4 = the home's composer box (the
 // Composer primitive), never a new box. It posts ONE message to a session
-// (`sessions.send({sessionId})`): a thread root (an ended thread continues
+// (`sessions.send({sessionId})`): a chat root (an ended chat continues
 // server-side in a new child), an agent's channel, or an opened session.
 // Stop = `sessions.stop` while the session works.
 //
 // EXP-1334 (owner: ONE composer, the old session layout): the start, the
-// thread and the session view render the SAME frame (`ComposerFrame`): the
+// chat and the session view render the SAME frame (`ComposerFrame`): the
 // card = the field (the `/` menu over it) and ONE tool row. N-12 (owner
 // 2026-10-22, the iOS row ×4): the row = the "+" = THE options menu
 // (composer-menu.json rows minus the subject rows: Effort ›, Ultracode,
@@ -146,7 +146,7 @@ function useComposerSession(sessionId: string | null) {
   const live = row !== null && row.status !== `ended`
   const store = useMemo(() => (sessionId ? acquireSteerSession(sessionId) : IDLE_STORE), [sessionId])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
-  // The thread and the agent channel render no feed of their own: the
+  // The chat and the agent channel render no feed of their own: the
   // composer is what keeps the root's relay state (model, usage) current.
   useEffect(() => {
     if (row) store.noteSessionStatus(row.status)
@@ -271,7 +271,7 @@ export function SessionComposer({
   moveDevice?: boolean
   /** Nothing can be sent (an app editor with no device). */
   disabled?: boolean
-  /** composer-menu.json: a thread / a session, or an agent chat. */
+  /** composer-menu.json: a chat / a session, or an agent chat. */
   surface?: Exclude<ComposerMenuSurface, `launch`>
   /** The conversation a first message opened. */
   onSent?: (sessionId: string) => void

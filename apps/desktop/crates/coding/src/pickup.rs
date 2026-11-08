@@ -2081,7 +2081,7 @@ pub enum LaunchQueued {
 /// row in their pass's `in_flight` set until it returns.
 ///
 /// EXP-1292 failure rules, so a row never sits `running` with nothing
-/// behind it and a blip never ends a thread:
+/// behind it and a blip never ends a chat:
 /// - the claim is retried (idempotent per device); a refusal the person
 ///   must hear (anything but "not yours any more": 404/409) is replied
 ///   once and not re-claimed until the row changes;
@@ -2090,7 +2090,7 @@ pub enum LaunchQueued {
 ///   it reads `running` — up to [`MAX_LAUNCH_ATTEMPTS`], then the reason is
 ///   replied and the row idles (the next message tries afresh);
 /// - a genuine refusal (a disabled prepare, a 4xx brief, a failed spawn) is
-///   replied, then a thread is reported `ended`, an agent `idle`.
+///   replied, then a chat is reported `ended`, an agent `idle`.
 pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued, String> {
     let retrying = deps.live.is_unsettled(&row.id)
         && (row.status_is(SESSION_STATUS_QUEUED) || row.status_is(SESSION_STATUS_RUNNING));
@@ -2192,7 +2192,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         }
         Err(err) if prepare_transient(&err) => Err(gave_up(err.to_string())),
         // EXP-1374 (FEED-135): a failed prepare (worktree, checkout, a parent
-        // branch not pushed) never ends the thread: replied, idled, and the
+        // branch not pushed) never ends the chat: replied, idled, and the
         // next message re-launches it.
         Err(err) => {
             deps.live.settle(&row.id);
@@ -2325,7 +2325,7 @@ pub fn resume_session(
 /// row: the holder may be a sibling process of this install on its way out
 /// (the app that just self-updated, a daemon being replaced) whose claim
 /// goes stale seconds later with no row change to re-open the plan — the
-/// N-10 release thread sat idle with a pending message for that reason.
+/// N-10 release chat sat idle with a pending message for that reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WakeError {
     /// Another process of this machine holds the session's [`ClaimLock`].
@@ -2364,7 +2364,7 @@ pub fn is_new_conversation(message: &MessageRow) -> bool {
 }
 
 /// #EXP-1383: the session's run here is an agent's conversation ROOT (its
-/// record's kind; a child of an agent's tree is a thread run and keeps the
+/// record's kind; a child of an agent's tree is a chat run and keeps the
 /// in-process `/new`).
 fn agent_root_run(deps: &PickupDeps, session_id: &str) -> bool {
     crate::run_registry::get(&deps.coding.data_dir, session_id)
@@ -2463,7 +2463,7 @@ fn deliver(
             }
             return Ok(hand(&*engine, session_id, &pending, deps));
         }
-        // Its process exited (an agent idles out, a thread ended): wake it.
+        // Its process exited (an agent idles out, a chat ended): wake it.
         deps.live.remove(session_id);
     }
     // EXP-1292: what the session's previous engine handed over but could
@@ -2997,7 +2997,7 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
 /// EXP-1542: where each move's hand-off stands in THIS process (keyed by
 /// the move id, else the session id). `Done` = reported (the synced
 /// `session.handed_off` record then keeps it from ever being planned
-/// again, across restarts); `Running` = a thread is on it; `RetryAt` = not
+/// again, across restarts); `Running` = a worker thread is on it; `RetryAt` = not
 /// before then.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HandOffState {
@@ -3760,7 +3760,7 @@ fn spawn(
 }
 
 /// Explain a refusal in the conversation (an agent message), then settle
-/// the row: a refused LAUNCH ends a thread (a PERSISTENT session idles —
+/// the row: a refused LAUNCH ends a chat (a PERSISTENT session idles —
 /// it never ends, `domain::session_kind`); a refused WAKE leaves the row
 /// `idle`, so a later message can try again.
 fn refuse(persistent: bool, session_id: &str, reason: &str, waking: bool, deps: &PickupDeps) {
@@ -3956,7 +3956,7 @@ mod tests {
     // ---- plan ----
 
     /// EXP-1341: a persistent root (an agent) on this device, running or
-    /// idle with no engine and nothing pending, is revived; a thread, a
+    /// idle with no engine and nothing pending, is revived; a chat, a
     /// child, another device's row, a queued/ended row, a live or in-flight
     /// one and one the registry holds are not.
     #[test]
@@ -3969,12 +3969,12 @@ mod tests {
         child.root_id = Some("a1".to_string());
         let mut elsewhere = agent("a5", SESSION_STATUS_IDLE);
         elsewhere.device_id = Some("dev-2".to_string());
-        let thread = session("t1", SESSION_STATUS_IDLE, DEV, "2026-10-01T00:00:00Z");
+        let chat = session("t1", SESSION_STATUS_IDLE, DEV, "2026-10-01T00:00:00Z");
         let held = agent("a6", SESSION_STATUS_IDLE);
         let live = agent("a7", SESSION_STATUS_RUNNING);
         let flying = agent("a8", SESSION_STATUS_IDLE);
         let mut pass = Pass::new(
-            vec![running, idle, ended, child, elsewhere, thread, held, live, flying],
+            vec![running, idle, ended, child, elsewhere, chat, held, live, flying],
             Vec::new(),
         )
         .live("a7", LiveView::default());
@@ -4708,12 +4708,12 @@ mod tests {
 
     #[test]
     fn an_engineless_running_or_idle_row_with_a_pending_message_resumes_on_the_oldest() {
-        let thread = session("s1", "idle", DEV, "2026-10-01T00:00:00Z");
+        let chat = session("s1", "idle", DEV, "2026-10-01T00:00:00Z");
         let restarted = session("s2", "running", DEV, "2026-10-01T00:00:01Z");
         let sleeping = agent("a1", "idle");
         let pass = Pass::new(
             vec![
-                thread.clone(),
+                chat.clone(),
                 restarted.clone(),
                 sleeping.clone(),
                 session("s3", "idle", DEV, "2026-10-01T00:00:02Z"),
@@ -4739,7 +4739,7 @@ mod tests {
                 },
                 // FEED-129: every pending message, oldest first.
                 PickupAction::Resume {
-                    session: thread,
+                    session: chat,
                     messages: vec![
                         message("m1", "s1", "2026-10-02T00:00:01Z"),
                         message("m2", "s1", "2026-10-02T00:00:02Z"),
@@ -5425,13 +5425,13 @@ mod tests {
         let host = host(&base, &dir.0, |_| {});
         crate::run_registry::record(&dir.0, record(&dir.0, "t1"));
         let held_agent = ClaimLock::try_acquire(&dir.0, "a1").unwrap().unwrap();
-        let held_thread = ClaimLock::try_acquire(&dir.0, "t1").unwrap().unwrap();
+        let held_chat = ClaimLock::try_acquire(&dir.0, "t1").unwrap().unwrap();
         let root = agent("a1", SESSION_STATUS_IDLE);
-        let thread = interrupted(session("t1", SESSION_STATUS_RUNNING, DEV, "t"), "restarted", Some(true));
-        assert!(thread.continue_interruption().is_some());
+        let chat = interrupted(session("t1", SESSION_STATUS_RUNNING, DEV, "t"), "restarted", Some(true));
+        assert!(chat.continue_interruption().is_some());
 
         assert_eq!(revive_session(&root, &host.deps), Err(WakeError::Contended));
-        assert_eq!(continue_interrupted(&thread, &host.deps), Err(WakeError::Contended));
+        assert_eq!(continue_interrupted(&chat, &host.deps), Err(WakeError::Contended));
         // Held for a moment, not for good: no attempt counted, nothing settled.
         let held = host.deps.live.revive_held();
         assert!(held.contains("a1") && held.contains("t1"));
@@ -5443,7 +5443,7 @@ mod tests {
         }
         // Past the hold the plan offers both again.
         assert!(host.deps.live.revive_held().is_empty());
-        let mut pass = Pass::new(vec![root.clone(), thread.clone()], Vec::new());
+        let mut pass = Pass::new(vec![root.clone(), chat.clone()], Vec::new());
         pass.revive_held = host.deps.live.revive_held();
         let planned: Vec<String> = pass.run().into_iter().map(|action| action.session_id().to_string()).collect();
         assert_eq!(planned, vec!["a1", "t1"]);
@@ -5456,7 +5456,7 @@ mod tests {
         }
         assert_eq!(revive_session(&root, &host.deps), Ok(()));
         assert!(locked(&host.deps.live.revives).get("a1").unwrap().settled);
-        drop((held_agent, held_thread));
+        drop((held_agent, held_chat));
     }
 
     #[test]
@@ -5694,7 +5694,7 @@ mod tests {
     }
 
     #[test]
-    fn a_disabled_launch_replies_the_reason_and_ends_the_thread() {
+    fn a_disabled_launch_replies_the_reason_and_ends_the_chat() {
         // Serialised with the tests that install a seal service, so the reply stays plain.
         let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-disabled");
@@ -5988,11 +5988,11 @@ mod tests {
         assert!(requests.lock().unwrap().is_empty());
     }
 
-    /// A thread (and a child of an agent's tree: a thread run) keeps the
+    /// A chat (and a child of an agent's tree: a chat run) keeps the
     /// in-process `/new`: the engine gets the line.
     #[test]
-    fn a_threads_new_stays_in_process() {
-        let dir = temp_dir("pickup-new-thread");
+    fn a_chats_new_stays_in_process() {
+        let dir = temp_dir("pickup-new-chat");
         let host = host(&canned_server(vec![]), &dir.0, |_| {});
         crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
         host.deps.live.insert("sess-1", host.engine.clone(), None);
@@ -6152,7 +6152,7 @@ mod tests {
         assert!(deliver_messages("sess-1", &rows, &host.deps).unwrap().is_empty());
     }
 
-    /// A transient brief failure after the claim never ends the thread: the
+    /// A transient brief failure after the claim never ends the chat: the
     /// row stays this host's to retry even though it reads `running`.
     #[test]
     fn a_transient_failure_after_the_claim_is_retried_not_ended() {

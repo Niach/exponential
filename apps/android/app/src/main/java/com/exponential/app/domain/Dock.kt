@@ -70,7 +70,7 @@ object Dock {
             val kind: AskDock.Kind,
             /** The plan, or the question (markdown). */
             val text: String,
-            /** The asking session's name in a thread; null in the session view. */
+            /** The asking session's name in a chat; null in the session view. */
             val sessionName: String?,
             /** How many questions a plan asks (a question: 0). */
             val questions: Int,
@@ -79,7 +79,7 @@ object Dock {
         ) : Source
 
         /** THE Queue (task-queue.json `taskQueue`), or null when nothing is to do. */
-        /** [sessionName] = #EXP-1545: a thread's Live child carrying the card
+        /** [sessionName] = #EXP-1545: a chat's Live child carrying the card
          *  (its name leads the caption); null in the session view and for the root. */
         data class Tasks(val queue: TaskQueue?, val sessionName: String? = null) : Source
 
@@ -285,10 +285,10 @@ object Dock {
         )
     }
 
-    /** #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+    /** #EXP-1545: a session of a chat's tree that may carry the Dock's ONE
      *  `tasks` card. [activeAt] = epoch ms of its last turn (else its start),
      *  null = no activity yet; [open] = its Queue has a todo item to show. */
-    data class ThreadQueueCandidate(
+    data class ChatQueueCandidate(
         val sessionId: String,
         val name: String,
         val root: Boolean,
@@ -297,35 +297,35 @@ object Dock {
         val open: Boolean,
     )
 
-    /** The session whose Queue the thread's Dock shows ([sessionName] null for the root). */
-    data class ThreadDockQueue(val sessionId: String, val sessionName: String?)
+    /** The session whose Queue the chat's Dock shows ([sessionName] null for the root). */
+    data class ChatDockQueue(val sessionId: String, val sessionName: String?)
 
     /** dock.json `probeDeadlineMs` / `closedQueueTtlMs` (#EXP-1678). */
     const val PROBE_DEADLINE_MS = 15_000L
     const val CLOSED_QUEUE_TTL_MS = 60_000L
 
-    /** #EXP-1678 (ONE CHILD STREAM): what a thread knows of one Live child's Queue. */
+    /** #EXP-1678 (ONE CHILD STREAM): what a chat knows of one Live child's Queue. */
     enum class ChildQueueState(val wire: String) { Open("open"), Closed("closed"), Unknown("unknown") }
 
-    data class ThreadQueueProbe(val sessionId: String, val activeAt: Long?, val state: ChildQueueState)
+    data class ChatQueueProbe(val sessionId: String, val activeAt: Long?, val state: ChildQueueState)
 
     /** A held child stream as the probe reads it. */
     data class ChildStream(val phase: Phase, val replayed: Boolean, val attachedMs: Long) {
         enum class Phase(val wire: String) { Connecting("connecting"), Live("live"), Starting("starting"), Closed("closed"), Ended("ended") }
     }
 
-    /** #EXP-1678: the ONE Live child a thread holds a stream on: none while
-     *  the root's Queue is open, else the first child in [threadDockQueue]'s
+    /** #EXP-1678: the ONE Live child a chat holds a stream on: none while
+     *  the root's Queue is open, else the first child in [chatDockQueue]'s
      *  order (latest activeAt, none = oldest, ties by id) not known closed. */
-    fun threadQueueProbe(rootOpen: Boolean, children: List<ThreadQueueProbe>): String? {
+    fun chatQueueProbe(rootOpen: Boolean, children: List<ChatQueueProbe>): String? {
         if (rootOpen) return null
         return children.sortedWith(
-            compareByDescending<ThreadQueueProbe> { it.activeAt ?: Long.MIN_VALUE }.thenBy { it.sessionId },
+            compareByDescending<ChatQueueProbe> { it.activeAt ?: Long.MIN_VALUE }.thenBy { it.sessionId },
         ).firstOrNull { it.state != ChildQueueState.Closed }?.sessionId
     }
 
-    /** #EXP-1678 (`childStateCases`): one Live child's state for [threadQueueProbe]. */
-    fun threadQueueChildState(open: Boolean, remembered: Boolean, stream: ChildStream?): ChildQueueState = when {
+    /** #EXP-1678 (`childStateCases`): one Live child's state for [chatQueueProbe]. */
+    fun chatQueueChildState(open: Boolean, remembered: Boolean, stream: ChildStream?): ChildQueueState = when {
         open -> ChildQueueState.Open
         remembered -> ChildQueueState.Closed
         stream == null -> ChildQueueState.Unknown
@@ -336,15 +336,15 @@ object Dock {
         else -> ChildQueueState.Unknown
     }
 
-    /** #EXP-1545: whose Queue the thread's Dock shows: the root's while it is
+    /** #EXP-1545: whose Queue the chat's Dock shows: the root's while it is
      *  open, else the most recently active Live child's (ties by id), else
      *  none. An ended session contributes nothing. */
-    fun threadDockQueue(candidates: List<ThreadQueueCandidate>): ThreadDockQueue? {
+    fun chatDockQueue(candidates: List<ChatQueueCandidate>): ChatDockQueue? {
         val live = candidates.filter { it.open && !it.ended }
-        live.firstOrNull { it.root }?.let { return ThreadDockQueue(it.sessionId, null) }
+        live.firstOrNull { it.root }?.let { return ChatDockQueue(it.sessionId, null) }
         val best = live.sortedWith(
-            compareByDescending<ThreadQueueCandidate> { it.activeAt ?: Long.MIN_VALUE }.thenBy { it.sessionId },
+            compareByDescending<ChatQueueCandidate> { it.activeAt ?: Long.MIN_VALUE }.thenBy { it.sessionId },
         ).firstOrNull() ?: return null
-        return ThreadDockQueue(best.sessionId, best.name)
+        return ChatDockQueue(best.sessionId, best.name)
     }
 }

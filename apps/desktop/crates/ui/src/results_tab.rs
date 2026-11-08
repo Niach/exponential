@@ -161,7 +161,7 @@ pub(crate) fn results_tab_body(
 ) -> Div {
     let tile = &RESULTS_TAB.tab.tile;
     let list: AnyElement = if results.is_empty() {
-        crate::controls::empty_state(Icon::from(registry::THREAD_RESULTS), RESULTS_TAB.tab.copy.empty.clone(), None, cx).into_any_element()
+        crate::controls::empty_state(Icon::from(registry::CHAT_RESULTS), RESULTS_TAB.tab.copy.empty.clone(), None, cx).into_any_element()
     } else {
         let sections: Vec<AnyElement> = results.iter().map(|result| result_section(result, images, surface_for, window, cx)).collect();
         v_flex().min_w_0().gap(px(tile.list_gap)).children(sections).into_any_element()
@@ -313,7 +313,7 @@ pub(crate) fn review_header(
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let back = h_flex()
-        .id("thread-results-review-back")
+        .id("chat-results-review-back")
         .flex_shrink_0()
         .gap_1p5()
         .px_2()

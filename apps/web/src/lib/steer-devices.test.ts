@@ -139,7 +139,7 @@ describe(`device launch defaults`, () => {
     expect(agentSeed(`claude`, { model: `opus`, effort: `` })).toEqual(
       {
         model: `opus`,
-        // Every model is explicit: the contract subagent + thread defaults.
+        // Every model is explicit: the contract subagent + chat defaults.
         subagentModel: `opus`,
         threadModel: `haiku`,
         effort: ``,
@@ -189,7 +189,7 @@ describe(`device launch defaults`, () => {
     expect(agentSeed(`claude`, { subagentModel: `warp9` }).subagentModel).toBe(`opus`)
     expect(agentSeed(`claude`, { subagentModel: `` }).subagentModel).toBe(`opus`)
     expect(agentSeed(`codex`, { subagentModel: `sonnet` }).subagentModel).toBe(``)
-    // The thread model: a contract value of THAT agent, else its default.
+    // The chat model: a contract value of THAT agent, else its default.
     expect(agentSeed(`claude`, { threadModel: `sonnet` }).threadModel).toBe(`sonnet`)
     expect(agentSeed(`claude`, { threadModel: `gpt-5.6-luna` }).threadModel).toBe(`haiku`)
     expect(agentSeed(`codex`, { threadModel: `gpt-5.6-terra` }).threadModel).toBe(`gpt-5.6-terra`)

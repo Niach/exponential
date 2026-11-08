@@ -18,7 +18,7 @@
 //! known-column allowlists): no `email` on [`IssueSubscriber`] (PII stays
 //! server-side).
 //!
-//! EXP-1294 (Threads v2): the session tree is [`SessionRow`] (+
+//! EXP-1294: the session tree is [`SessionRow`] (+
 //! [`SessionIssueRow`], [`MessageRow`]) and every pull request is a
 //! [`PullRequestRow`] (+ [`PullRequestIssueRow`]); [`Issue`] carries no PR or
 //! branch column any more.
@@ -401,7 +401,7 @@ pub struct IssueDraftRow {
     /// `YYYY-MM-DD` — date only, like `issues.due_date`.
     #[serde(default)]
     pub due_date: Option<String>,
-    /// EXP-1294: the session root a "New issue" opened from a thread files
+    /// EXP-1294: the session root a "New issue" opened from a chat files
     /// into (`issues.create({draftId})` links it there). Stored on the draft,
     /// so a draft reopened from Drafts still files into that root.
     #[serde(default)]
@@ -703,13 +703,13 @@ pub struct IssueSubscriber {
     pub updated_at: Option<String>,
 }
 
-/// EXP-1294 `sessions` shape row — ONE table = the session TREE (Threads v2).
-/// Roots (`parent_id` NULL, `root_id = id`, depth 0) are threads or an
+/// EXP-1294 `sessions` shape row — ONE table = the session TREE.
+/// Roots (`parent_id` NULL, `root_id = id`, depth 0) are chats or an
 /// agent's conversation (`agent_id` set; its name/icon/color live on the
-/// `agents` definition); children are thread sessions under a root. The runner columns
+/// `agents` definition); children are chat sessions under a root. The runner columns
 /// (`device_id`, `cli`, `account`, `model`, …) say where and how it runs;
 /// `status` = contract `sessionStatus` (`queued`/`running`/`idle`/`ended`),
-/// with `busy`/`needs_input`/`blocked` device-written beside it. Thread
+/// with `busy`/`needs_input`/`blocked` device-written beside it. Chat
 /// facets (`title`, `guide`) live on roots. NEW-8: the legacy columns
 /// (`kind`, `dispatch`, `caption`, `aside`, `action_*`, `name`, `icon`, …)
 /// are never decoded: present today, absent after the drop, ignored both
@@ -733,7 +733,7 @@ pub struct SessionRow {
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub depth: Option<i64>,
     /// NEW-2: the agent DEFINITION (`agents` row) this conversation session
-    /// runs; `None` = a thread.
+    /// runs; `None` = a chat.
     #[serde(default)]
     pub agent_id: Option<String>,
     /// VAPP-110: the APP whose editor session this root is (`apps` row; one
@@ -855,8 +855,8 @@ impl SessionRow {
         self.session_kind() == crate::contract::SESSION_KIND_AGENT
     }
 
-    /// VAPP-110: a member's app EDITOR session (`app_id` set): no thread,
-    /// like an agent's conversation (`partitionThreads` skips both).
+    /// VAPP-110: a member's app EDITOR session (`app_id` set): no chat,
+    /// like an agent's conversation (`partitionChats` skips both).
     pub fn is_app_editor(&self) -> bool {
         self.app_id.as_deref().is_some_and(|id| !id.is_empty())
     }
@@ -867,8 +867,8 @@ impl SessionRow {
         crate::session_kind::is_persistent(self.agent_id.as_deref())
     }
 
-    /// A thread session (root or child): every kind that is not `agent`.
-    pub fn is_thread(&self) -> bool {
+    /// A chat session (root or child): every kind that is not `agent`.
+    pub fn is_chat(&self) -> bool {
         !self.is_agent()
     }
 
@@ -939,7 +939,7 @@ pub struct SessionIssueRow {
     pub added_by: Option<String>,
     #[serde(default)]
     pub added_by_session_id: Option<String>,
-    /// Ascending = the thread's issue-chip order.
+    /// Ascending = the chat's issue-chip order.
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -1037,7 +1037,7 @@ pub struct ConversationRow {
 
 /// EXP-1323 `session_reads` shape row (per user, static): the viewer read
 /// `session_id` up to `read_at` (`sessions.markRead`). Drives the bold
-/// unread titles + the Threads nav dot.
+/// unread titles + the Chats nav dot.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct SessionReadRow {
     pub id: String,
@@ -1087,7 +1087,7 @@ impl MessageRow {
 
 /// EXP-1294 `pull_requests` shape row — ALL PR state left `issues`. One row
 /// per GitHub PR (`repository_id` + `number`); `root_session_id` = the
-/// thread it belongs to, `session_id` = the session that opened it.
+/// chat it belongs to, `session_id` = the session that opened it.
 /// `base_pull_request_id` = the explicit STACK edge (the PR this one is
 /// based on, [`crate::pr_stack`]); `state` = contract `prState`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
