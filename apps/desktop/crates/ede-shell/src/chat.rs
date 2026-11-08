@@ -166,9 +166,29 @@ pub fn mention_menu(draft: &str, members: &[Member], issues: &[(String, String)]
             .take(MAX_ITEMS)
             .map(|(identifier, title)| serde_json::json!({"key": format!("issue:{identifier}"), "command": identifier, "description": title, "hint": "", "icon": null, "insert": format!("{head}#{identifier} "), "prompt": ""}))
             .collect(),
-        CompletionTrigger::Emoji => Vec::new(),
+        // EXP-551: glyph · `:shortcode:` · label; a pick inserts the UNICODE.
+        CompletionTrigger::Emoji => {
+            let catalog = domain::emoji::catalog();
+            catalog
+                .search(&token.query, MAX_ITEMS)
+                .into_iter()
+                .filter_map(|index| catalog.get(index))
+                .map(|emoji| {
+                    let code = emoji.shortcodes.first().cloned().unwrap_or_else(|| emoji.label.clone());
+                    serde_json::json!({"key": format!("emoji:{code}"), "command": "", "description": format!("{} :{code}:", emoji.unicode), "hint": emoji.label, "icon": null, "insert": format!("{head}{}", emoji.unicode), "prompt": ""})
+                })
+                .collect()
+        }
     };
     Some(serde_json::json!({"open": !rows.is_empty(), "rows": rows}))
+}
+
+/// EXP-551: a CLOSED exact `:shortcode:` at the end of the draft commits
+/// to its unicode at once (the IDE's `exact_emoji`): the new draft, or `None`.
+pub fn commit_emoji(draft: &str) -> Option<String> {
+    let token = domain::typeahead::detect_trigger(draft, draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::Emoji && t.closed)?;
+    let emoji = domain::emoji::catalog().find_shortcode(&token.query)?;
+    Some(format!("{}{}", &draft[..token.start], emoji.unicode))
 }
 
 /// The goldens' people.
@@ -195,6 +215,16 @@ const PROMPT_ICON: &str = "action-default";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colon_lists_emoji_and_a_closed_shortcode_commits() {
+        let menu = mention_menu("nice :tad", &[], &[]).expect(":");
+        assert_eq!(menu["rows"][0]["description"], "🎉 :tada:");
+        assert_eq!(menu["rows"][0]["insert"], "nice 🎉");
+        assert_eq!(commit_emoji("nice :tada:").as_deref(), Some("nice 🎉"));
+        assert_eq!(commit_emoji("nice :tad"), None);
+        assert!(mention_menu("at 12:30", &[], &[]).is_none(), "times never open it");
+    }
 
     #[test]
     fn at_lists_members_and_hash_the_ranked_issues_replacing_the_last_token() {
