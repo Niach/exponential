@@ -982,8 +982,9 @@ export const attachments = pgTable(
 
 // One row per (token, user): several accounts signed in on one device each
 // keep their own registration of the shared FCM device token, so pushes reach
-// every account instead of only the most recently registered one. Dead-token
-// cleanup deletes by token value across users (FCM invalidates per device).
+// every account instead of only the most recently registered one. Dead-row
+// cleanup deletes by capability: the relay answers 410/401 for a gone install
+// or revoked capability.
 export const fcmTokens = pgTable(
   `fcm_tokens`,
   {
@@ -995,10 +996,11 @@ export const fcmTokens = pgTable(
     platform: varchar({ length: 20 }).notNull(),
     // The push relay's accountless mode (EXP-1428): the device's capability
     // (`cap_…`, minted by the relay for its install) and its X25519 push
-    // public key (base64url, 32 bytes). Set together or not at all; a row
-    // with both is pushed sealed via POST /push, a row without goes through
-    // the legacy /send shim (released clients). Server-only: no shape syncs
-    // this table.
+    // public key (base64url, 32 bytes). Every registration sets both since
+    // NEW-14 (pushTokens.register requires them) and every push is sealed
+    // via POST /push; a leftover bare row from an older build is never
+    // pushed and ages out via lib/fcm-token-sweep.ts. Server-only: no shape
+    // syncs this table.
     relayCapability: text(`relay_capability`),
     pushPublicKey: text(`push_public_key`),
     // #EXP-1639 (live-activity.json): the build draws Live Activities / Live
@@ -1047,12 +1049,6 @@ export const liveActivityFollows = pgTable(
 export interface DeviceAgentLaunchDefaults {
   model?: string
   effort?: string
-  /** EXP-981: claude only; absent = contract deviceAgentDefaults.subagentModel
-   * (never the CLI's own default: every model is explicit). */
-  subagentModel?: string
-  /** The dispatcher root's model (threads + team agents); absent = contract
-   * deviceAgentDefaults.threadModel / codexThreadModel. */
-  threadModel?: string
   ultracode?: boolean
   planMode?: boolean
   /** EXP-1082 §6: rotate to another logged-in account of this agent when
@@ -1111,10 +1107,8 @@ export const deviceLaunchDefaultsSchema = z.object({
       z.object({
         model: z.string().max(64).nullish(),
         effort: z.string().max(64).nullish(),
-        // EXP-981: claude only — the model its subagents run on.
-        subagentModel: z.string().max(64).nullish(),
-        // The dispatcher root's model (threads + team agents).
-        threadModel: z.string().max(64).nullish(),
+        // #EXP-1734: old devices may still send subagentModel/threadModel;
+        // z.object strips them (the settings are gone, every model = opus).
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
         // EXP-1082 §6: see DeviceAgentLaunchDefaults.autoRotateAccounts.

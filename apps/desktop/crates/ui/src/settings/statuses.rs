@@ -663,6 +663,7 @@ impl StatusesPane {
                 Popover::new(row_id("status-color", &status_id))
                     .trigger(
                         Button::new(row_id("status-color-trigger", &status_id))
+                            .accessibility_label(format!("Change color of {}", row.name))
                             .ghost()
                             .web_icon_xs()
                             .child(glyph.clone().small()),

@@ -18,8 +18,8 @@
 //!
 //! EXP-1249: the "+" is the composer's ONE tool — a menu (Implement issue ›,
 //! Add file or image | Effort ›, Ultracode |
-//! MCP servers ›, Computer use). NEW-39: no Subagents › row, like web
-//! (`sessions.send` carries no subagent model).
+//! MCP servers ›, Computer use). #EXP-1734: no Subagents › row (subagents
+//! run on the session's model).
 //!
 //! **Subject by swap** (decision 2026-09-10): issue chips OR one action chip
 //! OR (NEW-3) one agent chip. Picking one kind while another is picked
@@ -120,7 +120,6 @@ pub(crate) const MENU_DEVICE: &str = "Device";
 pub(crate) const MENU_ACCOUNT: &str = "Account";
 pub(crate) const MENU_MODEL: &str = "Model";
 pub(crate) const MENU_REPOSITORY: &str = "Repository";
-pub(crate) const MENU_SUBAGENTS: &str = "Subagents";
 pub(crate) const MENU_ULTRACODE: &str = "Ultracode";
 pub(crate) const MENU_MCP_SERVERS: &str = "MCP servers";
 pub(crate) const MENU_COMPUTER_USE: &str = "Computer use";
@@ -2938,7 +2937,6 @@ pub(crate) enum ComposerMenuRow {
     Model,
     Repository,
     Effort,
-    Subagents,
     Ultracode,
     McpServers,
     /// #EXP-1660 (skills.json `menuRow`): right after MCP servers.
@@ -2960,7 +2958,6 @@ impl ComposerMenuRow {
             Self::Model => registry::CODING_ASSISTANT,
             Self::Repository => registry::SETTINGS_REPOSITORIES,
             Self::Effort => registry::UI_ESTIMATE,
-            Self::Subagents => registry::CODING_SUBAGENT,
             Self::Ultracode => registry::ACTION_DEFAULT,
             Self::McpServers => registry::UI_MCP,
             Self::Skills => registry::UI_DOCS,
@@ -2986,7 +2983,6 @@ impl ComposerMenuRow {
             Self::Model => MENU_MODEL,
             Self::Repository => MENU_REPOSITORY,
             Self::Effort => "Effort",
-            Self::Subagents => MENU_SUBAGENTS,
             Self::Ultracode => MENU_ULTRACODE,
             Self::McpServers => MENU_MCP_SERVERS,
             Self::Skills => domain::skills::MENU_LABEL,
@@ -3023,7 +3019,6 @@ impl ComposerMenuRow {
             Self::Model => c.model,
             Self::Repository => c.temporary && c.repositories,
             Self::Effort => c.temporary,
-            Self::Subagents => c.temporary && c.subagent_model,
             Self::Ultracode => c.temporary && c.ultracode,
             Self::McpServers => c.temporary && c.mcp,
             Self::Skills => c.temporary && c.skills,
@@ -3050,7 +3045,6 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) model: bool,
     /// The team has more than one repository.
     pub(crate) repositories: bool,
-    pub(crate) subagent_model: bool,
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
     /// #EXP-1660: the team has at least one skill.
@@ -3079,8 +3073,6 @@ impl ComposerMenuConditions {
             account: temporary,
             model: temporary,
             repositories: repositories > 1,
-            // EXP-1583: `sessions.send` carries it; claude only.
-            subagent_model: options.subagent_picked.is_some(),
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             skills: options.skills_count > 0,
@@ -3097,7 +3089,7 @@ impl ComposerMenuConditions {
 /// the separators TIDIED (never leading, trailing or doubled). Pure.
 pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerMenuConditions) -> Vec<ComposerMenuRow> {
     use ComposerMenuRow::*;
-    const ALL: [ComposerMenuRow; 18] = [
+    const ALL: [ComposerMenuRow; 17] = [
         AddFile,
         ImplementIssue,
         Prompts,
@@ -3109,7 +3101,6 @@ pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerM
         Repository,
         Separator,
         Effort,
-        Subagents,
         Ultracode,
         Separator,
         McpServers,
@@ -3487,36 +3478,6 @@ pub(crate) fn plus_menu(
                     )
                 }
             }
-            (ComposerMenuRow::Subagents, Some(options)) => {
-                let (Some(picked), Some(value)) = (options.subagent_picked.clone(), options.subagent_value()) else {
-                    continue;
-                };
-                let view = view.clone();
-                menu.submenu_with_value(
-                    Some(row.menu_icon()),
-                    MENU_SUBAGENTS,
-                    Some(value),
-                    window,
-                    cx,
-                    move |mut sub, _, _| {
-                        // THE model list, explicit: no "Default" row.
-                        for (label, choice) in crate::coding_selects::MODEL_CHOICES.iter() {
-                            let view = view.clone();
-                            let choice = (*choice).to_string();
-                            sub = sub.item(pointer_check_item(*label, picked == choice, move |window, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    view.update(cx, |this, cx| {
-                                        ChatScreenView::launch_access(this)
-                                            .pick_subagent_model(&choice, window, cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }));
-                        }
-                        sub
-                    },
-                )
-            }
             (ComposerMenuRow::Ultracode, Some(options)) => {
                 let Some(on) = options.ultracode else {
                     continue;
@@ -3804,7 +3765,6 @@ mod tests {
             "model" => R::Model,
             "repository" => R::Repository,
             "effort" => R::Effort,
-            "subagents" => R::Subagents,
             "ultracode" => R::Ultracode,
             "mcp-servers" => R::McpServers,
             "skills" => R::Skills,
@@ -3853,7 +3813,6 @@ mod tests {
             account: true,
             model: true,
             repositories: true,
-            subagent_model: true,
             ultracode: true,
             mcp: true,
             skills: true,
@@ -3873,7 +3832,6 @@ mod tests {
                 account: flag("account"),
                 model: flag("model"),
                 repositories: flag("repositories"),
-                subagent_model: flag("subagentModel"),
                 ultracode: flag("ultracode"),
                 mcp: flag("mcp"),
                 skills: flag("skills"),
@@ -3899,7 +3857,6 @@ mod tests {
                 effort_choices: &[("High", "high")],
                 effort_picked: "high".into(),
                 effort_locked: false,
-                subagent_picked: conditions.subagent_model.then(String::new),
                 ultracode: conditions.ultracode.then_some(false),
                 mcp_servers: if conditions.mcp {
                     vec![launch_options::McpServerOption {
@@ -3919,8 +3876,7 @@ mod tests {
                 computer_use: conditions.computer_use.then_some(false),
             };
             let repos = if conditions.repositories { 2 } else { 1 };
-            // EXP-1583: off real state the Subagents row shows when the menu
-            // carries a subagent pick, exactly as the fixture's condition says.
+            // Off real state the rows match the fixture's conditions.
             assert_eq!(
                 composer_menu_rows(
                     ComposerSurface::Launch,

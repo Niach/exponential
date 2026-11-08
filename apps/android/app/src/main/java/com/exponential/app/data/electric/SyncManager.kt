@@ -17,7 +17,6 @@ import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.SkillEntity
-import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -434,7 +433,6 @@ class SyncManager @Inject constructor(
         val eventDao = db.eventDao()
         val promptDao = db.promptDao()
         val skillDao = db.skillDao()
-        val conversationDao = db.conversationDao()
         val appDao = db.appDao()
         val appVersionDao = db.appVersionDao()
         val appRecordDao = db.appRecordDao()
@@ -727,16 +725,8 @@ class SyncManager @Inject constructor(
                 onDelete = { skillDao.deleteById(it.id) },
                 onRefetch = { skillDao.clear() },
             ),
-            // NEW-3: conversations (step 1: a session's own, the session rule).
-            launchShape(
-                shape = "conversations", path = "/api/shapes/conversations", tableName = "conversations",
-                serializer = ConversationEntity.serializer(),
-                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("conversations"),
-                onInsert = { conversationDao.upsert(it) },
-                onDelete = { conversationDao.deleteById(it.id) },
-                onRefetch = { conversationDao.clear() },
-            ),
+            // #EXP-1730 phase A: no `conversations` shape any more — messages
+            // key by `messages.session_id`, the list reads `sessions.digest`.
             // VAPP-110: the team's apps (the head package rides along) and
             // their versions (package-less).
             launchShape(

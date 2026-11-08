@@ -325,13 +325,13 @@ pub static ASSISTANT: LazyLock<AssistantSpec> = LazyLock::new(|| {
 });
 
 /// TS `assistantModelValue` (`modelValueCases`): the Assistant's Model row
-/// value = the pinned model, else the dispatcher root's default for the
-/// login's CLI (never `Last used`).
+/// value = the pinned model, else the device default for the login's CLI
+/// (never `Last used`; #EXP-1734: no separate thread model).
 pub fn assistant_model_value(model: Option<&str>, cli: Option<&str>) -> String {
     match model.filter(|model| !model.trim().is_empty()) {
         Some(model) => model.to_string(),
-        None if cli == Some("codex") => crate::contract::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL.to_string(),
-        None => crate::contract::DEVICE_AGENT_DEFAULTS_THREAD_MODEL.to_string(),
+        None if cli == Some("codex") => crate::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL.to_string(),
+        None => crate::contract::DEVICE_AGENT_DEFAULTS_MODEL.to_string(),
     }
 }
 

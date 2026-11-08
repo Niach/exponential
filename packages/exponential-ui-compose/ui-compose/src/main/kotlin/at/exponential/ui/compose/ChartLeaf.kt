@@ -264,7 +264,7 @@ internal fun ChartLeaf(cx: LeafContext) {
                             s.values.forEachIndexed { i, v ->
                                 if (!v.isFinite()) return@forEachIndexed
                                 val x = if (chart.kind == "bar") mx(pl + slot * i + slot * 0.15f + bw * si + bw / 2f) else xOf(i)
-                                label(fmt(v), x - 20f, yOf(v) - 15f, 40f, TextAlign.Center, valueColor)
+                                label(chart.valueLabel(si, i, fmt), x - 60f, yOf(v) - 15f, 120f, TextAlign.Center, valueColor)
                             }
                         }
                     }
@@ -327,11 +327,11 @@ private fun ChartTooltip(cx: LeafContext, chart: ChartModel, h: Int, colors: Lis
     val ts = ResolvedTextStyle(fs, 400, fs + 4f, cx.textStyle.fontFamily)
     val label = chart.categories.getOrNull(h) ?: ""
     val lines: List<Pair<String, Color>> = if (chart.slices) {
-        listOf("$label: ${chart.sliceValues.getOrNull(h)?.let(fmt) ?: ""}" to colors.getOrElse(h) { fg })
+        listOf("$label: ${if (h < chart.sliceValues.size) chart.valueLabel(0, h, fmt) else ""}" to colors.getOrElse(h) { fg })
     } else {
         chart.series.mapIndexed { i, s ->
             // A missing point reads "—" (the web's).
-            val v = s.values.getOrNull(h)?.let { if (it.isFinite()) fmt(it) else "—" } ?: "—"
+            val v = s.values.getOrNull(h)?.let { if (it.isFinite()) chart.valueLabel(i, h, fmt) else "—" } ?: "—"
             (if (s.name.isEmpty()) v else "${s.name}: $v") to colors.getOrElse(i) { fg }
         }
     }

@@ -1,6 +1,5 @@
 package com.exponential.app.data.sealed
 
-import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.SessionEntity
 import java.io.File
@@ -227,17 +226,18 @@ class SealedContentFixtureTest {
                 "agentTimes" to JsonArray(emptyList()),
             ),
         ).toString()
-        val row = ConversationEntity(id = "c1", sessionId = root, digest = digest)
-        val opened = Json.parseToJsonElement(SealedContent.conversation(row, root, mapOf(root to keys)).digest!!).jsonObject
+        // #EXP-1730: the digest rides the session row and opens with its ROOT's keys.
+        val row = SessionEntity(id = "child", rootId = root, digest = digest)
+        val opened = Json.parseToJsonElement(SealedContent.session(row, mapOf(root to keys)).digest!!).jsonObject
         assertEquals(body.str("text"), opened.obj("first").str("body"))
         assertEquals(split.obj("card"), opened.obj("waiting").obj("card"))
         // Without a key each slot is LOCKED (empty body, the card's clear part, the reason).
-        val locked = Json.parseToJsonElement(SealedContent.conversation(row, root, emptyMap()).digest!!).jsonObject
+        val locked = Json.parseToJsonElement(SealedContent.session(row, emptyMap()).digest!!).jsonObject
         assertEquals("noKey", locked.obj("first").str("locked"))
         assertEquals("", locked.obj("first").str("body"))
         assertEquals(split.obj("clear"), locked.obj("waiting").obj("card"))
         // Without a root the digest stays as synced.
-        assertEquals(digest, SealedContent.conversation(row, null, mapOf(root to keys)).digest)
+        assertEquals(digest, SealedContent.digest(digest, null, mapOf(root to keys)))
         // Chats reads the reason back.
         val messages = com.exponential.app.domain.Chats.digestMessages(root, locked)
         assertEquals(listOf("noKey", "noKey"), messages.mapNotNull { it.locked })

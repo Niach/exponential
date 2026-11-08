@@ -126,8 +126,10 @@ pub struct LaunchOptions {
     pub plan_mode: bool,
     /// EXP-981: the model claude's SUBAGENTS run on
     /// (`CLAUDE_CODE_SUBAGENT_MODEL`, exported at every claude spawn —
-    /// [`crate::launcher::apply_subagent_model_env`]). One of the claude
-    /// model aliases. Claude-only (blank on codex).
+    /// [`crate::launcher::apply_subagent_model_env`]). #EXP-1734: only the
+    /// session row's explicit `subagent_model` sets it; blank = the run's own
+    /// [`Self::model`] ([`Self::subagent_model_or_model`]), there is no
+    /// device-level subagent default. Claude-only (blank on codex).
     pub subagent_model: String,
     /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
     /// connects to beside `exponential`. Empty = none. EXP-1292: a session's
@@ -171,7 +173,8 @@ impl LaunchOptions {
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
             // S-3: no plan-mode default (the toggle is gone).
             plan_mode: false,
-            subagent_model: settings.subagent_model_for(agent).to_string(),
+            // #EXP-1734: blank = the run's own model.
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             // EXP-1158: unnamed — the launcher runs it on the agent's last
             // used login.
@@ -232,10 +235,8 @@ impl LaunchOptions {
             ultracode: ultracode.unwrap_or(settings.claude_ultracode)
                 && agent.supports_ultracode(),
             plan_mode: plan_mode.unwrap_or(false),
-            // EXP-981: ABSENT on the frame = this machine's own default; the
-            // caller layers an explicit pick on with
-            // [`Self::with_subagent_model`].
-            subagent_model: settings.subagent_model_for(agent).to_string(),
+            // #EXP-1734: blank = the run's own model.
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
@@ -270,24 +271,14 @@ impl LaunchOptions {
         self
     }
 
-    /// EXP-981: layer a remote start's explicit `subagentModel` on.
-    /// `None` = the frame carried none (keep the machine's default); a
-    /// blank or unknown value keeps it too (every model is explicit); any
-    /// agent but claude carries none.
-    pub fn with_subagent_model(mut self, subagent_model: Option<&str>) -> Self {
-        let Some(value) = subagent_model else {
-            return self;
-        };
-        self.subagent_model = if self.agent.supports_subagent_model() {
-            let fallback = Some(self.subagent_model.as_str())
-                .filter(|current| self.agent.model_values().contains(current))
-                .unwrap_or(crate::settings::DEFAULT_CLAUDE_SUBAGENT_MODEL)
-                .to_string();
-            crate::settings::normalize_choice(value, self.agent.model_values(), &fallback)
+    /// #EXP-1734: the model claude's subagents run on: the explicit
+    /// [`Self::subagent_model`] when set, else the run's own model.
+    pub fn subagent_model_or_model(&self) -> &str {
+        if self.subagent_model.trim().is_empty() {
+            &self.model
         } else {
-            String::new()
-        };
-        self
+            &self.subagent_model
+        }
     }
 
     /// EXP-792 (EXP-747 B7): the remote frame's account profile pick,
@@ -705,7 +696,7 @@ mod tests {
         // The stock defaults (EXP-206 — ONE set, no issue/batch split):
         // S-3 plan mode OFF (no default), ultracode OFF.
         let opts = LaunchOptions::defaults(&Settings::default());
-        assert_eq!(opts.model, "fable");
+        assert_eq!(opts.model, "opus");
         assert_eq!(opts.effort, "");
         assert!(!opts.plan_mode);
         assert!(!opts.ultracode);
@@ -772,7 +763,7 @@ mod tests {
         // Bogus model falls back to the settings model, never to a crash or
         // a raw pass-through to the CLI argv.
         let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None, None);
-        assert_eq!(opts.model, "fable");
+        assert_eq!(opts.model, "opus");
 
         // Explicit blank effort = "CLI default" and beats the settings value.
         let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None, None);

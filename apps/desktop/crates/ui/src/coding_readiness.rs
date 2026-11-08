@@ -512,8 +512,10 @@ pub(crate) fn render_popover(
                 "readiness-start",
                 crate::surface::PillSize::Md,
             )
+            .accessibility_label(copy::START)
         } else {
             crate::surface::glass_pill_button("readiness-start", crate::surface::PillSize::Md, cx)
+                .accessibility_label(copy::START)
         }
         .w_full()
         .icon(Icon::new(registry::ACTION_RUN).text_color(if ready {
@@ -664,12 +666,16 @@ fn fix_button(
 ) -> AnyElement {
     let id = SharedString::from(format!("readiness-fix-{fix:?}"));
     let size = crate::surface::PillSize::Sm;
-    let mut button = if primary {
-        crate::surface::glass_pill_button_primary(id, size)
-    } else {
-        crate::surface::glass_pill_button(id, size, cx)
-    };
     let (github_label, github_glyph, github_install_url) = github_fix(facts);
+    let name: SharedString = match fix {
+        ReadinessFix::ConnectGithub => github_label.clone(),
+        _ => fix.label().into(),
+    };
+    let mut button = if primary {
+        crate::surface::glass_pill_button_primary(id, size).accessibility_label(name)
+    } else {
+        crate::surface::glass_pill_button(id, size, cx).accessibility_label(name)
+    };
     let glyph = match fix {
         ReadinessFix::ChooseRepository => Some(registry::UI_BRANCH),
         ReadinessFix::ConnectGithub => Some(github_glyph),

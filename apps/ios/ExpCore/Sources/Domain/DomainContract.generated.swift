@@ -111,7 +111,7 @@ public enum DomainContract {
     public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000
     public static let codingSessionIdleReleaseMs: Int = 1800000
-    public static let codingSessionLaunchKeys: [String] = ["agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse"]
+    public static let codingSessionLaunchKeys: [String] = ["agent", "model", "effort", "ultracode", "mcpServerIds", "account", "computerUse"]
     public static let codingSessionComputerUseCap: String = "computer-use-run"
     public static let deviceOnlineWindowMs: Int = 90000
     public static let sessionsSendTextMax: Int = 16384
@@ -123,11 +123,8 @@ public enum DomainContract {
     public static let sessionsSendAgentInstructionsMaxBytes: Int = 16384
     public static let sessionsSendTreeMaxDepth: Int = 3
     public static let sessionsSendTreeMaxSessions: Int = 10
-    public static let deviceAgentDefaultsModel: String = "fable"
-    public static let deviceAgentDefaultsSubagentModel: String = "opus"
-    public static let deviceAgentDefaultsThreadModel: String = "haiku"
+    public static let deviceAgentDefaultsModel: String = "opus"
     public static let deviceAgentDefaultsCodexModel: String = "gpt-5.6-sol"
-    public static let deviceAgentDefaultsCodexThreadModel: String = "gpt-5.6-luna"
     public static let deviceComputerUseDefaultsModel: String = "haiku"
     public static let startPromptMaxLength: Int = 16384
     public static let startPromptMaxImages: Int = 4

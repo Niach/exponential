@@ -185,6 +185,13 @@ pub trait Formatter: Send + Sync {
         let decimals = if value.fract() == 0.0 { 0 } else { 1 };
         format!("{} {}", self.number(value, NumberOptions { decimals: Some(decimals), grouping: true }), unit.english())
     }
+    /// FEED-205: short-scale compact notation (`12K`, `1.2M`; with `code`
+    /// a compact currency, `€12K`), Intl `notation: "compact"`. The
+    /// default composes it over [`Self::number`] / [`Self::currency`]
+    /// ([`compose_compact`]); a host with a compact of its own may override.
+    fn compact(&self, value: f64, code: Option<&str>, decimals: Option<u32>) -> String {
+        compose_compact(self, value, code, decimals)
+    }
     /// VAPP-191: the surface (team) zone's UTC offset in minutes at an
     /// instant, for the expression date maths (`crate::cel`). Default UTC.
     fn offset_minutes(&self, _utc_ms: f64) -> i32 {
@@ -254,6 +261,7 @@ struct Fallback {
     names: DateNames,
     currency_prefix: IndexMap<String, String>,
     currency_digits: IndexMap<String, u32>,
+    compact_suffixes: Vec<String>,
     relative: RelativeData,
     unknown_currency: String,
     date_patterns: IndexMap<String, String>,
@@ -424,6 +432,58 @@ fn english_number(value: f64, min: usize, max: usize, grouping: bool) -> (&'stat
 }
 
 /// `decimals` as fixed fraction digits: finite → trunc, clamped to 0..20.
+/// Short-scale compact notation over any formatter (`src/format.ts`
+/// `formatCompact`, = Intl en-US `notation: "compact"`, `compactSuffixes`):
+/// the value scaled to the largest power of 1000 it reaches (up to 10^12),
+/// rounded half away from zero to `decimals`, else to 2 significant digits
+/// under 10 of the unit and whole units from 10 (trailing zeros dropped); a
+/// rounding that reaches 1000 moves up a unit. The digits go through
+/// `number` / `currency` (the locale's separators, grouping from 5 integer
+/// digits like Intl's `min2`) and the suffix follows the last digit.
+pub fn compose_compact<F: Formatter + ?Sized>(f: &F, value: f64, code: Option<&str>, decimals: Option<u32>) -> String {
+    let code = code.map(str::to_uppercase);
+    let body = |n: f64, decimals: u32, grouping: bool| {
+        let options = NumberOptions { decimals: Some(decimals), grouping };
+        match &code {
+            Some(code) => f.currency(n, code, options),
+            None => f.number(n, options),
+        }
+    };
+    if !value.is_finite() {
+        return body(value, 0, true);
+    }
+    let d = decimal_of(value.abs());
+    let suffixes = &FALLBACK.compact_suffixes;
+    let top = suffixes.len().saturating_sub(1);
+    let mut unit = if d.int == "0" { 0 } else { ((d.int.len() - 1) / 3).min(top) };
+    loop {
+        let scaled = if unit == 0 {
+            Decimal { int: d.int.clone(), frac: d.frac.clone() }
+        } else {
+            let cut = d.int.len() - unit * 3;
+            let int = if cut == 0 { "0".to_string() } else { d.int[..cut].to_string() };
+            Decimal { int, frac: format!("{}{}", &d.int[cut..], d.frac).trim_end_matches('0').to_string() }
+        };
+        let lead = if scaled.int == "0" { scaled.frac.len() - scaled.frac.trim_start_matches('0').len() + 2 } else if scaled.int.len() >= 2 { 0 } else { 1 };
+        let r = match decimals {
+            Some(k) => round(&scaled, k as usize, k as usize),
+            None => round(&scaled, 0, lead),
+        };
+        if r.int.len() > 3 && unit < top {
+            unit += 1;
+            continue;
+        }
+        let neg = value < 0.0 && (r.int != "0" || r.frac.bytes().any(|b| b != b'0'));
+        let n: f64 = format!("{}{}.{}", if neg { "-" } else { "" }, r.int, if r.frac.is_empty() { "0" } else { &r.frac }).parse().unwrap_or(0.0);
+        let text = body(n, r.frac.len() as u32, r.int.len() >= 5);
+        let suffix = suffixes.get(unit).map(String::as_str).unwrap_or("");
+        return match text.rfind(|c: char| c.is_ascii_digit()) {
+            Some(at) => format!("{}{suffix}{}", &text[..=at], &text[at + 1..]),
+            None => format!("{text}{suffix}"),
+        };
+    }
+}
+
 pub fn fixed_digits(decimals: f64) -> Option<u32> {
     decimals.is_finite().then(|| decimals.trunc().clamp(0.0, 20.0) as u32)
 }
@@ -910,7 +970,7 @@ pub fn now_ms() -> f64 {
 }
 
 /// JS `typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN`.
-fn to_num(v: Option<&Value>) -> f64 {
+pub fn to_num(v: Option<&Value>) -> f64 {
     match v {
         Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
         Some(Value::String(s)) => js_number_from_str(s),

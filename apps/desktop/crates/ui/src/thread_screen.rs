@@ -921,7 +921,8 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
         SharedString::from(THREAD.test_ids.guide_menu.clone()),
         Icon::new(registry::UI_MORE),
         cx,
-    );
+    )
+    .accessibility_label("More");
     Some(
         div()
             .flex_shrink_0()
@@ -1159,6 +1160,7 @@ pub(crate) fn unqueue_button(
                 Icon::new(registry::UI_CLOSE).xsmall(),
                 cx,
             )
+            .accessibility_label(steer::feed::QUEUE_REMOVE_LABEL)
             .on_click(on_click),
         )
         .into_any_element()
@@ -2786,7 +2788,8 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
     let mut lead: Vec<AnyElement> = Vec::new();
     if let Some(target) = spec.menu.clone() {
         let trigger =
-            crate::controls::ghost_icon_button(SharedString::from(format!("{prefix}-child-add")), Icon::new(registry::UI_ADD), cx);
+            crate::controls::ghost_icon_button(SharedString::from(format!("{prefix}-child-add")), Icon::new(registry::UI_ADD), cx)
+                .accessibility_label("Add an issue");
         lead.push(
             div()
                 .flex_shrink_0()
@@ -3223,8 +3226,6 @@ impl ThreadScreenView {
             subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| this.queue_refresh(cx)));
             subscriptions.push(cx.observe(&collections.session_issues, |this, _, cx| this.queue_refresh(cx)));
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| this.queue_refresh(cx)));
-            // NEW-8: a message's session is its conversation's.
-            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| this.queue_refresh(cx)));
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.queue_refresh(cx)));
             // EXP-1686: an agent's chat header reads its `agents` row.
             subscriptions.push(cx.observe(&collections.agents, |_, _, cx| cx.notify()));
@@ -4574,6 +4575,7 @@ mod tests {
             let message: MessageRow = serde_json::from_value(serde_json::json!({
                 "id": "m1",
                 "conversation_id": "c1",
+                "session_id": "r1",
                 "author_kind": "agent",
                 "body": "",
                 "card": { "kind": "plan", "plan": "# Ship it", "decision": decision },
@@ -4705,6 +4707,7 @@ mod tests {
             let message: MessageRow = serde_json::from_value(serde_json::json!({
                 "id": "m1",
                 "conversation_id": "c1",
+                "session_id": "r1",
                 "author_kind": "agent",
                 "body": body,
                 "created_at": "2026-11-04T10:00:00.000Z",
@@ -4921,6 +4924,7 @@ mod tests {
             let message: MessageRow = serde_json::from_value(serde_json::json!({
                 "id": "m1",
                 "conversation_id": "c2",
+                "session_id": "thread",
                 "author_kind": "agent",
                 "body": "",
                 "card": { "kind": "plan", "plan": "# Ship it", "decision": null },

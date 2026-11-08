@@ -70,11 +70,6 @@ private struct DropShareInput: Encodable {
 /// clamps vocabulary field-wise either way.
 public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     public let model: String?
-    /// EXP-981: claude only — the model its subagents run on (always an
-    /// explicit contract alias; the server drops a blank).
-    public let subagentModel: String?
-    /// The dispatcher root's model (threads + team agents) on this agent.
-    public let threadModel: String?
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
@@ -87,16 +82,12 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 
     public init(
         model: String? = nil,
-        subagentModel: String? = nil,
-        threadModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
         autoRotateAccounts: Bool? = nil
     ) {
         self.model = model
-        self.subagentModel = subagentModel
-        self.threadModel = threadModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode

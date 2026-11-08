@@ -126,10 +126,7 @@ interface Contract {
   // A device's agent defaults.
   deviceAgentDefaults: {
     model: string
-    subagentModel: string
-    threadModel: string
     codexModel: string
-    codexThreadModel: string
   }
   startPrompt: { maxLength: number; maxImages: number }
   agentTrigger: {
@@ -619,10 +616,7 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let sessionsSendTreeMaxDepth: Int = ${contract.sessionsSend.treeMaxDepth}
     public static let sessionsSendTreeMaxSessions: Int = ${contract.sessionsSend.treeMaxSessions}
     public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
-    public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
-    public static let deviceAgentDefaultsThreadModel: String = "${contract.deviceAgentDefaults.threadModel}"
     public static let deviceAgentDefaultsCodexModel: String = "${contract.deviceAgentDefaults.codexModel}"
-    public static let deviceAgentDefaultsCodexThreadModel: String = "${contract.deviceAgentDefaults.codexThreadModel}"
     public static let deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
@@ -800,10 +794,7 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val sessionsSendTreeMaxDepth: Int = ${contract.sessionsSend.treeMaxDepth}
     const val sessionsSendTreeMaxSessions: Int = ${contract.sessionsSend.treeMaxSessions}
     const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
-    const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
-    const val deviceAgentDefaultsThreadModel: String = "${contract.deviceAgentDefaults.threadModel}"
     const val deviceAgentDefaultsCodexModel: String = "${contract.deviceAgentDefaults.codexModel}"
-    const val deviceAgentDefaultsCodexThreadModel: String = "${contract.deviceAgentDefaults.codexThreadModel}"
     const val deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
@@ -986,10 +977,7 @@ pub const SESSIONS_SEND_TREE_MAX_DEPTH: usize = ${contract.sessionsSend.treeMaxD
 pub const SESSIONS_SEND_TREE_MAX_SESSIONS: usize = ${contract.sessionsSend.treeMaxSessions};
 pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxBytes};
 pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
-pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
-pub const DEVICE_AGENT_DEFAULTS_THREAD_MODEL: &str = "${contract.deviceAgentDefaults.threadModel}";
 pub const DEVICE_AGENT_DEFAULTS_CODEX_MODEL: &str = "${contract.deviceAgentDefaults.codexModel}";
-pub const DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL: &str = "${contract.deviceAgentDefaults.codexThreadModel}";
 pub const DEVICE_COMPUTER_USE_DEFAULTS_MODEL: &str = "${contract.deviceComputerUseDefaults.model}";
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
 pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};

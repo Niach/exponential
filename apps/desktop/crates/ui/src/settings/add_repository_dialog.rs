@@ -563,16 +563,21 @@ impl AddRepositoryDialogView {
             Prerequisite::NotInstalled => copy::PICKER_NOT_INSTALLED,
             _ => copy::PICKER_NOT_LINKED,
         };
+        let fix_label = match prerequisite {
+            Prerequisite::NotInstalled => copy::INSTALL_APP,
+            Prerequisite::Expired => copy::RECONNECT_GITHUB,
+            _ => copy::CONNECT_GITHUB,
+        };
         let fix = Button::new("add-repo-prerequisite-fix")
             .primary()
             .cursor_pointer()
             .web_sm()
-            .icon(registry::UI_GITHUB);
+            .icon(registry::UI_GITHUB)
+            .label(fix_label);
         let fix = match prerequisite {
             Prerequisite::NotInstalled => {
                 let install_url = result.install_url.clone();
-                fix.label(copy::INSTALL_APP)
-                    .disabled(install_url.is_none())
+                fix.disabled(install_url.is_none())
                     .on_click(move |_, _, cx| {
                         if let Some(url) = install_url.clone() {
                             open_url(cx, url);
@@ -580,10 +585,8 @@ impl AddRepositoryDialogView {
                     })
             }
             Prerequisite::Expired => fix
-                .label(copy::RECONNECT_GITHUB)
                 .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
             _ => fix
-                .label(copy::CONNECT_GITHUB)
                 .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
         };
         v_flex()
@@ -655,6 +658,7 @@ impl AddRepositoryDialogView {
 }
 
 /// Every inline action of the picker is an `sm action` pill (FEED-42).
+// a11y: named by the caller (every call site chains `.label(..)`).
 fn pill(id: impl Into<gpui::ElementId>, cx: &gpui::App) -> Button {
     crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
 }

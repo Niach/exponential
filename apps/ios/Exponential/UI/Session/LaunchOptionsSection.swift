@@ -25,7 +25,7 @@ import SwiftUI
 // the agent strip is its first row (embedded, no capsule of its own), then
 // Model + Effort, then the toggles the caller bound.
 /// THE model picker row (2026-10-15): every model pick — a session's model,
-/// the thread model, subagents, computer use — lists the agent's whole
+/// computer use — lists the agent's whole
 /// contract list (`LaunchVocabulary.modelValues`), no default entry.
 struct ModelPickerRow: View {
     let title: String
@@ -76,12 +76,6 @@ struct LaunchOptionsSection: View {
     var selectedAccount: AccountOption? = nil
     var onAccountSelect: ((AccountOption) -> Void)? = nil
     @Binding var model: String
-    /// EXP-981: claude's SUBAGENT model, bound only where it is editable (a
-    /// machine's launch defaults).
-    var subagentModel: Binding<String>? = nil
-    /// The dispatcher root's model (threads + team agents), per agent; bound
-    /// only on a machine's launch defaults.
-    var threadModel: Binding<String>? = nil
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
     /// EXP-1005: claude's "Auto-rotate accounts" device toggle, bound only
@@ -240,14 +234,6 @@ struct LaunchOptionsSection: View {
                 .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] + 12 }
             }
             ModelPickerRow("Model", selection: $model, agent: agent)
-            if let threadModel {
-                ModelPickerRow("Chat model", selection: threadModel, agent: agent)
-                    .accessibilityIdentifier("device-thread-model")
-            }
-            // EXP-981: claude-only, like Ultracode below.
-            if let subagentModel, LaunchVocabulary.supportsSubagentModel(agent) {
-                ModelPickerRow("Subagent model", selection: subagentModel, agent: agent)
-            }
             GlassPickerRow(
                 effortTitle,
                 selection: $effort,

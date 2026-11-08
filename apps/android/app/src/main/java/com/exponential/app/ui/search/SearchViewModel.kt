@@ -10,6 +10,8 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.AgentDefinitionEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.IssueSearch
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -77,7 +79,12 @@ private const val MAX_RESULTS = IssueSearch.DEFAULT_LIMIT
  * #EXP-1382: one issue prepared ONCE per issues emission — its result (board +
  * resolved status) and its timestamps parsed — so a keystroke only ranks.
  */
-private class PreparedRow(val result: SearchResult) : IssueSearch.Row {
+private class PreparedRow(
+    val result: SearchResult,
+    /** #NEW-21: the filing member (`users` by `creator_id`) and agent (`agents` by `creator_agent_id`). */
+    creator: UserEntity? = null,
+    creatorAgent: AgentDefinitionEntity? = null,
+) : IssueSearch.Row {
     private val issue get() = result.issue
     override val id: String get() = issue.id
     override val identifier: String get() = issue.identifier
@@ -88,6 +95,9 @@ private class PreparedRow(val result: SearchResult) : IssueSearch.Row {
     override val status: String? get() = issue.status
     override val createdAtMs: Long = IssueSearch.epochMs(issue.createdAt)
     override val updatedAtMs: Long = IssueSearch.epochMs(issue.updatedAt)
+    override val creatorName: String? = creator?.name
+    override val creatorEmail: String? = creator?.email
+    override val creatorAgentName: String? = creatorAgent?.name
 }
 
 /** The active team's prepared pool. */
@@ -132,13 +142,22 @@ class SearchViewModel @Inject constructor(
                 db.issueDao().observeByTeam(teamId),
                 db.boardDao().observeByTeam(teamId),
                 db.issueStatusDao().observeByTeam(teamId),
-            ) { issues, boards, statusRows ->
+                // #NEW-21: `by:` matches the filing member's name/email and agent's name.
+                db.userDao().observeAll(),
+                db.agentDefinitionDao().observeByTeam(teamId),
+            ) { issues, boards, statusRows, users, agents ->
                 val boardsById = boards.associateBy { it.id }
+                val usersById = users.associateBy { it.id }
+                val agentsById = agents.associateBy { it.id }
                 val statuses = IssueStatusResolver.teamStatuses(statusRows)
                 SearchPool(
                     rows = issues.mapNotNull { issue ->
                         val board = boardsById[issue.boardId] ?: return@mapNotNull null
-                        PreparedRow(SearchResult(issue, board, IssueStatusResolver.resolve(issue, statuses)))
+                        PreparedRow(
+                            SearchResult(issue, board, IssueStatusResolver.resolve(issue, statuses)),
+                            creator = issue.creatorId?.let(usersById::get),
+                            creatorAgent = issue.creatorAgentId?.let(agentsById::get),
+                        )
                     },
                     boardsById = boardsById,
                     statuses = statuses,

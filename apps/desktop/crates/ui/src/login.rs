@@ -823,8 +823,10 @@ impl LoginView {
         }
         if config.google_login_enabled {
             let pending = self.pending_provider.as_deref() == Some("google");
+            let google_label = if pending { LABEL_WAITING_BROWSER } else { LABEL_CONTINUE_GOOGLE };
             section = section.child(
                 Button::new("login-google")
+                    .accessibility_label(google_label)
                     .outline().web_md()
                     .w_full()
                     // The official multi-color "G" (EXP-9). `Button::icon`/
@@ -837,11 +839,7 @@ impl LoginView {
                         div()
                             .flex_none()
                             .line_height(gpui::relative(1.))
-                            .child(if pending {
-                                LABEL_WAITING_BROWSER
-                            } else {
-                                LABEL_CONTINUE_GOOGLE
-                            }),
+                            .child(google_label),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_google(cx))),
             );

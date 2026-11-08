@@ -273,7 +273,7 @@
     "$comment": "S-4: idleReleaseMinutes = a live session's agent process is released (suspended: the row idles, nothing ends, the workspace stays) once it sat quiescent (no turn, no background task, no open card) this long; the next message resumes it through the pickup's resume path.",
     "staleHours": 2,
     "idleReleaseMinutes": 30,
-    "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse"],
+    "launchKeys": ["agent", "model", "effort", "ultracode", "mcpServerIds", "account", "computerUse"],
     "computerUseCap": "computer-use-run"
   },
   "sessionsSend": {
@@ -303,12 +303,9 @@
     "onlineWindowSeconds": 90
   },
   "deviceAgentDefaults": {
-    "$comment": "Owner 2026-10-15: every model is EXPLICIT, no blank/CLI default anywhere. A device that never set a key reads these; a launch always passes a model. threadModel = the dispatcher root of a thread or team agent (codexThreadModel for codex roots).",
-    "model": "fable",
-    "subagentModel": "opus",
-    "threadModel": "haiku",
-    "codexModel": "gpt-5.6-sol",
-    "codexThreadModel": "gpt-5.6-luna"
+    "$comment": "Owner 2026-10-15: every model is EXPLICIT, no blank/CLI default anywhere. A device that never set a key reads these; a launch always passes a model. #EXP-1734 (EDE-63, owner 2026-11-07): 'all model defaults to opus. everywhere': ONE claude default for every session (roots, team agents, the Assistant, children); the thread and subagent model settings are gone (old devices may still send threadModel/subagentModel: readers ignore them). codexModel = codex's one default.",
+    "model": "opus",
+    "codexModel": "gpt-5.6-sol"
   },
   "team": {
     "agentPromptMaxBytes": 12288
