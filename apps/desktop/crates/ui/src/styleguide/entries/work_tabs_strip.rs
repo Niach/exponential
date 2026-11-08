@@ -57,7 +57,7 @@ fn chip(
 ) -> gpui::AnyElement {
     rich_tab(tab(ix, selected, status, identifier, title), cx)
         .group(TAB_GROUP)
-        .child(hover_close(Button::new(("sg-work-tab-close", ix))))
+        .child(hover_close(Button::new(("sg-work-tab-close", ix)).accessibility_label("Close tab")))
         .into_any_element()
 }
 
@@ -74,6 +74,7 @@ fn hovered_chip(
         .text_color(cx.theme().foreground)
         .child(
             Button::new(("sg-work-tab-close", ix))
+                .accessibility_label("Close tab")
                 .ghost()
                 .web_icon_xs()
                 .icon(registry::UI_CLOSE),

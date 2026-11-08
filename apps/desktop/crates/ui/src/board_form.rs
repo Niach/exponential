@@ -120,6 +120,11 @@ impl RenderOnce for IconPickerElement {
         // row, so they share ONE height — the 32px control rung (`CTL_MD_H`,
         // web h-9's desktop twin).
         let mut trigger = Button::new(SharedString::from(format!("{id_prefix}-icon-trigger")))
+            .accessibility_label(if has_pick {
+                format!("Icon: {selected}")
+            } else {
+                "Pick an icon".to_string()
+            })
             .outline()
             .cursor_pointer()
             .size(px(crate::controls::CTL_MD_H))
@@ -220,6 +225,11 @@ pub(crate) fn color_picker(
     let fill =
         crate::settings::parse_hex_color(&selected).unwrap_or(cx.theme().muted_foreground);
     let trigger = Button::new(SharedString::from(format!("{id_prefix}-color-trigger")))
+        .accessibility_label(if selected.is_empty() {
+            "Pick a color".to_string()
+        } else {
+            format!("Color: {selected}")
+        })
         .outline()
         .cursor_pointer()
         .size(px(crate::controls::CTL_MD_H))

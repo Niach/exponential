@@ -108,6 +108,7 @@ impl IssuesPane {
             let team_id = team.id.clone();
             let current_wire = current.clone();
             Button::new("issues-estimation-scale")
+                .accessibility_label("Estimate scale")
                 .outline()
                 .cursor_pointer()
                 .web_input_sm()
@@ -271,6 +272,7 @@ impl IssuesPane {
             // the fixed box; here it ellipsizes inside the definite-width
             // chain (button → `size_full` inner row → `w_full` child).
             let trigger = Button::new(id)
+                .accessibility_label(trigger_label.clone())
                 .outline().cursor_pointer()
                 .web_input_sm()
                 .w(px(PR_PICKER_WIDTH))

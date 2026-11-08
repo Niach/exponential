@@ -952,6 +952,7 @@ impl GeneralPane {
         let current = team.time_zone.clone().unwrap_or_default();
         let label = if current.is_empty() { copy.device.clone() } else { current.clone() };
         let trigger = Button::new(SharedString::from(domain::team_zone::TEAM_ZONE.test_ids.row.clone()))
+            .accessibility_label(copy.row.clone())
             .ghost()
             .cursor_pointer()
             .h_auto()
@@ -1153,6 +1154,7 @@ impl GeneralPane {
         use domain::merge_train::{merge_mode_label, MERGE_TRAIN};
         let current = team.merge_mode().to_string();
         let trigger = Button::new(SharedString::from(MERGE_TRAIN.test_ids.settings_row.clone()))
+            .accessibility_label(MERGE_TRAIN.copy.settings.label.clone())
             .ghost()
             .cursor_pointer()
             .h_auto()

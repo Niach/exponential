@@ -137,6 +137,7 @@ impl AgentsIndexPane {
             .unwrap_or_else(|| COORDINATOR.copy.none.clone());
         use gpui_component::button::ButtonVariants as _;
         let trigger = gpui_component::button::Button::new(SharedString::from(COORDINATOR.test_ids.row.clone()))
+            .accessibility_label(COORDINATOR.copy.label.clone())
             .ghost()
             .cursor_pointer()
             .h_auto()

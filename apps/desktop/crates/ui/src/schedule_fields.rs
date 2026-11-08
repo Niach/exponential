@@ -277,6 +277,7 @@ impl ScheduleFieldsState {
         let label = weekdays_label(&schedule.weekdays);
         let empty = label.is_empty();
         let trigger = Button::new(SharedString::from(format!("{prefix}-days")))
+            .accessibility_label(copy.rows.days.clone())
             .ghost()
             .cursor_pointer()
             .h_auto()
@@ -325,6 +326,7 @@ impl ScheduleFieldsState {
     ) -> Div {
         let copy = &SCHEDULE_PICKER.copy;
         let trigger = Button::new(SharedString::from(format!("{prefix}-time-zone")))
+            .accessibility_label(copy.rows.time_zone.clone())
             .ghost()
             .cursor_pointer()
             .h_auto()

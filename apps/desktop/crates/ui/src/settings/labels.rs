@@ -390,6 +390,7 @@ impl LabelsPane {
                 Popover::new(row_id("label-color", &label.id))
                     .trigger(
                         Button::new(row_id("label-color-trigger", &label.id))
+                            .accessibility_label("Change label color")
                             .ghost().cursor_pointer()
                             .xsmall()
                             .child(
@@ -460,6 +461,7 @@ impl LabelsPane {
                 Icon::new(registry::UI_DELETE),
                 cx,
             )
+            .accessibility_label(format!("Delete label {}", label.name))
             .on_click(move |_, window, cx| {
                 let team_id = team_id.clone();
                 let label_id = label_id.clone();

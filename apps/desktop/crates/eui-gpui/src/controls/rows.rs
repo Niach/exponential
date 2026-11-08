@@ -171,6 +171,8 @@ pub fn glass_section_band_fold_loading(
     loading: bool,
     cx: &App,
 ) -> Stateful<Div> {
+    use gpui::StatefulInteractiveElement as _;
+    let label = label.into();
     let icons = &Chrome::global(cx).icons;
     let foreground = cx.theme().foreground;
     let chevron = Icon::empty()
@@ -189,8 +191,12 @@ pub fn glass_section_band_fold_loading(
         .text_color(foreground.opacity(0.5))
         .child(SharedString::from(count.to_string()))
         .into_any_element();
-    glass_section_band_loading(Some(chevron), label, loading, Some(count), cx)
+    // #EXP-1488: the band is the fold's button, named by its label.
+    glass_section_band_loading(Some(chevron), label.clone(), loading, Some(count), cx)
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(label)
+        .aria_expanded(!collapsed)
         .cursor_pointer()
 }
 

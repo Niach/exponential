@@ -109,9 +109,9 @@ fn fix_pill(fix: ReadinessFix, primary: bool, cx: &App) -> AnyElement {
     let id = SharedString::from(format!("sg-readiness-fix-{fix:?}"));
     let size = PillSize::Sm;
     let mut button = if primary {
-        glass_pill_button_primary(id, size)
+        glass_pill_button_primary(id, size).accessibility_label(fix.label())
     } else {
-        glass_pill_button(id, size, cx)
+        glass_pill_button(id, size, cx).accessibility_label(fix.label())
     };
     let glyph = match fix {
         ReadinessFix::ChooseRepository => Some(registry::UI_BRANCH),

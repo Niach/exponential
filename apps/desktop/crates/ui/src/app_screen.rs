@@ -1043,6 +1043,7 @@ impl AppScreenView {
             let current = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
             let view = cx.entity().downgrade();
             Button::new(SharedString::from(APPS.test_ids.preview_template.clone()))
+                .accessibility_label(current.clone())
                 .outline()
                 .web_sm()
                 .cursor_pointer()
@@ -1071,6 +1072,7 @@ impl AppScreenView {
             let label = choices.iter().find(|o| o.value == current).map(|o| o.label.clone()).unwrap_or_default();
             let view = cx.entity().downgrade();
             Button::new(SharedString::from(APPS.test_ids.preview_run_as.clone()))
+                .accessibility_label(label.clone())
                 .outline()
                 .web_sm()
                 .cursor_pointer()
