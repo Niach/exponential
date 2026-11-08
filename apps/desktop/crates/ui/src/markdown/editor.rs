@@ -2393,7 +2393,9 @@ fn render_editor_preview(
     div()
         .id("md-editor-preview")
         .role(gpui::Role::MultilineTextInput)
-        .aria_label(editor.placeholder.clone())
+        // Web `MarkdownEditor`'s `aria-label` (`ariaLabel ?? \`Issue description\``;
+        // no web caller overrides it, and the description is this editor's one use).
+        .aria_label("Issue description")
         .w_full()
         .py_1()
         .min_h(px(96.))

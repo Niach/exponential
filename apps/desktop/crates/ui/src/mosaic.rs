@@ -17,28 +17,29 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
-use domain::plan_page::{mosaic_tiles, MosaicTile, MosaicTileSize, PLAN_PAGE};
+use domain::plan_page::{mosaic_tiles, MosaicTile, MosaicTileSize, PlanPicture, PLAN_PAGE};
 
 use crate::markdown::{ImageCache, ImageSlot};
 
 /// A tile press: the picture's index in the group.
 pub(crate) type OnMosaicOpen = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
-/// THE Mosaic over `urls` (canonical `/api/attachments/<id>` keys).
+/// THE Mosaic over `pictures` (`src` = canonical `/api/attachments/<id>`
+/// keys; `alt` names the tile, web's `aria-label={picture.alt}`).
 /// `images` = `None` paints every tile as the muted placeholder (the
 /// styleguide specimen).
 pub(crate) fn mosaic(
     id: &str,
-    urls: &[String],
+    pictures: &[PlanPicture],
     images: Option<&Entity<ImageCache>>,
     on_open: Option<OnMosaicOpen>,
     cx: &mut App,
 ) -> AnyElement {
     let spec = &PLAN_PAGE.mosaic;
-    let tiles = mosaic_tiles(urls.len());
+    let tiles = mosaic_tiles(pictures.len());
     let tile = |at: usize, cx: &mut App| -> AnyElement {
         match tiles.get(at) {
-            Some(entry) => mosaic_tile(id, entry, urls.get(entry.index).map(String::as_str), images, on_open.clone(), cx),
+            Some(entry) => mosaic_tile(id, entry, pictures.get(entry.index), images, on_open.clone(), cx),
             None => div().into_any_element(),
         }
     };
@@ -73,14 +74,15 @@ fn grow(fraction: f32) -> Div {
 fn mosaic_tile(
     group: &str,
     entry: &MosaicTile,
-    url: Option<&str>,
+    picture: Option<&PlanPicture>,
     images: Option<&Entity<ImageCache>>,
     on_open: Option<OnMosaicOpen>,
     cx: &mut App,
 ) -> AnyElement {
     let spec = &PLAN_PAGE.mosaic;
-    let picture = match (url, images) {
-        (Some(url), Some(images)) => match images.update(cx, |cache, cx| cache.slot(url, cx)) {
+    let label = picture.map(|picture| picture.alt.clone()).unwrap_or_default();
+    let picture = match (picture, images) {
+        (Some(picture), Some(images)) => match images.update(cx, |cache, cx| cache.slot(&picture.src, cx)) {
             ImageSlot::Ready(image) => Some(img(image).size_full().object_fit(ObjectFit::Cover).into_any_element()),
             _ => None,
         },
@@ -122,7 +124,7 @@ fn mosaic_tile(
             )
         })
         .when_some(on_open, move |tile, on_open| {
-            tile.role(gpui::Role::Button).aria_label(format!("Picture {}", index + 1)).on_click(move |_, window, cx| {
+            tile.role(gpui::Role::Button).aria_label(label).on_click(move |_, window, cx| {
                 cx.stop_propagation();
                 on_open(index, window, cx);
             })
