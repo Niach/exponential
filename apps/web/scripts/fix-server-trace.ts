@@ -21,6 +21,9 @@ import { fileURLToPath } from "node:url"
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
 const tracedPkg = join(webRoot, `.output/server/node_modules/react-dom`)
 
+// Nitro 3 RC bundles the server's dependencies into .output/server/_libs and
+// traces only native packages (sharp), so react-dom is never traced and none
+// of the repairs below apply: this exit is the normal path there.
 if (!existsSync(tracedPkg)) {
   console.log(`[fix-server-trace] no traced react-dom (nothing to repair)`)
   process.exit(0)

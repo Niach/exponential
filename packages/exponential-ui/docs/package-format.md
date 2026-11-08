@@ -513,10 +513,16 @@ macros put a kind's whole form or table on a screen as ONE node:
   `author` only when it moved. A refused save shows inline: the host writes
   invalid input (a schema issue, a bad author) at `<path>Error`, under the
   fields, anything else toasts.
-- **RecordTable** `{kind, query?, columns?, add?, editable?}`: a toolbar
+- **RecordTable** `{kind, query?, columns?, search?, filter?, totals?, add?, editable?}`: a toolbar
   (the count, Add) over the stock Table (compact, sticky header, sortable)
   with the Data tab's typed widths, a relative Updated column and an
-  Edit / Delete cell; phones show the same rows as a List of Row, each
+  Edit / Delete cell. A `columns` entry is a field name or a Table column
+  object (`{"key": "gross", "type": "currency", "currency": "EUR", "decimals": 2}`,
+  `{"key": "date", "format": "dd.MM.yy"}`, a `label`, `align`, `width`) over
+  the field's defaults. `search: true` adds a search field over the text
+  columns, `filter: "<enum field>"` a Select of its values (All first), and
+  `totals: true` the Table's sum row (number and currency columns over the
+  rows the search and filter leave); phones show the same rows as a List of Row, each
   with its own Delete. Add, Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
   then `records.delete`. The Drawer stays open on a refused save (Cancel
   closes it, so no Escape or backdrop). Rows follow `records:<kind>?<query>` (default

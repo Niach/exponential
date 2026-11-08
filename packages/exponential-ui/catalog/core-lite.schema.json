@@ -19800,6 +19800,10 @@
           "type": "boolean",
           "description": "One line with an ellipsis; cells wrap otherwise.",
           "default": false
+        },
+        "format": {
+          "type": "string",
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "required": [
