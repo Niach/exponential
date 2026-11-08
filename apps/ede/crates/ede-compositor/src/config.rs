@@ -25,6 +25,26 @@ pub struct Config {
     /// (`DP-1`, `HEADLESS-1`); an output not listed takes its preferred
     /// mode, scale 1 and the next place to the right.
     pub outputs: Vec<OutputSettings>,
+    /// `[diagnostics] send`: crash, performance and log reports to the
+    /// signed-in server (#LOGS-2; ede-observability reads it, Settings ›
+    /// About writes it).
+    pub diagnostics: Diagnostics,
+    /// `[theme]`: the bridge's (#EDE-19, exponential-theme reads it), kept
+    /// here only so the Theme page's writes do not make this file invalid.
+    pub theme: toml::Table,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Diagnostics {
+    /// On by default; `EXP_DIAGNOSTICS=0` turns it off too.
+    pub send: bool,
+}
+
+impl Default for Diagnostics {
+    fn default() -> Self {
+        Self { send: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -130,6 +150,8 @@ impl Default for Config {
             idle: Idle::default(),
             protected: Protected::default(),
             outputs: Vec::new(),
+            diagnostics: Diagnostics::default(),
+            theme: toml::Table::new(),
         }
     }
 }
@@ -284,6 +306,18 @@ mod tests {
         assert_eq!(cfg.keyboard.repeat_rate, 30);
         let [r, g, b, a] = cfg.background_rgba().unwrap();
         assert_eq!(((r * 255.0).round(), (g * 255.0).round(), (b * 255.0).round(), a), (16.0, 32.0, 48.0, 1.0));
+    }
+
+    #[test]
+    fn diagnostics_are_on_unless_switched_off() {
+        assert!(Config::default().diagnostics.send);
+        assert!(!Config::parse("[diagnostics]\nsend = false\n").unwrap().diagnostics.send);
+    }
+
+    #[test]
+    fn the_theme_pages_table_does_not_invalidate_the_file() {
+        let cfg = Config::parse("[keyboard]\nlayout = \"de\"\n[theme]\nbridge = false\nicons = \"Papirus-Dark\"\n").unwrap();
+        assert_eq!(cfg.keyboard.layout, "de");
     }
 
     #[test]

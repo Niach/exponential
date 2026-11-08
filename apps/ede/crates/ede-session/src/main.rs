@@ -23,9 +23,8 @@ extern "C" fn on_terminate(_: libc::c_int) {
 }
 
 fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
+    // #LOGS-2: the log as before (stdout), plus Sentry when diagnostics are on.
+    let _observability = ede_observability::init("session", "info", ede_observability::Output::Stdout);
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--ready") => ready(),

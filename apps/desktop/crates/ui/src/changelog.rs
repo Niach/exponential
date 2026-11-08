@@ -46,6 +46,13 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-exponential-desktop-diagnostics",
+    date: "2026-11-09",
+    title: "Exponential Desktop diagnostics, through our servers",
+    summary: "Exponential Desktop sends crash and performance diagnostics only through Exponential's own servers, with your user id only; turn it off with Send diagnostics in Settings → About.",
+    body: r#"- **Diagnostics through our servers**: Exponential Desktop reports crashes, errors and slow frames only through your Exponential server, never straight to a third party. Reports carry your user id and nothing else about you (no email, name or IP address), and are deleted after 30 days.
+- **Send diagnostics**: Settings → About has a switch to turn it off, or start with `EXP_DIAGNOSTICS=0`.
+- **Settings stick again**: settings like the keyboard layout are no longer ignored after you pick a theme."#,
     id: "2026-11-09-ios-crash-reports",
     date: "2026-11-09",
     title: "Crash reports from iPhone",

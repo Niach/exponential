@@ -64,6 +64,8 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
         }
         WinitEvent::Input(event) => state.process_input_event(event),
         WinitEvent::Redraw => {
+            // #LOGS-2: the frame's time, render through submit.
+            let frame_started = std::time::Instant::now();
             let age = backend_mut.buffer_age().unwrap_or(0);
             let damage = {
                 let (renderer, mut framebuffer) = match backend_mut.bind() {
@@ -90,6 +92,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
                     if let Err(e) = backend_mut.submit(Some(&damage)) {
                         tracing::warn!("submit failed: {e}");
                     }
+                    ede_observability::record_frame(&output.name(), frame_started.elapsed());
                     backend_mut.window().request_redraw();
                 }
                 None => {

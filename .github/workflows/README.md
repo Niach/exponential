@@ -135,6 +135,7 @@ copies in Niach/spezl; the Apple ones can be the same values (same team).
 | `PLAY_SERVICE_ACCOUNT_JSON` | secret | `play-upload` | Google Cloud service-account key, invited in Play Console as Release manager on the app | person. The Play app record + first upload must exist (the API cannot create apps) |
 | `RELEASE_BOT_TOKEN` | secret | `bump-versions.yml` | token for the bump PR so `gate` runs on it (GITHUB_TOKEN PRs trigger no workflows) | person (optional) |
 | `RUNNER_STATUS_TOKEN` | secret | `pick-runner.yml` | lists the self-hosted runners (Administration: read) | person (optional) |
+| `GLITCHTIP_AUTH_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secret | `build-ede.yml` (releases) | #LOGS-2: `sentry-cli debug-files upload` of eDE's split debug info to GlitchTip (org `exponential`, project `ede`): an upload-only token and the Cloudflare Access service token in front of `glitchtip.exponential.at`. Missing = a notice, a failed upload = a warning | person |
 | `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`, `SWIFT_DIST_TOKEN` | secret | `release-eui.yml` | Exponential UI package publishing | person |
 
 Turning on the signed updater feed: `minisign -G -W -p update.pub -s update.key`,
