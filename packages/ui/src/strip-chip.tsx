@@ -3,9 +3,9 @@ import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
 import { conceptIcon } from "./icons.generated"
 
-// EXP-1334: THE strip chip — ONE tab component for every strip of chips: the
-// chat header's issue + session chips (`ChatTabs`) and the work tabs
-// strip above the content card (`work-tabs-strip.tsx`). The box is THE strip
+// EXP-1334: THE strip chip — ONE tab component for every strip of chips:
+// the work tabs strip above the content card (`work-tabs-strip.tsx`;
+// #EXP-1732: the chat header's chip strip is gone). The box is THE strip
 // tab box (`stripTabClass`: h-8, text-sm, rounded-md, a hairline while it is
 // a chip at rest, the glass wash while active); inside: the lead glyph · the
 // mono identifier · the label (truncating) · `› <open one>` (a folded chip

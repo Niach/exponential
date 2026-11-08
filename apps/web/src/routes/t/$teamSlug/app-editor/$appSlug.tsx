@@ -13,8 +13,9 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // preview, versions. `$appSlug` = the app's slug in the team. VAPP-176: a
 // draft's slug follows its new name, so the page keys the app by ID and
 // replaces the route in place (the editor never remounts: that would end
-// the editor session mid-turn). VAPP-177: `?tab=<id>` opens that tab (phones:
-// versions/settings = the menu's sheet over Chat; `editorTab`). VAPP-179:
+// the editor session mid-turn). #EXP-1732: the editor is THE session screen
+// (session-screen.json, kind `app`); `?tab=<id>` opens that tab (legacy ids
+// through `legacyTabs`; `?tab=settings` opens the gear's settings). VAPP-179:
 // `?frame=desktop|phone` opens the preview in that frame (screenshots).
 // VAPP-242 (apps.json THE EDITOR): the editor lives at
 // `/t/$teamSlug/app-editor/$appSlug`, reached from the sidebar row's gear,

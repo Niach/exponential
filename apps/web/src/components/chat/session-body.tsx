@@ -29,10 +29,9 @@ import { cn } from "@/lib/utils"
 
 // EXP-1293 / EXP-1316: ONE session's RAW WORK. Two hosts:
 //
-//   InPlaceSession   the body of the chat page's session chip
-//                    (`?tab=session&session=<id>`) under the chat's own
-//                    header + strip (EXP-1343: phones too, a page of the
-//                    chat's pager); S-3: no Stop pill anywhere
+//   InPlaceSession   #EXP-1732: an opened session on THE session screen
+//                    (`?tab=sessions&open=session&session=<id>`, the tab
+//                    pane wide, a pushed page on phones); S-3: no Stop pill
 //   SessionScreen    sessions under a team AGENT (`/sessions/$id`): its own header,
 //                    back to the chat (or the agent's channel), the
 //                    session's name

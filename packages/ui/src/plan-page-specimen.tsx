@@ -1,10 +1,8 @@
 import { useMemo } from "react"
-import { PLAN_PAGE_SPECIMEN, planRowLabel } from "@exp/domain-contract/plan-page"
-import { RESULTS_TAB } from "@exp/domain-contract/results-tab"
-import { CHAT_COPY, chatAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
+import { PLAN_PAGE_SPECIMEN } from "@exp/domain-contract/plan-page"
+import { chatAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
 import { cn } from "./cn"
 import { PlanPage } from "./plan-page"
-import { ChatTabs } from "./session-chat-view"
 import { useSpecimenAttachmentSrc } from "./specimen-samples"
 
 // #EXP-1493: THE plan page's styleguide specimen (plan-page.json
@@ -25,8 +23,6 @@ const message: TreeMessage = {
   authorSessionId: `plan-specimen-session`,
 }
 const row = chatAskRow(message) as Extract<ReturnType<typeof chatAskRow>, { type: `plan` }>
-
-const noop = () => {}
 
 const text = (markdown: string) => (
   <div className="flex flex-col gap-2">
@@ -70,14 +66,6 @@ export function PlanPageSpecimen({ size = `wide` }: { size?: `wide` | `phone` })
     >
       <div className={cn(`shrink-0`, wide ? `border-b border-border px-10 pt-6 pb-3` : `px-3 pt-4 pb-2`)}>
         <div className="text-lg font-semibold">{PLAN_PAGE_SPECIMEN.chatName}</div>
-        <ChatTabs
-          className="mt-4"
-          variant={wide ? `bar` : `pager`}
-          conversation={{ label: CHAT_COPY.conversation, active: false, onSelect: noop }}
-          plan={{ label: planRowLabel(plan.plan), active: true, waiting: true, onSelect: noop }}
-          issues={[]}
-          results={{ label: RESULTS_TAB.copy.label, active: false, onSelect: noop }}
-        />
       </div>
       <PlanPage
         className="min-h-0 flex-1"

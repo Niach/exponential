@@ -1,5 +1,3 @@
-import { agentChatSubtitle } from "@exp/domain-contract/session-tree"
-import { workModelLabel } from "@exp/domain-contract/work-card"
 import { useEffect, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
@@ -8,23 +6,21 @@ import {
   EmptyState,
   ExponentialLogo,
   FloatingComposer,
-  PhoneHeaderTitle,
   SkeletonRows,
   ChatDock,
   useIsMobile,
 } from "@exp/ui"
-import { isAssistant } from "@exp/domain-contract/agent-settings"
+import { isAssistant, triggerSummary, type AgentTriggerLike } from "@exp/domain-contract/agent-settings"
+import { sessionScreen, sessionScreenKind, sessionScreenSubtitle } from "@exp/domain-contract/session-screen"
 import type { User } from "@/db/schema"
 import { SessionComposer } from "@/components/session-composer"
-import {
-  HEADER_BUTTON_CLASS,
-  MobileDetailHeader,
-} from "@/components/team/mobile-detail-header"
+import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import {
   ChatScreen,
   validateChatSearch,
   type ChatScreenAgent,
+  type ChatSearch,
 } from "@/components/chat/chat-screen"
 import { AgentHeaderMenu } from "@/components/chat/chat-menu"
 import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } from "@/components/voice-call"
@@ -36,18 +32,21 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { CHATS_LIST_COPY } from "@/lib/session-tree"
 import { useSessionNav } from "@/hooks/use-session-nav"
-import { BackStackButton } from "@/components/chat/session-body"
+import { useResultsTab } from "@/hooks/use-results-tab"
+import { AgentSettingsPage } from "@/components/team/agents-section"
+import { SessionScreenFrame } from "@/components/chat/session-screen-frame"
+import { SessionIssuesTab, SessionResultsTab, SessionSessionsTab } from "@/components/chat/session-screen-bodies"
 
-// EXP-1293 / NEW-2 / S-3 (chats.json CHAT MODE): a team agent's chat. The
-// route id IS the `agents` row; the page is THE chat screen
-// (`components/chat/chat-screen.tsx`, the same component a chat
+// EXP-1293 / NEW-2 / #EXP-1732 (session-screen.json): a team agent's chat
+// (or the Assistant's). The route id IS the `agents` row; the page is THE
+// session screen (`components/chat/chat-screen.tsx`, the same one a chat
 // renders) over the CALLER's own conversation session with it (a root with
-// that `agentId`, `userId` = me), in chat mode `bubbles` (`chatMode`):
-// its header carries the agent's disc + name (the Assistant: THE brand
-// mark), the call button and THE agent menu; the composer is the chat's
-// with the + menu of surface `agent`. The only wrapper of its own is for an
-// agent with NO conversation yet: the same header, an empty body, and the
-// same composer whose first send is `sessions.send({agentId})`.
+// that `agentId`, `userId` = me): the agent's disc (the Assistant: THE
+// brand mark), its name over `status · device · trigger`, the call button,
+// THE gear (the agent settings body, `open=settings`) and THE agent menu;
+// the tabs Chat · Issues · Sessions · Results. With NO conversation yet the
+// same frame draws an empty chat whose composer's first send is
+// `sessions.send({agentId})`.
 
 const AgentsIcon = conceptIcon(`settings-agents`)
 
@@ -85,11 +84,13 @@ function AgentChannelPage() {
   const conversation = useMyAgentConversation(agentId, me)
   const chat = useSessionChat(
     conversation?.id ?? null,
-    search.tab === `session` ? (search.session ?? null) : null
+    search.open === `session` ? (search.session ?? null) : null
   )
+  // The empty screen's Results (no tree yet = none).
+  const emptyResults = useResultsTab(team?.id, null)
   const { users } = useTeamUsers(team?.id)
-  // S-3: the back stack while no conversation exists yet (the chat screen
-  // keeps its own once it does).
+  // S-3: the back stack while no conversation exists yet (the session
+  // screen keeps its own once it does).
   const nav = useSessionNav({ teamSlug, here: null, back: search.back })
   // NEW-70 (voice-call.json): THE telephone left of `…`, the call card over the chat.
   const callAvailability = useVoiceCallAvailability()
@@ -125,40 +126,38 @@ function AgentChannelPage() {
 
   const name = agent.name
   const assistant = isAssistant(agent)
-  const disc = (className: string, glyphClass: string) => (
+  const avatar = (
     <span
       data-slot="chat-lead"
-      className={`flex shrink-0 items-center justify-center rounded-full bg-muted ${className}`}
+      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted"
     >
       {assistant ? (
-        <ExponentialLogo variant="light" className={`h-auto text-foreground ${glyphClass}`} />
+        <ExponentialLogo variant="light" className="h-auto size-5 text-foreground" />
       ) : (
-        <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={glyphClass} />
+        <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-5" />
       )}
     </span>
   )
+  // session-screen.json: the subtitle's trigger = the first enabled one.
+  const triggers = (Array.isArray(agent.triggers) ? agent.triggers : []) as AgentTriggerLike[]
+  const firstTrigger = triggers.find((trigger) => trigger && trigger.enabled !== false)
+  const trigger = firstTrigger ? triggerSummary(firstTrigger) : null
+  const buttonClass = isMobile ? HEADER_BUTTON_CLASS : `shrink-0 text-muted-foreground`
   const parts: ChatScreenAgent = {
     name,
-    glyph: disc(`size-8`, `size-4`),
-    mobileTitle: (
-      <PhoneHeaderTitle
-        disc={disc(`size-10`, `size-5`)}
-        title={name}
-        subtitle={<span className="text-muted-foreground">{agentChatSubtitle(workModelLabel(conversation?.model))}</span>}
+    assistant,
+    avatar,
+    trigger,
+    trailing: (
+      <CallButton
+        availability={callAvailability}
+        agentName={name}
+        active={voiceCall.call.active}
+        onCall={() => void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language)}
+        className={buttonClass}
       />
     ),
-    headerMenu: (className?: string) => (
-      <>
-        <CallButton
-          availability={callAvailability}
-          agentName={name}
-          active={voiceCall.call.active}
-          onCall={() => void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language)}
-          className={className}
-        />
-        <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />
-      </>
-    ),
+    menu: (className: string) => <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />,
     overlay: (
       <VoiceCallOverlay
         {...voiceCall}
@@ -172,7 +171,15 @@ function AgentChannelPage() {
         }
       />
     ),
+    settings: <AgentSettingsPage key={agent.id} team={team} agent={agent} isOwner={permissions.isOwner} />,
   }
+  const go = (next: ChatSearch, options?: { replace?: boolean }) =>
+    void navigate({
+      to: `/t/$teamSlug/agents/$agentId`,
+      params: { teamSlug, agentId },
+      search: next,
+      replace: options?.replace,
+    })
 
   if (conversation && chat.view && chat.root) {
     return (
@@ -187,14 +194,7 @@ function AgentChannelPage() {
         pullRequests={chat.pullRequests}
         messagePage={chat.messagePage}
         search={search}
-        onNavigate={(next, options) =>
-          void navigate({
-            to: `/t/$teamSlug/agents/$agentId`,
-            params: { teamSlug, agentId },
-            search: next,
-            replace: options?.replace,
-          })
-        }
+        onNavigate={go}
         agent={parts}
       />
     )
@@ -208,8 +208,16 @@ function AgentChannelPage() {
     )
   }
 
-  // No conversation yet: THE chat screen's header over an empty body, the
+  // No conversation yet: THE session screen's frame over an empty chat, the
   // same composer (its first send opens the conversation).
+  const screen = sessionScreen({
+    kind: sessionScreenKind({ agentId: agent.id, appId: null, assistant }),
+    wide: !isMobile,
+    requested: search.tab ?? null,
+    open: search.open === `settings` ? `settings` : null,
+    counts: { issues: 0, sessions: 0, results: 0 },
+  })
+  const keepBack = search.back ? { back: search.back } : {}
   const composer = permissions.isMember ? (
     <SessionComposer
       teamId={agent.teamId}
@@ -223,24 +231,8 @@ function AgentChannelPage() {
       testId="agent-composer"
     />
   ) : null
-
-  return (
-    <div className="relative flex h-full min-h-0 flex-col max-md:h-dvh" data-testid="agent-channel-page">
-      {isMobile ? (
-        <MobileDetailHeader
-          title={parts.mobileTitle}
-          onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } }))}
-          menu={parts.headerMenu(HEADER_BUTTON_CLASS)}
-        />
-      ) : (
-        <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 pt-6 pb-5 md:px-10">
-          <BackStackButton onPop={nav.pop} className="-ml-2" />
-          {parts.glyph}
-          <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold tracking-tight">{name}</h1>
-          {parts.headerMenu(`shrink-0 text-muted-foreground`)}
-        </div>
-      )}
-      {parts.overlay}
+  const emptyChat = (
+    <div className="relative flex min-h-0 flex-1 flex-col" data-testid="agent-channel-page">
       <div className="relative min-h-0 flex-1">
         <div data-testid="chat-scroll" className="h-full" />
         {composer && !isMobile && (
@@ -259,5 +251,49 @@ function AgentChannelPage() {
         <FloatingComposer placeholder={`Message ${name}`}>{composer}</FloatingComposer>
       )}
     </div>
+  )
+  const pane =
+    screen.active === `issues` ? (
+      <SessionIssuesTab issues={[]} activeId={null} onOpen={() => undefined} />
+    ) : screen.active === `sessions` ? (
+      <SessionSessionsTab rows={[]} activeId={null} onOpen={() => undefined} />
+    ) : screen.active === `results` ? (
+      <SessionResultsTab
+        teamId={team.id}
+        teamSlug={teamSlug}
+        results={emptyResults}
+        pullRequest={null}
+        canMerge={permissions.isMember}
+        review={false}
+        file={null}
+        onReview={() => undefined}
+      />
+    ) : null
+
+  return (
+    <SessionScreenFrame
+      screen={screen}
+      testId="chat-page"
+      avatar={avatar}
+      title={name}
+      subtitle={sessionScreenSubtitle({ status: null, device: null, trigger })}
+      trailing={parts.trailing}
+      onGear={() => go({ tab: screen.active, open: `settings`, ...keepBack })}
+      menu={parts.menu}
+      onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } }))}
+      onPop={nav.pop}
+      onTab={(tab) => go({ tab, ...keepBack }, { replace: true })}
+      chat={emptyChat}
+      pane={pane}
+      item={
+        screen.open === `settings` ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="session-settings">
+            <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10">{parts.settings}</div>
+          </div>
+        ) : null
+      }
+      onCloseItem={() => go({ tab: screen.active, ...keepBack }, { replace: true })}
+      overlay={parts.overlay}
+    />
   )
 }

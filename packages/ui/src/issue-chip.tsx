@@ -42,8 +42,8 @@ export type IssueChipLinkProps = EntityChipLinkProps
  *  stand for several issues at once (the hover graph's nodes, the phone
  *  header's badge), where a title per chip is what made them sprawl.
  *  `tab` (EXP-1316) = the strip tab box. EXP-1334 moved the chat header's
- *  chips onto `StripChip` (`ChatIssueTab`), so the app no longer draws
- *  this size; the styleguide's issue-chip spec (`apps/styleguide/src/
+ *  chips onto `StripChip` (#EXP-1732: that strip is gone), so the app no
+ *  longer draws this size; the styleguide's issue-chip spec (`apps/styleguide/src/
  *  components.tsx`) still does, which keeps it (the phones' `pager` size
  *  had no caller left and is gone). */
 export type IssueChipSize = `md` | `sm` | `tab`

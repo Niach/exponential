@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { conceptIcon, Menu, ChatTabsAddButton, type MenuEntry } from "@exp/ui"
+import { SESSION_SCREEN_COPY } from "@exp/domain-contract/session-screen"
 import { IssuePickerBody } from "@/components/issue-picker-host"
 import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
 import { sessionIssueCollection } from "@/lib/collections"
@@ -12,8 +13,8 @@ import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
 import type { PullRequestRow, SessionRow } from "@/lib/session-tree"
 import { ChatHeaderMenu, useChatMenuEntries, type useChatActions } from "@/components/chat/chat-menu"
 
-// EXP-1284 / EXP-1293 / EXP-1334: the header strip's ONE menu (THE Menu),
-// behind the "+" (LEFT of Conversation) and every issue chip's context menu
+// EXP-1284 / EXP-1293 / EXP-1334 / #EXP-1732: the issues' ONE menu (THE
+// Menu), behind the Issues tab's "+" and every issue row's context menu
 // — the desktop IDE's `chat_menu` rows ×4:
 //
 //   Link an issue ›    THE search list (the linked issues checked) →
@@ -35,7 +36,7 @@ export const CHAT_TAB_MENU_COPY = {
   link: `Link an issue`,
   newIssue: `New issue`,
   unlink: (identifier: string) => `Unlink ${identifier}`,
-  add: `Add an issue`,
+  add: SESSION_SCREEN_COPY.linkIssue,
 } as const
 
 export interface ChatTabMenuIssue {

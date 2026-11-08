@@ -1,11 +1,12 @@
-// S-3 (chats.json CHAT MODE): a team agent's chat IS the chat screen over
-// the viewer's conversation, with the agent's header parts; with no
-// conversation yet, the empty screen's composer (THE session composer)
-// opens one with `sessions.send({agentId})` — md+ inside the Dock, a phone
-// in THE floating composer capsule (FEED-160).
+// #EXP-1732 (session-screen.json): a team agent's chat IS THE session
+// screen over the viewer's conversation, with the agent's header parts and
+// THE gear (its settings body); with no conversation yet the same frame
+// (the tabs, the gear) over an empty chat whose composer (THE session
+// composer) opens one with `sessions.send({agentId})` — md+ inside the
+// Dock, a phone in THE floating composer capsule (FEED-160).
 // Lives under a `-` prefix so the route generator ignores it.
 import type { ComponentType, ReactNode } from "react"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -13,15 +14,17 @@ const mocks = vi.hoisted(() => ({
   conversation: { current: null as Record<string, unknown> | null },
   isMember: { current: true },
   screen: { current: null as Record<string, unknown> | null },
+  search: { current: {} as Record<string, unknown> },
+  navigate: vi.fn(),
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   createFileRoute: () => (options: Record<string, unknown>) => ({
     ...options,
     useParams: () => ({ teamSlug: `acme`, agentId: `agent-1` }),
-    useSearch: () => ({}),
+    useSearch: () => mocks.search.current,
   }),
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mocks.navigate,
   redirect: vi.fn(),
 }))
 vi.mock(`@exp/ui`, async (importOriginal) => ({
@@ -59,7 +62,17 @@ vi.mock(`@/hooks/use-session`, () => ({
 }))
 vi.mock(`@/hooks/use-agent-row`, () => ({
   useAgentRow: () => ({
-    agent: { id: `agent-1`, teamId: `t1`, name: `Triage`, icon: null, color: null },
+    agent: {
+      id: `agent-1`,
+      teamId: `t1`,
+      name: `Triage`,
+      icon: null,
+      color: null,
+      triggers: [
+        { id: `tr0`, kind: `event`, name: `issue.created`, enabled: false },
+        { id: `tr1`, kind: `event`, name: `issue.created`, enabled: true },
+      ],
+    },
     isReady: true,
   }),
   useAllAgentRows: () => [],
@@ -79,6 +92,20 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
         }
       : { view: null, root: null, rows: [], titles: new Map(), pullRequests: [], messagePage: {} },
 }))
+vi.mock(`@/components/team/agents-section`, () => ({
+  AgentSettingsPage: ({ agent }: { agent: { id: string } }) => (
+    <div data-testid="agent-settings-body" data-agent={agent.id} />
+  ),
+}))
+vi.mock(`@/hooks/use-results-tab`, () => ({
+  useResultsTab: () => ({ results: [], cardFor: () => null, loading: false }),
+}))
+vi.mock(`@/components/chat/session-screen-bodies`, () => ({
+  SessionIssuesTab: () => <div data-testid="issues-tab" />,
+  SessionSessionsTab: () => <div data-testid="sessions-tab" />,
+  SessionResultsTab: () => <div data-testid="results-tab" />,
+}))
+vi.mock(`@/components/chat/session-body`, () => ({ BackStackButton: () => null }))
 vi.mock(`@/components/chat/chat-screen`, () => ({
   validateChatSearch: () => ({}),
   ChatScreen: (props: Record<string, unknown>) => {
@@ -144,32 +171,67 @@ beforeEach(() => {
   mocks.isMobile.current = false
   mocks.conversation.current = null
   mocks.isMember.current = true
-})
-
-beforeEach(() => {
   mocks.screen.current = null
+  mocks.search.current = {}
+  mocks.navigate.mockReset()
 })
 
-describe(`the agent chat = THE chat screen`, () => {
-  it(`renders the chat screen over the conversation with the agent's header`, () => {
+describe(`the agent chat = THE session screen`, () => {
+  it(`renders the session screen over the conversation with the agent's header parts and settings`, () => {
     mocks.conversation.current = conversationRow
     render(<Page />)
     expect(screen.getByTestId(`chat-screen`)).toBeTruthy()
     const props = mocks.screen.current!
     expect((props.root as { id: string }).id).toBe(`c1`)
-    expect((props.agent as { name: string }).name).toBe(`Triage`)
+    const agent = props.agent as { name: string; assistant: boolean; trigger: string | null; settings: unknown }
+    expect(agent.name).toBe(`Triage`)
+    expect(agent.assistant).toBe(false)
+    // session-screen.json: the subtitle's trigger = the FIRST ENABLED one.
+    expect(agent.trigger).toBeTruthy()
+    expect(agent.settings).toBeTruthy()
     expect(screen.queryByTestId(`session-composer`)).toBeNull()
   })
 })
 
 describe(`the agent chat with no conversation yet`, () => {
-  it(`md+: the opening composer sits inside the Dock, no floating capsule`, () => {
+  it(`md+: the frame's tabs + the gear, the opening composer inside the Dock, no floating capsule`, () => {
     render(<Page />)
+    const tabs = screen.getByTestId(`session-tabs`)
+    expect([...tabs.querySelectorAll(`[data-tab]`)].map((node) => node.getAttribute(`data-tab`))).toEqual([
+      `chat`,
+      `issues`,
+      `sessions`,
+      `results`,
+    ])
+    expect(screen.getByTestId(`session-gear`).getAttribute(`aria-label`)).toBe(`Settings`)
+    // The Chat tab alone = the chat full width (no beside split).
+    expect(screen.queryByTestId(`session-beside`)).toBeNull()
     const dock = screen.getByTestId(`dock`)
     const composer = dock.querySelector(`[data-testid="session-composer"]`)
     expect(composer?.getAttribute(`data-session`)).toBe(`null`)
     expect(composer?.getAttribute(`data-agent`)).toBe(`agent-1`)
     expect(screen.queryByTestId(`floating-composer`)).toBeNull()
+  })
+
+  it(`md+: another tab = the beside rule (the chat pane + the tab pane)`, () => {
+    mocks.search.current = { tab: `sessions` }
+    render(<Page />)
+    const beside = screen.getByTestId(`session-beside`)
+    expect(beside.querySelector(`[data-testid="dock"]`)).toBeTruthy()
+    expect(screen.getByTestId(`session-pane`).querySelector(`[data-testid="sessions-tab"]`)).toBeTruthy()
+  })
+
+  it(`the gear opens the agent settings body as an opened item`, () => {
+    render(<Page />)
+    fireEvent.click(screen.getByTestId(`session-gear`))
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({ search: expect.objectContaining({ open: `settings` }) })
+    )
+    mocks.search.current = { open: `settings` }
+    render(<Page />)
+    const pane = screen.getByTestId(`session-pane`)
+    expect(pane.querySelector(`[data-testid="agent-settings-body"]`)?.getAttribute(`data-agent`)).toBe(`agent-1`)
+    expect(screen.getByTestId(`session-item-back`)).toBeTruthy()
   })
 
   it(`phone: the opening composer floats in THE capsule`, () => {
