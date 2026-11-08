@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.20.0 (2026-11-08)
+
 - Tabs `swipeable` (#FEED-200, `view/swipe.rs`): a two-finger trackpad swipe pages the Tabs like a finger. gpui's phased `ScrollWheelEvent`s (`ScrollDelta::Pixels`, `TouchPhase` Started/Moved/Ended) over the content send `swipe {phase: start|move|end, offset, velocity}` once `swipe_lock` calls the travel horizontal (vertical = the page's); a gesture starting over a node `swipe_blocks` names (Table, Chart, Slider, a horizontal scroller…) stays that node's; the fling's momentum never pages again; a mouse wheel (`Lines`) never swipes; a gesture silent for 500 ms settles. The panels and the thumb paint the core's `transform` / `transition` as any node does.
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
 - Pixel snapping (EXP-1629): `SurfaceViewOptions::pixel_snap` (on by default) snaps a surface to whole device pixels at the window's scale factor like gpui's layout, so an eUI document paints the same pixels as the gpui view it replaces. A view under a measure override never snaps; the conformance dump turns it off (it compares the core's fractional frames with the web). While snapping, a text's measured width rounds up to a whole pixel, as gpui's text element does.
