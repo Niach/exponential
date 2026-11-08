@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory window switcher (#EDE-12, Mint's \"Icons and thumbnails\" look #EDE-65): hold Alt, Tab / Shift+Tab (or the arrow keys) cycle the current workspace's windows most recent first, Alt+` only the focused app's; the popup shows centred after 100 ms (a quick Alt+Tab flips to the previous window without it), releasing Alt focuses the selected window (a minimized one is restored), Escape cancels, a click picks a tile. The shell feeds /switcher: windows [{id, title, app, icon, minimized, selected, thumbnail}] (live thumbnails at about 5 fps captured over ede-protocol into Image; protected windows show no picture) and title (the selected window's, under the tiles); it sizes the surface's width to the tiles (208 px each, sm gaps, lg padding).",
+  "$comment": "Exponential Desktop's factory window switcher (#EDE-12, Mint's \"Icons and thumbnails\" look #EDE-65): hold Alt, Tab / Shift+Tab (or the arrow keys) cycle the current workspace's windows most recent first, Alt+` only the focused app's; the popup shows centred after 100 ms (a quick Alt+Tab flips to the previous window without it), releasing Alt focuses the selected window (a minimized one is restored), Escape cancels, a click picks a tile, the pointer entering one selects it (Box `on.hover` → `altTab.select`, Mint's hover). The shell feeds /switcher: windows [{id, title, app, icon, minimized, selected, thumbnail}] (live thumbnails at about 5 fps captured over ede-protocol into Image; protected windows show no picture) and title (the selected window's, under the tiles); it sizes the surface's width to the tiles (208 px each, sm gaps, lg padding).",
   "surface": {
     "layer": "overlay",
     "size": {
@@ -8,7 +8,8 @@
     },
     "onDemand": true,
     "functions": [
-      "ede_select"
+      "ede_select",
+      "ede_alt_tab_select"
     ]
   },
   "root": {
@@ -63,6 +64,16 @@
           "press": {
             "functionCall": {
               "@call": "ede_select",
+              "args": {
+                "window": {
+                  "@path": "id"
+                }
+              }
+            }
+          },
+          "hover": {
+            "functionCall": {
+              "@call": "ede_alt_tab_select",
               "args": {
                 "window": {
                   "@path": "id"

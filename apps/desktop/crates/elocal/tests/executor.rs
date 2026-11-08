@@ -182,3 +182,43 @@ fn a_session_on_a_linked_board_gets_a_worktree() {
     assert!(branch.starts_with("exp/"));
     assert_eq!(elocal::runs::worktree_for(&desktop, &sent.session_id).unwrap().0, cwd);
 }
+
+/// #EDE-65 J3b: the IDE's new-issue page autosaves its draft on a Local
+/// desktop too; filing the issue consumes the draft, and a late autosave
+/// of it is refused instead of resurrecting it (local-parity.json `drafts`).
+#[test]
+fn drafts_save_and_are_consumed_by_their_issue() {
+    let (_dir, desktop) = desktop();
+    let client = desktop.client();
+    let team_id = desktop.executor.team_id().to_string();
+    let board = desktop.store.rows("boards").unwrap()[0]["id"].as_str().unwrap().to_string();
+    let draft_id = api::issue_drafts::new_draft_id();
+
+    let mut save = api::issue_drafts::IssueDraftUpsertInput::new(&draft_id, &team_id, &board);
+    save.title = "Half a thought".into();
+    api::issue_drafts::issue_drafts_upsert(&client, &save).unwrap();
+    let first = desktop.store.row("issue_drafts", &draft_id).unwrap().unwrap();
+    assert_eq!(first["title"], "Half a thought");
+    assert_eq!(first["user_id"].as_str(), Some(desktop.executor.identity().user_id.as_str()));
+    save.title = "Half a thought, more".into();
+    api::issue_drafts::issue_drafts_upsert(&client, &save).unwrap();
+    let again = desktop.store.row("issue_drafts", &draft_id).unwrap().unwrap();
+    assert_eq!(again["title"], "Half a thought, more");
+    assert_eq!(again["created_at"], first["created_at"]);
+    assert!(api::issue_drafts::issue_drafts_list_attachments(&client, &draft_id).unwrap().is_empty());
+
+    let mut create = IssuesCreateInput::new(&board, "Half a thought, more");
+    create.draft_id = Some(draft_id.clone());
+    let filed = api::issues::issues_create(&client, &create).unwrap();
+    assert!(desktop.store.row("issue_drafts", &draft_id).unwrap().is_none());
+    assert_eq!(desktop.store.row("issues", &filed.issue.id).unwrap().unwrap()["draft_id"].as_str(), Some(draft_id.as_str()));
+    match api::issue_drafts::issue_drafts_upsert(&client, &save) {
+        Err(api::ApiError::Http { status: 409, message }) => assert_eq!(message, format!("This draft was already created as {}", filed.issue.identifier.unwrap())),
+        other => panic!("a consumed draft must be refused: {other:?}"),
+    }
+    assert!(!api::issue_drafts::issue_drafts_delete(&client, &draft_id).unwrap().deleted);
+
+    // Another board's team: refused like the server.
+    let other = api::issue_drafts::IssueDraftUpsertInput::new(api::issue_drafts::new_draft_id(), "another-team", &board);
+    assert!(matches!(api::issue_drafts::issue_drafts_upsert(&client, &other), Err(api::ApiError::Http { status: 400, .. })));
+}

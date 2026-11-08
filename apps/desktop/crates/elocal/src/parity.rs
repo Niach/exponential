@@ -61,11 +61,18 @@ struct Issues {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Drafts {
+    consumed_refusal: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Spec {
     procedures: Procedures,
     identity: Identity,
     pub seed: Seed,
     issues: Issues,
+    drafts: Drafts,
 }
 
 pub static SPEC: LazyLock<Spec> = LazyLock::new(|| serde_json::from_str(LOCAL_PARITY_JSON).expect("local-parity.json parses"));
@@ -203,10 +210,38 @@ pub fn create_issue_row(input: &Row, ctx: &IssueContext) -> Row {
         "sort_order": number,
         "completed_at": null,
         "duplicate_of_id": null,
-        "draft_id": null,
+        "draft_id": str_of(input, "draftId"),
         "via_app_id": null,
         "created_at": ctx.now,
         "updated_at": ctx.now,
+    }))
+}
+
+/// `issueDrafts.upsert` refused: an issue was already filed from the draft.
+pub fn draft_consumed_refusal(identifier: &str) -> String {
+    SPEC.drafts.consumed_refusal.replace("{identifier}", identifier)
+}
+
+/// `issueDrafts.upsert`: the person's draft row, keyed by the client's id
+/// (a re-save keeps `created_at`; an agent assignee clears the person).
+pub fn draft_row(input: &Row, identity: &LocalIdentity, existing: Option<&Row>, now: &str) -> Row {
+    let agent = str_of(input, "assigneeAgentId");
+    obj(json!({
+        "id": input.get("id").cloned().unwrap_or(Value::Null),
+        "user_id": identity.user_id,
+        "team_id": input.get("teamId").cloned().unwrap_or(Value::Null),
+        "board_id": input.get("boardId").cloned().unwrap_or(Value::Null),
+        "title": str_of(input, "title").unwrap_or(""),
+        "description": str_of(input, "description").unwrap_or(""),
+        "status_id": str_of(input, "statusId"),
+        "priority": str_of(input, "priority").unwrap_or("none"),
+        "assignee_id": if agent.is_some() { None } else { str_of(input, "assigneeId") },
+        "assignee_agent_id": agent,
+        "label_ids": input.get("labelIds").filter(|v| v.is_array()).cloned().unwrap_or(json!([])),
+        "due_date": str_of(input, "dueDate"),
+        "session_id": str_of(input, "sessionId"),
+        "created_at": existing.and_then(|e| str_of(e, "created_at")).unwrap_or(now),
+        "updated_at": now,
     }))
 }
 

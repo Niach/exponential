@@ -6,7 +6,7 @@ name: test
 # (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
 # (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
-# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, the Android
+# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, the Android
 # compile + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
@@ -493,6 +493,20 @@ jobs:
         working-directory: apps/desktop
         run: cargo test -p ede-shell -p ede-protocol -p uicore-model -p uicore-data -p uicore-docs -p uicore-gpui --locked
 
+  # #EDE-65: packages/uicore's TS side (the shell and chat reducers the
+  # Rust crates replay): its tests and its typecheck, which had rotted
+  # unseen until #2303.
+  uicore-ts:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede_shell == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test ./src && bunx tsc -p tsconfig.json --noEmit
+        working-directory: packages/uicore
+
   # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
   # `conformant` check on every PR that touches eUI (exponential-ui.yml with
   # conformance_only; the full suite stays in release-suite.yml).
@@ -641,7 +655,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts]
     if: always()
     runs-on: ubuntu-latest
     steps:
