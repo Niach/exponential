@@ -2176,6 +2176,15 @@
           "responsive": false,
           "default": false,
           "description": "A + button firing `new`."
+        },
+        {
+          "name": "swipeable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Touch: swipe pages the panels."
         }
       ],
       "accessibility": {

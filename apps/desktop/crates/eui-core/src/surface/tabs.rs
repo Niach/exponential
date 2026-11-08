@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 use taffy::style::Direction;
 
 use super::{Frame, OutEvent, Surface};
-use crate::layout_tree::TabDrag;
+use crate::layout_tree::{TabDrag, TabPager};
+use crate::swipe::{swipe_offset, swipe_settle};
 use crate::tabs_strip::{move_tab, partition_tabs, tab_drop_slot, tab_key_slot, tab_reorder};
 
 /// One strip as laid out: the array indexes in strip order and each one's
@@ -179,4 +180,93 @@ impl Surface {
             None => vec![],
         }
     }
+
+    /// FEED-200: after a pass, measure every `swipeable` Tabs (the content's
+    /// width, the direction, each header's span from the list's origin).
+    /// True when one changed (its subtree is queued; the pass runs again).
+    pub(super) fn fit_tab_pagers(&mut self, frames: &[Frame]) -> bool {
+        let ids: Vec<(String, usize)> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| self.live.get(*i).copied().unwrap_or(false) && n.component == "Tabs" && n.part.is_none() && n.props.get("swipeable").and_then(Value::as_bool) == Some(true))
+            .map(|(_, n)| (n.id.clone(), n.props.get("tabs").and_then(Value::as_array).map(Vec::len).unwrap_or(0)))
+            .collect();
+        let mut changed = false;
+        for (id, n) in ids {
+            let frame = |key: &str| self.slot_of.get(&format!("{id}.{key}")).and_then(|&s| frames.get(s as usize).copied());
+            let (Some(content), Some(list)) = (frame("content"), frame("list")) else { continue };
+            let header = if self.is_tab_strip(&id) { "item" } else { "tab" };
+            let fit = self.local.tab_fit.get(&id);
+            let spans = (0..n)
+                .map(|i| if fit.is_some_and(|f| !f.contains(&i)) { None } else { frame(&format!("{header}.{i}")).map(|f| (f.x - list.x, f.y - list.y, f.w, f.h)) })
+                .collect();
+            let rtl = self.slot_of.get(&id).and_then(|&s| self.node_state.get(s as usize)).is_some_and(|s| s.direction == Direction::Rtl);
+            let pager = TabPager { width: content.w, rtl, spans };
+            if self.local.tab_pager.get(&id).is_some_and(|p| pager_near(p, &pager)) {
+                continue;
+            }
+            self.local.tab_pager.insert(id.clone(), pager);
+            self.subtree_pending.insert(id);
+            changed = true;
+        }
+        changed
+    }
+
+    /// FEED-200: `swipe {phase: start|move|end|cancel, offset, velocity}` on
+    /// a `swipeable` Tabs (its root or `content`; `offset` = screen px since
+    /// the swipe started, `velocity` = px/ms at the release). A move draws
+    /// the panels and the `thumb` at `swipe::swipe_offset`; the end settles
+    /// (`swipe::swipe_settle`): a new tab writes `value` through and fires
+    /// `change {value}` like a press; either way the pager animates to rest.
+    pub(super) fn tab_swipe(&mut self, owner_id: &str, payload: Option<&Value>) -> Vec<OutEvent> {
+        let Some(owner) = self.node_by_id(owner_id) else { return vec![] };
+        if owner.props.get("swipeable").and_then(Value::as_bool) != Some(true) {
+            return vec![];
+        }
+        let values: Vec<String> = owner.props.get("tabs").and_then(Value::as_array).map(|t| t.iter().map(|t| t.get("value").map(crate::layout_tree::js).unwrap_or_default()).collect()).unwrap_or_default();
+        let active = self.local.tabs.get(owner_id).cloned().or_else(|| owner.props.get("value").map(crate::layout_tree::js)).filter(|v| values.contains(v)).or_else(|| values.first().cloned()).unwrap_or_default();
+        let index = values.iter().position(|v| *v == active).unwrap_or(0);
+        let num = |key: &str| payload.and_then(|p| p.get(key)).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+        let (offset, velocity) = (num("offset"), num("velocity"));
+        let phase = payload.and_then(|p| p.get("phase")).and_then(Value::as_str).unwrap_or("move");
+        let (width, rtl) = self.local.tab_pager.get(owner_id).map(|p| (p.width, p.rtl)).unwrap_or((0.0, false));
+        self.subtree_pending.insert(owner_id.to_string());
+        match phase {
+            "start" | "move" => {
+                self.local.tab_swipe.insert(owner_id.to_string(), swipe_offset(index, values.len(), offset.into(), width.into(), rtl) as f32);
+                vec![OutEvent::Relayout]
+            }
+            "end" => {
+                self.local.tab_swipe.remove(owner_id);
+                let to = swipe_settle(index, values.len(), offset.into(), velocity.into(), width.into(), rtl);
+                let mut out = vec![];
+                if to != index {
+                    let value = values[to].clone();
+                    self.local.tabs.insert(owner_id.to_string(), value.clone());
+                    out.extend(self.write_through(owner_id, "value", Value::String(value.clone())));
+                    out.extend(self.fire(owner_id, "change", Some(json!({"value": value}))));
+                }
+                out.push(OutEvent::Relayout);
+                out
+            }
+            _ => {
+                self.local.tab_swipe.remove(owner_id);
+                vec![OutEvent::Relayout]
+            }
+        }
+    }
+}
+
+/// Sub-pixel jitter never re-runs a pass.
+fn pager_near(a: &TabPager, b: &TabPager) -> bool {
+    let close = |x: f32, y: f32| (x - y).abs() < 0.5;
+    a.rtl == b.rtl
+        && close(a.width, b.width)
+        && a.spans.len() == b.spans.len()
+        && a.spans.iter().zip(&b.spans).all(|(p, q)| match (p, q) {
+            (Some(p), Some(q)) => close(p.0, q.0) && close(p.1, q.1) && close(p.2, q.2) && close(p.3, q.3),
+            (None, None) => true,
+            _ => false,
+        })
 }

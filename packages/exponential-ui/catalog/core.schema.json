@@ -4099,6 +4099,11 @@
           "description": "A + button firing `new`.",
           "default": false
         },
+        "swipeable": {
+          "type": "boolean",
+          "description": "Touch: swipe pages the panels.",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
         },

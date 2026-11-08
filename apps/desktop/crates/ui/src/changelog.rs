@@ -56,6 +56,32 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_232: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-install-claude-code-in-the-app",
+    date: "2026-11-08",
+    title: "Install Claude Code from the app",
+    summary: "When Claude Code is missing, Install in the desktop app runs Anthropic's own installer for you; then sign in as usual.",
+    body: r#"- **Install Claude Code from the app**: on a device without Claude Code, Install in the device checklist runs Anthropic's official installer right there, instead of opening the docs. Sign in next, like always: Exponential never touches your login.
+- **Update installs it too**: asking a device without Claude Code to update installs it the same way."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_231: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-search-by-creator",
+    date: "2026-11-08",
+    title: "Search by creator, boards in one list",
+    summary: "Issue search finds who created an issue with by:<name>, Settings → Boards lists live, archived and trashed boards together, every session runs on Opus, and the desktop app's corner is the Assistant.",
+    body: r#"- **Search by creator**: issue search matches who created an issue, like `by:dana`, on the web, desktop, iPhone and Android.
+- **Settings → Boards**: live, archived and trashed boards are one list.
+- **Opus everywhere**: every session runs on Opus, so the thread and subagent model settings are gone.
+- **The Assistant in the corner**: the desktop app's corner opens the Assistant, + opens the composer, and the Computer button sits beside the Assistant and the gear.
+- **Exponential Desktop chat**: the composer takes @ and # mentions and : emoji, like the desktop app.
+- **Screen readers**: every desktop button, row, tab and card has a name and role."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_230: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-every-chat-a-group-chat",
     date: "2026-11-08",
