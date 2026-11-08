@@ -521,6 +521,16 @@ fun ChatScreen(
             ChatContent(
                 view = view,
                 agent = agent,
+                // #EXP-1736: the conversation's own sender + the viewer.
+                chatSender = view?.let { v ->
+                    com.exponential.app.domain.TranscriptGrouping.Chat(
+                        sessionId = v.rootId,
+                        title = agent?.name ?: v.title,
+                        agentId = rootRow?.agentId?.takeIf { agent != null && it.isNotEmpty() },
+                        originSessionId = null,
+                    )
+                },
+                viewerId = me,
                 selectedKey = selectedKey,
                 onSelectKey = { selectedKey = it },
                 plan = shownPlan?.let { PlanPageState(it, messagesById[it.id]?.card) },
@@ -830,6 +840,10 @@ fun ChatContent(
     plan: PlanPageState? = null,
     /** The pager rested off the plan tab: an opened plan is forgotten. */
     onPlanLeft: () -> Unit = {},
+    /** #EXP-1736: the Conversation's own sender (session, title, agent). */
+    chatSender: com.exponential.app.domain.TranscriptGrouping.Chat? = null,
+    /** #EXP-1736: the viewer (their bubbles sit right). */
+    viewerId: String? = null,
 ) {
     // results-tab.json: the host appends the Results tab after the
     // last chip (never part of session-chat.json `tabs`): the phones'
@@ -1023,7 +1037,6 @@ fun ChatContent(
                             .imePadding(),
                     ) {
                         ChatConversation(
-                            bubbles = agent != null,
                             rows = view.rows,
                             rootId = view.rootId,
                             meta = meta,
@@ -1050,6 +1063,8 @@ fun ChatContent(
                             // #EXP-1464: a session of this chat opens in place.
                             onOpenXref = onOpenXref?.let { open -> { id -> if (!openSessionHere(id)) open(id) } },
                             rowActions = rowActions,
+                            chat = chatSender,
+                            viewerId = viewerId,
                         )
                         FloatingBarEdge(
                             bottomInset = bottomInset,

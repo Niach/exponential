@@ -561,27 +561,54 @@ private val LAUNCH_SURFACE: CardSurface = Json.parseToJsonElement(
     """.trimIndent(),
 ).jsonObject.let { CardSurface(it.getValue("root").jsonObject, it["data"] as? JsonObject) }
 
-private fun message(id: String, author: String, body: String) =
-    SessionTree.SessionChatRow.MessageRow(id = id, author = author, authorId = if (author == "user") "u-dana" else null, body = body, queued = false)
+private fun message(id: String, author: String, body: String, authorId: String? = if (author == "user") SPECIMEN_MEMBER else null) =
+    SessionTree.SessionChatRow.MessageRow(id = id, author = author, authorId = authorId, body = body, queued = false)
 
-/** The web entry's rows (chat-transcript.tsx) line for line. */
+/** #EXP-1736: the transcript's viewer and the member writing beside them. */
+private const val SPECIMEN_VIEWER = "u-alex"
+private const val SPECIMEN_MEMBER = "u-dana"
+
+/** #EXP-1736 (transcript-grouping.json): the transcript's own sender, a plain
+ *  session (its agent's bubbles wear its title + the session avatar). */
+private val SPECIMEN_CHAT = com.exponential.app.domain.TranscriptGrouping.Chat(
+    sessionId = "r",
+    title = "Reduce cold start",
+    agentId = null,
+    originSessionId = null,
+)
+
+/** The web entry's rows (chat-transcript.tsx), #EXP-1736 grouped: a member
+ *  (avatar + name), the agent's group of two, a child's report (`›`), the
+ *  viewer's own bubble. */
 private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."),
     SessionTree.SessionChatRow.Plan(id = "p-old", sessionId = "r", plan = "# Plan\nProfile first", decision = "superseded"),
     message(
         "m2",
         "agent",
-        "Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:",
+        "Deferred the shape subscribe until after the first frame and added a board snapshot cache.",
     ),
+    message("m2b", "agent", "Here's where the time went:"),
     SessionTree.SessionChatRow.Surface(id = "s1", sessionId = "r", title = "Launch path", surface = LAUNCH_SURFACE),
     // `specimenClock` reads UTC: 18:20 / 09:30 like web, desktop and iOS.
     SessionTree.SessionChatRow.Divider(id = "d1", kind = Chats.DIVIDER_KIND_COMPACT, at = "2026-10-23T18:20:00.000Z"),
-    message("m3", "user", "Anything new overnight?"),
+    SessionTree.SessionChatRow.Report(
+        id = "rep1",
+        sessionId = "c1",
+        text = "Report from Measure on the Galaxy A54",
+        summary = "Cold start is 0.9 s on the Galaxy A54 with the snapshot cache.",
+        xref = SessionTree.SessionXref("report", "c1", "Measure on the Galaxy A54", null),
+    ),
+    message("m3", "user", "Anything new overnight?", authorId = SPECIMEN_VIEWER),
     message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."),
     SessionTree.SessionChatRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T09:30:00.000Z"),
 )
 
-private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m3" to "09:02", "m4" to "09:03")
+private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m2b" to "21:14", "m3" to "09:02", "m4" to "09:03")
+
+/** The specimen's names by member id. */
+private fun specimenAuthor(row: SessionTree.SessionChatRow.MessageRow): String =
+    if (row.authorId == SPECIMEN_VIEWER) "Alex" else "Dana Reyes"
 
 /** The specimen's wall clock: the bubbles' times above are the web entry's
  *  UTC wall clock, so the divider pills format in the same zone (EXP-1553). */
@@ -599,7 +626,7 @@ fun ChatTranscriptSpecimenScreen() {
             ChatConversation(
                 rows = TRANSCRIPT,
                 rootId = "r",
-                meta = { row -> ChatRowMeta(authorName = "Dana Reyes", time = TIMES[row.id].orEmpty()) },
+                meta = { row -> ChatRowMeta(authorName = specimenAuthor(row), time = TIMES[row.id].orEmpty()) },
                 onOpenCard = {},
                 onAnswer = { _, _, _ -> },
                 onDecidePlan = { _, _, _ -> },
@@ -608,7 +635,10 @@ fun ChatTranscriptSpecimenScreen() {
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                 onSurfaceReply = {},
+                onOpenXref = {},
                 clock = ::specimenClock,
+                chat = SPECIMEN_CHAT,
+                viewerId = SPECIMEN_VIEWER,
             )
         }
     }

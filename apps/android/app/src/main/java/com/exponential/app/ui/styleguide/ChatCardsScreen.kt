@@ -410,11 +410,33 @@ private fun SuggestionsSpecimens() {
         actions = actions,
         onOpenSession = {},
     )
+    // #EXP-1736: a child's report = its bubble under its avatar, `<child> ›`.
     Caption("Report")
-    SessionXref(
-        SessionTree.SessionXref("report", "c2", "Lazy-load product images", null),
-        onOpen = {},
+    val reporter = com.exponential.app.domain.TranscriptGrouping.Sender(
+        kind = com.exponential.app.domain.TranscriptGrouping.SenderKind.Session,
+        id = "c2",
+        name = "Lazy-load product images",
+        link = "c2",
     )
+    com.exponential.app.ui.chat.TranscriptBubbleRow(
+        layout = com.exponential.app.domain.TranscriptGrouping.RowLayout(
+            id = "report",
+            side = com.exponential.app.domain.TranscriptGrouping.Side.Other,
+            sender = reporter,
+            avatar = true,
+            name = true,
+            gap = 0,
+        ),
+        avatar = { com.exponential.app.ui.chat.SenderAvatar(reporter) },
+    ) {
+        com.exponential.app.ui.chat.MessageBubble(
+            text = "Below-the-fold images load lazily now; LCP is down 300 ms.",
+            own = false,
+            time = null,
+            author = reporter.label,
+            onClick = {},
+        )
+    }
     // EXP-1211: the quick replies above the session composer.
     Caption(SessionTree.RepliesCopy.LABEL)
     ComposerRepliesRow(

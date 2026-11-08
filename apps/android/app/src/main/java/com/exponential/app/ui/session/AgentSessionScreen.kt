@@ -345,6 +345,11 @@ import com.exponential.app.ui.components.DockCards
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.chat.PlanAskCard
+import com.exponential.app.domain.TranscriptGrouping
+import com.exponential.app.ui.chat.MessageBubble
+import com.exponential.app.ui.chat.SenderAvatar
+import com.exponential.app.ui.chat.TranscriptBubbleRow
+import com.exponential.app.ui.chat.authorLine
 import com.exponential.app.ui.chat.SurfaceCard
 import com.exponential.app.ui.chat.ChatAnswer
 import com.exponential.app.ui.chat.ChatAskCard
@@ -641,8 +646,10 @@ private fun RunFaceContent(
     val session by viewModel.session.collectAsStateWithLifecycle()
     // S-3: who started this session, the feed's first line.
     val origin by viewModel.origin.collectAsStateWithLifecycle()
-    // #VAPP-229: "via <app>" under the origin (null = no line).
+    // #VAPP-229: "via <app>" over the transcript (null = no line).
     val viaAppCaption by viewModel.viaAppCaption.collectAsStateWithLifecycle()
+    // #EXP-1736: this session's own name (its agent's bubbles wear it).
+    val sessionHeader by viewModel.header.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     // Whether the socket is actually up (EXP-621). The banners read the
     // PHASE — a silent redial must not flicker them — but the composer
@@ -687,6 +694,25 @@ private fun RunFaceContent(
     // EXP-920: the transcript's entity-preview sheets read the run's team
     // rows off the account DB (the viewer id scopes notifications).
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    // #EXP-1736 (transcript-grouping.json): the raw feed's senders.
+    val feedSenders = remember(session?.id, session?.title, session?.agentId, sessionHeader?.sessionName, currentUserId, origin, onOpenOrigin) {
+        session?.let { row ->
+            val link = origin
+            FeedSenders(
+                viewerId = currentUserId,
+                chat = TranscriptGrouping.Chat(
+                    sessionId = row.id,
+                    title = sessionHeader?.sessionName ?: row.title.orEmpty(),
+                    agentId = row.agentId?.takeIf { it.isNotEmpty() },
+                    originSessionId = null,
+                ),
+                origin = link?.xref,
+                onOpen = onOpenOrigin?.let { open ->
+                    { id: String -> open(id, link?.takeIf { it.xref.sessionId == id }?.root ?: false) }
+                },
+            )
+        }
+    }
     val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
         EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
     }
@@ -1122,20 +1148,14 @@ private fun RunFaceContent(
                     // band's height clears the head.
                     bottomInset = bandClearance,
                     topInset = topInset,
+                    // #EXP-1736 (transcript-grouping.json): who sent each
+                    // row; the origin's prompt is that session's bubble.
+                    senders = feedSenders,
                     header = {
-                        val link = origin
                         val via = viaAppCaption
                         Column {
-                            if (onOpenOrigin != null && link != null) {
-                                com.exponential.app.ui.components.SessionXref(
-                                    link.xref,
-                                    onOpen = { id -> onOpenOrigin(id, link.root) },
-                                    // Web's `pt-3 pb-1`.
-                                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 4.dp),
-                                )
-                            }
                             // #VAPP-229 (via-app.json): one muted small line
-                            // under the origin; the chat header stays
+                            // over the transcript; the chat header stays
                             // caption-free.
                             if (via != null) {
                                 Text(
@@ -1585,7 +1605,13 @@ private val TranscriptMaxWidth = DesignTokens.Transcript.MaxWidth.dp
  */
 @Composable
 private fun TranscriptRow(gap: TranscriptGap, content: @Composable () -> Unit) {
-    ReadingColumn(modifier = Modifier.padding(top = gap.dp), content = content)
+    TranscriptRow(gap.dp, content)
+}
+
+/** [TranscriptRow] with the gap in dp (#EXP-1736: two bubbles' group gap). */
+@Composable
+private fun TranscriptRow(gap: Dp, content: @Composable () -> Unit) {
+    ReadingColumn(modifier = Modifier.padding(top = gap), content = content)
 }
 
 /**
@@ -1682,6 +1708,8 @@ private fun ActivityFeed(
     /** EXP-1398: the session's own cards, where each draws ([renderCard]). */
     sessionCards: SessionCardSlots = SessionCardSlots.None,
     renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
+    /** #EXP-1736: who sent each row (null = no grouping: every row full). */
+    senders: FeedSenders? = null,
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1710,6 +1738,18 @@ private fun ActivityFeed(
     val rows = remember(feed, windowStart, workflowIds, docked) {
         splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
             .filterNot { docked != null && isSameAskRow(it, docked) }
+    }
+    // #EXP-1736 (transcript-grouping.json): the main stream's senders and
+    // groups; the EXP-787 ladder keeps the gaps except between two bubbles.
+    // The parent's prompt = the feed's first one, once nothing earlier waits
+    // on the device.
+    val deviceHoldsEarlier = onCanLoadEarlier()
+    val feedLayouts = remember(rows, sessionCards, senders, agent, feed, deviceHoldsEarlier, workflowIds) {
+        if (senders == null) {
+            emptyMap()
+        } else {
+            feedTranscriptLayout(rows, sessionCards, senders, agent, firstPromptId = if (deviceHoldsEarlier) null else firstPromptId(feed), workflowIds = workflowIds)
+        }
     }
     // Cards whose tool row this window does not hold (see the tail items).
     val orphanWorkflows = remember(rows, workflows) {
@@ -1929,10 +1969,20 @@ private fun ActivityFeed(
             // EXP-1521: a contentType per row kind, so a scrolled-off slot is
             // reused by a row of the same shape instead of rebuilt.
             itemsIndexed(rows, key = { _, row -> row.id }, contentType = { _, row -> row.contentType }) { index, row ->
+                val feedLayout = feedLayouts[row.id]
+                val layout = feedLayout?.layout
                 Column {
                 TranscriptRow(
-                    transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass),
+                    if (feedLayout?.groupGap == true) {
+                        layout?.gap?.dp ?: 0.dp
+                    } else {
+                        transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass).dp
+                    },
                 ) {
+                    TranscriptBubbleRow(
+                        layout = layout?.copy(gap = 0),
+                        avatar = { layout?.sender?.let { SenderAvatar(it) } },
+                    ) {
                     when (row) {
                         is AgentFeedRow.ToolRun -> ToolGroupRow(
                             items = row.items,
@@ -1962,7 +2012,22 @@ private fun ActivityFeed(
                         is AgentFeedRow.QuestionStepper -> AnswerCardRow(row, cards)
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             // #VAPP-258: the live tail is the reply being written.
-                            is AgentFeedItem.Narration -> NarrationBubble(item.text, streaming = working && index == rows.lastIndex)
+                            is AgentFeedItem.Narration -> if (item.text.isNotBlank()) {
+                                MessageBubble(
+                                    own = false,
+                                    time = null,
+                                    author = layout.authorLine(),
+                                    testTag = "session-agent-narration",
+                                ) {
+                                    MarkdownView(
+                                        item.text,
+                                        softBreaksAsNewlines = true,
+                                        streaming = working && index == rows.lastIndex,
+                                    )
+                                }
+                            } else {
+                                Unit
+                            }
                             is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
                             // EXP-850 (S3): the `Workflow` call renders as its
                             // card — name, phases, agents, summary — and never
@@ -2002,10 +2067,25 @@ private fun ActivityFeed(
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
                                     SlashCommands.commandFor(item.text, agent)
+                                val time = item.at?.let(::feedClock)
                                 when {
-                                    divider != null -> TranscriptDivider(divider, item.at?.let(::feedClock))
+                                    divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
-                                    else -> UserMessageBubble(item.text)
+                                    layout?.side == TranscriptGrouping.Side.Other -> {
+                                        // #EXP-1736: a parent's / child's message
+                                        // = that session's bubble (its body).
+                                        val link = layout?.sender?.link
+                                        val open = senders?.onOpen
+                                        val cross = TranscriptGrouping.crossSessionInput(item.text)
+                                            ?.takeIf { it.sessionId == link }
+                                        MessageBubble(
+                                            own = false,
+                                            time = time,
+                                            author = layout.authorLine(),
+                                            onClick = if (link != null && open != null) ({ open(link) }) else null,
+                                        ) { UserMessageBody(cross?.body ?: item.text) }
+                                    }
+                                    else -> MessageBubble(own = true, time = time) { UserMessageBody(item.text) }
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2037,6 +2117,7 @@ private fun ActivityFeed(
                             )
                             is AgentFeedItem.Question -> AnswerCardRow(row, cards)
                         }
+                    }
                     }
                 }
                 // EXP-1398: the session cards the row's calls posted.
@@ -2070,7 +2151,13 @@ private fun ActivityFeed(
                         transcriptGap(rows.lastOrNull()?.rowClass, AgentRowClass.Tool),
                     ) {
                         val turn = turnCaption()
+                        // #EXP-1736: the agent's work sits in its bubble column.
                         WorkingIndicatorRow(
+                            modifier = if (senders != null) {
+                                Modifier.padding(start = (TranscriptGrouping.Layout.AVATAR + TranscriptGrouping.Layout.AVATAR_GAP).dp)
+                            } else {
+                                Modifier
+                            },
                             startedAt = turn.startedAt,
                             tokens = turn.tokens,
                             writing = turn.writing,
@@ -2118,6 +2205,115 @@ private fun ActivityFeed(
         }
         }
     }
+}
+
+/** #EXP-1736 (transcript-grouping.json): who the raw feed's senders are:
+ *  the viewer, this session (its title, its agent), who started it and how
+ *  a cross-session bubble opens its session (null = inert). */
+internal data class FeedSenders(
+    val viewerId: String?,
+    val chat: TranscriptGrouping.Chat,
+    val origin: SessionTree.SessionXref?,
+    val onOpen: ((sessionId: String) -> Unit)?,
+)
+
+/** A main-stream row's layout; [groupGap] = it and the row above it are
+ *  both bubbles (the group's gaps replace the EXP-787 ladder there). */
+internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val groupGap: Boolean)
+
+/** The id of the feed's first main-thread prompt (the one a parent session
+ *  started this session with, when one did). */
+internal fun firstPromptId(feed: List<AgentFeedItem>): Long? =
+    feed.firstOrNull { it is AgentFeedItem.UserMessage && it.subagentId == null }?.id
+
+/**
+ * #EXP-1736: the raw feed's rows as transcript items: narration = the
+ * agent's message, a prompt = the viewer's own unless it parses as another
+ * session's input ([TranscriptGrouping.crossSessionInput]: that session's
+ * message; [firstPromptId] = the origin's prompt), thoughts / tool calls /
+ * edits / subagent lines = the agent's trace, every other row and every
+ * session card = full.
+ */
+internal fun feedTranscriptLayout(
+    rows: List<AgentFeedRow>,
+    cards: SessionCardSlots,
+    senders: FeedSenders,
+    agent: String?,
+    firstPromptId: Long?,
+    /** EXP-850 (S3): a `Workflow` call draws as its card (a full row). */
+    workflowIds: Set<String> = emptySet(),
+): Map<Long, FeedRowLayout> {
+    val sessions = LinkedHashMap<String, TranscriptGrouping.SessionRef>()
+    senders.origin?.let { sessions[it.sessionId] = TranscriptGrouping.SessionRef(it.sessionId, it.name, it.agentId) }
+    val items = ArrayList<TranscriptGrouping.Item>()
+    val bubbleIds = HashSet<String>()
+    cards.head.forEach { items += TranscriptGrouping.Item("card:${it.id}", TranscriptGrouping.ItemKind.Full) }
+    for (row in rows) {
+        val id = "row:${row.id}"
+        val item = when (row) {
+            is AgentFeedRow.ToolRun, is AgentFeedRow.Edits, is AgentFeedRow.ExpRun, is AgentFeedRow.SubagentRun ->
+                TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+            is AgentFeedRow.QuestionStepper -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+            is AgentFeedRow.Single -> when (val feedItem = row.item) {
+                is AgentFeedItem.Narration -> if (feedItem.text.isNotBlank()) {
+                    bubbleIds += id
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "agent")
+                } else {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                }
+                is AgentFeedItem.UserMessage -> if (
+                    Chats.commandDivider(feedItem.text) != null || SlashCommands.commandFor(feedItem.text, agent) != null
+                ) {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                } else {
+                    bubbleIds += id
+                    val cross = TranscriptGrouping.crossSessionInput(feedItem.text)
+                    if (cross != null) {
+                        sessions.getOrPut(cross.sessionId) {
+                            TranscriptGrouping.SessionRef(cross.sessionId, cross.name, null)
+                        }
+                    }
+                    val from = cross?.sessionId
+                        ?: senders.origin?.sessionId?.takeIf { feedItem.id == firstPromptId }
+                    TranscriptGrouping.Item(
+                        id,
+                        TranscriptGrouping.ItemKind.Message,
+                        authorKind = "user",
+                        authorId = senders.viewerId,
+                        authorSessionId = from,
+                    )
+                }
+                is AgentFeedItem.Tool -> TranscriptGrouping.Item(
+                    id,
+                    if (feedItem.callId?.let { it in workflowIds } == true) TranscriptGrouping.ItemKind.Full else TranscriptGrouping.ItemKind.Trace,
+                )
+                is AgentFeedItem.Thought -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                is AgentFeedItem.Subagent -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+            }
+        }
+        items += item
+        cards.after(row).forEach { items += TranscriptGrouping.Item("card:${row.id}:${it.id}", TranscriptGrouping.ItemKind.Full) }
+    }
+    val layouts = TranscriptGrouping.transcriptLayout(
+        TranscriptGrouping.Input(
+            viewerId = senders.viewerId,
+            chat = senders.chat.copy(originSessionId = null),
+            sessions = sessions.values.toList(),
+            items = items,
+        ),
+    )
+    val out = HashMap<Long, FeedRowLayout>(rows.size)
+    var prev: String? = null
+    val byRow = rows.associateBy { "row:${it.id}" }
+    for (layout in layouts) {
+        val row = byRow[layout.id]
+        if (row != null) {
+            out[row.id] = FeedRowLayout(layout, groupGap = layout.id in bubbleIds && prev != null && prev in bubbleIds)
+        }
+        prev = layout.id
+    }
+    return out
 }
 
 /** EXP-1398: where the session's own cards draw in its transcript
@@ -2310,9 +2506,8 @@ private fun AgentTabChip(
     )
 }
 
-// Assistant prose — a small glyph + plain full-width selectable text. EXP-274
-// dropped the glass speech bubble: agent output is the feed's bulk, and the
-// bubble insets cost real width on a phone.
+// A subagent's prose in its own lane — a small glyph + plain full-width
+// selectable text (the main stream's prose is THE bubble since #EXP-1736).
 @Composable
 private fun NarrationBubble(
     text: String,
@@ -2320,8 +2515,6 @@ private fun NarrationBubble(
      *  compact rhythm — the feed's rows get theirs from the gap ladder
      *  (EXP-787), so a top-level bubble carries no outer padding. */
     nested: Boolean = false,
-    /** #VAPP-258: the reply still being written (`streaming: true`). */
-    streaming: Boolean = false,
 ) {
     // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
@@ -2341,7 +2534,7 @@ private fun NarrationBubble(
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        MarkdownView(text, softBreaksAsNewlines = true, streaming = streaming, modifier = Modifier.weight(1f))
+        MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
     }
 }
 
@@ -2368,6 +2561,7 @@ private fun feedClock(at: Long): String =
  */
 @Composable
 private fun WorkingIndicatorRow(
+    modifier: Modifier = Modifier,
     startedAt: Long? = null,
     tokens: Long? = null,
     writing: WorkingWriting? = null,
@@ -2387,7 +2581,7 @@ private fun WorkingIndicatorRow(
         }
     }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2990,61 +3184,53 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // hides them.
 @Composable
 private fun UserMessageBubble(text: String, nested: Boolean = false) {
-    var expanded by remember { mutableStateOf(false) }
+    // #EXP-1736: THE message bubble, the viewer's side; EXP-787: inside a
+    // subagent group the turn keeps the group's own rhythm.
+    MessageBubble(
+        own = true,
+        time = null,
+        modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
+    ) { UserMessageBody(text) }
+}
+
+/** A human turn's body inside its bubble: the prose (folded when long, its
+ *  `[Image #N]` markers as pills), the images, the file tiles. */
+@Composable
+private fun UserMessageBody(text: String) {
+    var expanded by remember(text) { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
     // Wave D: file lines peel off too — rendered as file tiles below.
     val hasFiles = parsed.files.isNotEmpty()
     val prose = if (hasImages || hasFiles) parsed.text else text
     val folds = remember(prose) { clampable(prose) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // EXP-787: the gap above a turn is the ladder's, except inside a
-            // subagent group, which keeps its own rhythm.
-            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
-        horizontalArrangement = Arrangement.End,
+    Column(
+        modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
     ) {
-        // EXP-1676: the transcript's person bubble ×4 (web `UserMessageBubble`
-        // variant transcript): right, max 70% of the column, no time.
-        Spacer(Modifier.fillMaxWidth(0.3f))
-        val bubbleShape = RoundedCornerShape(12.dp)
-        Column(
-            modifier = Modifier
-                .clip(bubbleShape)
-                .background(GlassTokens.RowFillActive, bubbleShape)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, bubbleShape)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Column(
-                modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
-            ) {
-                when {
-                    // Markers are only meaningful against embeds that exist —
-                    // an `[Image #2]` typed into an image-less message is
-                    // prose, and rendering it as a pill would promise a
-                    // preview there is nothing to preview.
-                    hasImages && parsed.markers.isNotEmpty() ->
-                        MarkerProse(parsed.text, count = parsed.attachmentIds.size)
-                    prose.isNotEmpty() ->
-                        MarkdownView(prose, softBreaksAsNewlines = true)
-                }
-            }
-            if (folds) {
-                ShowMoreToggle(expanded) { expanded = !expanded }
-            }
-            if (hasImages) {
-                MarkdownView(
-                    parsed.attachmentIds.joinToString("\n") {
-                        "![image](/api/attachments/$it)"
-                    },
-                    softBreaksAsNewlines = true,
-                )
-            }
-            if (hasFiles) {
-                SteerFileRows(parsed.files)
-            }
+        when {
+            // Markers are only meaningful against embeds that exist —
+            // an `[Image #2]` typed into an image-less message is
+            // prose, and rendering it as a pill would promise a
+            // preview there is nothing to preview.
+            hasImages && parsed.markers.isNotEmpty() ->
+                MarkerProse(parsed.text, count = parsed.attachmentIds.size)
+            prose.isNotEmpty() ->
+                MarkdownView(prose, softBreaksAsNewlines = true)
         }
+    }
+    if (folds) {
+        ShowMoreToggle(expanded) { expanded = !expanded }
+    }
+    if (hasImages) {
+        MarkdownView(
+            parsed.attachmentIds.joinToString("\n") {
+                "![image](/api/attachments/$it)"
+            },
+            softBreaksAsNewlines = true,
+        )
+    }
+    if (hasFiles) {
+        SteerFileRows(parsed.files)
     }
 }
 

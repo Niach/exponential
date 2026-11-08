@@ -1113,7 +1113,6 @@ private fun AppEditorConversation(
             )
         }
         ChatConversation(
-            bubbles = true,
             rows = v.rows,
             rootId = v.rootId,
             meta = meta,
@@ -1130,6 +1129,9 @@ private fun AppEditorConversation(
             // S-3: a report / another session's line links that session.
             origin = v.origin,
             onOpenXref = { id -> openSession(id) },
+            // #EXP-1736: the editor's bubbles: the app's name + mark ([agent]).
+            chat = com.exponential.app.domain.TranscriptGrouping.Chat(v.rootId, app.name, null, null),
+            viewerId = me,
         )
         FloatingBarEdge(
             bottomInset = bottomInset,
