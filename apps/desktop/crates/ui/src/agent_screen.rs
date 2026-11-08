@@ -122,7 +122,8 @@ fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
         return None;
     }
     let agent_id = agent_id.to_string();
-    let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx);
+    let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx)
+        .accessibility_label("More");
     Some(
         div()
             .flex_shrink_0()
@@ -361,10 +362,6 @@ impl AgentScreenView {
                 this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe_in(&collections.messages, window, |this, _, window, cx| {
-                this.queue_refresh(window, cx)
-            }));
-            // NEW-8: a message's session is its conversation's.
-            subscriptions.push(cx.observe_in(&collections.conversations, window, |this, _, window, cx| {
                 this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));

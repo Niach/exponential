@@ -780,10 +780,6 @@ impl SteerSessionView {
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| {
                 this.refresh_replies(cx);
             }));
-            // NEW-8: a message's session is its conversation's.
-            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| {
-                this.refresh_replies(cx);
-            }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
@@ -4704,7 +4700,7 @@ pub(crate) fn ask_choice_button(
 ) -> Button {
     // THE checkbox (the button's click toggles it; the box only paints).
     let leading = multi.then(|| {
-        crate::controls::checkbox("choice-check", picked.into(), false, cx).into_any_element()
+        crate::controls::checkbox("choice-check", picked.into(), false, cx).aria_label(label.clone()).into_any_element()
     });
     let check = (picked && !multi)
         .then(|| Icon::new(registry::UI_CHECK).xsmall().flex_shrink_0().text_color(cx.theme().foreground).into_any_element());
@@ -4727,6 +4723,7 @@ fn ask_option_button_trailing(
     let muted = cx.theme().muted_foreground;
     let label_color = if primary { cx.theme().primary_foreground } else { cx.theme().foreground };
     let mut button = Button::new(id)
+        .accessibility_label(label.clone())
         .cursor_pointer()
         .w_full()
         .h_auto()

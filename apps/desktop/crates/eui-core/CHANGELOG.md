@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Chart `valueFormat` + rows (#FEED-205): `chart::format_chart_value` / `ValueFormat` fill `props.chart.tickLabels` and `valueLabels` in the chart's format; `Formatter::compact` (default: `format::compose_compact` over `number`/`currency`); `chart::chart_data` resolves `rows` + `categoryField` + series `field` into `categories`/`series`.
 - A streamed 0.9 surface costs linear again: the upgrade bridge advances its id maps in place and keeps their inverse, instead of copying both per message (`upgrade_message09_in`, #EXP-1742).
 
 ## 0.19.1 (2026-11-07)

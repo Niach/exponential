@@ -260,7 +260,7 @@ mod tests {
         settings.terminal_shell = Some("/bin/fish".into());
         assert_eq!(base, defaults_fingerprint(&settings));
         // A launch-default field must.
-        settings.claude_model = "opus".into();
+        settings.claude_model = "sonnet".into();
         let with_model = defaults_fingerprint(&settings);
         assert_ne!(base, with_model);
     }

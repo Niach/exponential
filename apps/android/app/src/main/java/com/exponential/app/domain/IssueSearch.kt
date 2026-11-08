@@ -21,6 +21,14 @@ package com.exponential.app.domain
  *   title substring                                          40
  *   description word prefix                                  20
  *   description substring                                    15
+ *   creator name word prefix (the member or the agent)       10
+ *
+ * #NEW-21: a `by:<name>` token is a CREATOR filter, not a scored word: the
+ * row stays only when its member's or agent's name has a word starting with
+ * <name>, or the member's email starts with it (`by:lukas`, `by:lukas.m`,
+ * `by:@triage`: one leading `@` dropped; an empty `by:` is ignored). A row
+ * with no creator never matches one. A query of `by:` tokens alone lists the
+ * matching rows in the empty-query order below.
  *
  * EXP-922: the ordering is THREE keys above the score, in this order:
  *
@@ -73,6 +81,13 @@ object IssueSearch {
          */
         val updatedAtMs: Long? get() = null
         val createdAtMs: Long? get() = null
+
+        /** #NEW-21: the member who filed it (`issues.creator_id`'s name + email). */
+        val creatorName: String? get() = null
+        val creatorEmail: String? get() = null
+
+        /** #NEW-21: the agent whose session filed it (`issues.creator_agent_id`). */
+        val creatorAgentName: String? get() = null
     }
 
     /** #EXP-1382: a wire timestamp as the rank's epoch millis (missing/unparseable = oldest). */
@@ -107,6 +122,33 @@ object IssueSearch {
     private const val SCORE_TITLE_CONTAINS = 40
     private const val SCORE_DESCRIPTION_WORD_PREFIX = 20
     private const val SCORE_DESCRIPTION_CONTAINS = 15
+    private const val SCORE_CREATOR_WORD_PREFIX = 10
+
+    /** #NEW-21: the token prefix that turns a word into a creator filter. */
+    const val CREATOR_PREFIX = "by:"
+
+    /** #NEW-21: the query split into its scored words and its `by:` creator needles. */
+    data class ParsedQuery(val words: List<String>, val creators: List<String>)
+
+    /**
+     * #NEW-21: the query split into its scored words and its `by:` creator
+     * needles (prefix and one leading `@` dropped, empties ignored). Web
+     * `parseIssueSearchQuery`.
+     */
+    fun parseQuery(query: String): ParsedQuery {
+        val words = mutableListOf<String>()
+        val creators = mutableListOf<String>()
+        for (token in tokens(query)) {
+            if (!token.startsWith(CREATOR_PREFIX)) {
+                words.add(token)
+                continue
+            }
+            var needle = token.substring(CREATOR_PREFIX.length)
+            if (needle.startsWith("@")) needle = needle.substring(1)
+            if (needle.isNotEmpty()) creators.add(needle)
+        }
+        return ParsedQuery(words, creators)
+    }
 
     /** Trim, drop ONE leading `#`, lowercase. Empty = "recent work". */
     fun normalizeQuery(query: String): String {
@@ -176,8 +218,12 @@ object IssueSearch {
         limit: Int = DEFAULT_LIMIT,
         exclude: Set<String> = emptySet(),
     ): List<T> {
-        val tokens = tokens(query)
-        val pool = if (exclude.isEmpty()) rows else rows.filter { it.id !in exclude }
+        val (tokens, creators) = parseQuery(query)
+        val pool = if (exclude.isEmpty() && creators.isEmpty()) {
+            rows
+        } else {
+            rows.filter { it.id !in exclude && (creators.isEmpty() || matchesCreators(Prepared(it), creators)) }
+        }
         if (tokens.isEmpty()) {
             return pool.sortedWith(OPEN_ORDER.then(CREATED_ORDER)).take(limit)
         }
@@ -250,7 +296,22 @@ object IssueSearch {
         private var lowered: String? = null
         val description: String
             get() = lowered ?: (rawDescription?.lowercase() ?: "").also { lowered = it }
+
+        /** #NEW-21: the member's and the agent's names, and the email, lowercased. */
+        val creatorName: String = row.creatorName?.lowercase() ?: ""
+        val creatorAgentName: String = row.creatorAgentName?.lowercase() ?: ""
+        val creatorEmail: String = row.creatorEmail?.lowercase() ?: ""
+
+        fun creatorWordPrefix(token: String): Boolean =
+            hasWordPrefix(creatorName, token) || hasWordPrefix(creatorAgentName, token)
     }
+
+    /** #NEW-21: whether a prepared row was filed by every `by:` needle. */
+    private fun matchesCreators(row: Prepared, creators: List<String>): Boolean =
+        creators.all { needle ->
+            row.creatorWordPrefix(needle) ||
+                (row.creatorEmail.isNotEmpty() && row.creatorEmail.startsWith(needle))
+        }
 
     /**
      * The best field score of [token] against a prepared row, or null when the
@@ -271,6 +332,7 @@ object IssueSearch {
         if (row.title.contains(token)) return SCORE_TITLE_CONTAINS
         if (hasWordPrefix(row.description, token)) return SCORE_DESCRIPTION_WORD_PREFIX
         if (row.description.contains(token)) return SCORE_DESCRIPTION_CONTAINS
+        if (row.creatorWordPrefix(token)) return SCORE_CREATOR_WORD_PREFIX
         return null
     }
 

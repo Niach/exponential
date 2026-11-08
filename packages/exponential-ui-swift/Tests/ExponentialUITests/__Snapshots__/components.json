@@ -5245,6 +5245,21 @@
       }
     ]
   },
+  "Chart\/rows+valueFormat=compact" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
   "Chart\/showAxes=false" : {
     "height" : 200,
     "nodes" : [
@@ -5351,6 +5366,21 @@
     ]
   },
   "Chart\/showValues=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/valueFormat=currency" : {
     "height" : 200,
     "nodes" : [
       {

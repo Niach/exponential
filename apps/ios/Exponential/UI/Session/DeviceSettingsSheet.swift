@@ -78,10 +78,6 @@ struct DeviceSettingsSheet: View {
     /// picker sentinels resolved).
     private struct AgentDraft: Equatable {
         var model: String
-        /// The dispatcher root's model (threads + team agents).
-        var threadModel: String
-        /// EXP-981: claude's subagent model (claude only; ignored for codex).
-        var subagentModel: String
         var effort: String
         var ultracode: Bool
         /// EXP-1005: claude's auto-rotate toggle as the row advertises it
@@ -281,9 +277,6 @@ struct DeviceSettingsSheet: View {
         let model = LaunchVocabulary.seedModel(
             advertised?.model, for: agent, fallback: LaunchVocabulary.defaultModel(for: agent)
         )
-        let threadModel = LaunchVocabulary.seedModel(
-            advertised?.threadModel, for: agent, fallback: LaunchVocabulary.defaultThreadModel(for: agent)
-        )
         let effort: String
         if let value = advertised?.effort, LaunchVocabulary.effortValues(for: agent).contains(value) {
             effort = value
@@ -292,11 +285,6 @@ struct DeviceSettingsSheet: View {
         }
         return AgentDraft(
             model: model,
-            threadModel: threadModel,
-            subagentModel: LaunchVocabulary.seedModel(
-                advertised?.subagentModel, for: "claude",
-                fallback: DomainContract.deviceAgentDefaultsSubagentModel
-            ),
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
             autoRotateAccounts: advertised?.autoRotateAccounts
@@ -652,8 +640,6 @@ struct DeviceSettingsSheet: View {
             agent: selectedAgent,
             onAgentChange: { selectedAgent = $0 },
             model: draftBinding(\.model),
-            subagentModel: draftBinding(\.subagentModel),
-            threadModel: draftBinding(\.threadModel),
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             autoRotateAccounts: autoRotateBinding,
@@ -709,10 +695,6 @@ struct DeviceSettingsSheet: View {
         for (agent, draft) in drafts {
             agents[agent] = AgentLaunchDefaultsInput(
                 model: draft.model,
-                // EXP-981: claude-only. Every model is explicit.
-                subagentModel: LaunchVocabulary.supportsSubagentModel(agent)
-                    ? draft.subagentModel : nil,
-                threadModel: draft.threadModel,
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
                 // EXP-1082 §6: echoed verbatim until edited (see the draft).

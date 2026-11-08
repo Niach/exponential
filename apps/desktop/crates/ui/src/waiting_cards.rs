@@ -142,6 +142,7 @@ pub(crate) fn dismiss_button_with(
                 Icon::new(registry::UI_CLOSE).xsmall().text_color(muted),
                 cx,
             )
+            .accessibility_label(WAITING_CARDS.copy.dismiss.clone())
             .size(px(24.))
             .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                 cx.stop_propagation();

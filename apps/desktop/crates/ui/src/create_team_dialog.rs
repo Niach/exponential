@@ -274,14 +274,14 @@ impl Render for CreateTeamDialogView {
             })
             .child(
                 {
-                    let submit = Button::new("create-team-submit").primary().cursor_pointer();
+                    let submit_label = if self.submitting { "Creating…" } else { "Create team" };
+                    let submit = Button::new("create-team-submit")
+                        .primary()
+                        .cursor_pointer()
+                        .accessibility_label(submit_label)
+                        .label(submit_label);
                     if self.embedded { submit.web_md() } else { submit.web_sm() }
                 }
-                    .label(if self.submitting {
-                        "Creating…"
-                    } else {
-                        "Create team"
-                    })
                     .disabled(disabled)
                     .loading(self.submitting)
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),

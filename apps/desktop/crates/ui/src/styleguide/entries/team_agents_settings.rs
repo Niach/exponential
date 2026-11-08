@@ -105,7 +105,9 @@ impl AgentSettingsDemo {
 /// A grouped row's trailing value: the board page's trigger recipe (a ghost
 /// button, an optional glyph, the value, chevron-right).
 fn row_value(id: &'static str, icon: Option<Icon>, value: impl Into<SharedString>, cx: &App) -> Button {
+    let value: SharedString = value.into();
     let mut button = Button::new(id)
+        .accessibility_label(value.clone())
         .ghost()
         .cursor_pointer()
         .h_auto()
@@ -116,7 +118,7 @@ fn row_value(id: &'static str, icon: Option<Icon>, value: impl Into<SharedString
         button = button.icon(icon);
     }
     button
-        .child(surface::picker_value_label(value.into()))
+        .child(surface::picker_value_label(value))
         .child(surface::picker_row_chevron(cx))
 }
 

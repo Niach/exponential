@@ -173,7 +173,7 @@ pub(crate) fn file_chip(
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_ellipsis()
-                .child(SharedString::from(filename)),
+                .child(SharedString::from(filename.clone())),
         )
         .child(
             div()
@@ -191,6 +191,7 @@ pub(crate) fn file_chip(
             // A 16px BARE glyph, not a 24px circle: inside a 24px pill a
             // circle of the pill's own height fills it edge to edge.
             gpui_component::button::Button::new(id)
+                .accessibility_label(format!("Remove {filename}"))
                 .ghost()
                 .with_size(gpui::px(16.))
                 .rounded_full()

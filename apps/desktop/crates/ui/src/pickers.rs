@@ -62,6 +62,7 @@ pub(crate) fn chip_button(id: impl Into<ElementId>, cx: &App) -> Button {
     // other client's property chips — not a ghost outline. It stays a
     // `Button` because `DropdownMenu`/`Popover` triggers must be one; the
     // paint is the shared pill's.
+    // a11y: named by the caller (every `chip_button(` chain is scanned).
     crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
 }
 

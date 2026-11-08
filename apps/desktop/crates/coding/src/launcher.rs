@@ -359,13 +359,12 @@ pub fn session_launch_options(row: &SessionRow, base: &LaunchOptions, settings: 
     let mut options = runner_options(row, base, settings);
     let agent = options.agent;
     options.model = explicit_model(agent, &options.model, settings);
-    if agent.supports_subagent_model() {
-        options.subagent_model = crate::settings::normalize_choice(
-            &options.subagent_model,
-            agent.model_values(),
-            settings.subagent_model_for(agent),
-        );
-    }
+    // #EXP-1734: the row's explicit subagent model, else the session's own.
+    options.subagent_model = if agent.supports_subagent_model() {
+        crate::settings::normalize_choice(&options.subagent_model, agent.model_values(), &options.model)
+    } else {
+        String::new()
+    };
     options
 }
 
@@ -410,7 +409,7 @@ fn runner_options(row: &SessionRow, base: &LaunchOptions, settings: &Settings) -
         }
     }
     // EXP-1583: the launch's subagent model (claude only; blank = the
-    // machine's default, applied by `session_launch_options`).
+    // session's own model, applied by `session_launch_options`).
     if let Some(subagent) = picked(&row.subagent_model) {
         let normalized = normalize_choice(&subagent, agent.model_values(), "");
         if !normalized.is_empty() && agent.supports_subagent_model() {
@@ -2587,7 +2586,7 @@ fn session_spawn(
     spawn = apply_mcp_env(spawn, agent, personal_key, Some(session_id), false);
     spawn = apply_mcp_server_env(spawn, team_mcp);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
-    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
+    spawn = apply_subagent_model_env(spawn, agent, options.subagent_model_or_model());
     if let Some(originator) = codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2702,9 +2701,12 @@ fn prepare_resume(
             Some(reconfigure) => reconfigure.plan_mode,
             None => row.plan_mode,
         },
-        // EXP-981: the run registry keeps no subagent pin, so a resume runs
-        // claude's subagents on this machine's subagent model.
-        subagent_model: deps.settings.subagent_model_for(agent).to_string(),
+        // #EXP-1734: the row's explicit subagent model (the registry keeps
+        // no pin); blank = the session's own model.
+        subagent_model: picked(&row.subagent_model)
+            .map(|model| crate::settings::normalize_choice(&model, agent.model_values(), ""))
+            .filter(|model| !model.is_empty() && agent.supports_subagent_model())
+            .unwrap_or_default(),
         // EXP-1292: the pick lives on the row, resolved server-side.
         mcp_server_ids: Vec::new(),
         // EXP-792: the SAME config dir (credentials, trust, codex rollouts)
@@ -3565,7 +3567,7 @@ pub fn prepare_agent_shell(
     // Agent shells are always interactive TUIs (never the ACP engine).
     spawn = apply_mcp_env(spawn, agent, &personal_key, None, true);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
-    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
+    spawn = apply_subagent_model_env(spawn, agent, options.subagent_model_or_model());
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd — a distinct originator keeps
         // their rollouts out of every session's strict pass.
@@ -4272,12 +4274,19 @@ mod tests {
         assert_eq!(plain.model, "opus");
         assert_eq!(plain.effort, "max");
         assert!(plain.ultracode);
+        // #EXP-1734: subagents run on the session's model unless the row
+        // names its own subagent model.
+        assert_eq!(plain.subagent_model, "opus");
+        assert_eq!(plain.subagent_model_or_model(), "opus");
+        let mut pinned = root.clone();
+        pinned.subagent_model = Some("sonnet".to_string());
+        assert_eq!(session_launch_options(&pinned, &host, &deps.settings).subagent_model, "sonnet");
         // A blank model anywhere still launches explicit.
         let mut blank_host = base_options();
         blank_host.model = String::new();
         let mut plain = row("p-1", None);
         plain.model = None;
-        assert_eq!(session_launch_options(&plain, &blank_host, &deps.settings).model, "fable");
+        assert_eq!(session_launch_options(&plain, &blank_host, &deps.settings).model, "opus");
         plain.cli = Some("codex".to_string());
         deps.settings.codex_model = String::new();
         assert_eq!(session_launch_options(&plain, &blank_host, &deps.settings).model, "gpt-5.6-sol");

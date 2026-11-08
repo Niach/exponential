@@ -359,6 +359,7 @@ final class SyncApplyTests: XCTestCase {
             {"id":"def-1","team_id":"ws1","name":"Triage","icon":"bot","color":"#22c55e",
              "triggers":[{"id":"tr1","enabled":true,"kind":"schedule","cron":"0 9 * * 1-5","tz":"Europe/Vienna"}],
              "device_id":"dev-1","cli":"claude","account":null,"model":"opus","owner_id":"u1",
+             "defaults":{"deviceId":"dev-1","cli":"claude","account":null,"model":"opus"},
              "sort_order":"2","instructions":"server only","trigger_state":{},
              "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
             """.utf8))
@@ -419,18 +420,9 @@ final class SyncApplyTests: XCTestCase {
         ])
     }
 
-    // NEW-3: a session's conversation row lands (the shape allowlist), and a
-    // message carries its `conversation_id`; NEW-8: a legacy `session_id` on
-    // the wire is ignored, the session is the conversation's.
-    func testConversationAndMessageConversationIdApply() async throws {
-        let conversation = try JSONDecoder().decode(ConversationEntity.self, from: Data("""
-            {"id":"c-1","team_id":"ws1","kind":"session","session_id":"s1","title":null,
-             "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
-            """.utf8))
-        try await applyBatch(
-            messages: [ShapeMessage<ConversationEntity>.insert(key: #""public"."conversations"/"c-1""#, value: conversation)],
-            name: "conversations", table: "conversations", pool: pool
-        )
+    // #EXP-1730: a message carries its `session_id` (beside the legacy
+    // `conversation_id`) and is keyed by it; no conversation row is read.
+    func testMessageSessionIdApply() async throws {
         let message = try JSONDecoder().decode(MessageEntity.self, from: Data("""
             {"id":"m-c","session_id":"s1","root_id":"s1","team_id":"ws1","conversation_id":"c-1",
              "author_kind":"user","author_id":"u1","body":"hi",
@@ -440,12 +432,9 @@ final class SyncApplyTests: XCTestCase {
             messages: [ShapeMessage<MessageEntity>.insert(key: #""public"."messages"/"m-c""#, value: message)],
             name: "messages", table: "messages", pool: pool
         )
-        let stored = try await pool.read { db in
-            (try ConversationEntity.fetchOne(db, key: "c-1"), try MessageEntity.fetchOne(db, key: "m-c"))
-        }
-        XCTAssertEqual(stored.0, conversation)
-        XCTAssertEqual(stored.0?.kind, DomainContract.conversationKindSession)
-        XCTAssertEqual(stored.1?.conversationId, "c-1")
+        let stored = try await pool.read { db in try MessageEntity.fetchOne(db, key: "m-c") }
+        XCTAssertEqual(stored?.conversationId, "c-1")
+        XCTAssertEqual(stored?.sessionId, "s1")
         let keyed = try await pool.read { try SessionQueries.messages(db: $0, sessionId: "s1") }
         XCTAssertEqual(keyed.map(\.id), ["m-c"])
         XCTAssertEqual(keyed.first?.sessionId, "s1")
@@ -929,22 +918,17 @@ final class SyncApplyTests: XCTestCase {
             try AgentDefinitionEntity(
                 id: "def-z", teamId: "ws2", name: "Zed", sortOrder: 0, createdAt: at, updatedAt: at
             ).save(db)
-            // NEW-8: messages key through their conversations.
-            try ConversationEntity(
-                id: "c-new", teamId: "ws1", sessionId: "t-new", createdAt: at, updatedAt: at
-            ).save(db)
-            try ConversationEntity(
-                id: "c-child", teamId: "ws1", sessionId: "t-child", createdAt: at, updatedAt: at
-            ).save(db)
+            // #EXP-1730: messages key by their own `session_id`.
             try MessageEntity(
                 id: "m2", conversationId: "c-child", rootId: "t-new", teamId: "ws1",
                 authorKind: DomainContract.messageAuthorKindAgent, body: "Done",
-                createdAt: "2026-10-13T10:05:00Z", updatedAt: "2026-10-13T10:05:00Z"
+                createdAt: "2026-10-13T10:05:00Z", updatedAt: "2026-10-13T10:05:00Z",
+                sessionId: "t-child"
             ).save(db)
             try MessageEntity(
                 id: "m1", conversationId: "c-new", rootId: "t-new", teamId: "ws1",
                 authorKind: DomainContract.messageAuthorKindUser, authorId: "u1", body: "Go",
-                createdAt: at, updatedAt: at
+                createdAt: at, updatedAt: at, sessionId: "t-new"
             ).save(db)
             // A child's link is the thread's too (the strip's count ×4).
             try SessionIssueEntity(

@@ -60,6 +60,7 @@ pub fn glass_icon_button(
         .hover(custom_variant_fill(chrome.fill_active))
         .active(custom_variant_fill(chrome.fill_active))
         .foreground(foreground.opacity(0.7));
+    // a11y: named by the caller (the tooltip or `accessibility_label` it chains).
     gpui_component::button::Button::new(id)
         .custom(variant)
         .web_icon_sm()
@@ -124,6 +125,7 @@ pub fn call_button(
             .hover(fill.opacity(0.9))
             .active(fill.opacity(0.8))
             .foreground(glyph);
+        // a11y: named by the caller (the tooltip or `accessibility_label` it chains).
         gpui_component::button::Button::new(id).custom(variant).bg(fill).icon(icon)
     };
     let button = match tone {
@@ -136,6 +138,7 @@ pub fn call_button(
                 .hover(red.darken(0.08))
                 .active(red.darken(0.16))
                 .foreground(gpui::white());
+            // a11y: named by the caller (the tooltip or `accessibility_label` it chains).
             gpui_component::button::Button::new(id).custom(variant).bg(red).icon(icon)
         }
     };
@@ -185,6 +188,7 @@ pub fn ghost_icon_button(
         .hover(theme.list_hover)
         .active(theme.list_hover)
         .foreground(foreground.opacity(0.7));
+    // a11y: named by the caller (the tooltip or `accessibility_label` it chains).
     gpui_component::button::Button::new(id)
         .custom(variant)
         .with_size(Size::Small)
@@ -215,16 +219,25 @@ pub fn text_button(
     variant: TextButtonVariant,
     cx: &App,
 ) -> Stateful<Div> {
+    use gpui::StatefulInteractiveElement as _;
     let theme = cx.theme();
+    let label = label.into();
+    // #EXP-1488: a Button (a Link when it goes somewhere) named by its words.
+    let role = match variant {
+        TextButtonVariant::Text => gpui::Role::Button,
+        TextButtonVariant::Link => gpui::Role::Link,
+    };
     let button = div()
         .id(id)
+        .role(role)
+        .aria_label(label.clone())
         .flex()
         .flex_row()
         .items_center()
         .gap_1()
         .text_xs()
         .cursor_pointer()
-        .child(label.into());
+        .child(label);
     match variant {
         TextButtonVariant::Text => {
             let foreground = theme.foreground;

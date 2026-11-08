@@ -99,9 +99,6 @@ import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
-import com.exponential.app.ui.components.subagentModelLabel
-import com.exponential.app.ui.components.subagentModelOptions
-import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.components.picker.McpServerPicker
 import com.exponential.app.ui.components.picker.SkillPicker
 import com.exponential.app.ui.components.picker.Picker
@@ -822,9 +819,6 @@ fun AgentScreen(
                     account = temporary,
                     model = temporary,
                     repositories = teamRepos.size > 1,
-                    // EXP-1583: claude takes a subagent model (`sessions.send`
-                    // `subagentModel`), on a Temporary session only.
-                    subagentModel = temporary && supportsSubagentModel(launch.agent),
                     ultracode = claude,
                     // EXP-1291: actions no longer carry their own MCP list, so
                     // no subject owns it — the team's servers alone decide.
@@ -839,7 +833,6 @@ fun AgentScreen(
             codex = launch.agent == "codex",
             effortValue = effortLabel(launch.effort),
             effortEnabled = !(claude && launch.ultracode),
-            subagentsValue = subagentModelLabel(launch.subagentModel),
             ultracode = launch.ultracode,
             mcpValue = mcpPickValue(mcpServerIds.size),
             computerUse = computerUse,
@@ -929,16 +922,6 @@ fun AgentScreen(
                         options = modelOptionsFor(launch.agent).map { ModelPickerOption(it, modelLabel(it)) },
                         value = launch.model,
                         onChange = viewModel::setModel,
-                        open = true,
-                        onOpenChange = { open -> if (!open) close() },
-                    )
-                },
-                // EXP-1583: THE Model page's picker, over claude's models.
-                ComposerMenuRowId.Subagents to { close ->
-                    ModelPicker(
-                        options = subagentModelOptions().map { ModelPickerOption(it, subagentModelLabel(it)) },
-                        value = launch.subagentModel,
-                        onChange = viewModel::setSubagentModel,
                         open = true,
                         onOpenChange = { open -> if (!open) close() },
                     )

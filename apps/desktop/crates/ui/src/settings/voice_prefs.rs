@@ -137,6 +137,7 @@ fn enabled_picker_row(
     let value_color = cx.theme().foreground.opacity(if enabled { 0.7 } else { 0.4 });
     let on_pick = on_pick.filter(|_| enabled);
     let button = Button::new(id)
+        .accessibility_label(label.to_string())
         .ghost()
         .disabled(!enabled)
         .cursor_pointer()
@@ -334,6 +335,7 @@ pub(crate) fn apps_control(
     let stored = settings.desktop_audio_apps.clone();
     let empty = stored.is_empty();
     let trigger = Button::new("settings-voice-apps")
+        .accessibility_label(MEETING.copy.apps.clone())
         .ghost()
         .cursor_pointer()
         .h_auto()

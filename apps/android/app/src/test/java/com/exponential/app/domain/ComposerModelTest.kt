@@ -12,8 +12,8 @@ class ComposerModelTest {
 
     private val device = DeviceLaunchDefaults(
         agents = mapOf(
-            "claude" to AgentLaunchDefaults(model = "sonnet", threadModel = "opus"),
-            "codex" to AgentLaunchDefaults(model = "gpt-codex-work", threadModel = "gpt-codex-thread"),
+            "claude" to AgentLaunchDefaults(model = "sonnet"),
+            "codex" to AgentLaunchDefaults(model = "gpt-codex-work"),
         ),
     )
 

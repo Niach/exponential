@@ -71,6 +71,7 @@ pub(crate) fn upstream_select(
     let label = picker.options.iter().find(|(value, _)| *value == picker.value).map(|(_, label)| label.clone()).unwrap_or_default();
     let on_pick = std::rc::Rc::new(on_pick);
     Button::new(id)
+        .accessibility_label(label.clone())
         .outline()
         .web_sm()
         .cursor_pointer()
@@ -379,6 +380,7 @@ pub(crate) fn shares_group(
             let (name, view) = (share.name.clone(), view.clone());
             row = row.child(
                 crate::controls::ghost_icon_button(SharedString::from(format!("app-share-menu-{}", share.name)), Icon::new(registry::UI_MORE), cx)
+                    .accessibility_label(share.name.clone())
                     .disabled(busy.is_some())
                     .pointer_menu(move |menu, _, _| {
                         let (url, name, view) = (url.clone(), name.clone(), view.clone());

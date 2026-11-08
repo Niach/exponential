@@ -50,7 +50,6 @@ final class ComposerMenuTests: XCTestCase {
                 account: c["account"] ?? false,
                 model: c["model"] ?? false,
                 repositories: c["repositories"] ?? false,
-                subagentModel: c["subagentModel"] ?? false,
                 ultracode: c["ultracode"] ?? false,
                 mcp: c["mcp"] ?? false,
                 skills: c["skills"] ?? false,
@@ -73,7 +72,7 @@ final class ComposerMenuTests: XCTestCase {
         // Separators sit where the fixture puts them.
         let layout = ComposerMenu.composerMenuLayout(ComposerMenu.Conditions(
             temporary: true, device: true, account: true, model: true, repositories: true,
-            subagentModel: true, ultracode: true, mcp: true, skills: true, computerUse: true, prompts: true,
+            ultracode: true, mcp: true, skills: true, computerUse: true, prompts: true,
             assistant: true, teams: true
         ), surface: .launch)
         XCTAssertEqual(wire(layout), all.map { ($0["id"] as? String) ?? "-" })

@@ -412,7 +412,9 @@ pub(crate) fn picker_trigger_bare(
     label: impl Into<SharedString>,
     cx: &App,
 ) -> Button {
+    let label: SharedString = label.into();
     Button::new(id)
+        .accessibility_label(label.clone())
         .ghost()
         .cursor_pointer()
         // EXP-1557: `Small` so the value reads `text_sm` like the row's

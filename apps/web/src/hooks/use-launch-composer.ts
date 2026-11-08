@@ -178,7 +178,6 @@ export function buildSendInput(args: {
     ...(options.model ? { model: options.model } : {}),
     ...(options.effort ? { effort: options.effort } : {}),
     // EXP-1583: claude only (buildOptions clamps it).
-    ...(options.subagentModel ? { subagentModel: options.subagentModel } : {}),
     ultracode: options.ultracode,
     ...(options.computerUse !== undefined ? { computerUse: options.computerUse } : {}),
     ...(options.mcpServerIds && options.mcpServerIds.length > 0

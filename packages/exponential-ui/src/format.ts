@@ -24,6 +24,14 @@ export interface NumberOptions {
   grouping?: boolean
 }
 
+export interface CompactOptions {
+  /** An ISO 4217 code: a compact currency. */
+  currency?: string
+  /** Fixed fraction digits; absent = 2 significant digits under 10 of the
+   *  unit (`1.2K`), whole units from there (`12K`, `123K`). */
+  decimals?: number
+}
+
 export interface DateOptions {
   /** A Unicode TR35 pattern (`MMM d, yyyy`, `HH:mm`); wins over `style`. */
   format?: string
@@ -40,6 +48,9 @@ export interface Formatter {
   currency(value: number, currency: string, options?: NumberOptions): string
   /** `value` is a ratio: 0.256 → `26%`. */
   percent(value: number, options?: { decimals?: number }): string
+  /** FEED-205: short-scale `12K`, `1.2M` (a currency: `€12K`). Absent =
+   *  `formatCompact`'s composition over `number` / `currency`. */
+  compact?(value: number, options?: CompactOptions): string
   /** `value` = `yyyy-mm-dd` (a calendar day, no zone), an ISO date-time (an
    *  instant; no offset = UTC) or epoch milliseconds; unreadable = ``. */
   date(value: unknown, options?: DateOptions): string
@@ -153,6 +164,49 @@ const fixedDigits = (decimals: number | undefined): number | undefined =>
 /** The minor digits of a currency (ISO 4217; 2 when not listed). */
 export function currencyDigits(code: string): number {
   return (FALLBACK.currencyDigits as Record<string, number>)[code.toUpperCase()] ?? 2
+}
+
+// ---------------------------------------------------------------------------
+// Compact numbers (FEED-205)
+// ---------------------------------------------------------------------------
+
+/** Short-scale compact notation over ANY Formatter (Intl en-US `notation:
+ *  compact`, `compactSuffixes`): the value scaled to the largest power of
+ *  1000 it reaches (up to 10^12), rounded half away from zero to `decimals`,
+ *  else to 2 significant digits under 10 of the unit and whole units from 10
+ *  (trailing zeros dropped); a rounding that reaches 1000 moves up a unit.
+ *  The digits go through `formatter.number` (or `currency`) so they keep the
+ *  locale's separators, and the suffix follows the last digit (`€12K`,
+ *  `12K €`). A Formatter's own `compact` wins (Intl on the web). */
+export function formatCompact(formatter: Formatter, value: number, options: CompactOptions = {}): string {
+  if (formatter.compact) return formatter.compact(value, options)
+  return composeCompact(formatter, value, options)
+}
+
+function composeCompact(formatter: Formatter, value: number, options: CompactOptions): string {
+  const code = options.currency?.toUpperCase()
+  const fixed = fixedDigits(options.decimals)
+  // Intl's compact grouping is `min2`: separators from 5 integer digits.
+  const body = (n: number, decimals: number, grouping = true) => (code ? formatter.currency(n, code, { decimals, grouping }) : formatter.number(n, { decimals, grouping }))
+  if (!Number.isFinite(value)) return body(value, 0)
+  const d = decimalOf(Math.abs(value))
+  const suffixes = FALLBACK.compactSuffixes
+  let unit = d.int === `0` ? 0 : Math.min(suffixes.length - 1, Math.floor((d.int.length - 1) / 3))
+  for (;;) {
+    const cut = d.int.length - unit * 3
+    const scaled: Decimal = unit === 0 ? d : { int: d.int.slice(0, cut) || `0`, frac: (d.int.slice(cut) + d.frac).replace(/0+$/, ``) }
+    const lead = scaled.int === `0` ? (/^0*/.exec(scaled.frac)?.[0].length ?? 0) + 2 : scaled.int.length >= 2 ? 0 : 1
+    const r = fixed === undefined ? round(scaled, 0, lead) : round(scaled, fixed, fixed)
+    if (r.int.length > 3 && unit < suffixes.length - 1) {
+      unit++
+      continue
+    }
+    const neg = value < 0 && (r.int !== `0` || /[1-9]/.test(r.frac))
+    const text = body((neg ? -1 : 1) * Number(`${r.int}.${r.frac || `0`}`), r.frac.length, r.int.length >= 5)
+    const suffix = suffixes[unit]
+    const at = text.search(/\d(?!.*\d)/)
+    return at < 0 ? text + suffix : text.slice(0, at + 1) + suffix + text.slice(at + 1)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -434,6 +488,11 @@ export function intlFormatter(locale: string, timeZone = `UTC`): Formatter {
       const fixed = fixedDigits(options.decimals) ?? 0
       return nf({ style: `percent`, minimumFractionDigits: fixed, maximumFractionDigits: fixed }).format(value)
     },
+    compact(value, options = {}) {
+      const fixed = fixedDigits(options.decimals)
+      const digits = fixed === undefined ? {} : { minimumFractionDigits: fixed, maximumFractionDigits: fixed }
+      return nf({ notation: `compact`, ...(options.currency ? { style: `currency`, currency: options.currency } : {}), ...digits }).format(value)
+    },
     date(value, options = {}) {
       const parsed = parseDateValue(value)
       if (!parsed) return ``
@@ -466,7 +525,8 @@ export const FORMAT_FUNCTION_NAMES = [`formatNumber`, `formatCurrency`, `formatP
  *  decimal digits with an optional fraction and exponent (`' 12 '`, `1e3`,
  *  `-.5`). Hex, `Infinity`, separators and anything else are not numbers. */
 const NUMERIC = /^[ \t\n\r]*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[ \t\n\r]*$/
-const toNum = (v: unknown): number => (typeof v === `number` ? v : typeof v === `string` && NUMERIC.test(v) ? Number(v) : NaN)
+/** A number or a numeric string (`NUMERIC`) as its number, else NaN. */
+export const toNum = (v: unknown): number => (typeof v === `number` ? v : typeof v === `string` && NUMERIC.test(v) ? Number(v) : NaN)
 const optNum = (v: unknown): number | undefined => (v === undefined || v === null ? undefined : toNum(v))
 
 /** The format functions over a Formatter; `now` = the clock

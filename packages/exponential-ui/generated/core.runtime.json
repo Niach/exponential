@@ -532,12 +532,34 @@
           "type": "array",
           "items": {
             "type": "number"
-          },
-          "required": true
+          }
+        },
+        "field": {
+          "type": "string"
         },
         "tone": {
           "type": "enum",
           "enum": "tone"
+        }
+      }
+    },
+    "valueFormat": {
+      "properties": {
+        "type": {
+          "type": "enum",
+          "values": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "default": "number"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "decimals": {
+          "type": "number"
         }
       }
     },
@@ -3225,6 +3247,16 @@
           "required": true,
           "bindable": true
         },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true
+        },
+        "categoryField": {
+          "type": "string"
+        },
         "title": {
           "type": "string"
         },
@@ -3243,6 +3275,10 @@
         },
         "max": {
           "type": "number"
+        },
+        "valueFormat": {
+          "type": "object",
+          "shape": "valueFormat"
         },
         "showAxes": {
           "type": "boolean",

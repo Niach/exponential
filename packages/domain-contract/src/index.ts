@@ -56,11 +56,7 @@ export interface DomainContract {
   /** A device's agent defaults. */
   deviceAgentDefaults: {
     model: string
-    subagentModel: string
-    /** The dispatcher root's model (threads + team agents). */
-    threadModel: string
     codexModel: string
-    codexThreadModel: string
   }
   /** EXP-1291: the session tree — roots are threads or team agents. */
   sessionKind: { values: readonly string[] }

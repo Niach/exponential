@@ -38,8 +38,9 @@ pub(crate) const SHAPES: &[&str] = &[
     "issues",
     "boards",
     "sessions",
+    // #EXP-1730: no `conversations`: messages name their session and
+    // sessions carry their digest.
     "session_issues",
-    "conversations",
     "agents",
     "pull_requests",
     // #EDE-65 lane I: the agent chat's conversations (the IDE syncs the
@@ -370,9 +371,10 @@ mod tests {
 
     #[test]
     fn the_chats_sync_with_the_teams() {
-        for shape in ["sessions", "conversations", "session_reads"] {
+        for shape in ["sessions", "session_reads"] {
             assert!(SHAPES.contains(&shape), "{shape}");
             assert!(sync::shapes::shape_by_name(shape).is_some(), "{shape} is a synced shape");
         }
+        assert!(!SHAPES.contains(&"conversations"), "#EXP-1730: never read");
     }
 }

@@ -18,6 +18,14 @@
 //   title substring                                          40
 //   description word prefix                                  20
 //   description substring                                    15
+//   creator name word prefix (the member or the agent)       10
+//
+// #NEW-21: a `by:<name>` token is a CREATOR filter, not a scored word: the
+// row stays only when its member's or agent's name has a word starting with
+// <name>, or the member's email starts with it (`by:lukas`, `by:lukas.m`,
+// `by:@triage`: one leading `@` dropped; an empty `by:` is ignored). A row
+// with no creator never matches one. A query of `by:` tokens alone lists
+// the matching rows in the empty-query order below.
 //
 // EXP-922: the ordering is THREE keys above the score, in this order:
 //
@@ -46,6 +54,11 @@ export interface IssueSearchRow {
   /** EXP-922: the builtin status ANCHOR (`issues.status`) the row dual-writes.
    *  Absent/unknown = treated as open. */
   status?: string | null
+  /** #NEW-21: the member who filed it (`issues.creator_id`'s name + email). */
+  creatorName?: string | null
+  creatorEmail?: string | null
+  /** #NEW-21: the agent whose session filed it (`issues.creator_agent_id`). */
+  creatorAgentName?: string | null
 }
 
 export interface IssueSearchOptions {
@@ -60,6 +73,10 @@ const SCORE_TITLE_WORD_PREFIX = 50
 const SCORE_TITLE_CONTAINS = 40
 const SCORE_DESCRIPTION_WORD_PREFIX = 20
 const SCORE_DESCRIPTION_CONTAINS = 15
+const SCORE_CREATOR_WORD_PREFIX = 10
+
+/** #NEW-21: the token prefix that turns a word into a creator filter. */
+export const ISSUE_SEARCH_CREATOR_PREFIX = `by:`
 
 /** The `limit` every consumer gets without asking — and, since EXP-922, the
  *  one every SEARCH SURFACE uses on all four clients, so the same query
@@ -89,7 +106,7 @@ export const ISSUE_SEARCH_CLOSED_STATUSES = [
  */
 export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
 export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across this team's boards.`
-export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, and full text.`
+export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, full text, and by:creator.`
 export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
 
 /** Whether a row counts as UNDONE for ranking. An absent or unrecognized
@@ -114,6 +131,26 @@ export function issueSearchTokens(query: string): string[] {
     .split(/\s+/)
     .map((token) => (token.startsWith(`#`) ? token.slice(1) : token))
     .filter((token) => token.length > 0)
+}
+
+/** #NEW-21: the query split into its scored words and its `by:` creator
+ *  needles (prefix and one leading `@` dropped, empties ignored). */
+export function parseIssueSearchQuery(query: string): {
+  words: string[]
+  creators: string[]
+} {
+  const words: string[] = []
+  const creators: string[] = []
+  for (const token of issueSearchTokens(query)) {
+    if (!token.startsWith(ISSUE_SEARCH_CREATOR_PREFIX)) {
+      words.push(token)
+      continue
+    }
+    let needle = token.slice(ISSUE_SEARCH_CREATOR_PREFIX.length)
+    if (needle.startsWith(`@`)) needle = needle.slice(1)
+    if (needle.length > 0) creators.push(needle)
+  }
+  return { words, creators }
 }
 
 const NON_WORD = /[^\p{L}\p{N}]+/u
@@ -147,6 +184,9 @@ interface Prepared {
   titleWords: string[]
   readonly description: string
   readonly descriptionWords: string[]
+  /** #NEW-21: the member's and the agent's name words, and the email. */
+  creatorWords: string[]
+  creatorEmail: string
   /** #EXP-1382: the timestamps parsed ONCE per row (cached across keystrokes). */
   updatedMs: number
   createdMs: number
@@ -191,6 +231,11 @@ function prepare(row: IssueSearchRow): Prepared {
       descriptionWords ??= words(this.description)
       return descriptionWords
     },
+    creatorWords: [
+      ...words((row.creatorName ?? ``).toLowerCase()),
+      ...words((row.creatorAgentName ?? ``).toLowerCase()),
+    ],
+    creatorEmail: (row.creatorEmail ?? ``).toLowerCase(),
     updatedMs: timeOf(row.updatedAt),
     createdMs: timeOf(row.createdAt),
     identifierNumber: issueIdentifierNumber(row.identifier),
@@ -218,7 +263,19 @@ function tokenScore(row: Prepared, token: string): number | null {
     return SCORE_DESCRIPTION_WORD_PREFIX
   }
   if (row.description.includes(token)) return SCORE_DESCRIPTION_CONTAINS
+  if (row.creatorWords.some((word) => word.startsWith(token))) {
+    return SCORE_CREATOR_WORD_PREFIX
+  }
   return null
+}
+
+/** #NEW-21: whether a prepared row was filed by every `by:` needle. */
+function matchesCreators(row: Prepared, creators: readonly string[]): boolean {
+  return creators.every(
+    (needle) =>
+      row.creatorWords.some((word) => word.startsWith(needle)) ||
+      (row.creatorEmail !== `` && row.creatorEmail.startsWith(needle))
+  )
 }
 
 /** A matched row's two ranking facts: the summed score, and whether any token
@@ -288,8 +345,12 @@ export function rankIssueSearch<T extends IssueSearchRow>(
 ): T[] {
   const limit = options?.limit ?? ISSUE_SEARCH_DEFAULT_LIMIT
   const exclude = new Set(options?.exclude ?? [])
-  const tokens = issueSearchTokens(query)
-  const pool = rows.filter((row) => !exclude.has(row.id))
+  const { words: tokens, creators } = parseIssueSearchQuery(query)
+  const pool = rows.filter(
+    (row) =>
+      !exclude.has(row.id) &&
+      (creators.length === 0 || matchesCreators(preparedOf(row), creators))
+  )
   if (tokens.length === 0) {
     return [...pool]
       .sort((a, b) => compareOpen(a, b) || compareCreated(a, b))

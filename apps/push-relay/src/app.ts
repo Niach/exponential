@@ -1,6 +1,5 @@
 import { timingSafeEqual } from "node:crypto"
 import { Hono, type Context } from "hono"
-import { mountCompatSend, type CompatSendStats } from "./compat-send"
 import { consoleLogger, type Logger } from "./log"
 import { mountPushApi, type PushApiOptions } from "./push-api"
 import {
@@ -13,14 +12,12 @@ import {
 } from "./shared"
 
 export { DeadlineError, FCM_DEADLINE_MS, type RelayMessaging } from "./shared"
-export { TRANSPORT_ERROR_CODE, isTransportError } from "./compat-send"
 
 // The relay's HTTP surface, built by `createRelayApp` so the tests can drive
 // it with fakes (messaging, APNs, an in-memory store, a clock). `index.ts`
 // wires the real environment.
 //
 //   push API (push-api.ts)        /installs…, /push: the ONE public API
-//   compat shim (compat-send.ts)  /send: deprecated, PUSH_RELAY_SECRET only
 //   operator routes (here)        /healthz (public), /healthz?deep=1 and
 //                                 /stats (PUSH_RELAY_SECRET)
 
@@ -33,8 +30,8 @@ export type PushApiConfig = Omit<
 export interface RelayAppOptions {
   /**
    * `PUSH_RELAY_SECRET`: the operator secret, shared with the web app. It
-   * gates the /send compat shim and the operator routes (/stats,
-   * /healthz?deep=1). Null = all three answer 404; the push API is unaffected.
+   * gates the operator routes (/stats, /healthz?deep=1). Null = both answer
+   * 404; the push API is unaffected.
    */
   secret: string | null
   /** `TRUST_PROXY=true`: honor the reverse proxy's forwarded client address. */
@@ -66,7 +63,7 @@ export const DEEP_CHECK_TOKEN = `exponential-push-relay-transport-probe`
 
 // ── Stats (EXP-553) ───────────────────────────────────────────────────────────
 
-export interface RelayStats extends CompatSendStats {
+export interface RelayStats {
   /** EXP-1289: deep health checks run, and how many of them failed. */
   deepChecks: number
   deepCheckFailures: number
@@ -120,21 +117,10 @@ export function createRelayApp(options: RelayAppOptions) {
   // performance page.
   const startedAt = now()
   const stats: RelayStats = {
-    sendRequests: 0,
-    sendOk: 0,
-    sendFailed: 0,
-    sendRetried: 0,
-    deadlineTimeouts: 0,
-    tokensRequested: 0,
-    tokensOk: 0,
-    tokensFailed: 0,
-    invalidTokens: 0,
     deepChecks: 0,
     deepCheckFailures: 0,
     lastDeepCheckAt: null,
     lastDeepCheckOk: null,
-    lastErrorAt: null,
-    lastError: null,
   }
 
   const app = new Hono()
@@ -151,22 +137,17 @@ export function createRelayApp(options: RelayAppOptions) {
     failedAuthHit: rateLimitHit,
   })
 
-  // The deprecated /send shim exists only while the operator secret is set.
-  if (secret !== null) {
-    mountCompatSend(app, { rejectUnauthorized, getMessaging, fcmDeadlineMs, now, log, stats })
-  }
-
   function providers() {
     return { fcm: getMessaging() !== null, apns: api.apnsConfigured() }
   }
 
   // Unauthenticated health check for Docker HEALTHCHECK / uptime monitors.
-  // `?detail=1` reports the surfaces and providers (booleans only, so it can
+  // `?detail=1` reports the surface and providers (booleans only, so it can
   // stay public); `?deep=1` with the secret exercises the FCM transport
   // (EXP-1289). The plain answer stays the constant.
   app.get(`/healthz`, async (c) => {
     if (c.req.query(`detail`) === `1`) {
-      return c.json({ ok: true, api: true, compatSend: secret !== null, providers: providers() })
+      return c.json({ ok: true, api: true, providers: providers() })
     }
     if (c.req.query(`deep`) !== `1`) return c.json({ ok: true })
     const rejected = rejectUnauthorized(c)
@@ -199,8 +180,8 @@ export function createRelayApp(options: RelayAppOptions) {
   })
 
   // EXP-553: secret-gated stats for the web app's admin performance page.
-  // The top-level counters are the /send shim's and the deep check's (the
-  // page reads them); the push API's live under `api`.
+  // The deep check's counters sit at the top level, the push API's under
+  // `api` (the page reads both).
   app.get(`/stats`, (c) => {
     const rejected = rejectUnauthorized(c)
     if (rejected) return rejected

@@ -145,7 +145,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive"]
         )
     }
 
@@ -212,7 +212,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive"]
         )
     }
 
@@ -751,7 +751,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -866,7 +866,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1912,7 +1912,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
              "agent_instructions_at", "started_by_agent_id", "background",
-             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids"]
+             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids", "digest"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -1920,7 +1920,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "agents"),
             ["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli",
              "account", "model", "owner_id", "sort_order", "created_at", "updated_at",
-             "instructions_updated_at", "role", "skill_ids"]
+             "instructions_updated_at", "role", "skill_ids", "defaults"]
         )
         // #EXP-1661: the skills shape allowlist (`body` never).
         XCTAssertEqual(
@@ -1945,7 +1945,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "messages"),
             ["id", "root_id", "team_id", "author_kind", "author_id",
              "body", "card", "answered_at", "consumed_at", "created_at", "updated_at",
-             "author_session_id", "conversation_id", "attachment_ids"]
+             "author_session_id", "conversation_id", "attachment_ids", "session_id"]
         )
         XCTAssertEqual(
             try columnNames(pool, "session_reads"),
@@ -3234,7 +3234,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "apps"),
             ["id", "team_id", "slug", "name", "icon", "color", "description", "package",
              "head_version", "created_by", "deleted_at", "created_at", "updated_at",
-             "granted_tools", "published_version", "draft_package"]
+             "granted_tools", "published_version", "draft_package", "agent_id"]
         )
         XCTAssertEqual(
             try columnNames(pool, "app_versions"),
@@ -3525,28 +3525,41 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v81_conversation_digest"))
         XCTAssertTrue(try columnNames(pool, "conversations").contains("digest"))
         try pool.read { db in
             let reset = try String.fetchAll(
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["conversations", "messages"])
+            XCTAssertEqual(reset, ["conversations"])
         }
-        let wire = Data("""
-            {"id":"c-1","team_id":"t","kind":"session","session_id":"s-1","title":null,
-             "created_at":"x","updated_at":"x","digest":{"agentAt":"2026-10-24T12:00:00Z","agentTimes":[]}}
-            """.utf8)
-        let row = try JSONDecoder().decode(ConversationEntity.self, from: wire)
-        try pool.write { db in try row.save(db) }
-        let read = try pool.read { db in try ConversationEntity.fetchOne(db, key: "c-1") }
+        // #EXP-1730: the digest reaches `sessions.digest` when v103 drops
+        // the table (the backfill), and the conversations cursor goes.
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "conversations" ("id", "team_id", "kind", "session_id", "created_at", "updated_at", "digest")
+                VALUES ('c-1', 't', 'session', 's-1', 'x', 'x', '{"agentAt":"2026-10-24T12:00:00Z","agentTimes":[]}')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "sessions" ("id", "team_id", "root_id", "user_id", "device_id", "created_at", "updated_at")
+                VALUES ('s-1', 't', 's-1', 'u', 'd', 'x', 'x')
+                """)
+        }
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        let read = try pool.read { db in try SessionEntity.fetchOne(db, key: "s-1") }
         let digest = try XCTUnwrap(read?.digest)
         XCTAssertEqual(
             Chats.digestMessages(sessionId: "s-1", digest: digest).map(\.id),
             ["digest:s-1:agent"]
         )
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.read { db in
+            XCTAssertFalse(try db.tableExists("conversations"))
+            XCTAssertEqual(
+                try String.fetchAll(db, sql: "SELECT \"shape\" FROM \"electric_offsets\" ORDER BY \"shape\""),
+                ["messages"]
+            )
+        }
     }
 
     // EXP-1374: v83 adds `sessions.background` (false on existing rows),
@@ -3970,6 +3983,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(row.versions, Apps.Versions(headVersion: 5, publishedVersion: 3))
         XCTAssertNotNil(row.draftPackage)
         XCTAssertEqual(row.headPackage, row.draftPackage)
+        // The entity carries every later column (v103 `agent_id`,
+        // #EXP-1730): migrate to the head before saving the row.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try AppEntity.fetchOne(db, key: "a1") }
         XCTAssertEqual(read, row)
@@ -4352,6 +4368,121 @@ final class DatabaseMigrationTests: XCTestCase {
         try pool.read { db in
             XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-1")?.scopeTeamIds, ["t-1", "t-2"])
             XCTAssertNil(try SessionEntity.fetchOne(db, key: "s-2")?.scopeTeamIds)
+        }
+    }
+
+    // #EXP-1730 phase A: v103 adds `messages.session_id`, `sessions.digest`,
+    // `agents.defaults` and `apps.agent_id`, backfilled from the local rows
+    // (a message's conversation, a session's conversation digest, an agent's
+    // legacy runner columns), resets exactly those four cursors, and drops
+    // `conversations` with its cursor; wire rows round-trip.
+    func testOneTreeAdditiveColumns() throws {
+        let pool = try makePool("exp1730-one-tree")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v102_session_scope_team_ids")
+        try pool.write { db in
+            for shape in ["messages", "sessions", "agents", "apps", "conversations", "teams"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+            try db.execute(sql: """
+                INSERT INTO "conversations" ("id", "team_id", "kind", "session_id", "created_at", "updated_at", "digest")
+                VALUES ('c-s', 't', 'session', 's-1', 'x', 'x', '{"agentAt":"2026-10-24T12:00:00Z","agentTimes":[]}'),
+                       ('c-dm', 't', 'dm', NULL, 'x', 'x', NULL)
+                """)
+            try db.execute(sql: """
+                INSERT INTO "sessions" ("id", "team_id", "root_id", "user_id", "device_id", "created_at", "updated_at")
+                VALUES ('s-1', 't', 's-1', 'u', 'd', 'x', 'x')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "messages" ("id", "conversation_id", "root_id", "team_id", "author_kind",
+                    "created_at", "updated_at")
+                VALUES ('m-s', 'c-s', 's-1', 't', 'user', 'x', 'x'),
+                       ('m-dm', 'c-dm', 's-1', 't', 'user', 'x', 'x')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "agents" ("id", "team_id", "name", "device_id", "cli", "model", "created_at", "updated_at")
+                VALUES ('ag-1', 't', 'Ops', 'dev-1', 'claude', 'opus', 'x', 'x')
+                """)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v103_one_tree_additive"))
+        XCTAssertTrue(try columnNames(pool, "messages").contains("session_id"))
+        XCTAssertTrue(try columnNames(pool, "sessions").contains("digest"))
+        XCTAssertTrue(try columnNames(pool, "agents").contains("defaults"))
+        XCTAssertTrue(try columnNames(pool, "apps").contains("agent_id"))
+        try pool.read { db in
+            XCTAssertFalse(try db.tableExists("conversations"))
+            XCTAssertEqual(
+                try String.fetchAll(db, sql: "SELECT \"shape\" FROM \"electric_offsets\" ORDER BY \"shape\""),
+                ["agents", "apps", "messages", "sessions", "teams"]
+            )
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["agents", "apps", "messages", "sessions"])
+            XCTAssertEqual(try MessageEntity.fetchOne(db, key: "m-s")?.sessionId, "s-1")
+            XCTAssertNil(try MessageEntity.fetchOne(db, key: "m-dm")?.sessionId)
+            XCTAssertEqual(try SessionQueries.messages(db: db, rootId: "s-1").map(\.id), ["m-s"])
+            let session = try SessionEntity.fetchOne(db, key: "s-1")
+            XCTAssertEqual(
+                Chats.digestMessages(sessionId: "s-1", digest: session?.digest).map(\.id),
+                ["digest:s-1:agent"]
+            )
+            let agent = try AgentDefinitionEntity.fetchOne(db, key: "ag-1")
+            XCTAssertEqual(agent?.defaults, AgentDefaults(deviceId: "dev-1", cli: "claude", model: "opus"))
+            XCTAssertEqual(agent?.deviceId, "dev-1")
+            XCTAssertNil(agent?.account)
+        }
+        // Wire rows: the agent's runner picks come from `defaults` ONLY (the
+        // legacy columns are ignored), the app names its agent, the message
+        // its session.
+        let agent = try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data(#"""
+            {"id":"ag-2","team_id":"t","name":"Ops","device_id":"legacy","model":"legacy",
+             "defaults":{"deviceId":"dev-2","cli":"codex","account":null,"model":"gpt-5"},
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(agent.deviceId, "dev-2")
+        XCTAssertEqual(agent.cli, "codex")
+        XCTAssertNil(agent.account)
+        XCTAssertEqual(agent.model, "gpt-5")
+        let bare = try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data(#"""
+            {"id":"ag-3","team_id":"t","name":"Bare","device_id":"legacy","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(bare.defaults, AgentDefaults())
+        XCTAssertNil(bare.deviceId)
+        let app = try JSONDecoder().decode(AppEntity.self, from: Data(#"""
+            {"id":"a-1","team_id":"t","slug":"hours","name":"Hours","agent_id":"ag-2",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(app.agentId, "ag-2")
+        let message = try JSONDecoder().decode(MessageEntity.self, from: Data(#"""
+            {"id":"m-w","conversation_id":"c-x","session_id":"s-1","root_id":"s-1","team_id":"t",
+             "author_kind":"agent","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(message.sessionId, "s-1")
+        let session = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-2","team_id":"t","user_id":"u","device_id":"d","created_at":"x","updated_at":"x",
+             "digest":{"agentAt":"2026-10-24T12:00:00Z","agentTimes":[]}}
+            """#.utf8))
+        XCTAssertNotNil(session.digest)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in
+            try agent.save(db)
+            try app.save(db)
+            try message.save(db)
+            try session.save(db)
+        }
+        try pool.read { db in
+            XCTAssertEqual(try AgentDefinitionEntity.fetchOne(db, key: "ag-2"), agent)
+            XCTAssertEqual(try AppEntity.fetchOne(db, key: "a-1")?.agentId, "ag-2")
+            XCTAssertEqual(try MessageEntity.fetchOne(db, key: "m-w")?.sessionId, "s-1")
+            XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-2")?.digest, session.digest)
         }
     }
 
