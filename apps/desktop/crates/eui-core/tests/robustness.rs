@@ -206,24 +206,53 @@ fn template_items_charge_their_nodes_against_max_components() {
 
 #[test]
 fn two_thousand_streamed_messages_cost_linear() {
-    let mut s = Surface::new("t", SurfaceOptions::default());
-    s.apply(&json!({"createSurface": {"surfaceId": "t", "catalogId": CORE}})).unwrap();
-    let ids: Vec<String> = (0..2000).map(|i| format!("c{i}")).collect();
-    s.set_viewport(400.0, 800.0, None);
-    // A debug build on a shared CI runner (or a loaded Mac) varies several-fold:
-    // 3 s flaked at 4.4 s, so the bound only catches a hang. #EXP-1742 tracks
-    // the superlinear growth (500 messages 0.2 s, 2,000 6.3 s).
-    timed(20_000, "2,000 streamed updateComponents", || {
-        s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "root", "component": "List", "children": ids}]}})).unwrap();
-        for i in 0..2000 {
-            s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": format!("c{i}"), "component": "Text", "text": format!("Row {i}")}]}})).unwrap();
-        }
-        layout(&mut s)
-    });
+    // #EXP-1742: a growth-ratio gate, never an absolute budget (a loaded
+    // runner slows both sizes alike). Warm up, then the min of a few runs.
+    // The first run also bounds a hang (20 s, a debug build on a loaded runner).
+    let mut s = timed(20_000, "2,000 streamed updateComponents", || streamed(2000)).2;
     assert!(s.issues().is_empty(), "{:?}", &s.issues()[..3]);
     // A replaced component replaces in place (order kept).
     s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "c5", "component": "Text", "text": "five"}]}})).unwrap();
     assert_eq!(s.root().unwrap().children.len(), 2000);
+    let best = |n: usize| (0..3).map(|_| streamed(n)).fold((Duration::MAX, Duration::MAX), |(a, l), (sa, sl, _)| (a.min(sa), l.min(sl)));
+    let small = best(500);
+    let large = best(2000);
+    let total = |(a, l): (Duration, Duration)| a + l;
+    let ratio = total(large).as_secs_f64() / total(small).as_secs_f64().max(1e-6);
+    eprintln!("streamed n=500: apply {:?} layout {:?}; n=2,000: apply {:?} layout {:?}; ratio {ratio:.1}x", small.0, small.1, large.0, large.1);
+    assert!(ratio < 10.0, "4x the messages cost {ratio:.1}x (n=500 {small:?}, n=2,000 {large:?}): super-linear");
+}
+
+/// `n` streamed messages: a List of `n` ids, then one `updateComponents`
+/// per child, then one layout. (apply time, layout time, the surface)
+fn streamed(n: usize) -> (Duration, Duration, Surface) {
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    s.apply(&json!({"createSurface": {"surfaceId": "t", "catalogId": CORE}})).unwrap();
+    let ids: Vec<String> = (0..n).map(|i| format!("c{i}")).collect();
+    s.set_viewport(400.0, 800.0, None);
+    let t = Instant::now();
+    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "root", "component": "List", "children": ids}]}})).unwrap();
+    for i in 0..n {
+        s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": format!("c{i}"), "component": "Text", "text": format!("Row {i}")}]}})).unwrap();
+    }
+    let apply = t.elapsed();
+    let t = Instant::now();
+    layout(&mut s);
+    (apply, t.elapsed(), s)
+}
+
+/// #EXP-1742's measurement: `EUI_STREAM_SIZES=500,1000,2000,4000 cargo test
+/// -p eui-core --test robustness streamed_cost_table -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn streamed_cost_table() {
+    let sizes: Vec<usize> = std::env::var("EUI_STREAM_SIZES").unwrap_or_else(|_| "500,1000,2000,4000".into()).split(',').filter_map(|v| v.trim().parse().ok()).collect();
+    streamed(500);
+    for n in sizes {
+        let runs: Vec<(Duration, Duration)> = (0..5).map(|_| { let (a, l, _) = streamed(n); (a, l) }).collect();
+        let min = runs.iter().min_by_key(|(a, l)| *a + *l).unwrap();
+        eprintln!("n={n}: min apply {:?} layout {:?} (runs: {:?})", min.0, min.1, runs.iter().map(|(a, l)| *a + *l).collect::<Vec<_>>());
+    }
 }
 
 /// Items 3 + 4: data pointers.

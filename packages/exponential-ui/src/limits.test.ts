@@ -151,16 +151,41 @@ describe(`limits (catalog/limits.json)`, () => {
   })
 
   test(`2,000 streamed updateComponents cost linear`, () => {
-    const store = new SurfaceStore(`s`, CORE_CATALOG_ID, () => [])
-    const ids = Array.from({ length: 2000 }, (_, i) => `c${i}`)
-    timed(1500, () => {
+    // #EXP-1742: a growth-ratio gate (n=500 vs n=2,000 under 10x), never an
+    // absolute budget: a loaded runner slows both sizes alike.
+    const streamed = (n: number) => {
+      const store = new SurfaceStore(`s`, CORE_CATALOG_ID, () => [])
+      const ids = Array.from({ length: n }, (_, i) => `c${i}`)
+      const t = performance.now()
       store.setComponents([{ id: `root`, component: `List`, children: ids }])
-      for (let i = 0; i < 2000; i++) store.setComponents([{ id: `c${i}`, component: `Text`, text: `Row ${i}` }])
+      for (let i = 0; i < n; i++) store.setComponents([{ id: `c${i}`, component: `Text`, text: `Row ${i}` }])
       expect(store.issues).toEqual([])
-    })
+      return { ms: performance.now() - t, store }
+    }
+    const { store } = timed(10_000, () => streamed(2000))
     store.setComponents([{ id: `c5`, component: `Text`, text: `five` }])
     expect(store.components.length).toBe(2001)
     expect(store.root!.children.length).toBe(2000)
+    const best = (n: number) => Math.min(...[0, 1, 2].map(() => streamed(n).ms))
+    const ratio = best(2000) / Math.max(best(500), 0.5)
+    expect(ratio).toBeLessThan(10)
+  })
+
+  test(`#EXP-1742: 2,000 streamed versionless messages through the router cost linear`, () => {
+    // Every versionless message goes through the 0.9 upgrade: it advances
+    // the router's id maps in place, never copies the stream's so far.
+    const streamed = (n: number) => {
+      const router = new HostRouter()
+      router.route({ createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+      const ids = Array.from({ length: n }, (_, i) => `c${i}`)
+      const t = performance.now()
+      router.route({ updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `List`, children: ids }] } })
+      for (let i = 0; i < n; i++) router.route({ updateComponents: { surfaceId: `s`, components: [{ id: `c${i}`, component: `Text`, text: `Row ${i}` }] } })
+      return performance.now() - t
+    }
+    timed(10_000, () => streamed(2000))
+    const best = (n: number) => Math.min(...[0, 1, 2].map(() => streamed(n)))
+    expect(best(2000) / Math.max(best(500), 0.5)).toBeLessThan(10)
   })
 
   test(`SurfaceStore.components is a snapshot: an update never mutates an array handed out`, () => {
