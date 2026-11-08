@@ -49,10 +49,34 @@ if take_lock "$root/spaced" "my lane" 2>/dev/null; then no "take_lock refuses a 
 mkdir "$root/pr" && echo "review-1225 1" > "$root/pr/owner"
 if release_lock "$root/pr" review-12 2>/dev/null; then no "release_lock refuses a prefix-sharing owner"; else ok "release_lock refuses a prefix-sharing owner"; fi
 
+# A dead holder (an ended session) is taken over; a live one, a pid-less one
+# and one on another host never are (the 2026-11-08 30bda336 incident).
+host=$(lane_lock_host)
+sh -c 'exit 0' & deadpid=$!; wait "$deadpid"
+mkdir "$root/dead" && echo "gone 1 $deadpid $host" > "$root/dead/owner"
+LANE_LOCK_POLL_SECONDS=0
+LANE_LOCK_PID=$$ take_lock "$root/dead" me 2>/dev/null && [ "$(lock_owner "$root/dead")" = me ] && ok "take_lock takes over a dead holder's lock" || no "take_lock takes over a dead holder's lock"
+[ "$(cut -d' ' -f3 "$root/dead/owner")" = "$$" ] && ok "the owner file records the holder's pid" || no "the owner file records the holder's pid"
+[ "$(cut -d' ' -f4 "$root/dead/owner")" = "$host" ] && ok "the owner file records the host" || no "the owner file records the host"
+[ ! -e "$root/dead.takeover" ] && ok "the takeover mutex is gone" || no "the takeover mutex is gone"
+mkdir "$root/live" && echo "alive 1 $$ $host" > "$root/live/owner"
+lock_holder_dead "$root/live" && no "a live holder is not dead" || ok "a live holder is not dead"
+mkdir "$root/nopid" && echo "old 1" > "$root/nopid/owner"
+lock_holder_dead "$root/nopid" && no "a pid-less lock is never taken over" || ok "a pid-less lock is never taken over"
+mkdir "$root/dash" && echo "hand 1 - $host" > "$root/dash/owner"
+lock_holder_dead "$root/dash" && no "a lock taken without LANE_LOCK_PID is never taken over" || ok "a lock taken without LANE_LOCK_PID is never taken over"
+mkdir "$root/remote" && echo "far 1 $deadpid other-host" > "$root/remote/owner"
+lock_holder_dead "$root/remote" && no "another host's lock is never taken over" || ok "another host's lock is never taken over"
+mkdir "$root/busy" "$root/busy.takeover" && echo "gone 1 $deadpid $host" > "$root/busy/owner"
+lock_take_over "$root/busy" 2>/dev/null; [ -d "$root/busy" ] && ok "a held takeover mutex blocks a second taker" || no "a held takeover mutex blocks a second taker"
+LANE_LOCK_POLL_SECONDS=30
+
 # lane.sh: runs inside the lock, releases after, keeps the command's exit.
 export EXP_LANE_LOCK_ROOT="$root"
 held=$("$here/lane.sh" heavy me -- sh -c 'cat "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"' | cut -d' ' -f1)
 [ "$held" = me ] && ok "lane.sh runs with the lane lock held" || no "lane.sh runs with the lane lock held"
+pid=$("$here/lane.sh" heavy me -- sh -c 'cut -d" " -f3 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"')
+case "$pid" in '' | *[!0-9]*) no "lane.sh records its pid" ;; *) ok "lane.sh records its pid" ;; esac
 [ ! -e "$root/exp-perf-heavy-1" ] && ok "lane.sh releases the lane lock" || no "lane.sh releases the lane lock"
 "$here/lane.sh" ios me -- sh -c 'exit 7'
 [ $? -eq 7 ] && ok "lane.sh keeps the command's exit status" || no "lane.sh keeps the command's exit status"

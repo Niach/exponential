@@ -20,5 +20,7 @@ shift 3
 trap 'release_lock "$dir" "$owner" 2>/dev/null' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# This shell lives for the whole run: a waiter takes over only once it is gone.
+LANE_LOCK_PID=$$
 take_lock "$dir" "$owner" || exit $?
 "$@"
