@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-local-desktops-complete",
+    date: "2026-11-08",
+    title: "Local desktops are complete",
+    summary: "A Local desktop's apps keep their own records, new issues and drafts work there, its chat lists the desktop's agents, and Settings open in the sidebar; Alt-Tab picks the tile you hover.",
+    body: r#"- **Local desktops**: a Local desktop's apps keep their own records, the new-issue button opens the app's new issue there and its draft saves, and the chat lists the desktop's own agents.
+- **Sidebar**: Settings open into the sidebar like in the desktop app, and the rail's team chats show unread and open in the chat panel; agents' icons draw in their colour.
+- **Alt-Tab**: the tile you hover is the one Alt-Tab picks, like on Mint."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_226: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-desktop-follows-exponential-desktop",
     date: "2026-11-08",
     title: "The desktop app follows Exponential Desktop",
