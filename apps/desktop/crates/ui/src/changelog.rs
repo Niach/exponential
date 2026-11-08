@@ -58,7 +58,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_229: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_230: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-every-chat-a-group-chat",
     date: "2026-11-08",
     title: "Every chat reads like a group chat",
