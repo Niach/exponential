@@ -28,6 +28,15 @@ object SessionScreen {
         const val BACK = "Back"
         const val SEPARATOR = " · "
         const val LINK_ISSUE = "Link or file an issue"
+
+        /** `copy.status`: THE tree's lowercase status words. */
+        object Status {
+            const val NEEDS_INPUT = "needs input"
+            const val WORKING = "working"
+            const val QUEUED = "queued"
+            const val DONE = "done"
+            const val IDLE = "idle"
+        }
     }
 
     object TestIds {
@@ -174,8 +183,15 @@ object SessionScreen {
         var opened = Open.of(open)
         if (opened == null && req == Open.Settings.wire) opened = Open.Settings
         if (opened == Open.Settings && !spec.gear) opened = null
+        // ACTIVE FOLLOWS THE OPENED ITEM: a session → Sessions, an issue →
+        // Issues, when the kind has that tab (a plan and settings keep it).
+        val follows = when (opened) {
+            Open.Session -> Tab.Sessions
+            Open.Issue -> Tab.Issues
+            else -> null
+        }?.takeIf { it in spec.tabs }
         val asked = Tab.of(req)?.takeIf { it in spec.tabs }
-        val active = asked ?: if (wide) spec.wideDefault else Tab.Chat
+        val active = follows ?: asked ?: if (wide) spec.wideDefault else Tab.Chat
         val layout = when {
             wide -> if (active != Tab.Chat || opened != null) Layout.Beside else Layout.Chat
             opened != null -> Layout.Item
@@ -183,5 +199,22 @@ object SessionScreen {
             else -> Layout.Tab
         }
         return Screen(tabs, active, spec.gear, opened, layout)
+    }
+
+    /** One session of the tree for [status]. */
+    data class StatusInput(val status: String, val busy: Boolean, val needsInput: Boolean, val root: Boolean)
+
+    /** THE tree's status word (`statusCases`): needs input > working > queued
+     *  (the root) > done (the root ended) > idle; an empty tree = idle. */
+    fun status(sessions: List<StatusInput>): String {
+        val live = sessions.filter { it.status != "ended" }
+        val root = sessions.firstOrNull { it.root }
+        return when {
+            live.any { it.needsInput } -> Copy.Status.NEEDS_INPUT
+            live.any { it.busy } -> Copy.Status.WORKING
+            root?.status == "queued" -> Copy.Status.QUEUED
+            root?.status == "ended" -> Copy.Status.DONE
+            else -> Copy.Status.IDLE
+        }
     }
 }

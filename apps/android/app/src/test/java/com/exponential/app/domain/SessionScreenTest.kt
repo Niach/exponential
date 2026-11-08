@@ -19,7 +19,7 @@ import org.junit.Test
 
 /**
  * #EXP-1732: THE session screen is fixture-locked ×4 — `session-screen.json`
- * `cases` (the WHOLE value), `kindCases` and `subtitleCases` replay here (TS
+ * `cases` (the WHOLE value), `kindCases`, `subtitleCases` and `statusCases` replay here (TS
  * `session-screen.test.ts`, iOS `SessionScreenTests`, desktop
  * `domain::session_screen`); the embedded copy, test ids, kinds, legacy tabs
  * and beside numbers are proved equal to the fixture's.
@@ -98,6 +98,21 @@ class SessionScreenTest {
     }
 
     @Test
+    fun `every status case matches the fixture`() {
+        for (case in cases("statusCases")) {
+            val input = case.getValue("input").jsonArray.map { it.jsonObject }.map { session ->
+                SessionScreen.StatusInput(
+                    status = session.str("status") ?: "",
+                    busy = session.getValue("busy").jsonPrimitive.boolean,
+                    needsInput = session.getValue("needsInput").jsonPrimitive.boolean,
+                    root = session.getValue("root").jsonPrimitive.boolean,
+                )
+            }
+            assertEquals(case.str("name"), case.str("expected"), SessionScreen.status(input))
+        }
+    }
+
+    @Test
     fun `the copy, test ids, kinds, legacy tabs and beside equal the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
         val tabs = copy.getValue("tabs").jsonObject
@@ -108,6 +123,12 @@ class SessionScreenTest {
         assertEquals(copy.str("back"), SessionScreen.Copy.BACK)
         assertEquals(copy.str("separator"), SessionScreen.Copy.SEPARATOR)
         assertEquals(copy.str("linkIssue"), SessionScreen.Copy.LINK_ISSUE)
+        val status = copy.getValue("status").jsonObject
+        assertEquals(status.str("needsInput"), SessionScreen.Copy.Status.NEEDS_INPUT)
+        assertEquals(status.str("working"), SessionScreen.Copy.Status.WORKING)
+        assertEquals(status.str("queued"), SessionScreen.Copy.Status.QUEUED)
+        assertEquals(status.str("done"), SessionScreen.Copy.Status.DONE)
+        assertEquals(status.str("idle"), SessionScreen.Copy.Status.IDLE)
 
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("tabs"), SessionScreen.TestIds.TABS)

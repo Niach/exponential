@@ -376,7 +376,7 @@ fun AgentConversationScreen(
                 // exists, the telephone and THE gear already (NEW-69, #EXP-1732).
                 ChatHeader(
                     title = if (row == null) "" else name,
-                    subtitle = if (row == null) null else SessionScreen.subtitle(null, null, trigger),
+                    subtitle = if (row == null) null else SessionScreen.subtitle(SessionScreen.status(emptyList()), null, trigger),
                     lead = {
                         androidx.compose.foundation.layout.Box(
                             modifier = Modifier

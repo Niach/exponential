@@ -275,14 +275,9 @@ fun ChatScreen(
                 ?.let { com.exponential.app.domain.AgentSettings.triggerSummary(it) }
         }
     }
-    val headerSubtitle = SessionScreen.subtitle(chatStateWord(view), deviceLabel, trigger)
-    // #EXP-1688 (web `ChatHeaderTitle`): needs input = amber, working = the
-    // foreground, otherwise the muted default.
-    val headerSubtitleColor = when {
-        view?.needsYou == true -> com.exponential.app.ui.issue.NeedsInputAmber
-        view?.busy == true -> MaterialTheme.colorScheme.onSurface
-        else -> null
-    }
+    val stateWord = chatStateWord(viewModel.rootId, tree)
+    val headerSubtitle = SessionScreen.subtitle(stateWord, deviceLabel, trigger)
+    val headerSubtitleColor = chatStateTone(stateWord)
     val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
         com.exponential.app.ui.components.agentMenuItems(
             com.exponential.app.domain.Chats.agentMenuEntries(busy = rootRow?.busy == true, isOwner = isOwner)
@@ -742,16 +737,27 @@ internal fun chatLeadOf(view: SessionTree.ChatView?, pullRequests: List<PullRequ
     }
 }
 
-/** The chat header's state word ×4 (#EXP-1732 session-screen.json
- *  `subtitle`, iOS `ChatHeaderTitle.subtitle`): `needs input` (chat-list.json
- *  `words.needsInput`) while the tree needs you, `working…` while busy, `Done`
- *  once every session of the tree ended, else `Idle`. */
-internal fun chatStateWord(view: SessionTree.ChatView?): String? = when {
-    view == null -> null
-    view.needsYou -> SessionTree.ChatRowWord.NeedsInput.text
-    view.busy -> com.exponential.app.domain.Chats.Copy.PREVIEW_WORKING
-    !view.live -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Done)
-    else -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Idle)
+/** The chat header's state word ×4 (#EXP-1732 session-screen.json STATUS
+ *  WORD, `statusCases`): THE TREE's lowercase word, never dropped. */
+internal fun chatStateWord(rootId: String, tree: List<com.exponential.app.data.db.SessionEntity>): String =
+    SessionScreen.status(
+        tree.map {
+            SessionScreen.StatusInput(
+                status = it.status,
+                busy = it.busy,
+                needsInput = it.needsInput,
+                root = it.id == rootId,
+            )
+        },
+    )
+
+/** The word's tone (#EXP-1688, web `ChatHeaderTitle`): needs input = amber,
+ *  working = the foreground, else null (the muted default). */
+@Composable
+internal fun chatStateTone(word: String): Color? = when (word) {
+    SessionScreen.Copy.Status.NEEDS_INPUT -> com.exponential.app.ui.issue.NeedsInputAmber
+    SessionScreen.Copy.Status.WORKING -> MaterialTheme.colorScheme.onSurface
+    else -> null
 }
 
 /** A wire timestamp as the local `HH:mm` a message row shows. */

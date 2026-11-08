@@ -197,8 +197,9 @@ fun AppEditorScreen(
     val publishing by viewModel.publishing.collectAsStateWithLifecycle()
     val myAccess by viewModel.myAccess.collectAsStateWithLifecycle()
     val screenRequest by viewModel.screen.collectAsStateWithLifecycle()
-    // #EXP-1729: the header's `status · device` subtitle.
+    // #EXP-1729 / #EXP-1732: the header's device part and its tone.
     val header by viewModel.header.collectAsStateWithLifecycle()
+    val headerDevice by viewModel.headerDeviceLabel.collectAsStateWithLifecycle()
     // eApps R3: Publish needs write access to the app (null = write until known).
     val canWrite = (myAccess ?: "write") == "write"
     var exportOpen by rememberSaveable { mutableStateOf(false) }
@@ -318,10 +319,16 @@ fun AppEditorScreen(
                 topBar = {
                     com.exponential.app.ui.chat.ChatHeader(
                         title = entry?.name.orEmpty(),
-                        // #EXP-1729 (apps.json `editorHeader`): THE subtitle
-                        // says why nothing starts (`queued · no device
-                        // online`), in its tone.
-                        subtitle = if (entry != null) header.subtitle else null,
+                        // #EXP-1732 (session-screen.json STATUS WORD): THE
+                        // tree's word (never dropped) · apps.json
+                        // `editorHeader`'s device part, in its tone.
+                        subtitle = if (entry != null) {
+                            SessionScreen.subtitle(
+                                com.exponential.app.ui.chat.chatStateWord(rootId.orEmpty(), tree.sessions),
+                                headerDevice,
+                                null,
+                            )
+                        } else null,
                         subtitleColor = when (header.tone) {
                             Apps.EditorHeaderTone.Attention -> NeedsInputAmber
                             Apps.EditorHeaderTone.Active -> MaterialTheme.colorScheme.onSurface

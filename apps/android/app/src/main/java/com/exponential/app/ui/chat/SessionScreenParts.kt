@@ -5,7 +5,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionScreen
@@ -121,15 +119,13 @@ fun sessionScreenTreeItems(
     return SessionScreenItems(issues, out)
 }
 
-/** A segment's floor before the strip scrolls sideways (labels never wrap). */
-private val SegmentMinWidth: Dp = 88.dp
-
 /**
  * #EXP-1732: THE tabs under the header row = THE existing segmented control
  * ([GlassSegmentedControl]), testId `session-tabs`: each option the label,
- * then its count as a muted number when not null. Labels only, no icons; on
- * a narrow phone the strip keeps a readable segment width and scrolls
- * sideways instead of wrapping.
+ * then its count as a muted number when not null. Labels only, no icons;
+ * TAB SIZING: every segment hugs its label (+ count), never stretched to
+ * equal widths nor squeezed, and the strip scrolls sideways when it
+ * overflows (never wrapping).
  */
 @Composable
 fun SessionScreenTabs(
@@ -138,27 +134,25 @@ fun SessionScreenTabs(
     onSelect: (SessionScreen.Tab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
             .testTag(SessionScreen.TestIds.TABS),
     ) {
-        val floor = SegmentMinWidth * tabs.size
-        val width = if (floor > maxWidth) floor else maxWidth
         Box(Modifier.horizontalScroll(rememberScrollState())) {
             GlassSegmentedControl(
                 options = tabs.map { it.tab },
                 selected = active,
                 label = { tab -> tabs.firstOrNull { it.tab == tab }?.label ?: tab.label },
                 onSelect = onSelect,
-                modifier = Modifier.width(width),
                 testTag = { tab -> SessionScreen.TestIds.tab(tab) },
                 trailing = { tab -> segmentCount(tabs.firstOrNull { it.tab == tab }?.count) },
                 description = { tab ->
                     val entry = tabs.firstOrNull { it.tab == tab }
                     entry?.count?.let { "${entry.label}, $it" }
                 },
+                hug = true,
             )
         }
     }
