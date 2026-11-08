@@ -195,6 +195,38 @@ pub(super) fn failed_state(ink: &Ink, id: &str, icon: &str, title: &str, visible
 }
 
 impl Ink {
+    /// `glass_picker_row`: the label column (no hint: it never shrinks,
+    /// picker-presentation.json (3)), then the value at 70% with its chevron
+    /// (a small ghost `Button`: `text_sm`, `gap_1`, a `size_4` glyph),
+    /// opening `items` as the single-select Menu that fires `action` with
+    /// the picked value. A `dim` row draws the trigger only.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn picker_row(&self, id: &str, dim: bool, visible: Value, label: &str, hint: Option<&str>, value: Value, action: &str, items: Vec<Value>) -> Value {
+        let glyph = self.r(1.);
+        let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": self.r(0.25), "cursor": "pointer"},
+            "children": [
+                faded(self.text(&format!("{id}_value"), value, SM, &self.value), VALUE_ALPHA),
+                {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": self.value, "opacity": VALUE_ALPHA}},
+            ]});
+        let control = if dim {
+            trigger
+        } else {
+            json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": items, "align": "end"}, "on": {"select": {"event": {"name": action}}}, "children": [trigger]})
+        };
+        let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": [control]});
+        let column = match hint {
+            Some(hint) => self.label_column(&format!("{id}_text"), json!(label), json!(hint), false),
+            None => {
+                let mut column = json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "minWidth": 0, "flexShrink": 0},
+                    "children": [self.text(&format!("{id}_text_label"), json!(label), SM, &self.foreground)]});
+                column["style"]["gap"] = json!(self.r(0.125));
+                column
+            }
+        };
+        self.shell(id, dim, visible, vec![column, control])
+    }
+
     /// `glass_section_header`: the `fill_section` strip (`px_3` / `py_1p5`,
     /// `gap_1p5`, `mb_1`, `radius_md`), the `text_sm` MEDIUM label at 85%,
     /// then a spacer and the trailing control.

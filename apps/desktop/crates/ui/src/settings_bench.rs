@@ -11,6 +11,7 @@ use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
 use crate::settings::about::AboutPane;
+use crate::settings::sessions::SessionsPane;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::shell_bench::headless;
@@ -202,4 +203,16 @@ fn settings_about_end() {
 #[ignore]
 fn settings_about_end_idle() {
     shoot_pane_settled("about-end-idle", AboutPane::for_shots, |pane, cx| pane.show_end(cx), Some(std::time::Duration::from_millis(3500)));
+}
+
+#[test]
+#[ignore]
+fn settings_sessions_unlimited() {
+    shoot_pane("sessions-unlimited", SessionsPane::for_shots, |pane, cx| pane.show(None, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_sessions_30_days() {
+    shoot_pane("sessions-30-days", SessionsPane::for_shots, |pane, cx| pane.show(Some(30), cx));
 }

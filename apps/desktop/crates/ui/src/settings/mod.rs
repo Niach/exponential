@@ -76,7 +76,7 @@ pub(crate) mod prompts;
 pub(crate) mod skills;
 mod board_detail;
 pub(crate) mod repositories;
-mod sessions;
+pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
 mod tools;
@@ -779,7 +779,7 @@ impl SettingsView {
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
-        let sessions = cx.new(SessionsPane::new);
+        let sessions = cx.new(|cx| SessionsPane::new(window, cx));
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
         let voice = cx.new(VoicePrefsPane::new);

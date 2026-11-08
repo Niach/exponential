@@ -9,20 +9,17 @@
 //! prunes right away on the background executor instead of waiting for the
 //! next start.
 
-use crate::controls::PointerMenuButtonExt as _;
 use std::path::PathBuf;
+use std::rc::Rc;
 
-use gpui::{IntoElement, ParentElement, Render, SharedString, Styled, Window};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    ActiveTheme as _,
-};
+use gpui::{div, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window};
+use serde_json::{json, Value};
 
 use coding::session_retention::{self, CHOICES};
+use eui_gpui::binding::Binding;
+use eui_gpui::view::SurfaceView;
 
-use crate::surface::{glass_group_rows, glass_picker_row, picker_value_label};
-
-use super::section;
+use super::doc::{mount, path, IdeToasts, Ink};
 
 /// The menu label for a stored window. A value the pane does not offer (a
 /// hand-edited file) still reads truthfully.
@@ -42,14 +39,53 @@ pub struct SessionsPane {
     /// account (and with it the data dir) changes.
     loaded_for: Option<PathBuf>,
     days: Option<u32>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+}
+
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// A menu item's value for a window (`"unlimited"` or the day count).
+fn choice_value(days: Option<u32>) -> String {
+    days.map_or_else(|| "unlimited".to_string(), |days| days.to_string())
 }
 
 impl SessionsPane {
-    pub fn new(_cx: &mut gpui::Context<Self>) -> Self {
-        Self {
-            loaded_for: None,
-            days: None,
-        }
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        // A pick leaves the binding for the pane: it writes the file and
+        // prunes off the UI thread, reverting and toasting on failure.
+        let pane = cx.weak_entity();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding.on_action("days", move |_, event, cx| {
+                let picked = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str)?;
+                let days = CHOICES.iter().map(|(days, _)| *days).find(|days| choice_value(*days) == picked)?;
+                let pane = pane.clone();
+                // Deferred: the binding is mid-update and this writes it.
+                cx.defer(move |cx| {
+                    let _ = pane.update(cx, |pane, cx| pane.set_days(days, cx));
+                });
+                None
+            });
+            binding
+        });
+        let view = mount("settings-sessions", document(&Ink::of(cx)), &binding, window, cx);
+        Self { loaded_for: None, days: None, binding, view }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(window, cx)
+    }
+
+    /// The pane showing `days` (the pictures pin it: no settings file).
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, days: Option<u32>, cx: &mut gpui::Context<Self>) {
+        self.loaded_for = Some(crate::coding_flow::coding_data_dir(cx));
+        self.days = days;
+        cx.notify();
     }
 
     fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) -> PathBuf {
@@ -105,49 +141,27 @@ impl SessionsPane {
     }
 }
 
+/// The pane's tree: the band over one picker row.
+fn document(ink: &Ink) -> Value {
+    let items: Vec<Value> = CHOICES
+        .iter()
+        .map(|(days, label)| {
+            let value = choice_value(*days);
+            json!({"label": label, "value": value, "kind": "checkbox", "checked": super::doc::eq(path("/pane/value"), json!(value))})
+        })
+        .collect();
+    let row = ink.picker_row("retention", false, json!(true), "Keep session history", None, path("/pane/label"), "days", items);
+    // `settings::section` (`gap_2`).
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
+        "children": [ink.band("band", "Sessions", None), ink.group("group", vec![row])]})
+}
+
 impl Render for SessionsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
-        let current = self.days;
-        let value_color = cx.theme().foreground.opacity(0.7);
-
-        let row = glass_picker_row(
-            "Keep session history",
-            None,
-            Button::new("sessions-retention-select")
-                .ghost()
-                .cursor_pointer()
-                .h_auto()
-                .px_0()
-                .py_0()
-                .text_color(value_color)
-                // EXP-697: NOT `.label()` — see notifications_prefs.
-                .child(picker_value_label(choice_label(current)))
-                .child(crate::surface::picker_row_chevron(cx))
-                .pointer_menu({
-                    let entity = cx.entity();
-                    move |mut menu, _, _| {
-                        menu = crate::pickers::single_select_menu(menu);
-                        for (days, label) in CHOICES {
-                            let entity = entity.clone();
-                            menu = menu.item(
-                                crate::controls::pointer_label_item(label, false)
-                                    .checked(current == days)
-                                    .on_click(move |_, _, cx| {
-                                        entity.update(cx, |this, cx| this.set_days(days, cx));
-                                    }),
-                            );
-                        }
-                        menu
-                    }
-                })
-                .into_any_element(),
-            cx,
-        );
-
-        section(cx)
-            .child(crate::surface::glass_section_header("Sessions", None, cx))
-            .child(glass_group_rows(vec![row]))
+        let projection = json!({"label": choice_label(self.days).to_string(), "value": choice_value(self.days)});
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 

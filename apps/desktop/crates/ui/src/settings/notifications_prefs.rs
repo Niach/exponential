@@ -46,7 +46,7 @@ use domain::contract::{
     NOTIFICATION_TYPE_SESSION_BLOCKED,
 };
 
-use super::doc::{and, eq, failed_state, faded, mount, not, path, skeleton, IdeToasts, Ink, SM, VALUE_ALPHA, XS};
+use super::doc::{and, eq, failed_state, mount, not, path, skeleton, IdeToasts, Ink, SM, XS};
 use crate::coding_flow::CodingHub;
 use crate::queries;
 
@@ -189,27 +189,6 @@ fn toggle_row(ink: &Ink, dim: bool) -> Value {
     ])
 }
 
-/// A picker row (`glass_picker_row`): the value at 70% with its chevron
-/// (a small ghost `Button`: `text_sm`, `gap_1`, a `size_4` glyph), opening
-/// the single-select menu.
-#[allow(clippy::too_many_arguments)]
-fn picker_row(ink: &Ink, id: &str, dim: bool, visible: Value, label: &str, hint: &str, value: Value, action: &str, items: Vec<Value>) -> Value {
-    let glyph = ink.r(1.);
-    let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "cursor": "pointer"},
-        "children": [
-            faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), VALUE_ALPHA),
-            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA}},
-        ]});
-    let control = if dim {
-        trigger
-    } else {
-        json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": items, "align": "end"}, "on": {"select": {"event": {"name": action}}}, "children": [trigger]})
-    };
-    let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": [control]});
-    ink.shell(id, dim, visible, vec![ink.label_column(&format!("{id}_text"), json!(label), json!(hint), false), control])
-}
-
 /// The pane's tree.
 fn document(ink: &Ink) -> Value {
     // `no_transport_alert`: the sentence word by word (`gap_x 4`), the env
@@ -245,8 +224,8 @@ fn document(ink: &Ink) -> Value {
     let hour_items: Vec<Value> = (0..24).map(|hour| json!({"label": format!("{hour}:00"), "value": hour.to_string(), "kind": "checkbox", "checked": eq(path("/pane/digest/hour"), json!(hour))})).collect();
     let disabled = path("/pane/digest/disabled");
     let daily = path("/pane/digest/daily");
-    let delivery = |dim: bool| picker_row(ink, if dim { "delivery_dim" } else { "delivery" }, dim, if dim { disabled.clone() } else { not(disabled.clone()) }, "Delivery", "How often the digest goes out.", path("/pane/digest/label"), "digest", digest_items.clone());
-    let send_time = |dim: bool| picker_row(ink, if dim { "hour_dim" } else { "hour" }, dim, and(daily.clone(), if dim { disabled.clone() } else { not(disabled.clone()) }), "Send time", "Full hours only, in your timezone.", path("/pane/digest/hourLabel"), "hour", hour_items.clone());
+    let delivery = |dim: bool| ink.picker_row(if dim { "delivery_dim" } else { "delivery" }, dim, if dim { disabled.clone() } else { not(disabled.clone()) }, "Delivery", Some("How often the digest goes out."), path("/pane/digest/label"), "digest", digest_items.clone());
+    let send_time = |dim: bool| ink.picker_row(if dim { "hour_dim" } else { "hour" }, dim, and(daily.clone(), if dim { disabled.clone() } else { not(disabled.clone()) }), "Send time", Some("Full hours only, in your timezone."), path("/pane/digest/hourLabel"), "hour", hour_items.clone());
     let mut digest = ink.group("digest", [vec![delivery(false), delivery(true)], ink.row_dividers("hour_divider", daily.clone(), disabled.clone()).to_vec(), vec![send_time(false), send_time(true)]].concat());
     digest["visible"] = path("/pane/ready");
 
