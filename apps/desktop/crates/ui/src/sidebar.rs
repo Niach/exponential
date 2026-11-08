@@ -58,7 +58,7 @@ use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::navigation::{
-    active_board_id, active_team_id, nav_for_window, navigate, resolved_screen,
+    active_board_id, nav_for_window, navigate, resolved_screen,
     Navigation, Screen,
 };
 
@@ -388,37 +388,6 @@ pub(crate) fn apply_origin(window: &Window, cx: &mut App, origin: &crate::naviga
     }
     if let Some(board_id) = origin.board_id.clone() {
         crate::navigation::set_active_board(window, cx, board_id);
-    }
-}
-
-/// EXP-1105 / #EXP-1704: whether the ACTIVE team auto-merges (merge mode
-/// Automatic, which replaced yolo mode) — Files and Source Control leave the
-/// rail for every member. `None` = no active team; only an explicit `auto`
-/// hides them, so a pre-column row keeps the rail.
-fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> Option<bool> {
-    active_team_id(nav, cx).map(|id| {
-        Store::global(cx)
-            .collections()
-            .teams
-            .read(cx)
-            .get(&id)
-            .is_some_and(|team| team.merge_mode.as_deref() == Some(domain::contract::TEAM_MERGE_MODE_AUTO))
-    })
-}
-
-/// EXP-1105: which of the two yolo-hideable Computer-menu entries render.
-/// Off = both (today's rail). On = Files never; Source Control only while
-/// the trunk needs attention or its sync failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct YoloRail {
-    files: bool,
-    source_control: bool,
-}
-
-fn yolo_rail(yolo: bool, sc_failing: bool) -> YoloRail {
-    YoloRail {
-        files: !yolo,
-        source_control: !yolo || sc_failing,
     }
 }
 
@@ -803,14 +772,6 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::thread_row_mark_state(needs_you, busy)
 }
 
-/// #EXP-1724: the sidebar folds into its icon rail and back, remembered,
-/// every window. The IDE's own: #EDE-65 took `rail.toggle` out of the shell
-/// reducer (eDE's sidebar is the rail for good).
-pub(crate) fn toggle_rail(cx: &mut App) {
-    crate::ui_prefs::set_rail(!crate::ui_prefs::rail());
-    cx.refresh_windows();
-}
-
 impl RailView {
 }
 
@@ -821,13 +782,6 @@ impl Render for RailView {
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
         git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
-        // Trunk anomalies (paused conflict / local commits / dirty tree —
-        // each parks the autopull, EXP-346) paint the amber badge, EXCEPT
-        // while a live Action run is legitimately dirtying this clone.
-        let mut sc_attention = git_bar.read(cx).attention();
-        if sc_attention.is_some() && git_bar.read(cx).repo_tasks_alive(window, cx) {
-            sc_attention = None;
-        }
 
         // A branch checkout changes the working tree — refresh the file tree
         // the first render after the branch flips.
@@ -844,7 +798,6 @@ impl Render for RailView {
             }
         }
 
-        let team_yolo = yolo_mode(&self.nav, cx);
         let nav = self.nav.clone();
         self.region.update(cx, |region, cx| region.refresh(&nav, cx));
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
@@ -852,47 +805,8 @@ impl Render for RailView {
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
             .then(|| self.rail_getting_started_entry(cx));
 
-        // Source Control badge (EXP-253 — the git bar is headless now, this
-        // badge is its whole rail presence): attention (conflict / local
-        // commits / dirty tree) beats sticky error beats syncing; the
-        // tooltip carries the attention reason or the "synced Xm ago" stamp.
-        // EXP-509: real glyphs instead of colored dots — a yellow warning
-        // triangle for attention, a red cross for the sticky error, and a
-        // SPINNING refresh while a pull/clone runs.
-        // EXP-1105: the same two failure inputs the badge reads (attention
-        // or a sticky sync error) — a pull merely in flight is not one.
-        let sc_failing = sc_attention.is_some() || git_bar.read(cx).sync_error().is_some();
-        let sc_attention_on = sc_attention.is_some();
-        let sc_tooltip: SharedString = if let Some(reason) = sc_attention {
-            format!("Source Control: {reason}").into()
-        } else if let Some(error) = git_bar.read(cx).sync_error() {
-            // EXP-366: the red dot's WHY — a failed clone ("git not found on
-            // PATH") used to color the dot and say nothing anywhere.
-            format!("Source Control sync failed: {error}").into()
-        } else if let Some(percent) = git_bar.read(cx).clone_progress() {
-            format!("Source Control: cloning… {percent}%").into()
-        } else {
-            match git_bar.read(cx).last_synced() {
-                Some(at) => {
-                    let (short, _) = crate::trunk_sync::synced_ago_labels(at.elapsed());
-                    if short.as_ref() == "now" {
-                        "Source Control: synced just now".into()
-                    } else {
-                        format!("Source Control: synced {short} ago").into()
-                    }
-                }
-                None => "Source Control".into(),
-            }
-        };
-
-        // EXP-1105: yolo mode hides Files / Source Control unless a git
-        // failure needs a person (see `yolo_rail`).
-        let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
         // #NEW-97: no tray host = the voice button beside the Computer one.
         let voice_entry = self.rail_voice_entry(cx);
-        let rail = crate::ui_prefs::rail();
-        let badge = (rail_gate.source_control && sc_failing).then(|| if sc_attention_on { "ide:trunk:warning" } else { "ide:trunk:error" }.to_string());
-        self.region.update(cx, |region, _| region.set_tools(rail_gate.files, rail_gate.source_control, sc_tooltip.to_string(), badge));
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -950,7 +864,7 @@ impl Render for RailView {
             // #EXP-1723: the start and chat buttons are the document's corner;
             // what stays under them is what still needs a person: the
             // Getting-started entry, the sync spinner, the voice button.
-            .when(!rail, |column| {
+            .map(|column| {
                 column.child(
                     v_flex()
                         .w_full()
@@ -1050,38 +964,8 @@ impl Render for ListPanel {
 
 #[cfg(test)]
 mod tests {
-    use super::{running_row_state, yolo_rail, ToolWindow, YoloRail};
+    use super::{running_row_state, ToolWindow};
     use crate::navigation::Screen;
-
-    /// EXP-1105: yolo mode hides Files / Source Control, but a git failure
-    /// (trunk attention or a sync error) brings Source Control back. Off =
-    /// today's rail.
-    #[test]
-    fn yolo_rail_hides_entries_until_a_failure_surfaces() {
-        for sc in [false, true] {
-            assert_eq!(
-                yolo_rail(false, sc),
-                YoloRail {
-                    files: true,
-                    source_control: true,
-                }
-            );
-        }
-        assert_eq!(
-            yolo_rail(true, false),
-            YoloRail {
-                files: false,
-                source_control: false,
-            }
-        );
-        assert_eq!(
-            yolo_rail(true, true),
-            YoloRail {
-                files: false,
-                source_control: true,
-            }
-        );
-    }
 
     /// EXP-1294: a Running row's mark — needs you first, then working, else
     /// the quiet mark.
