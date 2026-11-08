@@ -305,7 +305,7 @@ impl SurfaceView {
         // `native: true`: the platform control paints the part itself.
         // Round 8: gpui-component's checkbox has no mixed state, so a MIXED
         // box always paints the eUI look (the dash).
-        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
+        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Checkbox", Some("box" | "checkbox")));
         let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
         // A dimmed (disabled) Button / Toggle fades as ONE layer on the web:
         // its label never shows its own fill through it. On an opaque
@@ -1004,11 +1004,6 @@ impl SurfaceView {
             ("QrScanner", _) => self.paint_qr_scanner(&lcx, index, window, cx),
             ("Unknown", _) => natives::unknown(&lcx),
             ("Checkbox", Some("box" | "checkbox")) if style.native && !is_mixed(n) => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
-            // #EXP-1629: the native switch is THE switch the SDK's controls
-            // paint (`controls::web_switch`), so a host whose theme asks for
-            // it draws exactly its own screens' switch. No handler: the press
-            // stays the core's, and the recipe's opacity dims it.
-            ("Switch", Some("track")) if style.native => crate::controls::web_switch(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
             ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n), is_mixed(n)),
             ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked(n)),
             ("Radio", Some("dot")) => {

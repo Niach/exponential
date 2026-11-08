@@ -399,17 +399,6 @@ fn document(ink: &Ink) -> Value {
         "children": [alert, rows, skeleton, failed, digest]})
 }
 
-/// The theme the pane paints in: the Exponential theme, its Switch the
-/// IDE's own (`controls::web_switch`, 36×20, painted natively), not the
-/// theme's 32px track, until #EXP-1745 gives genUI's Switch that look.
-// drop with EXP-1745
-fn pane_theme() -> Option<std::sync::Arc<eui_core::theme::ResolvedTheme>> {
-    let mut theme = (*eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID)?).clone();
-    let rule = eui_core::theme::RecipeRule { when: None, style: serde_json::from_value(json!({"width": 36, "height": 20, "native": true})).ok()? };
-    theme.recipes.entry("Switch".into()).or_default().entry("track".into()).or_default().push(rule);
-    Some(std::sync::Arc::new(theme))
-}
-
 /// The IDE's toasts for a failed write.
 struct IdeToasts;
 
@@ -535,7 +524,7 @@ impl NotificationsPrefsPane {
         let host: Rc<dyn HostPlugin> = Rc::new(BindingHost::new(&binding, inner));
         let options = SurfaceViewOptions {
             surface_id: "settings-notifications".into(),
-            theme: pane_theme(),
+            theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
             mode: eui_core::theme::Mode::Dark,
             host,
             settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
