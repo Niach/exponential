@@ -21,7 +21,8 @@ export interface ShellLayout {
   widgets: { cell: number; gap: number; margin: number; sizes: Record<string, [number, number]> }
 }
 
-export const LAYOUT: ShellLayout = fixture
+// JSON infers number[] where the type says [w, h].
+export const LAYOUT: ShellLayout = fixture as unknown as ShellLayout
 
 /** The sidebar's width for a rail state: the full column or the icon rail. */
 export const sidebarWidth = (rail: boolean): number => (rail ? LAYOUT.railWidth : LAYOUT.sidebarWidth)
