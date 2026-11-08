@@ -165,7 +165,7 @@ function useComposerSession(sessionId: string | null) {
     [deviceId]
   )
   const device = (devices ?? [])[0] as
-    | { launchDefaults?: { agents?: Record<string, { model?: string; threadModel?: string }> } | null }
+    | { launchDefaults?: { agents?: Record<string, { model?: string }> } | null }
     | undefined
   return {
     store,

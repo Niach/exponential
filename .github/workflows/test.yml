@@ -163,10 +163,28 @@ jobs:
   # #EXP-1677: the Dockerfile's build step. The typecheck and vitest never bundle
   # for the browser, so #1803's `node:crypto` in the client bundle went green
   # here and broke the image on master, holding a release round.
+  # #EXP-1748: and the image's boot. #2372's dependency bump built green and
+  # served 500 on every route (the server trace hoisted a nested package), so
+  # the built server boots against a migrated Postgres and answers the same
+  # probes build-web.yml's "Smoke the image" does.
   web-build:
     needs: changes
     if: needs.changes.outputs.web_build == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: exponential
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -177,6 +195,11 @@ jobs:
           # bun, which has no such heap limit. Nitro's server bundle overruns node's default.
           NODE_OPTIONS: --max-old-space-size=8192
         run: bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
+      - name: Boot smoke
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/exponential
+          BETTER_AUTH_SECRET: ci-only-boot-smoke-secret
+        run: bun run migrate && cd apps/web && bun scripts/smoke-server.ts --boot
 
   migrations:
     needs: [pick, changes]

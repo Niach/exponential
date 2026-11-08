@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - RecordTable columns, search, filter and totals (#FEED-202): a `columns` entry may be a Table column object (`{key, label, type, currency, decimals, align, width, format, truncate, sortable}` over the field's defaults; a currency column defaults to 96 px), `search: true` (an Input over the shown text columns), `filter: "<enum field>"` (a Select, `$string.all` first) and `totals: true`; the host fill narrows the rows, the count and the phone rows through the core `filter`. Table gains `totals` (a last row: each number and currency column's sum over its rows, the first column `$string.total`; parts `row` / `cell` with the painter's `total: true`, the neutral theme's medium weight) and the column `format` (a date / dateTime TR35 pattern), on React, Solid, gpui, SwiftUI and Compose. Strings `all`, `total`. `fixtures/record-macros.json`; the styleguide's Record table and Table entries show the Autotax Expenses ledger. Prompt budget 9,811 → 9,895 tokens.
+- A streamed 0.9 surface costs linear again: the upgrade bridge advances its id maps in place and keeps their inverse, instead of copying both per message (`upgrade_message09_in`, #EXP-1742).
 
 ## 0.19.1 (2026-11-07)
 

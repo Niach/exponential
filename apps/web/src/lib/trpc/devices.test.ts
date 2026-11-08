@@ -1333,171 +1333,21 @@ describe(`devices.setLaunchDefaults`, () => {
     })
   })
 
-  it(`lets a newer client clear or replace subagentModel explicitly`, async () => {
-    const stored = {
-      defaultAgent: `claude`,
-      agents: { claude: { model: `fable`, subagentModel: `sonnet` } },
-    }
-    // Every model is explicit (owner 2026-10-15): a blank subagent model is
-    // dropped and reads as the contract default (opus); a value replaces.
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    let result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: {
-        defaultAgent: `claude`,
-        agents: { claude: { model: `fable`, subagentModel: `` } },
-      },
-    })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      agents: { claude: { model: `fable` } },
-    })
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: {
-        defaultAgent: `claude`,
-        agents: { claude: { model: `fable`, subagentModel: `haiku` } },
-      },
-    })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      agents: { claude: { model: `fable`, subagentModel: `haiku` } },
-    })
-
-    // An explicit null (the key is PRESENT) is a clear, not an omission: the
-    // stored value does not ride along and the jsonb stays null-free.
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: {
-        defaultAgent: `claude`,
-        agents: { claude: { model: `fable`, subagentModel: null } },
-      },
-    })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      agents: { claude: { model: `fable` } },
-    })
-
-    // Nothing stored: an omitted key stays omitted.
-    h.state.selectQueue = deviceRow()
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { agents: { claude: { model: `fable` } } },
-    })
-    expect(result.launchDefaults).toEqual({ agents: { claude: { model: `fable` } } })
-  })
-
-  // EXP-1158: `defaultAgent` = the LAST USED agent, written only by the
-  // device. Clients stop sending it, so a save that omits it keeps the stored
-  // one; a device push always sends it (`device push with the matching stamp
-  // wins` above).
-  it(`carries the stored last used agent forward when a save omits it`, async () => {
-    const stored = { defaultAgent: `codex`, agents: { claude: { model: `fable` } } }
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    let result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { agents: { claude: { model: `opus` } } },
-    })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `codex`,
-      agents: { claude: { model: `opus` } },
-    })
-    expect(h.state.updates[0]?.set).toMatchObject({
-      launchDefaults: { defaultAgent: `codex` },
-    })
-
-    // An explicit null is an omission too: a client cannot clear it.
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: null, agents: { claude: { model: `opus` } } },
-    })
-    expect(result.launchDefaults).toMatchObject({ defaultAgent: `codex` })
-
-    // A retired stored agent does not ride along.
-    h.state.selectQueue = deviceRow({ launchDefaults: { defaultAgent: `pi` } })
-    result = await caller.setLaunchDefaults({ deviceId: `dev-1`, launchDefaults: {} })
-    expect(result.launchDefaults).toEqual({})
-  })
-
-  // EXP-1196: the device-level computer-use switch. A boolean passes the
-  // clamp; a save that OMITS the key clears it like any other toggle; an
-  // explicit true/false wins and an explicit null clears it null-free.
-  it(`clamps computerUse and clears it when the save omits the KEY`, async () => {
-    h.state.selectQueue = deviceRow()
-    let result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { computerUse: true, agents: { claude: { model: `fable` } } },
-    })
-    expect(result.launchDefaults).toEqual({
-      computerUse: true,
-      agents: { claude: { model: `fable` } },
-    })
-
-    const stored = { defaultAgent: `claude`, computerUse: true }
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { agents: { claude: { model: `opus` } } },
-    })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      agents: { claude: { model: `opus` } },
-    })
-
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { computerUse: false },
-    })
-    expect(result.launchDefaults).toEqual({ defaultAgent: `claude`, computerUse: false })
-
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { computerUse: null },
-    })
-    expect(result.launchDefaults).toEqual({ defaultAgent: `claude` })
-    expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
-  })
-
-  // EXP-1236: the screen-driving subagents' model rides beside `computerUse`
-  // under the same contract: a contract alias passes, an unknown one is
-  // dropped (never an error), and a save that OMITS the key or sends null
-  // clears it.
-  // Dispatch (owner 2026-10-15): the thread model is per agent, over THAT
-  // agent's vocabulary; blanks and foreign values are dropped.
-  it(`clamps threadModel per agent to its own vocabulary`, async () => {
+  // #EXP-1734: the thread and subagent model settings are gone; a shipped
+  // device still sending them keeps working, the keys are dropped.
+  it(`ignores an old device's subagentModel and threadModel`, async () => {
     h.state.selectQueue = deviceRow()
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
       launchDefaults: {
         agents: {
-          claude: { model: `fable`, threadModel: `haiku` },
+          claude: { model: `opus`, subagentModel: `haiku`, threadModel: `haiku` },
           codex: { model: `gpt-5.6-sol`, threadModel: `gpt-5.6-luna` },
         },
-      },
+      } as never,
     })
     expect(result.launchDefaults).toEqual({
-      agents: {
-        claude: { model: `fable`, threadModel: `haiku` },
-        codex: { model: `gpt-5.6-sol`, threadModel: `gpt-5.6-luna` },
-      },
-    })
-    h.state.selectQueue = deviceRow()
-    const dropped = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: {
-        agents: {
-          claude: { model: ``, threadModel: `gpt-5.6-luna` },
-          codex: { model: `gpt-5.6-sol`, threadModel: `` },
-        },
-      },
-    })
-    expect(dropped.launchDefaults).toEqual({
-      agents: { codex: { model: `gpt-5.6-sol` } },
+      agents: { claude: { model: `opus` }, codex: { model: `gpt-5.6-sol` } },
     })
   })
 

@@ -332,12 +332,11 @@ object AgentSettings {
         )
 
         /** The Model row's value (`modelValueCases`): the pinned model, else
-         *  the dispatcher root's default for the login's CLI (never `Last
-         *  used`). */
+         *  the contract default for the login's CLI (never `Last used`). */
         fun modelValue(model: String?, cli: String?): String = when {
             !model.isNullOrBlank() -> model
-            cli == "codex" -> DomainContract.deviceAgentDefaultsCodexThreadModel
-            else -> DomainContract.deviceAgentDefaultsThreadModel
+            cli == "codex" -> DomainContract.deviceAgentDefaultsCodexModel
+            else -> DomainContract.deviceAgentDefaultsModel
         }
 
         /** The preset stored triggers stand for; null = not an Assistant's

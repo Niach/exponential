@@ -435,7 +435,7 @@ pub struct Collections {
     pub messages: Entity<Collection<MessageRow>>,
     /// NEW-8 the conversations messages live in (the 31st shape): a
     /// message's session is its conversation's
-    /// (`domain::message_conversation`).
+    /// (`domain::message_session`).
     pub conversations: Entity<Collection<ConversationRow>>,
     /// EXP-1294 every pull request (PR state left `issues`).
     pub pull_requests: Entity<Collection<PullRequestRow>>,

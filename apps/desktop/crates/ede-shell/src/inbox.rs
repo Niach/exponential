@@ -18,12 +18,12 @@ use std::collections::{HashMap, HashSet};
 
 use domain::inbox_route::{inbox_row_target, InboxRowTarget};
 use domain::needs_you::{needs_you, NeedsYouInput, NeedsYouMessageInput, NeedsYouOpens, NeedsYouPullRequestInput, NeedsYouRow, NeedsYouSessionInput};
-use domain::rows::{AgentDefRow, Board, ConversationRow, Issue, MessageRow, Notification, PullRequestRow, SessionIssueRow, SessionRow, Team};
+use domain::rows::{AgentDefRow, Board, Issue, MessageRow, Notification, PullRequestRow, SessionIssueRow, SessionRow, Team};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 /// The shapes the tray reads besides the switcher's (`accounts::SHAPES`).
-pub const SHAPES: &[&str] = &["notifications", "issues", "boards", "sessions", "session_issues", "conversations", "agents", "pull_requests"];
+pub const SHAPES: &[&str] = &["notifications", "issues", "boards", "sessions", "session_issues", "agents", "pull_requests"];
 
 /// A feed id of an inbox entry: never a number, so it never meets a desktop
 /// notification's id in `ede_notify_*`.
@@ -58,7 +58,6 @@ pub struct AccountRows {
     pub boards: Vec<Board>,
     pub sessions: Vec<SessionRow>,
     pub session_issues: Vec<SessionIssueRow>,
-    pub conversations: Vec<ConversationRow>,
     pub agents: Vec<AgentDefRow>,
     pub pull_requests: Vec<PullRequestRow>,
 }
@@ -85,7 +84,6 @@ impl AccountRows {
             boards: rows(store, "boards"),
             sessions: rows(store, "sessions"),
             session_issues: rows(store, "session_issues"),
-            conversations: rows(store, "conversations"),
             agents: rows(store, "agents"),
             pull_requests: rows(store, "pull_requests"),
         }
@@ -286,13 +284,13 @@ fn first_prompt_candidate(message: &MessageRow, owner: &str) -> bool {
 pub fn needs_you_items(rows: &AccountRows, now_ms: i64) -> Vec<NeedsYouItem> {
     let agents: HashMap<&str, &AgentDefRow> = rows.agents.iter().map(|a| (a.id.as_str(), a)).collect();
     let issues: HashMap<&str, &Issue> = rows.issues.iter().map(|i| (i.id.as_str(), i)).collect();
+    // #EXP-1730: each session's digest rides on its own row.
     let digests: HashMap<&str, Vec<MessageRow>> = rows
-        .conversations
+        .sessions
         .iter()
-        .filter_map(|c| {
-            let session_id = non_empty(c.session_id.as_deref())?;
-            let digest = domain::chats::ConversationDigest::decode(c.digest.as_ref());
-            Some((session_id, domain::chats::digest_messages(session_id, digest.as_ref())))
+        .filter_map(|s| {
+            let digest = domain::chats::ConversationDigest::decode(s.digest.as_ref())?;
+            Some((s.id.as_str(), domain::chats::digest_messages(&s.id, Some(&digest))))
         })
         .collect();
     let mut links_of: HashMap<&str, Vec<&SessionIssueRow>> = HashMap::new();
@@ -546,8 +544,7 @@ mod tests {
             account_id: "a1".into(),
             user_id: "u1".into(),
             teams: vec![serde_json::from_value(json!({"id": "t1", "name": "Acme", "slug": "acme"})).unwrap()],
-            sessions: vec![serde_json::from_value(json!({"id": "s1", "team_id": "t1", "root_id": "s1", "user_id": "u1", "status": "idle", "title": "Release"})).unwrap()],
-            conversations: vec![serde_json::from_value(json!({"id": "c1", "team_id": "t1", "kind": "session", "session_id": "s1", "digest": digest})).unwrap()],
+            sessions: vec![serde_json::from_value(json!({"id": "s1", "team_id": "t1", "root_id": "s1", "user_id": "u1", "status": "idle", "title": "Release", "digest": digest})).unwrap()],
             ..Default::default()
         }
     }

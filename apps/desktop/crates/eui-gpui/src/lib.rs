@@ -21,11 +21,15 @@
 //!   surface, sources, functions, policy) and its transports.
 //! - [`canvas`] (round 8): the Canvas player (raster + native text ops).
 //! - [`media`]: images through the host's media rules (headers).
+//! - [`binding`] (#EXP-1629): the native host binding, a host's own screen
+//!   (a settings pane) as a document: state → data model, events → optimistic
+//!   mutations with toasts, host-owned editors' commits.
 //! - [`chrome`] + [`controls`]: the generic glass controls the IDE and the SDK
 //!   share, keyed on a host-installed [`chrome::Chrome`].
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod binding;
 pub mod canvas;
 pub mod chrome;
 pub mod controls;

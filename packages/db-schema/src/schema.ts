@@ -1047,12 +1047,6 @@ export const liveActivityFollows = pgTable(
 export interface DeviceAgentLaunchDefaults {
   model?: string
   effort?: string
-  /** EXP-981: claude only; absent = contract deviceAgentDefaults.subagentModel
-   * (never the CLI's own default: every model is explicit). */
-  subagentModel?: string
-  /** The dispatcher root's model (threads + team agents); absent = contract
-   * deviceAgentDefaults.threadModel / codexThreadModel. */
-  threadModel?: string
   ultracode?: boolean
   planMode?: boolean
   /** EXP-1082 §6: rotate to another logged-in account of this agent when
@@ -1111,10 +1105,8 @@ export const deviceLaunchDefaultsSchema = z.object({
       z.object({
         model: z.string().max(64).nullish(),
         effort: z.string().max(64).nullish(),
-        // EXP-981: claude only — the model its subagents run on.
-        subagentModel: z.string().max(64).nullish(),
-        // The dispatcher root's model (threads + team agents).
-        threadModel: z.string().max(64).nullish(),
+        // #EXP-1734: old devices may still send subagentModel/threadModel;
+        // z.object strips them (the settings are gone, every model = opus).
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
         // EXP-1082 §6: see DeviceAgentLaunchDefaults.autoRotateAccounts.

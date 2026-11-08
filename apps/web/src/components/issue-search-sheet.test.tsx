@@ -63,9 +63,11 @@ vi.mock(`@tanstack/react-db`, () => ({
 vi.mock(`@/lib/collections`, () => ({ issueCollection: {} }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBoards: () => mockState.boards,
+  useTeamUsers: () => ({ userMap: new Map() }),
 }))
 // The engine has its own fixtures; here it only has to rank, so the stub hands
 // back whatever the test put in front of it, in order.
+vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRows: () => [] }))
 vi.mock(`@/hooks/use-issue-search-results`, () => ({
   useIssueSearchResults: () => ({ results: mockState.results }),
 }))

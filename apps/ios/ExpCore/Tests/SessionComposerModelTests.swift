@@ -22,7 +22,7 @@ final class SessionComposerModelTests: XCTestCase {
     /// session model, else the contract default (NEW-8: no dispatcher rung).
     func testComposerModelFallsBackLikeWeb() {
         let device = DeviceLaunchDefaults(agents: [
-            "claude": AgentLaunchDefaults(model: "opus", threadModel: "sonnet"),
+            "claude": AgentLaunchDefaults(model: "opus"),
         ])
         XCTAssertEqual(LaunchVocabulary.composerModel(
             live: "fable", rowModel: "opus", cli: "claude", launchDefaults: device

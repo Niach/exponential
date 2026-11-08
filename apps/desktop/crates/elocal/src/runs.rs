@@ -545,7 +545,7 @@ impl LocalRuns {
         let now = time::now();
         let author_id = (author_kind == "user").then(|| self.desktop.executor.identity().user_id);
         let row = json!({
-            "id": id, "conversation_id": conversation, "root_id": session, "team_id": self.desktop.executor.team_id(),
+            "id": id, "conversation_id": conversation, "session_id": session, "root_id": session, "team_id": self.desktop.executor.team_id(),
             "author_kind": author_kind, "author_id": author_id, "author_session_id": author_session_id, "body": body, "card": card,
             "attachment_ids": [], "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": now, "updated_at": now,
         });
@@ -649,7 +649,9 @@ impl LocalRuns {
         let wanted = session.as_ref().and_then(|s| {
             text(s, "cli").or_else(|| {
                 let agent = text(s, "agent_id")?;
-                text(&self.desktop.store.row("agents", &agent).ok().flatten()?, "cli")
+                // #EXP-1730: an agent's runner defaults live in `defaults`.
+                let row = self.desktop.store.row("agents", &agent).ok().flatten()?;
+                row.get("defaults")?.get("cli")?.as_str().filter(|v| !v.is_empty()).map(str::to_string)
             })
         });
         let default = self.runners[0].clone();
@@ -909,7 +911,7 @@ impl ToolProvider for LocalTools {
                 let conversation = self.desktop.store.rows_where("conversations", "session_id", session).unwrap_or_default().into_iter().next();
                 let Some(conversation) = conversation.and_then(|c| c.get("id").and_then(Value::as_str).map(str::to_string)) else { return refused("no conversation for this session") };
                 let now = time::now();
-                let row = json!({"id": uuid::Uuid::new_v4().to_string(), "conversation_id": conversation, "root_id": session, "team_id": self.desktop.executor.team_id(), "author_kind": "agent", "author_id": null, "author_session_id": session, "body": text, "card": {"kind": "show", "title": title}, "attachment_ids": [], "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": now, "updated_at": now});
+                let row = json!({"id": uuid::Uuid::new_v4().to_string(), "conversation_id": conversation, "session_id": session, "root_id": session, "team_id": self.desktop.executor.team_id(), "author_kind": "agent", "author_id": null, "author_session_id": session, "body": text, "card": {"kind": "show", "title": title}, "attachment_ids": [], "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": now, "updated_at": now});
                 match self.desktop.store.write("messages", row.as_object().cloned().unwrap_or_default()) {
                     Ok(()) => content(json!({"ok": true})),
                     Err(e) => refused(&e),

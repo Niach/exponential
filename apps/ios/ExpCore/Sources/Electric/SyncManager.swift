@@ -558,13 +558,9 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
-        // NEW-3: the chat primitive (the 30th shape) — in step 1 every row is
-        // a session's own conversation, visible exactly when its session is.
-        tasks.append(makeShapeTask(
-            name: "conversations", path: "/api/shapes/conversations", table: "conversations",
-            type: ConversationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
-            session: session
-        ))
+        // #EXP-1730: `conversations` is no longer subscribed: a message names
+        // its session (`messages.session_id`) and the list digest rides on
+        // `sessions.digest` (v103 drops the local table).
 
         // VAPP-110: the team's apps (the head package rides along, so the
         // editor's preview repaints on every upsert) and their versions'

@@ -154,7 +154,7 @@ impl AssetSource for Assets {
     }
 }
 
-fn headless() -> HeadlessAppContext {
+pub(crate) fn headless() -> HeadlessAppContext {
     let platform = gpui_platform::current_platform(true);
     let mut cx = HeadlessAppContext::with_platform(platform.text_system(), Arc::new(Assets), gpui_platform::current_headless_renderer);
     cx.update(|cx| {

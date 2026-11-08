@@ -113,6 +113,15 @@ struct TeamBoardsSection: View {
                     .flatRow()
                 }
             }
+
+            if isOwner {
+                PutAwayBoardsBands(
+                    accountId: accountId,
+                    teamId: teamId,
+                    liveKey: boards.map(\.id).sorted().joined(separator: ","),
+                    boardsApi: boardsApi
+                )
+            }
         }
         .sheet(item: $repoTarget) { board in
             ChangeRepositorySheet(
@@ -125,6 +134,102 @@ struct TeamBoardsSection: View {
         .sheet(isPresented: $showCreate) {
             CreateBoardSheet(accountId: accountId, teamId: teamId)
         }
+    }
+}
+
+/// #NEW-37 (settings-nav.json `boards`): the archived boards and the 48h
+/// trash, each band drawn only while non-empty, under the live list (web
+/// `PutAwayBoards`, desktop `all_boards.rs`). Both states are out of every
+/// synced shape (EXP-500): the owner-only tRPC reads load on open, when the
+/// live list changes and after every Unarchive / Restore; a failed read is
+/// quiet (FEED-79), a failed action a toast.
+private struct PutAwayBoardsBands: View {
+    let accountId: String
+    let teamId: String
+    let liveKey: String
+    let boardsApi: BoardsApi
+
+    @State private var archived: [PutAwayBoard] = []
+    @State private var trashed: [PutAwayBoard] = []
+    @State private var pendingId: String?
+    @Environment(\.toaster) private var toaster
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !archived.isEmpty {
+                band("Archived", rows: archived, caption: { PutAwayBoardCaption.archived($0.archivedAt) }, action: "Unarchive") { board in
+                    await run(board, verb: "unarchive") {
+                        try await boardsApi.unarchive(accountId: accountId, boardId: board.id)
+                    }
+                }
+            }
+            if !trashed.isEmpty {
+                // The purge countdown re-renders every minute.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    band("Trash", rows: trashed, caption: { PutAwayBoardCaption.purge($0.purgeAt, now: context.date) }, action: "Restore") { board in
+                        await run(board, verb: "restore") {
+                            try await boardsApi.restore(accountId: accountId, boardId: board.id)
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: "\(accountId)|\(teamId)|\(liveKey)") { await refresh() }
+    }
+
+    private func band(
+        _ title: String,
+        rows: [PutAwayBoard],
+        caption: @escaping (PutAwayBoard) -> String,
+        action: String,
+        perform: @escaping (PutAwayBoard) async -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(title)
+            ForEach(rows) { board in
+                HStack(spacing: 10) {
+                    AppIcon(BoardTypeDisplay.iconName(for: board.icon) ?? (board.repositoryId != nil ? "code" : "square-kanban"), size: 16)
+                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+                    Text(board.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(caption(board))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                    GlassPill(action, mode: .action { Task { await perform(board) } }, enabled: pendingId != board.id)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .flatRow()
+            }
+        }
+        .padding(.top, 24)
+    }
+
+    private func refresh() async {
+        async let nextArchived = try? boardsApi.listArchived(accountId: accountId, teamId: teamId)
+        async let nextTrashed = try? boardsApi.listDeleted(accountId: accountId, teamId: teamId)
+        if let rows = await nextArchived { archived = rows }
+        if let rows = await nextTrashed { trashed = rows }
+    }
+
+    /// Refresh on success AND failure: an unarchive can fail because the
+    /// board was trashed meanwhile, a restore because it was purged.
+    private func run(_ board: PutAwayBoard, verb: String, _ action: () async throws -> Void) async {
+        pendingId = board.id
+        do {
+            try await action()
+        } catch {
+            toaster.error(
+                FeedbackStates.Errors.title(verb: verb, thing: board.name),
+                description: error.trpcUserMessage
+            )
+        }
+        pendingId = nil
+        await refresh()
     }
 }
 

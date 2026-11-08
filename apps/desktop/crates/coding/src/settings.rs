@@ -5,7 +5,7 @@
 //! | Claude CLI path    | `claude`             | §7.1 step 7 spawn + doctor   |
 //! | Repos root         | `~/Exponential/repos`| §7.1 step 3 worktree layout  |
 //! | Branch prefix      | `exp/`               | `<prefix><IDENTIFIER>` branch|
-//! | Claude model       | `fable`              | §7.1 step 7 `--model` argv   |
+//! | Claude model       | `opus`               | §7.1 step 7 `--model` argv   |
 //!
 //! Persisted to a small `settings.json` in the app data dir — **local,
 //! per-install, never synced**. Saving merges into the existing JSON object
@@ -27,31 +27,18 @@ pub const DEFAULT_CLAUDE_PATH: &str = "claude";
 pub const DEFAULT_CODEX_PATH: &str = "codex";
 pub const DEFAULT_REPOS_ROOT: &str = "~/Exponential/repos";
 pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
-/// §7.7 default coding model — passed as `--model fable` on every spawn.
-/// Explicit-always so the user's `claude` CLI default is never silently
-/// consumed by coding sessions or E2E tests. `fable` is Claude Code's FAMILY
-/// alias, resolved by the CLI to the newest Fable (`latest_per_family`:
-/// `claude-fable-5-1` since 2.1.257; the previous one stays reachable as
-/// `fable-5` / `claude-fable-5`). Deliberately an alias, never a pinned
-/// `claude-fable-5-1`: pinning would go stale at the next release and churn
-/// the contract on four clients, while the alias tracks the CLI's own default.
+/// §7.7 default coding model — passed as `--model opus` on every spawn
+/// (#EXP-1734: ONE default for every session, roots, team agents and
+/// children alike). Explicit-always so the user's `claude` CLI default is
+/// never silently consumed by coding sessions or E2E tests. `opus` is Claude
+/// Code's FAMILY alias, resolved by the CLI to the newest Opus. Deliberately
+/// an alias, never a pinned id: pinning would go stale at the next release
+/// and churn the contract on four clients.
 pub const DEFAULT_CLAUDE_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_MODEL;
-/// EXP-1029: the fresh-install subagent model, contract
-/// `deviceAgentDefaults.subagentModel` (`opus`). Every model is explicit:
-/// no blank "CLI default" anywhere.
-pub const DEFAULT_CLAUDE_SUBAGENT_MODEL: &str =
-    domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL;
-/// The dispatcher root's claude model (threads + team agents), contract
-/// `deviceAgentDefaults.threadModel`.
-pub const DEFAULT_CLAUDE_THREAD_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_THREAD_MODEL;
 /// The fresh-install codex model, contract `deviceAgentDefaults.codexModel`.
 pub const DEFAULT_CODEX_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL;
-/// The dispatcher root's codex model, contract
-/// `deviceAgentDefaults.codexThreadModel`.
-pub const DEFAULT_CODEX_THREAD_MODEL: &str =
-    domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL;
 /// THE claude model vocabulary (contract `codingModel.values`) for EVERY
-/// pick: the session model, subagents, the thread model and computer use.
+/// pick: the session model and computer use.
 /// [`Settings::load`] normalizes anything else back to the field default.
 pub const MODEL_ALIASES: &[&str] = domain::contract::CODING_MODEL_VALUES;
 /// EXP-1236: the fast one, computer use is many short look-and-click turns
@@ -83,11 +70,13 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// `defaultAccount` (EXP-1158: a launch naming no account runs on the login
 /// last used on this device, so there is no default to store;
 /// [`migrate_default_account`] seeds that pointer from it once), and the
-/// EXP-1029 workflow model pair (SLOP-3 removed workflows).
+/// EXP-1029 workflow model pair (SLOP-3 removed workflows), and the
+/// EXP-981 subagent model + the dispatcher thread models (#EXP-1734: one
+/// model default for every session).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 29] = [
+const DEAD_KEYS: [&str; 32] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -125,6 +114,10 @@ const DEAD_KEYS: [&str; 29] = [
     // S-3: the per-device plan-mode default (the plan toggle is gone; a
     // launch never enters plan mode from a UI default).
     "claudePlanMode",
+    // #EXP-1734: opus everywhere; no subagent or thread model setting.
+    "claudeSubagentModel",
+    "claudeThreadModel",
+    "codexThreadModel",
 ];
 
 /// [`Settings::computer_use_display_id_pushed`] on disk.
@@ -161,23 +154,9 @@ pub struct Settings {
     /// [`EFFORT_LEVELS`] or blank (= omit the flag); `load` normalizes
     /// anything else to blank.
     pub claude_effort: String,
-    /// EXP-981: the model claude's SUBAGENTS run on, exported as
-    /// `CLAUDE_CODE_SUBAGENT_MODEL` on every claude spawn. One of
-    /// [`MODEL_ALIASES`]; `load` normalizes blank/unknown to
-    /// [`DEFAULT_CLAUDE_SUBAGENT_MODEL`]. Claude-only.
-    pub claude_subagent_model: String,
-    /// The model a claude DISPATCHER root runs on (threads + team agents,
-    /// `sessions.dispatch`). One of [`MODEL_ALIASES`], default
-    /// [`DEFAULT_CLAUDE_THREAD_MODEL`]; rides
-    /// `launch_defaults.agents.claude.threadModel`.
-    pub claude_thread_model: String,
     /// Codex model slug (`-m`), one of [`CODEX_MODELS`]; `load` normalizes
     /// blank/unknown to [`DEFAULT_CODEX_MODEL`] (no blank "CLI default").
     pub codex_model: String,
-    /// The model a codex DISPATCHER root runs on, one of [`CODEX_MODELS`],
-    /// default [`DEFAULT_CODEX_THREAD_MODEL`]; rides
-    /// `launch_defaults.agents.codex.threadModel`.
-    pub codex_thread_model: String,
     /// Codex reasoning effort (`-c model_reasoning_effort=<v>`); one of
     /// [`CODEX_EFFORTS`] or blank (= omit).
     pub codex_effort: String,
@@ -309,10 +288,7 @@ impl Default for Settings {
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
-            claude_subagent_model: DEFAULT_CLAUDE_SUBAGENT_MODEL.to_string(),
-            claude_thread_model: DEFAULT_CLAUDE_THREAD_MODEL.to_string(),
             codex_model: DEFAULT_CODEX_MODEL.to_string(),
-            codex_thread_model: DEFAULT_CODEX_THREAD_MODEL.to_string(),
             codex_effort: String::new(),
             claude_ultracode: false,
             auto_rotate_accounts: true,
@@ -367,23 +343,8 @@ impl Settings {
         settings.claude_model =
             normalize_choice(&settings.claude_model, MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
-        settings.claude_subagent_model = normalize_choice(
-            &settings.claude_subagent_model,
-            MODEL_ALIASES,
-            DEFAULT_CLAUDE_SUBAGENT_MODEL,
-        );
-        settings.claude_thread_model = normalize_choice(
-            &settings.claude_thread_model,
-            MODEL_ALIASES,
-            DEFAULT_CLAUDE_THREAD_MODEL,
-        );
         settings.codex_model =
             normalize_choice(&settings.codex_model, &CODEX_MODELS, DEFAULT_CODEX_MODEL);
-        settings.codex_thread_model = normalize_choice(
-            &settings.codex_thread_model,
-            &CODEX_MODELS,
-            DEFAULT_CODEX_THREAD_MODEL,
-        );
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
         settings.computer_use_model = normalize_choice(
             &settings.computer_use_model,
@@ -497,23 +458,6 @@ impl Settings {
         match agent {
             CodingAgent::Claude => &self.claude_effort,
             CodingAgent::Codex => &self.codex_effort,
-        }
-    }
-
-    /// EXP-981: the subagent-model default for `agent` (dialog seed). Blank
-    /// for codex: only claude spawns subagents on a pinned model.
-    pub fn subagent_model_for(&self, agent: CodingAgent) -> &str {
-        match agent {
-            CodingAgent::Claude => &self.claude_subagent_model,
-            CodingAgent::Codex => "",
-        }
-    }
-
-    /// The DISPATCHER root's model for `agent` (`sessions.dispatch`).
-    pub fn thread_model_for(&self, agent: CodingAgent) -> &str {
-        match agent {
-            CodingAgent::Claude => &self.claude_thread_model,
-            CodingAgent::Codex => &self.codex_thread_model,
         }
     }
 
@@ -666,13 +610,8 @@ mod tests {
         assert_eq!(MODEL_ALIASES, ["fable", "opus", "sonnet", "haiku"]);
         let settings = Settings::default();
         assert_eq!(settings.computer_use_model, "haiku");
-        assert_eq!(settings.claude_model, "fable");
-        assert_eq!(settings.claude_subagent_model, "opus");
-        assert_eq!(settings.claude_thread_model, "haiku");
+        assert_eq!(settings.claude_model, "opus");
         assert_eq!(settings.codex_model, "gpt-5.6-sol");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
-        assert_eq!(settings.thread_model_for(CodingAgent::Claude), "haiku");
-        assert_eq!(settings.thread_model_for(CodingAgent::Codex), "gpt-5.6-luna");
     }
 
     /// No blank "CLI default" model survives a load: blank, unknown or
@@ -683,31 +622,30 @@ mod tests {
         let path = dir.0.join("settings.json");
         fs::write(
             &path,
-            r#"{"claudeModel":"","claudeSubagentModel":"","claudeThreadModel":"gpt-5.6-sol","codexModel":"","codexThreadModel":"opus","computerUseModel":""}"#,
+            r#"{"claudeModel":"","codexModel":"","computerUseModel":""}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
-        assert_eq!(settings.claude_model, "fable");
-        assert_eq!(settings.claude_subagent_model, "opus");
-        assert_eq!(settings.claude_thread_model, "haiku");
+        assert_eq!(settings.claude_model, "opus");
         assert_eq!(settings.codex_model, "gpt-5.6-sol");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
         assert_eq!(settings.computer_use_model, "haiku");
+        // #EXP-1734: a file from before still carries the retired subagent
+        // and thread models; it loads (the keys are ignored) and the next
+        // save drops them.
         fs::write(
             &path,
-            r#"{"claudeSubagentModel":" Sonnet ","claudeThreadModel":"fable","codexThreadModel":"gpt-5.6-terra"}"#,
+            r#"{"claudeModel":"sonnet","claudeSubagentModel":" Sonnet ","claudeThreadModel":"fable","codexThreadModel":"gpt-5.6-terra"}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
-        assert_eq!(settings.claude_subagent_model, "sonnet");
-        assert_eq!(settings.claude_thread_model, "fable");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-terra");
-        // A file written before the keys existed reads the defaults.
-        fs::write(&path, r#"{"claudeModel":"opus"}"#).unwrap();
-        let settings = Settings::load(&path);
-        assert_eq!(settings.claude_thread_model, "haiku");
-        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
+        assert_eq!(settings.claude_model, "sonnet");
         assert_eq!(settings.codex_model, "gpt-5.6-sol");
+        settings.save(&path).unwrap();
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        for dead in ["claudeSubagentModel", "claudeThreadModel", "codexThreadModel"] {
+            assert!(root.get(dead).is_none(), "{dead} must be scrubbed");
+        }
     }
 
     #[test]
@@ -760,7 +698,7 @@ mod tests {
         assert_eq!(settings.codex_path, "codex");
         assert_eq!(settings.repos_root, "~/Exponential/repos");
         assert_eq!(settings.branch_prefix, "exp/");
-        assert_eq!(settings.claude_model, "fable");
+        assert_eq!(settings.claude_model, "opus");
         assert_eq!(settings.claude_effort, "");
         // Codex: the contract model, the CLI's own effort (blank = omit).
         assert_eq!(settings.codex_model, "gpt-5.6-sol");
@@ -901,7 +839,7 @@ mod tests {
     }
 
     /// Model/effort values normalize on load: lowercase-trim into the closed
-    /// alias sets; anything unknown falls back (model → fable, effort →
+    /// alias sets; anything unknown falls back (model → opus, effort →
     /// blank) so the argv can never carry a value the CLI rejects.
     #[test]
     fn model_and_effort_values_normalize_on_load() {
@@ -918,7 +856,7 @@ mod tests {
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
         fs::write(&path, r#"{"claudeModel":"gpt-5.6-sol"}"#).unwrap();
         let settings = Settings::load(&path);
-        assert_eq!(settings.claude_model, "fable", "unknown model → fable");
+        assert_eq!(settings.claude_model, "opus", "unknown model → opus");
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
     }
 
@@ -984,10 +922,7 @@ mod tests {
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
-            claude_subagent_model: "sonnet".to_string(),
-            claude_thread_model: "sonnet".to_string(),
             codex_model: "gpt-5.6-terra".to_string(),
-            codex_thread_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
             claude_ultracode: true,
             auto_rotate_accounts: false,

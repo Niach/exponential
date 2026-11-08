@@ -925,8 +925,8 @@ mod tests {
         }
     }
 
-    /// Web `fallbackModel`: the row's pick, else (a dispatcher) the device's
-    /// thread model, else the device's model, else the contract defaults.
+    /// Web `fallbackModel`: the row's pick, else the device's model, else
+    /// the contract defaults (an old device's `threadModel` is ignored).
     #[test]
     fn the_pin_falls_back_like_web() {
         let agents = serde_json::json!({

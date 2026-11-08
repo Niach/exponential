@@ -12,7 +12,8 @@ import {
   ISSUE_SEARCH_PLACEHOLDER,
   type IssueSearchRow,
 } from "@/lib/issue-search"
-import { useTeamBoards } from "@/hooks/use-team-data"
+import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
+import { useAgentRows } from "@/hooks/use-agent-row"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
@@ -40,6 +41,8 @@ interface SearchResult extends IssueSearchRow {
   // EXP-314: server FTS hits carry it too, so status icons resolve to the
   // team's own rows for issues that aren't synced locally.
   statusId: string | null
+  creatorId?: string | null
+  creatorAgentId?: string | null
 }
 
 const NO_ROWS: SearchResult[] = []
@@ -84,7 +87,24 @@ export function IssueSearchSheet({
     [boardIds.join(`,`), open]
   )
 
-  const rows = (issues ?? NO_ROWS) as SearchResult[]
+  // #NEW-21: each row carries its creator's name + email and its agent's
+  // name, so `by:lukas` and a bare `lukas` reach who filed it.
+  const { userMap } = useTeamUsers(teamId)
+  const agents = useAgentRows(teamId)
+  const rows = useMemo(() => {
+    const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]))
+    return ((issues ?? NO_ROWS) as SearchResult[]).map((issue) => {
+      const creator = issue.creatorId ? userMap.get(issue.creatorId) : undefined
+      return {
+        ...issue,
+        creatorName: creator?.name ?? null,
+        creatorEmail: creator?.email ?? null,
+        creatorAgentName: issue.creatorAgentId
+          ? (agentNames.get(issue.creatorAgentId) ?? null)
+          : null,
+      }
+    })
+  }, [issues, userMap, agents])
   const localById = useMemo(
     () => new Map<string, SearchResult>(rows.map((i) => [i.id, i])),
     [rows]

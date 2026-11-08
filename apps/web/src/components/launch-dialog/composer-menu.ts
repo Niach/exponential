@@ -17,7 +17,6 @@ export type ComposerMenuRowId =
   | `model`
   | `repository`
   | `effort`
-  | `subagents`
   | `ultracode`
   | `mcp-servers`
   | `skills`

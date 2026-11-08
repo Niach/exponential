@@ -324,7 +324,7 @@ class StyleguideScreenshotsTest {
 
         // EXP-642: the same query the web and desktop `search` recipes type, so
         // the three shots of that view compare like for like.
-        private const val SEARCH_QUERY = "cold start"
+        private const val SEARCH_QUERY = "by:alex"
         private const val SEARCH_RESULT_TITLE = SHOWCASE_ISSUE_TITLE
 
         // APP-14: assigned to the demo user and, unlike APP-3 / APP-6, NOT

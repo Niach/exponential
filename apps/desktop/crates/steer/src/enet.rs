@@ -112,8 +112,8 @@ pub fn parse_direct_payload(body: &[u8]) -> Option<domain::rows::MessageRow> {
     }
     Some(domain::rows::MessageRow {
         id: payload.message_id,
-        // Keyed by its session the way `key_messages_by_session` keys a
-        // synced row; the conversation is the Electric copy's business.
+        // Keyed by its session like a synced row (#EXP-1730 `session_id`);
+        // the legacy conversation is the Electric copy's business.
         conversation_id: String::new(),
         session_id: payload.session_id,
         root_id: Some(payload.root_id),
