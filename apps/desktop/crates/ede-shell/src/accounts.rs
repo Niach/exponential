@@ -145,6 +145,11 @@ impl Workspaces {
         }
     }
 
+    /// The demo feed (the goldens): no accounts, no hand-off.
+    pub fn demo(&self) -> bool {
+        self.demo
+    }
+
     /// #EDE-65: the signed-in accounts as (id, email).
     pub fn signed_in(&self) -> Vec<(String, String)> {
         if self.demo {

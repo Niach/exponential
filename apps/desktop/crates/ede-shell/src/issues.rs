@@ -225,8 +225,21 @@ mod tests {
         assert_eq!(search(&many, "search").len(), START_MENU_ISSUE_LIMIT);
     }
 
+    /// The hand-off: the app's socket when it runs, else a cold start with
+    /// the link as the entry's `%U`, so the issue is not lost.
     #[test]
-    fn an_issue_opens_through_the_apps_link() {
+    fn an_issue_opens_through_the_apps_link_even_on_a_cold_start() {
         assert_eq!(issue_deep_link("EXP-42"), "exponential://issue/EXP-42");
+        let app = crate::apps::App {
+            id: "at.exponential.desktop".into(),
+            name: "Exponential".into(),
+            comment: String::new(),
+            exec: "exponential-desktop".into(),
+            exec_url: Some("exponential-desktop %U".into()),
+            icon: None,
+            keywords: String::new(),
+            categories: vec![],
+        };
+        assert_eq!(crate::ide_command(&app, Some(&issue_deep_link("LOC-3"))), "exponential-desktop 'exponential://issue/LOC-3'");
     }
 }

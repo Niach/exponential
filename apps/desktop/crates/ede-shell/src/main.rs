@@ -666,10 +666,7 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| {
                         close(&shell, "start-menu", cx);
                         dispatch(&shell, ShellEvent::StartMenuClose, cx);
-                        if !accounts::ide_send(&issues::issue_deep_link(&identifier)) {
-                            tracing::info!(%identifier, "the Exponential app is not running; starting it");
-                            launch_app(&shell.borrow(), "at.exponential");
-                        }
+                        ide_open(&shell, Some(&issues::issue_deep_link(&identifier)));
                     });
                 }
             }
@@ -739,8 +736,8 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
-        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
-        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
     ]
 }
 
@@ -998,6 +995,32 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
     chatting_changed(shell, cx);
     // #VAPP-273: the apps follow the desktop (local records or the team's).
     engine_boot(shell, cx);
+}
+
+/// The Exponential app on `link` (its single-instance socket), else started.
+fn ide_open(shell: &SharedShell, link: Option<&str>) {
+    if shell.borrow().workspaces.demo() {
+        tracing::info!(?link, "demo: no hand-off");
+        return;
+    }
+    if link.is_some_and(accounts::ide_send) {
+        return;
+    }
+    // A cold start keeps the link: the entry's Exec takes it as `%U` (its
+    // single-instance boot feeds command-line `exponential://` args in).
+    let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
+    match command {
+        Some(command) => system::launch(&command),
+        None => tracing::warn!("no at.exponential desktop entry to launch"),
+    }
+}
+
+/// The Exponential app's launch command, opening `link` when there is one.
+fn ide_command(app: &apps::App, link: Option<&str>) -> String {
+    match (app.exec_url.as_deref(), link) {
+        (Some(exec), Some(link)) => apps::exec_with_url(exec, link),
+        _ => app.exec.clone(),
+    }
 }
 
 fn launch_app(shell: &Shell, app: &str) {
@@ -2510,5 +2533,29 @@ mod start_menu_document {
         assert_eq!(node(scroll, "issues").unwrap()["template"]["path"], "/shell/startMenu/issues");
         let (f, args) = call(node(scroll, "issue").unwrap());
         assert_eq!((f, &args["identifier"]), ("ede_issue", &serde_json::json!({"@path": "identifier"})));
+    }
+}
+
+#[cfg(test)]
+mod ide_launch {
+    use super::*;
+
+    /// #EDE-65: a cold start hands the item's link over on the command line.
+    #[test]
+    fn a_cold_start_passes_the_link_as_the_entrys_url() {
+        let app = apps::App {
+            id: "at.exponential.desktop".into(),
+            name: "Exponential".into(),
+            comment: String::new(),
+            exec: "/opt/Exponential/exponential-desktop".into(),
+            exec_url: Some("/opt/Exponential/exponential-desktop %U".into()),
+            icon: None,
+            keywords: String::new(),
+            categories: vec![],
+        };
+        assert_eq!(ide_command(&app, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop 'exponential://issue/ACME-12'");
+        assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
+        let no_urls = apps::App { exec_url: None, ..app };
+        assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
     }
 }
