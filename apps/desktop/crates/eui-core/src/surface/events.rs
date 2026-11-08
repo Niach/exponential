@@ -56,6 +56,10 @@ impl Surface {
             return false;
         }
         self.local.scroll.insert(id.to_string(), (x, y));
+        // #EXP-1739: an overlay anchored inside what scrolled closes.
+        if let Some(&container) = self.slot_of.get(id) {
+            self.close_overlays_in(container);
+        }
         // A windowed container re-windows (its subtree only), and so does
         // every windowed list this container is the viewport of (round 2);
         // a plain one only moves paint.
@@ -149,6 +153,50 @@ impl Surface {
         out.extend(self.fire(id, "change", Some(json!({"open": open}))));
         out.push(OutEvent::Relayout);
         out
+    }
+
+    /// #EXP-1739 (overlayAnchor): every anchored overlay (Popover, Menu,
+    /// Tooltip, a picker's popup; a context menu by its owner) whose anchor
+    /// sits inside `container` closes: its anchor scrolled.
+    pub(crate) fn close_overlays_in(&mut self, container: u32) {
+        let inside = |surface: &Self, mut slot: u32| loop {
+            if slot == container {
+                return true;
+            }
+            match surface.nodes.get(slot as usize).and_then(|n| n.parent) {
+                Some(parent) => slot = parent,
+                None => return false,
+            }
+        };
+        let owners: Vec<String> = self
+            .layers
+            .iter()
+            .filter_map(|l| match l.placement {
+                crate::layout_tree::LayerPlacement::Anchored { anchor, .. } => Some((l.owner.clone(), anchor)),
+                crate::layout_tree::LayerPlacement::AtPoint { .. } => self.slot_of.get(&l.owner).map(|&slot| (l.owner.clone(), slot)),
+                _ => None,
+            })
+            .filter(|(_, anchor)| inside(self, *anchor))
+            .map(|(owner, _)| owner)
+            .collect();
+        for owner in owners {
+            self.close_lost_overlay(&owner);
+        }
+    }
+
+    /// #EXP-1739: close an overlay whose anchor was lost, as Escape would
+    /// (`open: false` + `change`), raised through [`Surface::take_events`].
+    pub(crate) fn close_lost_overlay(&mut self, owner: &str) {
+        if !self.is_open_now(owner) {
+            return;
+        }
+        let out = self.set_open(owner, false);
+        for event in out {
+            if matches!(event, OutEvent::Relayout) && self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+                continue;
+            }
+            self.pending.push(event);
+        }
     }
 
     fn is_open_now(&self, id: &str) -> bool {
