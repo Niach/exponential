@@ -76,6 +76,10 @@ import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.inviteExpiryLabel
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.data.api.PutAwayBoard
+import com.exponential.app.domain.PutAwayBoardCaption
+import com.exponential.app.ui.components.boardIconName
+import androidx.compose.runtime.produceState
 import com.exponential.app.ui.components.DangerZoneSection
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.CircleIconButton
@@ -260,7 +264,10 @@ fun TeamSettingsScreen(
         ) {
             val all = section == null
             if (all || section == SettingsNav.GENERAL) TeamGeneral(state, viewModel)
-            if (all || section == SettingsNav.BOARDS) BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
+            if (all || section == SettingsNav.BOARDS) {
+                BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
+                if (isOwner) PutAwayBoardsBands(viewModel)
+            }
             if (all || section == SettingsNav.REPOSITORIES) RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             if (all || section == SettingsNav.MEMBERS) {
                 MembersSection(
@@ -437,6 +444,77 @@ internal fun formatByteCount(bytes: Int): String =
 internal fun approxTokens(bytes: Int): String {
     val tokens = Math.round(bytes / 4.0).toInt()
     return if (tokens < 1000) "≈$tokens tokens" else String.format(java.util.Locale.ROOT, "≈%.1fk tokens", tokens / 1000.0)
+}
+
+/**
+ * #NEW-37 (settings-nav.json `boards`): the archived boards and the 48h trash
+ * under the live list, each band drawn only while non-empty (web
+ * `PutAwayBoards`, desktop `all_boards.rs`, iOS `PutAwayBoardsBands`).
+ */
+@Composable
+private fun PutAwayBoardsBands(viewModel: TeamSettingsViewModel) {
+    val putAway by viewModel.putAway.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refreshPutAway() }
+    // The purge countdown re-renders every minute.
+    val now by produceState(java.time.Instant.now()) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            value = java.time.Instant.now()
+        }
+    }
+    if (putAway.archived.isNotEmpty()) {
+        PutAwayBand("Archived", putAway.archived, putAway.pendingId, "Unarchive", { PutAwayBoardCaption.archived(it.archivedAt) }, viewModel::unarchiveBoard)
+    }
+    if (putAway.trashed.isNotEmpty()) {
+        PutAwayBand("Trash", putAway.trashed, putAway.pendingId, "Restore", { PutAwayBoardCaption.purge(it.purgeAt, now) }, viewModel::restoreBoard)
+    }
+}
+
+@Composable
+private fun PutAwayBand(
+    title: String,
+    rows: List<PutAwayBoard>,
+    pendingId: String?,
+    action: String,
+    caption: (PutAwayBoard) -> String,
+    onAction: (PutAwayBoard) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(title)
+        rows.forEach { board ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Icon(
+                    checkNotNull(ExpIcons.byName(boardIconName(board.icon, board.repositoryId))),
+                    contentDescription = null,
+                    tint = parseColor(board.color ?: "#888888"),
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    board.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    caption(board),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                )
+                GlassPill(
+                    action,
+                    size = PillSize.Sm,
+                    enabled = pendingId != board.id,
+                    onClick = { onAction(board) },
+                )
+            }
+        }
+    }
 }
 
 @Composable

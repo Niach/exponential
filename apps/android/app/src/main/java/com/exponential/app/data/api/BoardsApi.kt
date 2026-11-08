@@ -4,6 +4,7 @@ import com.exponential.app.data.db.BoardEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -96,6 +97,28 @@ internal fun updateBoardBranchInput(
  */
 data class CreatedBoardResult(val id: String, val entity: BoardEntity?)
 
+/**
+ * #NEW-37: an archived or trashed board, as `boards.listArchived` /
+ * `boards.listDeleted` return it (owner-only reads: both states are out of
+ * every synced shape, EXP-500). Dates are ISO strings (no transformer).
+ */
+@Serializable
+data class PutAwayBoard(
+    val id: String,
+    val name: String,
+    val color: String? = null,
+    val icon: String? = null,
+    val repositoryId: String? = null,
+    val archivedAt: String? = null,
+    val purgeAt: String? = null,
+)
+
+@Serializable
+private data class PutAwayTeamInput(val teamId: String)
+
+@Serializable
+private data class PutAwayBoardInput(val boardId: String)
+
 @Singleton
 class BoardsApi @Inject constructor(
     private val trpc: TrpcClient,
@@ -154,4 +177,32 @@ class BoardsApi @Inject constructor(
             input = updateBoardBranchInput(boardId, defaultBranch),
             inputSerializer = JsonElement.serializer(),
         )
+
+    /** `boards.listArchived` (owner-only). */
+    suspend fun listArchived(accountId: String, teamId: String): List<PutAwayBoard> =
+        trpc.query(
+            accountId,
+            path = "boards.listArchived",
+            input = PutAwayTeamInput(teamId),
+            inputSerializer = PutAwayTeamInput.serializer(),
+            outputSerializer = ListSerializer(PutAwayBoard.serializer()),
+        )
+
+    /** `boards.listDeleted` (owner-only): the 48h trash, each with its `purgeAt`. */
+    suspend fun listDeleted(accountId: String, teamId: String): List<PutAwayBoard> =
+        trpc.query(
+            accountId,
+            path = "boards.listDeleted",
+            input = PutAwayTeamInput(teamId),
+            inputSerializer = PutAwayTeamInput.serializer(),
+            outputSerializer = ListSerializer(PutAwayBoard.serializer()),
+        )
+
+    /** `boards.unarchive` (owner-only). */
+    suspend fun unarchive(accountId: String, boardId: String) =
+        trpc.mutationUnit(accountId, path = "boards.unarchive", input = PutAwayBoardInput(boardId), inputSerializer = PutAwayBoardInput.serializer())
+
+    /** `boards.restore` (owner-only): out of the trash before the purge. */
+    suspend fun restore(accountId: String, boardId: String) =
+        trpc.mutationUnit(accountId, path = "boards.restore", input = PutAwayBoardInput(boardId), inputSerializer = PutAwayBoardInput.serializer())
 }

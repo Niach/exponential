@@ -12,8 +12,8 @@
     "lint": "eslint . --fix"
   },
   "dependencies": {
-    "firebase-admin": "^13.8.0",
-    "hono": "^4.7.11",
+    "firebase-admin": "^13.10.0",
+    "hono": "^4.12.34",
     "zod": "^4.0.14"
   },
   "devDependencies": {
