@@ -47,7 +47,7 @@ jobs:
           workspaces: apps/desktop
           key: photobook-runner
       - uses: ./.github/actions/cargo-fetch
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: The linux and web kits
         run: scripts/runner-kits.sh --out "$RUNNER_TEMP/kits" linux web

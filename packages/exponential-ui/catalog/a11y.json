@@ -103,6 +103,11 @@
       "notes": "group labelled by its title",
       "keys": []
     },
+    "Window": {
+      "role": "group",
+      "notes": "group labelled by its title; the chrome bar is hidden from AT",
+      "keys": []
+    },
     "Separator": {
       "role": "separator",
       "notes": "separator",
