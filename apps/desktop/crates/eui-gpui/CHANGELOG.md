@@ -6,6 +6,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
+- A `native: true` Switch track paints `controls::web_switch` (the switch the SDK's own controls draw: 36×20, a light thumb when off) instead of gpui-component's `Switch`, so a host's themed document wears its own screens' switch; no handler, the press and the recipe's dim stay the core's (#EXP-1629). No built-in theme sets it.
+- `binding` (#EXP-1629): the native host binding, a host's own screen drawn as a document. `Binding<S>` owns the screen's state and writes its projection at one data-model path (re-projected on `observe`d entities, an unchanged projection writes nothing); a named action or a committed text edit maps to a `Mutation` (applied at once, committed off the main thread, reverted and toasted through the host's `Toasts` on failure; a `key`ed failure never reverts a newer edit; a commit older than the field's last is dropped). `BindingHost` routes the document's actions and inputs to it and everything else to the host's own plugin.
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

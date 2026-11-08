@@ -24,7 +24,7 @@ object SettingsNavGroups {
 
     val GROUPS: List<Group> = listOf(
         Group("team", "Team", items = listOf("general", "members", "issues", "repositories", "prompts", "widget", "storage", "billing", "import")),
-        Group("boards", "Boards", items = listOf(BOARDS, NEW_BOARD, "archived-boards")),
+        Group("boards", "Boards", items = listOf(BOARDS, NEW_BOARD, "all-boards")),
         Group("agents", "Agents", items = listOf(ASSISTANT, AGENTS, NEW_AGENT, "mcp", "skills")),
         Group("apps", "Apps", items = listOf(APPS, NEW_APP)),
         Group("device", "This device", platforms = listOf("desktop"), items = listOf("tools", "coding-clis", "worktrees", "sessions")),
@@ -36,7 +36,7 @@ object SettingsNavGroups {
     val PAGES: Map<String, Page> = linkedMapOf(
         "storage" to Page("Storage", "settings-storage", "owner"),
         "import" to Page("Import", "settings-import", "owner", listOf("web")),
-        "archived-boards" to Page("Archived boards", "ui-archive", "owner"),
+        "all-boards" to Page("All boards", "settings-boards", "owner"),
         "tools" to Page("Tools", "settings-tools", "all", listOf("desktop")),
         "coding-clis" to Page("Coding CLIs", "settings-agents", "all", listOf("desktop")),
         "worktrees" to Page("Worktrees", "settings-local-repos", "all", listOf("desktop")),
