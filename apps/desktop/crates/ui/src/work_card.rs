@@ -499,6 +499,7 @@ fn session_card_framed(
             "{}-{}",
             card.test_id, card.session_id
         ))))
+        .when(interactive, |this| this.role(gpui::Role::Button).aria_label(SharedString::from(card.name.clone())))
         .w_full()
         .min_w_0()
         .overflow_hidden()

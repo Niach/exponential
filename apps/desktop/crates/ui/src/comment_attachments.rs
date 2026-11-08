@@ -262,6 +262,8 @@ fn image_tile(
             "comment-attachment-image-{}",
             attachment.id
         )))
+        .role(gpui::Role::Button)
+        .aria_label(format!("View {label}"))
         .flex_shrink_0()
         .rounded(px(theme::tokens::radius::LG))
         .overflow_hidden()

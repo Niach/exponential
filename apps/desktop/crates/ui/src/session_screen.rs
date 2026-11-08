@@ -252,6 +252,8 @@ pub(crate) fn back_link_row(
     let title = if title.is_empty() { "Back".to_string() } else { title };
     h_flex()
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(SharedString::from(title.clone()))
         .debug_selector(move || id.to_string())
         .min_w_0()
         .gap_1p5()

@@ -434,7 +434,7 @@ pub(crate) fn render_media_tile(
 
     let open_id = tile.attachment_id.clone();
     let open_label = tile.label.clone();
-    let clickable = body.on_click(move |_, window, cx| {
+    let clickable = body.role(gpui::Role::Button).aria_label(SharedString::from(tile.label.clone())).on_click(move |_, window, cx| {
         // Inside a blurred-editor preview a bubbling click would also start
         // editing behind the player.
         cx.stop_propagation();

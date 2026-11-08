@@ -231,8 +231,11 @@ pub(crate) fn trace_link(
 ) -> AnyElement {
     let pending = line.status == Some(TraceStatus::Pending);
     let id = line.id.clone();
+    let label = line.title.clone();
     h_flex()
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(label)
         .group("trace-row")
         .w_full()
         .min_w_0()
@@ -307,6 +310,9 @@ pub(crate) fn trace_collapsible(
     let color = tint(line.status, cx);
     let header = h_flex()
         .id(id.clone())
+        .role(gpui::Role::Button)
+        .aria_label(line.title.clone())
+        .aria_expanded(open)
         .group("trace-row")
         .w_full()
         .min_w_0()

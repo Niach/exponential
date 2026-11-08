@@ -83,6 +83,7 @@ fn row_menu(id: &str, name: &str, cx: &App) -> gpui::AnyElement {
                 .on_click(move |_, window, cx| confirm_delete(delete_id.clone(), window, cx)),
         )
     });
+    // a11y: a click guard, not a control
     div()
         .id(SharedString::from(format!("skill-menu-wrap-{id}")))
         .flex_shrink_0()

@@ -60,9 +60,11 @@ pub(crate) fn server_options(servers: &[AppServer]) -> Vec<(String, String)> {
 
 /// #VAPP-254: an upstream's Select on an Accounts or import row: the app
 /// screens' Select (the Data tab's kind, the preview's Run as) at the web's
-/// width; `on_pick` gets the picked option's value.
+/// width, named by the upstream (`name`, as on web); `on_pick` gets the
+/// picked option's value.
 pub(crate) fn upstream_select(
     id: SharedString,
+    name: SharedString,
     picker: domain::apps::UpstreamPicker,
     disabled: bool,
     on_pick: impl Fn(String, &mut App) + 'static,
@@ -71,7 +73,7 @@ pub(crate) fn upstream_select(
     let label = picker.options.iter().find(|(value, _)| *value == picker.value).map(|(_, label)| label.clone()).unwrap_or_default();
     let on_pick = std::rc::Rc::new(on_pick);
     Button::new(id)
-        .accessibility_label(label.clone())
+        .accessibility_label(name)
         .outline()
         .web_sm()
         .cursor_pointer()
@@ -201,6 +203,7 @@ pub(crate) fn accounts_group(
                 let (view, name) = (view.clone(), upstream.name.clone());
                 upstream_select(
                     SharedString::from(format!("{account_row}-{}-picker", upstream.name)),
+                    SharedString::from(upstream.name.clone()),
                     picker,
                     picking.is_some(),
                     move |value, cx| {

@@ -230,6 +230,8 @@ impl ScopePicker {
         let box_id = self.element_id(&format!("{kind}-box"), key);
         div()
             .id(self.element_id(kind, key))
+            .role(gpui::Role::Button)
+            .aria_label(name.clone())
             .flex()
             .items_center()
             .gap_2()

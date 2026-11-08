@@ -650,6 +650,9 @@ pub(crate) fn swatch_grid(
                 .id(ElementId::Name(SharedString::from(format!(
                     "{id_prefix}-{color}"
                 ))))
+                .role(gpui::Role::Button)
+                .aria_label(color)
+                .aria_selected(selected)
                 .size_7()
                 .flex_shrink_0()
                 .flex()

@@ -122,7 +122,7 @@ fn mosaic_tile(
             )
         })
         .when_some(on_open, move |tile, on_open| {
-            tile.on_click(move |_, window, cx| {
+            tile.role(gpui::Role::Button).aria_label(format!("Picture {}", index + 1)).on_click(move |_, window, cx| {
                 cx.stop_propagation();
                 on_open(index, window, cx);
             })

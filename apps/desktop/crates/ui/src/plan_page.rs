@@ -525,6 +525,8 @@ fn lone_picture(
     let src = src.to_string();
     div()
         .id(SharedString::from(format!("plan-picture-{id}")))
+        .role(gpui::Role::Button)
+        .aria_label(alt.to_string())
         .w_full()
         .aspect_ratio(aspect)
         .overflow_hidden()

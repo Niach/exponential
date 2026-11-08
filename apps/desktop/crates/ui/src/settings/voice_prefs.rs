@@ -218,6 +218,8 @@ fn recorder_control(value: &str, recorder: &ShortcutRecorder, cx: &App) -> AnyEl
     let recording = recorder.capture.as_ref().filter(|capture| capture.status == CaptureStatus::Recording);
     let field = div()
         .id("settings-voice-shortcut")
+        .role(gpui::Role::Button)
+        .aria_label(VOICE.copy.push_to_talk.clone())
         .cursor_pointer()
         .px_2()
         .py_1()

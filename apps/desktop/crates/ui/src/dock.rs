@@ -404,7 +404,7 @@ pub(crate) fn pile(
                     }
                 })
                 .child(dock_card(row, hidden, action, cx).when(expandable && item.visible, |card| {
-                    card.on_click(move |_, _, cx| {
+                    card.role(gpui::Role::Button).aria_label(format!("{}: {}", row.label, row.title)).on_click(move |_, _, cx| {
                         cx.stop_propagation();
                         opener.update(cx, |state, _| state.open(row_id.clone()));
                         cx.refresh_windows();

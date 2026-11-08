@@ -61,6 +61,8 @@ pub(crate) fn rail_node(
     Some(
         div()
             .id(SharedString::from(format!("{id}-cell")))
+            .role(gpui::Role::Button)
+            .aria_label(label.clone())
             .absolute()
             .top_0()
             .bottom_0()

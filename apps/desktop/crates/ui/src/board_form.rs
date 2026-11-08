@@ -288,6 +288,9 @@ pub(crate) fn icon_swatch_grid(
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("{id_prefix}-icon-{name}")))
+                .role(gpui::Role::Button)
+                .aria_label(name)
+                .aria_toggled(if is_selected { gpui::Toggled::True } else { gpui::Toggled::False })
                 .size(px(ICON_CELL))
                 .flex()
                 .items_center()
@@ -332,6 +335,9 @@ pub(crate) fn color_swatch_grid(
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("{id_prefix}-swatch-{color}")))
+                .role(gpui::Role::Button)
+                .aria_label(color)
+                .aria_toggled(if is_selected { gpui::Toggled::True } else { gpui::Toggled::False })
                 .size(px(24.))
                 .rounded_full()
                 .p(px(2.))
