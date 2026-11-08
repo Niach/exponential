@@ -1747,9 +1747,9 @@ fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
 /// #EDE-65: the new-issue button: the Exponential app's new issue (on the
 /// current team), until issues come into eDE.
 fn new_issue(shell: &Shell) {
+    // #EDE-65 J3: a Local desktop's team id IS its desktop id, so the app opens the new issue there.
     let current = &shell.model.switcher.current;
-    let team = (current.kind == uicore_model::SwitcherKind::Team).then_some(current.id.as_str());
-    hand_off(shell, &accounts::new_issue_deep_link(team));
+    hand_off(shell, &accounts::new_issue_deep_link(Some(current.id.as_str()).filter(|id| !id.is_empty())));
 }
 
 /// A deep link to the Exponential app: the running one, else a new one
