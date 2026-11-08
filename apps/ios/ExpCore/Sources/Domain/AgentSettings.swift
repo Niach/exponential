@@ -466,6 +466,45 @@ public enum AgentSettings {
     public static func coordinatorOf(_ agents: [AgentDefinitionEntity], teamId: String) -> String? {
         coordinatorOf(agents, teamId: teamId, teamOf: \.teamId)
     }
+
+    // MARK: - Lead Assistant (#EXP-1735, `lead`)
+
+    /// The team's lead Assistant: one member's Assistant every member's
+    /// Assistant reports to. Replaces the Coordinator row (one row, ×4).
+    public enum LeadCopy {
+        public static let label = "Lead Assistant"
+        public static let none = "None"
+        public static let refusedOwner = "Only the team's owners set its lead Assistant"
+        public static let refusedMember = "Only a member of this team can lead it"
+        public static let noAssistant = "That member has no device to run an Assistant on yet"
+    }
+
+    /// The Team settings › Agents Lead Assistant row.
+    public static let leadRowTestId = "settings-agents-lead"
+    /// The option id of "no lead Assistant".
+    public static let leadNone = "none"
+
+    /// A Lead Assistant option: a team member and their display name.
+    public struct LeadMember: Equatable, Sendable {
+        public let userId: String
+        public let name: String
+
+        public init(userId: String, name: String) {
+            self.userId = userId
+            self.name = name
+        }
+    }
+
+    /// `lead.optionCases`: the Lead Assistant row's option ids: `leadNone`,
+    /// then the team's members by display name, then id.
+    public static func leadOptions(_ members: [LeadMember]) -> [String] {
+        let sorted = members.sorted { a, b in
+            let order = a.name.localizedCompare(b.name)
+            if order != .orderedSame { return order == .orderedAscending }
+            return a.userId < b.userId
+        }
+        return [leadNone] + sorted.map(\.userId)
+    }
 }
 
 extension AgentDefinitionEntity: AgentTeamScoped {

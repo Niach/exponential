@@ -17,6 +17,8 @@ export const AGENT_COLUMNS = [
   `cli`,
   `account`,
   `model`,
+  // #EXP-1730 phase A: the runner defaults as one object (trigger-kept).
+  `defaults`,
   // #EXP-1656: the skills every run of the agent starts with.
   `skill_ids`,
   `owner_id`,

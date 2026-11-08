@@ -218,6 +218,35 @@ struct SetCoordinatorInput: Encodable {
     }
 }
 
+/// #EXP-1735 `agents.lead`: the team's lead Assistant (another member's
+/// Assistant, never in the viewer's synced agents), or null.
+public struct TeamLead: Decodable, Equatable, Sendable {
+    public let agentId: String
+    public let userId: String
+}
+
+struct TeamLeadResult: Decodable {
+    let lead: TeamLead?
+}
+
+/// #EXP-1735 `agents.setLeadAssistant`: the member whose Assistant leads
+/// the team; a nil `userId` (an explicit JSON null) clears it. Owner-only
+/// server-side.
+struct SetLeadAssistantInput: Encodable {
+    let teamId: String
+    let userId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case teamId, userId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(teamId, forKey: .teamId)
+        try c.encode(userId, forKey: .userId)
+    }
+}
+
 public final class AgentsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -268,6 +297,25 @@ public final class AgentsApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId, path: "agents.setCoordinator",
             input: SetCoordinatorInput(teamId: teamId, agentId: agentId)
+        )
+    }
+
+    /// #EXP-1735 (agent-settings.json `lead`): the team's lead Assistant
+    /// (its agent and member), or nil = none.
+    public func lead(accountId: String, teamId: String) async throws -> TeamLead? {
+        let result: TeamLeadResult = try await trpc.query(
+            accountId: accountId, path: "agents.lead", input: TeamIdInput(teamId: teamId)
+        )
+        return result.lead
+    }
+
+    /// #EXP-1735: make `userId`'s Assistant the team's lead (nil = none); a
+    /// lead pick sends the team's coordinator back to `agent` in the same
+    /// write.
+    public func setLeadAssistant(accountId: String, teamId: String, userId: String?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "agents.setLeadAssistant",
+            input: SetLeadAssistantInput(teamId: teamId, userId: userId)
         )
     }
 

@@ -6,6 +6,7 @@ import {
   agentsInTeam,
   coordinatorOf,
   coordinatorOptions,
+  leadOptions,
   assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
@@ -103,6 +104,14 @@ describe(`coordinator (#EXP-1717)`, () => {
   for (const c of fixture.coordinator.valueCases) {
     it(`valueCases: ${c.name}`, () => {
       expect(coordinatorOf(c.agents, c.teamId)).toBe(c.expected)
+    })
+  }
+})
+
+describe(`lead (#EXP-1735)`, () => {
+  for (const c of fixture.lead.optionCases) {
+    it(`optionCases: ${c.name}`, () => {
+      expect(leadOptions(c.members).map((option) => (typeof option === `string` ? option : option.userId))).toEqual(c.expected)
     })
   }
 })

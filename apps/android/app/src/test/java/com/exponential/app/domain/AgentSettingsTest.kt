@@ -450,4 +450,35 @@ class AgentSettingsTest {
             )
         }
     }
+
+    // #EXP-1735: the team's lead Assistant (`lead.*`, TS `agent-settings.test.ts`).
+    private val lead: JsonObject get() = fixture.getValue("lead").jsonObject
+
+    @Test
+    fun `lead copy and test id are the fixture's`() {
+        val copy = lead.getValue("copy").jsonObject
+        assertEquals(copy.str("label"), AgentSettings.Lead.LABEL)
+        assertEquals(copy.str("none"), AgentSettings.Lead.NONE_LABEL)
+        assertEquals(copy.str("refusedOwner"), AgentSettings.Lead.REFUSED_OWNER)
+        assertEquals(copy.str("refusedMember"), AgentSettings.Lead.REFUSED_MEMBER)
+        assertEquals(copy.str("noAssistant"), AgentSettings.Lead.NO_ASSISTANT)
+        assertEquals(lead.getValue("testIds").jsonObject.str("row"), AgentSettings.Lead.TEST_ID_ROW)
+    }
+
+    @Test
+    fun `lead optionCases`() {
+        val cases = lead.getValue("optionCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val members = case.getValue("members").jsonArray.map { it.jsonObject }
+            val options = AgentSettings.Lead.leadOptions(members) {
+                AgentSettings.Lead.MemberLike(it.str("userId")!!, it.str("name")!!)
+            }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                options.map { it?.str("userId") ?: AgentSettings.Lead.NONE },
+            )
+        }
+    }
 }

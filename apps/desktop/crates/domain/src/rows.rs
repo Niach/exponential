@@ -81,6 +81,11 @@ pub struct Team {
     /// in (an IANA name); `None` = each device's own zone.
     #[serde(default)]
     pub time_zone: Option<String>,
+    /// #EXP-1735 (agent-settings.json `lead`): the team's lead Assistant
+    /// (another member's agent row); the Lead Assistant row re-reads
+    /// `agents.lead` when it changes. `None` = no lead.
+    #[serde(default)]
+    pub lead_assistant_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -115,6 +120,7 @@ impl Team {
             merge_mode: None,
             estimation_type: None,
             time_zone: None,
+            lead_assistant_id: None,
             created_at: None,
             updated_at: None,
         }

@@ -164,7 +164,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card · sg_session-xref ·
- *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
+ *   sg_settings-agents · sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_settings-skills · sg_settings-skill ·
  *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
  *   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview · sg_app-record-history ·
@@ -380,6 +380,9 @@ class StyleguideScreenshotsTest {
         // DEMO_AGENT_CHANNEL_TIMES.reply = 07:14Z, 09:14 in DEMO_TIME_ZONE)
         // and its settings page (seeded instructions).
         private const val AGENT_NAME = "Triage"
+
+        /** #EXP-1735: the seeded lead Assistant's member (the demo user). */
+        private const val LEAD_NAME = "Alex Carter"
         private const val AGENT_REQUEST_FRAGMENT = "Label the Android ones too"
         private const val AGENT_REPLY_CLOCK = "09:14"
         private const val AGENT_INSTRUCTIONS_FRAGMENT = "Look after the boards"
@@ -1526,6 +1529,19 @@ class StyleguideScreenshotsTest {
             tapClearOfBar(teamSettingsRow("Agents"))
             val settingsAgentRow = hasTestTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW) and hasText(AGENT_NAME)
             flow.waitFor(settingsAgentRow, SYNC_TIMEOUT)
+            // #EXP-1735: sg_settings-agents = the Agents page's top: the Lead
+            // Assistant row naming the seeded lead (the demo user, read
+            // through `agents.lead`) over the agents list.
+            if (ScreenshotFlow.anyRequested("sg_settings-agents")) {
+                val leadRow = hasTestTag(AgentSettings.Lead.TEST_ID_ROW)
+                flow.waitFor(
+                    (leadRow and hasText(LEAD_NAME, substring = true)) or
+                        (hasAnyAncestor(leadRow) and hasText(LEAD_NAME, substring = true)),
+                    NETWORK_TIMEOUT,
+                )
+                flow.settle()
+                flow.screenshot("sg_settings-agents")
+            }
             tapClearOfBar(settingsAgentRow)
             flow.waitFor(hasTestTag(AgentSettings.TEST_ID_PAGE), NAV_TIMEOUT)
             flow.waitFor(hasTestTag("agent-settings-trigger"), SYNC_TIMEOUT)

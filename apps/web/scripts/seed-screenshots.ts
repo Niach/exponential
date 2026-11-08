@@ -730,6 +730,9 @@ async function seedSessionTree(ctx: {
     createdAt: daysAgo(20),
     updatedAt: daysAgo(20),
   })
+  // #EXP-1735: the demo user's Assistant leads the team (agent-settings.json
+  // `lead`), so Settings › Agents' Lead Assistant row names a member.
+  await db.update(teams).set({ leadAssistantId: DEMO_ASSISTANT_ID }).where(eq(teams.id, teamId))
   await db.insert(sessions).values(
     agentSpecs.map((spec) =>
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
