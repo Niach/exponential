@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -137,7 +137,7 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - name: Build the xcframework
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Size gate (xcframework slices, VAPP-106)
         env:
           # EXP-1371: the MacBook (pick-runner) and GitHub's macos-26 fallback
@@ -185,7 +185,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Size gate (every ABI's .so, VAPP-106)
         run: bun packages/exponential-ui/release/size.ts android --check
       - name: The Central Portal bundle
