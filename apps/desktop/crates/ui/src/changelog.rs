@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-send-diagnostics",
+    date: "2026-11-09",
+    title: "Crash and performance diagnostics",
+    summary: "Every app now reports crashes and slow spots to our own servers, and Send diagnostics in Settings → Account turns it off per device.",
+    body: r#"- **Diagnostics on every app**: the web app, the desktop app, Exponential Desktop, iPhone and Android report crashes, errors and performance timings, so we find and fix problems faster.
+- **Only to our own servers**: reports go through Exponential to our self-hosted error tracker in Germany, carry your user id and never your name or email, and are deleted after 30 days.
+- **Send diagnostics**: Settings → Account → Privacy turns it off on this device."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_232: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-install-claude-code-in-the-app",
     date: "2026-11-08",
     title: "Install Claude Code from the app",
