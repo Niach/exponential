@@ -36,7 +36,28 @@ pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents",
 
 /// The brand mark: the viewer's Assistant (the IDE's agent row draws it).
 const ASSISTANT_ICON: &str = "brand-exponential";
-const AGENT_ICON: &str = "bot";
+
+/// An agent's icon in its colour as the documents name it
+/// (`agent:<icon>:<#rrggbb>`; the shell's host paints it tinted): its stored
+/// icon and colour, else `threads-list.json` `agentDefaults` (the IDE's
+/// `agent_glyph` / `agent_tint`).
+pub fn agent_icon(icon: Option<&str>, color: Option<&str>) -> String {
+    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+    let icon = icon.filter(|i| !i.is_empty()).unwrap_or(&defaults.icon);
+    let color = color.filter(|c| hex(c).is_some()).unwrap_or(&defaults.color);
+    format!("agent:{icon}:{color}")
+}
+
+/// [`agent_icon`]'s name back: the icon and the colour as `0xrrggbb`.
+pub fn parse_agent_icon(name: &str) -> Option<(&str, u32)> {
+    let (icon, color) = name.strip_prefix("agent:")?.rsplit_once(':')?;
+    Some((icon, hex(color)?))
+}
+
+fn hex(color: &str) -> Option<u32> {
+    let digits = color.strip_prefix('#')?;
+    (digits.len() == 6).then(|| u32::from_str_radix(digits, 16).ok()).flatten()
+}
 
 /// The team's agents as the IDE's agent row lists them (`agents_in_team`,
 /// `orderedAgents`: the viewer's Assistant first).
@@ -49,7 +70,7 @@ pub fn agents(rows: &AccountRows, team_id: &str) -> Vec<ChatAgentInput> {
         .map(|a| ChatAgentInput {
             id: a.id.clone(),
             name: a.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| "Agent".into()),
-            icon: if a.is_assistant() { ASSISTANT_ICON.into() } else { a.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| AGENT_ICON.into()) },
+            icon: if a.is_assistant() { ASSISTANT_ICON.into() } else { agent_icon(a.icon.as_deref(), a.color.as_deref()) },
         })
         .collect()
 }
@@ -137,12 +158,12 @@ pub fn demo_input() -> ChatInput {
     };
     let agents = vec![
         ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },
-        ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: "bug".into() },
+        ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: agent_icon(Some("bug"), Some("#a855f7")) },
     ];
     ChatInput {
         session_id: Some("s1".into()),
         title: "Triage".into(),
-        icon: "bug".into(),
+        icon: agent_icon(Some("bug"), Some("#a855f7")),
         bubbles: true,
         agent_id: Some("a2".into()),
         agents,
@@ -202,7 +223,8 @@ mod tests {
     fn an_agent_conversation_is_bubbles_with_its_own_messages_only() {
         let input = input(&rows(), &chat(Some("s1")), 0);
         assert!(input.bubbles);
-        assert_eq!((input.title.as_str(), input.icon.as_str()), ("Triage", "bug"));
+        assert_eq!(input.title.as_str(), "Triage");
+        assert_eq!(parse_agent_icon(&input.icon).map(|(icon, _)| icon), Some("bug"));
         let bodies: Vec<String> = input
             .rows
             .iter()
@@ -213,6 +235,18 @@ mod tests {
             .collect();
         assert_eq!(bodies, ["Label them", "Done"]);
         assert!(matches!(&input.rows.iter().find(|r| matches!(r, uicore_model::chat::ChatRowInput::Message { author, .. } if author == "user")), Some(uicore_model::chat::ChatRowInput::Message { name: Some(n), .. }) if n == "Dana Reyes"));
+    }
+
+    #[test]
+    fn an_agent_s_icon_carries_its_colour_else_the_fixture_s_defaults() {
+        assert_eq!(agent_icon(Some("bug"), Some("#a855f7")), "agent:bug:#a855f7");
+        assert_eq!(parse_agent_icon("agent:bug:#a855f7"), Some(("bug", 0xa855f7)));
+        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let fallback = agent_icon(None, Some("purple"));
+        assert_eq!(fallback, format!("agent:{}:{}", defaults.icon, defaults.color));
+        assert!(parse_agent_icon(&fallback).is_some(), "the default colour is a hex");
+        assert_eq!(parse_agent_icon("ui-close"), None);
+        assert_eq!(parse_agent_icon("agent:bug:#zzz"), None);
     }
 
     #[test]

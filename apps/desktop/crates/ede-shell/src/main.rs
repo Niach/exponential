@@ -386,6 +386,15 @@ impl HostPlugin for Host {
         assets::icon_path(name)
     }
 
+    /// #EDE-65 lane I: an agent's icon in its colour (`agent:<icon>:<#rrggbb>`,
+    /// [`team_chat::agent_icon`]), like the IDE's rail and chat.
+    fn icon_element(&self, name: &str, size: f32, _color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
+        use gpui::{prelude::*, px, svg};
+        let (icon, tint) = team_chat::parse_agent_icon(name)?;
+        let path = assets::icon_path(icon)?;
+        Some(svg().path(path).size(px(size)).text_color(gpui::rgb(tint)).into_any_element())
+    }
+
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
         tracing::info!(surface = %event.surface_id, component = %event.component_id, name = %event.name, context = %event.context, "action");
         // The view is mid-update while it dispatches; a popup reads its
