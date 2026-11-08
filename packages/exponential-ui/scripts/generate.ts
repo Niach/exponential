@@ -260,8 +260,8 @@ export const MACRO_COMPONENTS = ${JSON.stringify(macros)} as const
 /** The core-lite subset (no overlays, media or Chart). */
 export const LITE_COMPONENTS = ${JSON.stringify(lite)} as const
 export const COMPONENT_GROUPS: Record<ComponentName, string> = ${JSON.stringify(Object.fromEntries(components.map(([n, d]) => [n, d.group])))}
-/** The specimen id each component has on ui.exponential.at. */
-export const SPECIMEN_IDS: Record<ComponentName, string> = ${JSON.stringify(Object.fromEntries(names.map((n) => [n, specimenId(n)])))}
+/** The specimen id each component has on ui.exponential.at (\`exponential-ui-<kebab name>\`, derived so the bundles carry no table, VAPP-289). */
+export const SPECIMEN_IDS = Object.fromEntries(COMPONENT_NAMES.map((n) => [n, \`exponential-ui-\${n.replace(/([a-z0-9])([A-Z])/g, \`$1-$2\`).toLowerCase()}\`])) as Record<ComponentName, string>
 
 export const ENUMS = {
 ${enumConsts}

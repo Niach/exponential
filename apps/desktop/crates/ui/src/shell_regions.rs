@@ -917,6 +917,181 @@ impl HostPlugin for TabHost {
     }
 }
 
+/// What the header region draws itself (the rows are [`SidebarRegion`]'s),
+/// and the eDE-only parts it has its own of.
+const HEADER_PRUNED: &[&str] = &["nav", "ide_nav", "scroll", "corner", "corner_rail", "inbox", "rail_inbox", "switcher_avatar", "switcher_chevron", "switcher_share", "switcher_new"];
+
+/// The left column's header (#EXP-1725): the team switcher, the inbox,
+/// search and new, the rail toggle: `sidebar.json`'s header and its
+/// switcher menu, mounted on their own so the header stays fixed while the
+/// rail and the settings nav slide under it.
+pub(crate) struct HeaderRegion {
+    view: Entity<SurfaceView>,
+    team: Rc<RefCell<Option<Option<crate::markdown::CachedImage>>>>,
+    shown: Option<Value>,
+}
+
+impl HeaderRegion {
+    pub(crate) fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx: &mut gpui::Context<Self>| {
+            let team = Rc::new(RefCell::new(None));
+            let host = Rc::new(HeaderHost { team: team.clone(), nav, window: window.window_handle(), region: cx.weak_entity() });
+            let mut doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
+            uicore_gpui::inline::without(&mut doc, HEADER_PRUNED);
+            let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
+            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            Self { view, team, shown: None }
+        })
+    }
+
+    /// The switcher's sections, the active team's mark, the other teams' live
+    /// dot (EXP-1075: amber wins over green), whether there is a board for New.
+    pub(crate) fn refresh(&mut self, nav: &Entity<Navigation>, live: &std::collections::BTreeMap<String, crate::session_data::TeamLiveRuns>, cx: &mut gpui::Context<Self>) {
+        let dot = |runs: Option<&crate::session_data::TeamLiveRuns>| runs.filter(|r| r.count > 0).map(|r| if r.needs_input { IdeDot::Amber } else { IdeDot::Green });
+        let active = active_team_id(nav, cx);
+        let locals = crate::local_desktops::entries(cx);
+        let on_local = locals.iter().any(|(_, _, current)| *current);
+        let teams = Store::global(cx).collections().teams_sorted(cx);
+        let account = crate::queries::active_account(cx);
+        let current = teams.iter().find(|t| Some(&t.id) == active.as_ref()).cloned();
+        let image = crate::user_avatar::team_image(current.as_ref().and_then(|t| t.icon_url.as_deref()), cx);
+        *self.team.borrow_mut() = Some(image);
+        let mut elsewhere: Option<IdeDot> = None;
+        let mut team_rows = Vec::new();
+        if !on_local {
+            for team in &teams {
+                let is_current = Some(&team.id) == active.as_ref();
+                let tone = if is_current { None } else { dot(live.get(&team.id)) };
+                if tone == Some(IdeDot::Amber) || (tone.is_some() && elsewhere.is_none()) {
+                    elsewhere = tone;
+                }
+                team_rows.push(json!({"kind": "team", "id": team.id, "name": team.name, "current": is_current, "dotIcon": dot_icon(&json!(tone))}));
+            }
+        }
+        let mut sections = vec![json!({
+            "kind": "local", "id": "local", "label": "Local desktops",
+            "entries": locals.iter().map(|(id, name, current)| json!({"kind": "local", "id": id, "name": name, "current": current, "dotIcon": Value::Null})).collect::<Vec<_>>(),
+        })];
+        if !team_rows.is_empty() {
+            sections.push(json!({"kind": "account", "id": "account", "label": account.as_ref().map(|a| a.email.clone()).unwrap_or_default(), "entries": team_rows}));
+        }
+        let name = current.map(|t| t.name).unwrap_or_default();
+        let chevron = match elsewhere {
+            Some(tone) => format!("ide:badge:dot:{}|nav-team-switcher", serde_json::to_value(tone).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
+            None => "nav-team-switcher".to_string(),
+        };
+        let value = json!({
+            "rail": crate::ui_prefs::rail(),
+            "switcher": {"current": {"name": name}, "sections": sections},
+            "ide": {"teamMark": "ide:team", "chevron": chevron, "inbox": "ide:inbox", "noBoard": active_board_id(nav, cx).is_none(), "signedIn": !on_local},
+        });
+        if self.shown.as_ref() == Some(&value) {
+            self.view.update(cx, |_, cx| cx.notify());
+            return;
+        }
+        self.shown = Some(value.clone());
+        self.view.update(cx, |view, cx| {
+            let _ = view.set_data("/shell/rail", Some(value["rail"].clone()), cx);
+            let _ = view.set_data("/shell/switcher", Some(value["switcher"].clone()), cx);
+            let _ = view.set_data("/shell/ide", Some(value["ide"].clone()), cx);
+        });
+    }
+
+    fn close_menu(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            view.escape(window, cx);
+        });
+    }
+}
+
+impl Render for HeaderRegion {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div().w_full().child(self.view.clone())
+    }
+}
+
+struct HeaderHost {
+    team: Rc<RefCell<Option<Option<crate::markdown::CachedImage>>>>,
+    nav: Entity<Navigation>,
+    window: AnyWindowHandle,
+    region: gpui::WeakEntity<HeaderRegion>,
+}
+
+impl HeaderHost {
+    fn in_window(&self, cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'static) {
+        let handle = self.window;
+        let region = self.region.clone();
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| {
+                let _ = region.update(cx, |region, cx| region.close_menu(window, cx));
+                f(window, cx);
+                window.refresh();
+            });
+        });
+    }
+}
+
+impl HostPlugin for HeaderHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        crate::exponential_ui_host::icon_path(name)
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: Hsla, cx: &App) -> Option<AnyElement> {
+        match name {
+            "ide:team" => Some(crate::user_avatar::team_avatar_of(self.team.borrow().clone().flatten(), 28.)),
+            "ide:inbox" => Some(crate::inbox_popover::InboxButton::new(self.nav.clone()).into_any_element()),
+            _ => {
+                let (badge, glyph) = name.strip_prefix("ide:badge:")?.split_once('|')?;
+                let tone = badge.strip_prefix("dot:")?;
+                let path = crate::exponential_ui_host::icon_path(glyph)?;
+                let dot = crate::sidebar::rail_dot(dot_color(serde_json::from_value(json!(tone)).ok()?, cx)).border_1().border_color(theme::tokens::BACKGROUND.to_hsla());
+                Some(div().relative().size(gpui::px(size)).child(gpui::svg().path(path).size(gpui::px(size)).text_color(color)).child(dot.absolute().top(gpui::px(-2.)).right(gpui::px(-2.))).into_any_element())
+            }
+        }
+    }
+
+    fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
+        let nav = self.nav.clone();
+        let args = event.args.clone();
+        match (event.name.as_str(), event.component_id.as_str()) {
+            ("ede_start_menu", _) => self.in_window(cx, |window, cx| crate::search_sheet::open_search(window, cx)),
+            ("ede_launch", "new" | "rail_new") => self.in_window(cx, move |window, cx| {
+                if let Some(board) = active_board_id(&nav, cx) {
+                    crate::issue_draft_screen::open_new_from_rail(window, cx, board);
+                }
+            }),
+            ("ede_rail", _) => self.in_window(cx, |_, cx| crate::sidebar::toggle_rail(cx)),
+            ("ede_switcher", _) => self.in_window(cx, move |window, cx| {
+                let id = args["id"].as_str().unwrap_or_default().to_string();
+                match (args["action"].as_str(), args["kind"].as_str()) {
+                    (Some("pick"), Some("local")) => {
+                        crate::local_desktops::enter(&id, cx);
+                    }
+                    (Some("pick"), _) => window.dispatch_action(Box::new(crate::actions::SwitchTeam { team_id: id }), cx),
+                    (Some("new"), _) => {
+                        crate::local_desktops::create(cx);
+                    }
+                    (Some("connect"), _) => crate::local_desktops::leave(cx),
+                    _ => {}
+                }
+            }),
+            _ => {}
+        }
+    }
+
+    fn on_action(&self, event: &ActionEvent, cx: &mut App) {
+        if event.name != "ide_switcher" {
+            return;
+        }
+        let action = event.context["action"].as_str().unwrap_or_default().to_string();
+        self.in_window(cx, move |window, cx| match action.as_str() {
+            "new_team" => window.dispatch_action(Box::new(crate::actions::CreateTeam), cx),
+            "join_team" => window.dispatch_action(Box::new(crate::actions::JoinTeam), cx),
+            _ => {}
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
