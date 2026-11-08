@@ -445,7 +445,10 @@ tree (an overlay that fell back to its wrapper counts as moved). Core:
 `Surface::close_overlays_in` on a scroll, `check_anchor_frames` on a finished
 pass (the close lands at the start of the next one and is raised through
 `take_events`, which every native host drains). Web: `watchAnchor`
-(`@exponential_app/eui/web`), one per open overlay in React and Solid.
+(`@exponential_app/eui/web`), one per open overlay in React and Solid; while
+the document's web fonts load it re-measures the anchor instead (a font swap
+re-lays the page out, it moves nothing: the core lays out with its fonts
+loaded), and the frame after they settle is the box it opened at.
 
 Core: `Builder::link_anchors` runs after the whole tree is built (so the
 anchor may come after the overlay in tree order): it sets the node's
