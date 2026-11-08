@@ -46,6 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-send-diagnostics",
+    date: "2026-11-09",
+    title: "Crash and performance diagnostics on the web",
+    summary: "The web app reports crashes and slow spots to our own servers, and Send diagnostics in Settings → Account turns it off in this browser.",
+    body: r#"- **Diagnostics on the web**: the web app reports crashes, errors and performance timings, so we find and fix problems faster.
+- **Only to our own servers**: reports go through Exponential to our self-hosted error tracker in Germany, carry your user id and never your name or email, and are deleted after 30 days.
+- **Privacy policy**: it says what diagnostics collect, why, and for how long.
+- **Send diagnostics**: Settings → Account → Privacy on the web turns it off in this browser."#,
     id: "2026-11-09-exponential-desktop-diagnostics",
     date: "2026-11-09",
     title: "Exponential Desktop diagnostics, through our servers",
