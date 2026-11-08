@@ -35,6 +35,8 @@ name: record-compose-fixtures
 # VAPP-290 (2026-11-07): re-recorded for the core catalog's Window (the
 # kitchen sink's window node: the Compose goldens + `Window.png`, the web
 # baseline rewrite's gpui budget).
+# FEED-200 (2026-11-08): re-recorded for Tabs `swipeable` (the catalog's
+# `Tabs/swipeable` case, the Tabs specimen's swipeable case).
 
 on:
   workflow_dispatch: {}
