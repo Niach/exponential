@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory toasts (#EDE-12): the shell is the session's org.freedesktop.Notifications server; a new notification opens this on-demand top-right layer surface and the newest three show as cards until they expire (the app's timeout, else 6 s; critical ones stay) or are closed. /notifications/toasts holds them newest first; every card may close (ede_notify_close) or press one of the app's actions (ede_notify_action). The whole history is the panel's bell (notification-center.json).",
+  "$comment": "Exponential Desktop's factory toasts (#EDE-12): the shell is the session's org.freedesktop.Notifications server; a new notification opens this on-demand top-right layer surface and the newest three show as cards until they expire (the app's timeout, else 6 s; critical ones stay) or are closed. /notifications/toasts holds them newest first; every card may close (ede_notify_close) or press one of the app's actions (ede_notify_action). #EDE-65: a new unread Exponential inbox entry of a signed-in account toasts the same way (its actions Open and Mark read; its close only hides the toast, the entry stays in the bell). The whole history is the panel's bell (notification-center.json).",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -113,7 +113,8 @@
                       "args": {
                         "id": {
                           "@path": "id"
-                        }
+                        },
+                        "toast": true
                       }
                     }
                   }

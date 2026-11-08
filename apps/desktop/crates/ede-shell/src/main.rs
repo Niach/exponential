@@ -26,13 +26,16 @@
 //! (the model: rail, taskbar buttons, workspaces, the start menu's categories
 //! and apps, chat, Alt-Tab), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
-//! thumbnails), `/osd`, `/notifications`, `/tray`, `/traymenu`,
+//! thumbnails), `/osd`, `/notifications` (#EDE-65: with the accounts'
+//! unread inbox merged in), `/needsYou`, `/tray`, `/traymenu`,
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
 //! document may call are the `ede_*` names its `surface.functions` lists
 //! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
 //! `ede_focus {window}`, `ede_close {window}`, `ede_minimize {window}`,
 //! `ede_lock`, `ede_logout`, `ede_power {action}`, `ede_select {window}`,
-//! `ede_notify_close {id}`, `ede_notify_action {id, key}`, `ede_notify_clear`,
+//! `ede_notify_open {id}`, `ede_notify_close {id, toast?}`, `ede_notify_action
+//! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
+//! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
 //! `ede_tray {service}`, `ede_tray_menu {service, id}`, `ede_open_document
 //! {name}`, `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
@@ -58,13 +61,15 @@
 //!   --exit-after  quit after this many milliseconds (the headless check)
 //! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, windows) instead of the
 //! machine's, so a golden never depends on what is installed;
-//! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail.
+//! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail;
+//! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you.
 
 mod accounts;
 mod engine;
 mod assets;
 mod connect;
 mod dbus;
+mod inbox;
 mod local_runs;
 mod settings;
 mod settings_pages;
@@ -74,7 +79,7 @@ mod thumbs;
 
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -136,26 +141,83 @@ fn parse_args() -> Options {
     o
 }
 
-/// The notifications heard this session, newest first.
+/// The notifications heard this session, newest first, and (#EDE-65) the
+/// signed-in accounts' unread inbox entries ([`inbox`]) merged into them.
 #[derive(Default)]
 struct Notifications {
     list: Vec<dbus::Notification>,
     /// Ids still showing as toasts.
     toasts: Vec<u32>,
+    /// #EDE-65: the inbox entries, newest first.
+    inbox: Vec<inbox::InboxItem>,
+    /// The inbox entries showing as toasts, until when.
+    inbox_toasts: Vec<(String, Instant)>,
+    /// Every inbox entry heard, so each toasts once.
+    seen: HashSet<String>,
+    /// Notification ids dismissed here, until the shape's echo marks them read.
+    read_locally: HashSet<String>,
+    /// The demo's desktop notifications (the goldens), `(received ms, row)`.
+    demo: Vec<(i64, Value)>,
+}
+
+/// How long an inbox entry's toast stays (a desktop notification's default).
+const INBOX_TOAST: Duration = Duration::from_secs(6);
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 impl Notifications {
     fn to_json(&self) -> Value {
-        let toasts: Vec<Value> = self.list.iter().filter(|n| self.toasts.contains(&n.id)).take(3).map(dbus::Notification::to_json).collect();
-        json!({"toasts": toasts, "list": self.list.iter().map(dbus::Notification::to_json).collect::<Vec<_>>(), "count": self.list.len()})
+        let desktop: Vec<(i64, Value)> = if self.demo.is_empty() { self.list.iter().map(|n| (n.received_ms, n.to_json())).collect() } else { self.demo.clone() };
+        let toasts: HashSet<u64> = if self.demo.is_empty() { self.toasts.iter().map(|id| *id as u64).collect() } else { [1].into() };
+        let mut inbox_toasts: HashSet<String> = self.inbox_toasts.iter().map(|(key, _)| key.clone()).collect();
+        if !self.demo.is_empty() {
+            // The goldens' toast stack (`--open notifications`): the newest inbox entry too.
+            inbox_toasts.extend(self.inbox.first().map(|i| i.key.clone()));
+        }
+        inbox::merged_feed(&desktop, &toasts, &self.inbox, &inbox_toasts, now_ms())
+    }
+
+    fn any_toast(&self) -> bool {
+        !self.toasts.is_empty() || !self.inbox_toasts.is_empty()
     }
 
     /// Expired toasts leave the stack (they stay in the history); the ids
-    /// that left.
-    fn expire(&mut self, now: Instant) -> Vec<u32> {
+    /// that left (an inbox toast's leave quietly, `true` when one did).
+    fn expire(&mut self, now: Instant) -> (Vec<u32>, bool) {
         let gone: Vec<u32> = self.list.iter().filter(|n| self.toasts.contains(&n.id) && n.expires_at.is_some_and(|t| now >= t)).map(|n| n.id).collect();
         self.toasts.retain(|id| !gone.contains(id));
-        gone
+        let before = self.inbox_toasts.len();
+        self.inbox_toasts.retain(|(_, until)| now < *until);
+        (gone, before != self.inbox_toasts.len())
+    }
+
+    /// #EDE-65: the inbox as it stands now; what is new since the shell
+    /// started toasts (`since_ms`).
+    fn set_inbox(&mut self, mut items: Vec<inbox::InboxItem>, since_ms: i64) {
+        items.retain(|i| !i.unread_ids.iter().all(|id| self.read_locally.contains(id)));
+        items.sort_by(|a, b| b.created_ms.cmp(&a.created_ms));
+        let until = Instant::now() + INBOX_TOAST;
+        for key in inbox::fresh_items(&items, &mut self.seen, since_ms) {
+            self.inbox_toasts.insert(0, (key, until));
+        }
+        self.inbox_toasts.retain(|(key, _)| items.iter().any(|i| &i.key == key));
+        self.inbox = items;
+    }
+
+    /// An inbox entry by its feed id.
+    fn inbox_item(&self, key: &str) -> Option<inbox::InboxItem> {
+        self.inbox.iter().find(|i| i.key == key).cloned()
+    }
+
+    /// The entry leaves the bell (marked read here first); the item, to mark read on its server.
+    fn inbox_read(&mut self, key: &str) -> Option<inbox::InboxItem> {
+        let item = self.inbox_item(key)?;
+        self.read_locally.extend(item.unread_ids.iter().cloned());
+        self.inbox.retain(|i| i.key != key);
+        self.inbox_toasts.retain(|(k, _)| k != key);
+        Some(item)
     }
 
     fn push(&mut self, n: dbus::Notification) {
@@ -204,6 +266,12 @@ struct Shell {
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
     notifications: Notifications,
+    /// #EDE-65: Needs you across the accounts' teams (the tray button, needs-you.json).
+    needs_you: Vec<inbox::NeedsYouItem>,
+    /// When the shell started (epoch ms): only inbox entries since then toast.
+    started_ms: i64,
+    /// `EDE_SHELL_DEMO`: the sample data, nothing leaves the shell.
+    demo: bool,
     dbus: Option<dbus::Dbus>,
     tray: Vec<dbus::TrayItem>,
     /// #EDE-56: the Local desktops and the connected accounts' teams.
@@ -395,14 +463,35 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| switcher_commit(&shell, Some(id), cx));
                 }
             }
+            // #EDE-65: a row's press; an inbox entry hands off to the Exponential app.
+            "ede_notify_open" => {
+                if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| inbox_open(&shell, &key, cx));
+                } else if let Some(id) = args.get("id").and_then(Value::as_u64) {
+                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                        d.action_invoked(id as u32, "default");
+                    }
+                    cx.defer(move |cx| {
+                        notification_close(&shell, id as u32, 2, cx);
+                        close(&shell, "notification-center", cx);
+                    });
+                }
+            }
             "ede_notify_close" => {
-                if let Some(id) = args.get("id").and_then(Value::as_u64) {
+                if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
+                    // A toast's close only hides it; the bell's marks it read.
+                    let toast = args.get("toast").and_then(Value::as_bool).unwrap_or(false);
+                    cx.defer(move |cx| if toast { inbox_toast_hide(&shell, &key, cx) } else { inbox_mark_read(&shell, &key, cx) });
+                } else if let Some(id) = args.get("id").and_then(Value::as_u64) {
                     cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
                 }
             }
             "ede_notify_action" => {
+                let inbox_key = args.get("id").and_then(Value::as_str).map(String::from);
                 let (id, key) = (args.get("id").and_then(Value::as_u64), args.get("key").and_then(Value::as_str).map(String::from));
-                if let (Some(id), Some(key)) = (id, key) {
+                if let (Some(inbox_key), Some(key)) = (inbox_key, key.clone()) {
+                    cx.defer(move |cx| if key == "open" { inbox_open(&shell, &inbox_key, cx) } else { inbox_mark_read(&shell, &inbox_key, cx) });
+                } else if let (Some(id), Some(key)) = (id, key) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
                         d.action_invoked(id as u32, &key);
                     }
@@ -415,8 +504,18 @@ impl HostPlugin for Host {
                     for id in ids {
                         notification_close(&shell, id, 2, cx);
                     }
+                    // #EDE-65: and every inbox entry it lists is marked read.
+                    let keys: Vec<String> = shell.borrow().notifications.inbox.iter().map(|i| i.key.clone()).collect();
+                    for key in keys {
+                        inbox_mark_read(&shell, &key, cx);
+                    }
                     close(&shell, "notification-center", cx);
                 });
+            }
+            "ede_needs_you_open" => {
+                if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| needs_you_open(&shell, &key, cx));
+                }
             }
             "ede_tray" => {
                 if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
@@ -719,8 +818,8 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
-        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
-        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
     ]
 }
 
@@ -1765,7 +1864,7 @@ fn notifications_changed(shell: &SharedShell, cx: &mut App) {
         let mut s = shell.borrow_mut();
         let json = s.notifications.to_json();
         s.feed.set("/notifications", json);
-        !s.notifications.toasts.is_empty()
+        s.notifications.any_toast()
     };
     if any_toast {
         open_on_demand(shell, "notifications", cx);
@@ -1773,6 +1872,84 @@ fn notifications_changed(shell: &SharedShell, cx: &mut App) {
         close(shell, "notifications", cx);
     }
     refresh(shell, cx);
+}
+
+/// #EDE-65: the accounts' inbox and Needs you again (a delta on a shape the
+/// tray reads, a minute passed: the ages move).
+fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
+    let demo = shell.borrow().demo;
+    let (items, needs) = if demo {
+        (inbox::demo_inbox(now_ms()), inbox::demo_needs_you())
+    } else {
+        let rows = shell.borrow().workspaces.tray_rows();
+        let now = now_ms();
+        let read = shell.borrow().notifications.read_locally.clone();
+        (rows.iter().flat_map(|r| inbox::inbox_items(r, &read)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now)).collect())
+    };
+    {
+        let mut s = shell.borrow_mut();
+        let since = s.started_ms;
+        s.notifications.set_inbox(items, since);
+        s.feed.set("/needsYou", inbox::needs_you_feed(&needs));
+        s.needs_you = needs;
+    }
+    notifications_changed(shell, cx);
+}
+
+/// An inbox entry's press: marked read, the bell closes, the Exponential
+/// app opens on its issue or session (started when it does not run).
+fn inbox_open(shell: &SharedShell, key: &str, cx: &mut App) {
+    let link = shell.borrow().notifications.inbox_item(key).and_then(|i| i.link);
+    inbox_mark_read(shell, key, cx);
+    close(shell, "notification-center", cx);
+    ide_open(shell, link.as_deref());
+}
+
+/// The Exponential app on `link` (its single-instance socket), else started.
+fn ide_open(shell: &SharedShell, link: Option<&str>) {
+    if shell.borrow().demo {
+        tracing::info!(?link, "demo: no hand-off");
+        return;
+    }
+    if link.is_some_and(inbox::hand_off) {
+        return;
+    }
+    // A cold start keeps the link: the entry's Exec takes it as `%U` (its
+    // single-instance boot feeds command-line `exponential://` args in).
+    let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
+    match command {
+        Some(command) => system::launch(&command),
+        None => tracing::warn!("no at.exponential desktop entry to launch"),
+    }
+}
+
+/// The Exponential app's launch command, opening `link` when there is one.
+fn ide_command(app: &apps::App, link: Option<&str>) -> String {
+    match (app.exec_url.as_deref(), link) {
+        (Some(exec), Some(link)) => apps::exec_with_url(exec, link),
+        _ => app.exec.clone(),
+    }
+}
+
+/// The inbox has no archive: the entry is marked read (the IDE's row press).
+fn inbox_mark_read(shell: &SharedShell, key: &str, cx: &mut App) {
+    let item = shell.borrow_mut().notifications.inbox_read(key);
+    if let Some(item) = item {
+        shell.borrow().workspaces.mark_read(&item.account_id, item.unread_ids);
+    }
+    notifications_changed(shell, cx);
+}
+
+fn inbox_toast_hide(shell: &SharedShell, key: &str, cx: &mut App) {
+    shell.borrow_mut().notifications.inbox_toasts.retain(|(k, _)| k != key);
+    notifications_changed(shell, cx);
+}
+
+/// A Needs you row: the Exponential app on that chat's card.
+fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
+    let link = shell.borrow().needs_you.iter().find(|i| i.key() == key).map(inbox::NeedsYouItem::link);
+    close(shell, "needs-you", cx);
+    ide_open(shell, link.as_deref());
 }
 
 /// The outputs as the Displays page binds them (#EDE-14).
@@ -2003,13 +2180,14 @@ fn main() {
             feed.set("/settings", state);
         }
         feed.set("/user", settings::user_json());
+        feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
+        feed.set("/needsYou", json!({"count": 0, "rows": []}));
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
         feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed("", "") });
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
-            feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
             feed.set("/tray", json!([{"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}, {"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""}]));
             feed.set(
                 "/traymenu",
@@ -2023,7 +2201,6 @@ fn main() {
             feed.set("/services", settings::demo_services());
             feed.set("/outputs", Value::Array(settings::demo_outputs()));
         } else {
-            feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
             feed.set("/tray", json!([]));
             feed.set("/services", json!({}));
             feed.set("/outputs", json!([]));
@@ -2081,7 +2258,23 @@ fn main() {
             capturing: Arc::new(AtomicBool::new(false)),
             thumbs_tx,
             osd_until: None,
-            notifications: Notifications::default(),
+            notifications: Notifications {
+                // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
+                demo: if demo {
+                    let now = now_ms();
+                    vec![
+                        (now - 2 * 60_000, json!({"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"})),
+                        (now - 20 * 60_000, json!({"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"})),
+                    ]
+                } else {
+                    Vec::new()
+                },
+                ..Notifications::default()
+            },
+            needs_you: Vec::new(),
+            demo,
+            // The demo toasts only through `--open notifications`.
+            started_ms: if demo { i64::MAX / 2 } else { now_ms() },
             dbus,
             tray: Vec::new(),
             workspaces,
@@ -2100,6 +2293,7 @@ fn main() {
         *shell_cell.borrow_mut() = Some(shell.clone());
         history_refresh(&shell);
         overlays_refresh(&shell);
+        exp_tray_refresh(&shell, cx);
         model_changed(&shell, cx);
         if !demo {
             // The outputs first: a stretched surface takes the output's size.
@@ -2147,6 +2341,7 @@ fn main() {
         let s = shell.clone();
         cx.spawn(async move |cx| {
             let mut minute = clock::time();
+            let (mut tray_pending, mut last_tray) = (false, Instant::now());
             loop {
                 let mut dirty = false;
                 while let Ok(changes) = changes_rx.try_recv() {
@@ -2190,8 +2385,12 @@ fn main() {
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
                 let mut records_changed = false;
+                let mut tray_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
                     if let sync::ShapeDelta::Applied { shape, account_id, .. } = &delta {
+                        if *shape == "teams" || inbox::SHAPES.contains(shape) {
+                            tray_changed = true;
+                        }
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
                             // #VAPP-273: the connected team's apps and records.
@@ -2238,12 +2437,22 @@ fn main() {
                 if teams_changed {
                     cx.update(|cx| switcher_refresh_entries(&s, cx));
                 }
+                // #EDE-65: the tray's inbox and Needs you, at most once a second while a sync streams.
+                tray_pending |= tray_changed;
+                if tray_pending && last_tray.elapsed() >= Duration::from_secs(1) {
+                    tray_pending = false;
+                    last_tray = Instant::now();
+                    cx.update(|cx| exp_tray_refresh(&s, cx));
+                }
                 // #EDE-58: the local agent's runs changed a session or its messages.
                 let chat_changed = s.borrow().chat_local.as_ref().and_then(|c| c.changes.as_ref()).map(|rx| rx.drain().count() > 0).unwrap_or(false);
                 if chat_changed {
                     cx.update(|cx| chatting_changed(&s, cx));
                 }
-                let expired = s.borrow_mut().notifications.expire(Instant::now());
+                let (expired, inbox_expired) = s.borrow_mut().notifications.expire(Instant::now());
+                if inbox_expired && expired.is_empty() {
+                    cx.update(|cx| notifications_changed(&s, cx));
+                }
                 if !expired.is_empty() {
                     for id in &expired {
                         if let Some(d) = s.borrow().dbus.as_ref() {
@@ -2260,6 +2469,8 @@ fn main() {
                 let now = clock::time();
                 if now != minute {
                     minute = now.clone();
+                    // The inbox's and Needs you's ages.
+                    tray_pending = true;
                     let mut sh = s.borrow_mut();
                     sh.feed.set("/time", json!(now));
                     sh.feed.set("/date", json!(clock::date()));
@@ -2365,5 +2576,29 @@ mod layer_sizes {
             assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
         }
         assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
+    }
+}
+
+#[cfg(test)]
+mod ide_launch {
+    use super::*;
+
+    /// #EDE-65: a cold start hands the item's link over on the command line.
+    #[test]
+    fn a_cold_start_passes_the_link_as_the_entrys_url() {
+        let app = apps::App {
+            id: "at.exponential.desktop".into(),
+            name: "Exponential".into(),
+            comment: String::new(),
+            exec: "/opt/Exponential/exponential-desktop".into(),
+            exec_url: Some("/opt/Exponential/exponential-desktop %U".into()),
+            icon: None,
+            keywords: String::new(),
+            categories: vec![],
+        };
+        assert_eq!(ide_command(&app, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop 'exponential://issue/ACME-12'");
+        assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
+        let no_urls = apps::App { exec_url: None, ..app };
+        assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
     }
 }

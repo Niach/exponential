@@ -1,0 +1,103 @@
+{
+  "$comment": "Exponential Desktop's factory Needs you list (#EDE-65): the taskbar's Needs you tray button (shown only while something waits, its badge the count) opens it as a popup surface: every plan, question and ready PR waiting on the person across all the teams of the shell's signed-in accounts (/needsYou/rows, the IDE's needs-you.json fold per team, the team's rows by team name), each row titled by what waits, its chat and team under it, its age as the meta. A press hands off to the Exponential app on that chat (ede_needs_you_open: exponential://session/<id>?opens=…&message=…).",
+  "surface": {
+    "popup": {
+      "parent": "taskbar",
+      "anchor": "needs_you",
+      "placement": "top-end",
+      "size": {
+        "width": 380,
+        "height": 360
+      }
+    },
+    "functions": [
+      "ede_needs_you_open"
+    ]
+  },
+  "root": {
+    "id": "needs",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.sm",
+      "padding": "$spacing.sm",
+      "height": 360,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.md"
+    },
+    "children": [
+      {
+        "id": "needs_title",
+        "component": "Heading",
+        "props": {
+          "text": "Needs you",
+          "level": "h4"
+        }
+      },
+      {
+        "id": "needs_scroll",
+        "component": "ScrollArea",
+        "props": {
+          "maxHeight": 300
+        },
+        "children": [
+          {
+            "id": "needs_list",
+            "component": "List",
+            "props": {
+              "gap": "none",
+              "divided": true
+            },
+            "template": {
+              "component": "needs_row",
+              "path": "/needsYou/rows",
+              "key": "id"
+            },
+            "children": []
+          },
+          {
+            "id": "needs_row",
+            "component": "Row",
+            "props": {
+              "title": {
+                "@path": "title"
+              },
+              "subtitle": {
+                "@path": "subtitle"
+              },
+              "meta": {
+                "@path": "meta"
+              },
+              "icon": {
+                "@path": "icon"
+              },
+              "density": "compact",
+              "pressable": true
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_needs_you_open",
+                  "args": {
+                    "id": {
+                      "@path": "id"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "data": {
+    "needsYou": {
+      "count": 0,
+      "rows": []
+    }
+  }
+}

@@ -26,8 +26,22 @@ pub struct Workspaces {
 
 /// The shapes the shell syncs per account: the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
-/// published packages) and their records, for a connected desktop.
-const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records"];
+/// published packages) and their records, for a connected desktop;
+/// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`).
+pub(crate) const SHAPES: &[&str] = &[
+    "teams",
+    "team_members",
+    "apps",
+    "app_records",
+    "notifications",
+    "issues",
+    "boards",
+    "sessions",
+    "session_issues",
+    "conversations",
+    "agents",
+    "pull_requests",
+];
 
 impl Workspaces {
     /// Opens the desktops index under `config_dir` and the shared accounts.
@@ -152,6 +166,32 @@ impl Workspaces {
         self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
     }
 
+    /// #EDE-65: every signed-in account's rows the tray reads (the inbox, Needs you).
+    pub fn tray_rows(&self) -> Vec<crate::inbox::AccountRows> {
+        if self.demo {
+            return Vec::new();
+        }
+        self.auth
+            .signed_in_accounts()
+            .into_iter()
+            .filter_map(|a| Some(crate::inbox::AccountRows::read(&a.id, &a.user_id, self.sync.store(&a.id)?.as_ref())))
+            .collect()
+    }
+
+    /// #EDE-65: `notifications.markRead` on the account's instance, one call
+    /// per row like the IDE's group press; the shape's echo clears them.
+    pub fn mark_read(&self, account_id: &str, ids: Vec<String>) {
+        let Some(account) = (!self.demo).then(|| self.account(account_id)).flatten() else { return };
+        let trpc = self.trpc(&account);
+        std::thread::spawn(move || {
+            for id in ids {
+                if let Err(e) = api::notifications::notifications_mark_read(&trpc, &id) {
+                    tracing::warn!("notifications.markRead({id}): {e}");
+                }
+            }
+        });
+    }
+
     /// `/accounts`: what Settings' Account page lists.
     pub fn accounts_json(&self) -> Value {
         if self.demo {
@@ -198,13 +238,8 @@ pub fn team_deep_link(team_id: &str) -> String {
 /// the running app's single-instance socket (`exp-desktop.sock`); nothing
 /// runs = nothing to tell (it opens on its own last team, which this sets).
 pub fn ide_follow_team(team_id: &str) {
-    let sock = api::default_data_dir().join("exp-desktop.sock");
-    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return };
-    if socket.connect(&sock).is_ok() {
-        match socket.send(team_deep_link(team_id).as_bytes()) {
-            Ok(_) => tracing::info!(team = team_id, "the Exponential app follows the team"),
-            Err(e) => tracing::warn!("exp-desktop.sock: {e}"),
-        }
+    if crate::inbox::hand_off(&team_deep_link(team_id)) {
+        tracing::info!(team = team_id, "the Exponential app follows the team");
     }
 }
 
