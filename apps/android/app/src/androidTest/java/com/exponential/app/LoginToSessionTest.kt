@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TITLE
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import org.junit.Rule
 import org.junit.Test
@@ -66,7 +67,7 @@ class LoginToSessionTest {
         composeRule.onNode(hasTestTag("tab-chats")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), ScreenshotFlow.NAV_TIMEOUT)
         openChat(TEMPORARY_CHAT_TITLE)
-        flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_TABS), ScreenshotFlow.NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), ScreenshotFlow.NAV_TIMEOUT)
         // A temporary session's page IS its worker's live transcript: it
         // settles out of "Connecting…" into the feed, or (no device
         // publishing it) the idle placeholder.

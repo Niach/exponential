@@ -4,16 +4,15 @@ import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.NeedsYou
 import com.exponential.app.domain.ResultsTab
+import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.contractFixtureJson
 import com.exponential.app.navigation.Routes
 import com.exponential.app.ui.styleguide.NEEDS_YOU_SPECIMEN_ROWS
 import com.exponential.app.ui.styleguide.NEEDS_YOU_SPECIMEN_STUCK
 import com.exponential.app.ui.styleguide.RESULTS_SPECIMEN
-import com.exponential.app.ui.chat.RESULTS_TAB_KEY
 import com.exponential.app.ui.chat.resultPictureSet
 import com.exponential.app.ui.chat.resultThumbWidth
-import com.exponential.app.ui.chat.chatInitialTabKey
 import com.exponential.app.ui.chats.chatDisplayedRows
 import com.exponential.app.ui.chats.needsYouFold
 import com.exponential.app.ui.chats.openerOfflineSince
@@ -51,11 +50,13 @@ class NeedsYouResultsUiTest {
 
     @Test
     fun `an older stories or guide link lands on Results`() {
-        assertEquals(RESULTS_TAB_KEY, chatInitialTabKey("stories"))
-        assertEquals(RESULTS_TAB_KEY, chatInitialTabKey("guide"))
-        assertEquals(RESULTS_TAB_KEY, chatInitialTabKey("results"))
-        assertEquals("plan", chatInitialTabKey("plan"))
-        assertEquals("conversation", chatInitialTabKey(null))
+        // #EXP-1732: THE session screen's `legacyTabs` (session-screen.json).
+        fun active(tab: String?) = SessionScreen.screen(SessionScreen.Kind.Session, false, tab, null, SessionScreen.Counts()).active
+        assertEquals(SessionScreen.Tab.Results, active("stories"))
+        assertEquals(SessionScreen.Tab.Results, active("guide"))
+        assertEquals(SessionScreen.Tab.Results, active("results"))
+        assertEquals(SessionScreen.Tab.Chat, active("plan"))
+        assertEquals(SessionScreen.Tab.Chat, active(null))
     }
 
     @Test

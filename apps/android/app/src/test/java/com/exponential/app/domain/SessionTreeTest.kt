@@ -690,27 +690,6 @@ class SessionTreeTest {
     }
 
     @Test
-    fun `every strip mode case matches the fixture`() {
-        val cases = chatFixture.list("stripModeCases")
-        assertTrue(cases.isNotEmpty())
-        for (case in cases) {
-            val input = case.getValue("input").jsonObject
-            val mode = SessionTree.chatStripMode(
-                issues = input.getValue("issues").jsonPrimitive.int,
-                sessions = input.getValue("sessions").jsonPrimitive.int,
-            )
-            val actual = buildJsonObject {
-                put("mode", mode.mode.wire)
-                put("count", mode.count)
-            }
-            assertEquals(case.str("name"), case.getValue("expected"), actual)
-        }
-        assertEquals(chatFixture.getValue("stripGroupMaxWidth").jsonPrimitive.int, SessionTree.ChatCopy.STRIP_GROUP_MAX_WIDTH)
-        assertEquals(chatFixture.getValue("copy").jsonObject.str("stripGroup"), SessionTree.ChatCopy.STRIP_GROUP)
-        assertEquals(chatFixture.getValue("testIds").jsonObject.str("group"), SessionTree.ChatCopy.TEST_ID_GROUP)
-    }
-
-    @Test
     fun `every replies case matches the fixture`() {
         val cases = chatFixture.list("repliesCases")
         assertTrue(cases.isNotEmpty())

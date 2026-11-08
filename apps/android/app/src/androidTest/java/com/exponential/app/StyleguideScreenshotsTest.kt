@@ -44,6 +44,7 @@ import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuRowId
+import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.ResultsTab
 import com.exponential.app.domain.SearchList
@@ -722,8 +723,10 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasTestTag("issue-chat-chip"), SYNC_TIMEOUT)
                 composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performScrollTo()
                 composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performClick()
-                flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.TAB), NAV_TIMEOUT)
-                composeRule.onNode(hasTestTag(ResultsTab.Tab.TestIds.TAB)).performClick()
+                // #EXP-1732: THE session screen's Results tab.
+                val resultsTab = hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Results))
+                flow.waitFor(resultsTab, NAV_TIMEOUT)
+                composeRule.onNode(resultsTab).performClick()
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.SECTION), SYNC_TIMEOUT)
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.STACK), SYNC_TIMEOUT)
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.CHANGES), NETWORK_TIMEOUT)
@@ -731,7 +734,7 @@ class StyleguideScreenshotsTest {
                 flow.screenshot("sg_chat-results")
                 // Chat → the issue page.
                 Espresso.pressBack()
-                flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
+                flow.waitForGone(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag("issue-chat-chip"), NAV_TIMEOUT)
                 flow.settle()
             }
@@ -781,12 +784,12 @@ class StyleguideScreenshotsTest {
                 }
                 // Chat → issue → board.
                 repeat(3) {
-                    if (flow.exists(hasTestTag("chat-tabs"))) {
+                    if (flow.exists(hasTestTag(SessionScreen.TestIds.TABS))) {
                         Espresso.pressBack()
                         flow.settle()
                     }
                 }
-                flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
+                flow.waitForGone(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
                 composeRule.onNode(hasContentDescription("Back")).performClick()
                 flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
                 flow.settle()
@@ -1075,8 +1078,8 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasTestTag(Apps.TestIds.RUN_MENU)).performClick()
             flow.waitFor(hasTestTag("app-run-edit"), NAV_TIMEOUT)
             composeRule.onNode(hasTestTag("app-run-edit")).performClick()
-            flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag("app-editor-tab-preview")).performClick()
+            flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Preview))).performClick()
             flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
             flow.settle(longer = true)
             flow.screenshot("sg_app")
@@ -1084,7 +1087,7 @@ class StyleguideScreenshotsTest {
             // Data segment: the kind select + Add record over the picked kind's
             // rows (Working hours' seeded records, newest first).
             if (ScreenshotFlow.anyRequested("sg_app-data")) {
-                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.DATA}")).performClick()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Data))).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.DATA), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag(AppRecords.DataTestIds.ROW), SYNC_TIMEOUT)
                 flow.settle()
@@ -1093,31 +1096,27 @@ class StyleguideScreenshotsTest {
             // #EXP-1650: web-mobile opens the `…` menu's sheets and Export over
             // the editor's Chat segment.
             if (ScreenshotFlow.anyRequested("sg_app-versions", "sg_app-settings", "sg_app-export")) {
-                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.CHAT}")).performClick()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Chat))).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.CHAT), NAV_TIMEOUT)
                 flow.settle()
             }
-            // --- sg_app-versions / sg_app-settings (VAPP-177, apps.json PHONES):
-            // the header's `…` → Versions (Working hours' three versions, the
-            // head row `Current`, the others Preview + Restore) and → Settings
-            // (identity, description, records line, Tools, Export + Delete app),
-            // each the menu's sheet over the editor.
+            // --- sg_app-versions / sg_app-settings (VAPP-177, #EXP-1732
+            // session-screen.json): the Versions TAB (Working hours' three
+            // versions, the head row `Current`, the others Preview + Restore),
+            // then THE gear → Settings (identity, description, records line,
+            // Tools, Export + Delete app), the pushed item over the editor.
             if (ScreenshotFlow.anyRequested("sg_app-versions")) {
-                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
-                flow.waitFor(hasTestTag("app-editor-menu-versions"), NAV_TIMEOUT)
-                composeRule.onNode(hasTestTag("app-editor-menu-versions")).performClick()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Versions))).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag("${Apps.TestIds.VERSION_ROW}-1"), SYNC_TIMEOUT)
                 flow.settle()
                 flow.screenshot("sg_app-versions")
-                Espresso.pressBack()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Chat))).performClick()
                 flow.waitForGone(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
                 flow.settle()
             }
             if (ScreenshotFlow.anyRequested("sg_app-settings")) {
-                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
-                flow.waitFor(hasTestTag("app-editor-menu-settings"), NAV_TIMEOUT)
-                composeRule.onNode(hasTestTag("app-editor-menu-settings")).performClick()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.GEAR)).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag("app-settings-tools"), SYNC_TIMEOUT)
                 Espresso.closeSoftKeyboard()
@@ -1163,7 +1162,7 @@ class StyleguideScreenshotsTest {
                 composeRule.onNode(draftMenu).performClick()
                 flow.waitFor(hasTestTag("apps-row-edit"), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag("apps-row-edit")).performClick()
-                flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag(Apps.TestIds.STARTER), SYNC_TIMEOUT)
                 flow.settle(longer = true)
                 Espresso.closeSoftKeyboard()
@@ -1238,9 +1237,7 @@ class StyleguideScreenshotsTest {
                 flow.settle()
                 flow.screenshot("sg_app-connect")
                 openEditorFromRun()
-                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
-                flow.waitFor(hasTestTag("app-editor-menu-settings"), NAV_TIMEOUT)
-                composeRule.onNode(hasTestTag("app-editor-menu-settings")).performClick()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.GEAR)).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.waitFor(hasText("Public links"), SYNC_TIMEOUT)
                 flow.waitFor(hasText("Accounts"), SYNC_TIMEOUT)
@@ -1265,7 +1262,10 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasTestTag(Apps.TestIds.PUBLISH), SYNC_TIMEOUT)
                 flow.settle()
                 flow.screenshot("sg_app-publish")
-                composeRule.onNode(hasTestTag("app-editor-menu-versions")).performClick()
+                // #EXP-1732: Versions is a tab now: put the menu away first.
+                Espresso.pressBack()
+                flow.waitForGone(hasTestTag("app-menu-sheet"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Versions))).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
                 flow.waitFor(hasText("Migrating records", substring = true), SYNC_TIMEOUT)
                 flow.settle()
@@ -1280,7 +1280,7 @@ class StyleguideScreenshotsTest {
 
                 openAppRun("crm")
                 openEditorFromRun()
-                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.DATA}")).performClick()
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Data))).performClick()
                 flow.waitFor(hasTestTag(AppRecords.DataTestIds.ROW), SYNC_TIMEOUT)
                 flow.settle()
                 composeRule.onNode(hasTestTag(AppRecords.CsvTestIds.BUTTON)).performClick()
@@ -1374,10 +1374,9 @@ class StyleguideScreenshotsTest {
             // S-3: the seeded question stays inline (the Dock takes no asks and
             // the Guide tab is gone; results carry them).
             flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
-            flow.waitFor(hasTestTag("chat-strip-zone"), SYNC_TIMEOUT)
-            flow.waitFor(hasTestTag("chat-tab-add"), SYNC_TIMEOUT)
-            // #EXP-1433: the seed's issues + child session = ONE group tab.
-            flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_GROUP), SYNC_TIMEOUT)
+            // #EXP-1732: THE session screen's tabs, the seed's issues + child
+            // session counted on Issues / Sessions.
+            flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_chat-screen")
 
@@ -1442,9 +1441,11 @@ class StyleguideScreenshotsTest {
                 revealFeedCard("work-card")
                 flow.screenshot("sg_work-card")
             }
-            // Session → Chats: the session page is a page OF the chat (its
-            // strip stays on screen), so one Back leaves the chat.
+            // Session → chat → Chats (#EXP-1732): a session of the chat's tree
+            // is its pushed item (Back pops it), then one Back leaves the chat.
             Espresso.pressBack()
+            flow.settle()
+            if (flow.exists(hasTestTag(SessionScreen.TestIds.TABS))) Espresso.pressBack()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             flow.settle(longer = true)
         }
@@ -2055,7 +2056,7 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag(Apps.TestIds.RUN_MENU)).performClick()
         flow.waitFor(hasTestTag("app-run-edit"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("app-run-edit")).performClick()
-        flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
         flow.settle()
     }
 

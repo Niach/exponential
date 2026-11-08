@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.issue.START_CODING_READY_TAG
 import androidx.compose.ui.test.hasText
@@ -209,10 +210,12 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)
-        // Session → issue → board: the session page is a page OF the chat
-        // (its strip stays on screen), so one Back leaves the chat.
+        // Session → chat → issue → board (#EXP-1732): a session of the chat's
+        // tree is its pushed item (Back pops it), then one Back leaves the chat.
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
+        flow.settle()
+        if (flow.exists(hasTestTag(SessionScreen.TestIds.TABS))) Espresso.pressBack()
+        flow.waitForGone(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 

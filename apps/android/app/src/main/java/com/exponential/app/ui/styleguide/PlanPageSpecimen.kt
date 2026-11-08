@@ -26,15 +26,14 @@ import com.exponential.app.ui.plan.PlanPageContent
 import com.exponential.app.ui.plan.PlanPageState
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.chat.PLAN_TAB_KEY
-import com.exponential.app.ui.chat.ChatTabStrip
+import com.exponential.app.ui.chat.ChatHeader
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 // #EXP-1493 → #EXP-1662 THE styleguide specimen ×4 (`plan-page`, plan-page.json
-// `specimen`): this card, waiting, drawn phone (the chat's title + strip, the
-// document from its top, the questions floating at the foot; pictures = the
+// `specimen`): this card, waiting, drawn phone (#EXP-1732: the opened item's
+// `‹` header, the document from its top, the questions floating at the foot; pictures = the
 // committed samples, EXP-1654 `SpecimenSamples`). Web
 // `PlanPageSpecimen`, iOS ChatSpecimens `plan-page`, desktop plan_page.rs.
 
@@ -62,31 +61,16 @@ internal fun planPageSpecimenState(card: JsonObject = PlanPageSpecimenCard): Pla
     return PlanPageState(row = SessionTree.askRow(message) as SessionTree.SessionChatRow.Plan, card = card)
 }
 
-/** `plan-page`: THE plan tab, phone, over the specimen card: the chat's title
- *  and strip (Conversation · Plan with its dot · Results), the body under them. */
+/** `plan-page`: THE plan page, phone, over the specimen card: the opened
+ *  item's `‹` header (#EXP-1732), the body under it. */
 @Composable
 fun PlanPageSpecimenScreen() {
     val samples = SpecimenSamples.resolver(LocalContext.current)
     AppBackground(Modifier.testTag(PlanPageSpecimenTestId)) {
         CompositionLocalProvider(LocalSpecimenPicture provides samples) {
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
-                Text(
-                    PlanPage.Specimen.CHAT_NAME,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
-                )
-                ChatTabStrip(
-                    tabs = listOf(SessionTree.ChatTab.Conversation, SessionTree.ChatTab.Plan, SessionTree.ChatTab.Results),
-                    selectedKey = PLAN_TAB_KEY,
-                    onSelect = {},
-                    onAdd = null,
-                    issueStatus = { null },
-                    planWaiting = true,
-                )
-                HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeCard)
+                // #EXP-1732: the plan is an OPENED item: its `‹` back header.
+                ChatHeader(title = PlanPage.Copy.TITLE, subtitle = null, lead = {}, onBack = {})
                 PlanPageContent(
                     state = planPageSpecimenState(),
                     onDecidePlan = { _, _, settled -> settled(false) },
