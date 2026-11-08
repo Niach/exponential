@@ -46,6 +46,13 @@ fn shoot(name: &str, load: ShotLoad) {
 
 /// One pane in one state: built, shown, drawn and saved (and diffed).
 fn shoot_pane<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, show: impl FnOnce(&mut P, &mut gpui::Context<P>) + 'static) {
+    shoot_pane_settled(name, build, show, None);
+}
+
+/// [`shoot_pane`], drawn again after `settle` of wall time (the
+/// scrollbar's fade runs on the real clock, so a frame can only be taken
+/// after it, never pinned inside it).
+fn shoot_pane_settled<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, show: impl FnOnce(&mut P, &mut gpui::Context<P>) + 'static, settle: Option<std::time::Duration>) {
     let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
     let mut cx = headless();
     cx.update(|cx| {
@@ -72,6 +79,13 @@ fn shoot_pane<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &
     for _ in 0..6 {
         draw(window, &mut cx);
         cx.run_until_parked();
+    }
+    if let Some(settle) = settle {
+        std::thread::sleep(settle);
+        for _ in 0..3 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
     }
     let shot = cx.capture_screenshot(window).expect("the frame");
     shot.save(std::path::Path::new(&dir).join(format!("{name}.png"))).expect("the PNG");
@@ -181,4 +195,11 @@ fn settings_about() {
 #[ignore]
 fn settings_about_end() {
     shoot_pane("about-end", AboutPane::for_shots, |pane, cx| pane.show_end(cx));
+}
+
+/// The thumb faded out (gpui-component: 2 s idle, then a 1 s fade).
+#[test]
+#[ignore]
+fn settings_about_end_idle() {
+    shoot_pane_settled("about-end-idle", AboutPane::for_shots, |pane, cx| pane.show_end(cx), Some(std::time::Duration::from_millis(3500)));
 }
