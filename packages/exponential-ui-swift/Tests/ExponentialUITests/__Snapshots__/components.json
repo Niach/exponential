@@ -32442,19 +32442,19 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
         "part" : "label"
       },
       {
-        "bg" : "#ffffff26",
+        "bg" : "#ffffff1c",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -32481,7 +32481,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -32491,9 +32491,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -32523,7 +32523,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -32533,9 +32533,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -32565,7 +32565,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -32575,9 +32575,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -32608,7 +32608,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -32618,9 +32618,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -32692,7 +32692,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -32702,9 +32702,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
