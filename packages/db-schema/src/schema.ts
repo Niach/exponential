@@ -3569,11 +3569,6 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   // simply stops being found (the page reads None).
   voiceDeviceId: varchar(`voice_device_id`, { length: 128 }),
   agentId: uuid(`agent_id`).references(() => agents.id, { onDelete: `set null` }),
-  // S-3: retired, read and written by nobody (speak-back is always on, push
-  // to talk = a bound `ptt_shortcut`). Kept only because the migration
-  // replay tests (0201, 0208) still name them.
-  speakReplies: boolean(`speak_replies`).notNull().default(false),
-  pushToTalk: boolean(`push_to_talk`).notNull().default(false),
   // S-3: the push-to-talk binding in `voice.json` `shortcutGrammar`'s
   // canonical text; empty = no key bound = push to talk off.
   pttShortcut: varchar(`ptt_shortcut`, { length: 32 }).notNull().default(``),
