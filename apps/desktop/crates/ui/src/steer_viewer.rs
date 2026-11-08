@@ -533,6 +533,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-1650: an app editor's chat draws no "No transcript" replay banner
     /// (web shows only "Session ended" there) — [`Self::hide_empty_replay`].
     hide_empty_replay: bool,
+    /// #EXP-1678: a join replay has landed in the feed (at least once): the
+    /// chat's child probe reads the Queue only once it is there.
+    replayed: bool,
     /// The composer controls' element ids.
     composer_ids: ComposerIds,
     sending: bool,
@@ -662,6 +665,15 @@ pub(crate) struct SteerSessionView {
     conv_cards: Vec<domain::session_tree::SessionChatRow>,
     conv_anchors: HashMap<FeedItemId, Vec<usize>>,
     conv_unanchored: Vec<usize>,
+    /// #EXP-1732: a ROOT's view (its chat's Chat tab) also paints the tree's
+    /// suggested-tasks cards: every one (`tree_suggestions`, the Dock's
+    /// source while an item is open), and the settled ones INLINE at the
+    /// tail (`conv_trailing`: indices into `conv_cards`).
+    tree_suggestions: Vec<domain::session_tree::SessionChatRow>,
+    conv_trailing: Vec<usize>,
+    /// #EXP-1545: the Live child whose Queue THE Dock shows (its view, its
+    /// name), set by the chat ([`Self::set_queue_from`]).
+    queue_from: Option<(Entity<SteerSessionView>, String)>,
     /// N-12: THE Dock's state (the fan, the open sheet, the band height).
     dock: Entity<crate::dock::DockState>,
     /// EXP-1211: this session's open quick replies (its newest synced
@@ -885,6 +897,7 @@ impl SteerSessionView {
             pending_images: PendingImages::default(),
             tree_scope: false,
             hide_empty_replay: false,
+            replayed: false,
             composer_ids: ComposerIds::session(),
             sending: false,
             notice: None,
@@ -933,6 +946,9 @@ impl SteerSessionView {
             conv_cards: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
+            tree_suggestions: Vec::new(),
+            conv_trailing: Vec::new(),
+            queue_from: None,
             dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
             working: false,
@@ -1760,6 +1776,10 @@ impl SteerSessionView {
         if self.rows.is_empty() {
             self.conv_unanchored.truncate(SYNTHETIC_ROWS - self.orphan_workflows.len());
         }
+        let room = SYNTHETIC_ROWS
+            - self.orphan_workflows.len()
+            - if self.rows.is_empty() { self.conv_unanchored.len() } else { 0 };
+        self.conv_trailing.truncate(room);
         // §3: the orphan cards, in feed order, keyed above every feed id and
         // below the working row's so the list sync keeps its ascending order.
         for (ix, id) in self.orphan_workflows.iter().enumerate() {
@@ -2134,6 +2154,12 @@ impl SteerSessionView {
 
     /// One drained batch, then ONE [`Self::refresh_derived`]: it walks the
     /// whole feed, so a per-event call makes a replay quadratic.
+    /// Tests: feed `events` as if the stream delivered them.
+    #[cfg(test)]
+    pub(crate) fn apply_events_for_test(&mut self, events: Vec<ViewerEvent>, cx: &mut gpui::Context<Self>) {
+        self.apply_events(events, cx);
+    }
+
     fn apply_events(&mut self, events: impl IntoIterator<Item = ViewerEvent>, cx: &mut gpui::Context<Self>) {
         let pulse = feed_pulse(&self.feed);
         for event in events {
@@ -2194,6 +2220,7 @@ impl SteerSessionView {
                 }
                 self.feed.apply_synced_from(first_seq);
                 self.history_truncated = truncated;
+                self.replayed = true;
             }
             // EXP-783: an older page, requested by scrolling past the top of
             // what this client holds. It is PREPENDED, so every visible row
@@ -2491,6 +2518,7 @@ impl SteerSessionView {
                     // Re-minted ids: see the `ViewerEvent::Synced` arm.
                     this.edit_memo.clear();
                     this.feed.force_swap();
+                    this.replayed = true;
                     this.refresh_derived();
                     this.note_feed_moved(pulse);
                     this.note_compaction(was_compacting, cx);
@@ -3171,10 +3199,12 @@ impl SteerSessionView {
     /// duplicated). Never on a root's host (its chat paints the tree) nor
     /// on a subagent tab.
     fn refresh_conversation_cards(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
-        if self.tree_scope || !main {
+        if !main {
             self.conv_cards.clear();
             self.conv_anchors.clear();
             self.conv_unanchored.clear();
+            self.tree_suggestions.clear();
+            self.conv_trailing.clear();
             return;
         }
         // EXP-1398 (ask-dock.json `sessionCardsCases`): THE card set ×4.
@@ -3215,6 +3245,29 @@ impl SteerSessionView {
         let (anchors, tail) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
         self.conv_anchors = anchors;
         self.conv_unanchored = tail;
+        // #EXP-1732: a ROOT's view = its chat's Chat tab: the tree's
+        // suggested tasks too (dock.json: an open item docks; a settled
+        // card stays inline, at the tail).
+        self.tree_suggestions = if self.tree_scope {
+            crate::session_data::chat_view_and_messages(&self.session_id, None, crate::session_data::now_ms(), false, cx)
+                .map(|(view, _)| {
+                    view.rows
+                        .into_iter()
+                        .filter(|row| matches!(row, domain::session_tree::SessionChatRow::Suggestions { .. }))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let docked = crate::session_chat::docked_ids(&self.tree_suggestions);
+        self.conv_trailing.clear();
+        for row in &self.tree_suggestions {
+            if !docked.contains(row.id()) {
+                self.conv_trailing.push(self.conv_cards.len());
+                self.conv_cards.push(row.clone());
+            }
+        }
     }
 
     /// The unanchored conversation cards painted above the first row (web's
@@ -3229,12 +3282,12 @@ impl SteerSessionView {
 
     /// …and with no row at all they are synthetic rows of their own, after
     /// the orphan workflow cards and before the working row.
-    fn conv_tail(&self) -> &[usize] {
-        if self.rows.is_empty() {
-            &self.conv_unanchored
-        } else {
-            &[]
-        }
+    /// #EXP-1732: then a root's settled suggested-tasks cards, always the
+    /// last cards.
+    fn conv_tail(&self) -> Vec<usize> {
+        let mut tail = if self.rows.is_empty() { self.conv_unanchored.clone() } else { Vec::new() };
+        tail.extend(self.conv_trailing.iter().copied());
+        tail
     }
 
     /// The conversation cards at `indices`, painted by the chat screen's
@@ -5360,7 +5413,7 @@ impl SteerSessionView {
                 return self.transcript_row(ix, card);
             }
             // Session 58cb32df: the unanchored conversation cards.
-            let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail().get(t)).copied();
+            let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail().get(t).copied());
             return match tail {
                 Some(card) => {
                     let element = self.render_conversation_cards(&[card], window, cx);
@@ -8114,6 +8167,27 @@ impl SteerSessionView {
     /// N-12: THE Queue as the `tasks` DockCard reads it; `None` when nothing
     /// is to do or the session is over. #EXP-1545: a chat reads each Live
     /// child's through its own view.
+    /// #EXP-1678 (dock.json ONE CHILD STREAM): this viewer as the chat's
+    /// child probe reads it, `attached_ms` after the chat attached it.
+    pub(crate) fn probe_stream(&self, attached_ms: u64) -> domain::dock::ChildStream {
+        use domain::dock::{ChildStream, ChildStreamPhase};
+        let phase = match &self.phase {
+            ViewerPhase::Connecting | ViewerPhase::Reconnecting => ChildStreamPhase::Connecting,
+            ViewerPhase::Live => ChildStreamPhase::Live,
+            ViewerPhase::Starting => ChildStreamPhase::Starting,
+            ViewerPhase::Ended { .. } => ChildStreamPhase::Ended,
+            ViewerPhase::Unauthorized { .. } => ChildStreamPhase::Closed,
+        };
+        ChildStream { phase, replayed: self.replayed, attached_ms }
+    }
+
+    /// #EXP-1545 (`chatDockQueue` ×4): a ROOT's view shows the Queue of the
+    /// Live child its chat picked (`None` = its own) in THE Dock's `tasks`
+    /// card, named in its caption, its sheet that child's Trace.
+    pub(crate) fn set_queue_from(&mut self, from: Option<(Entity<SteerSessionView>, String)>) {
+        self.queue_from = from;
+    }
+
     pub(crate) fn dock_queue(&self) -> Option<domain::dock::DockQueue> {
         use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo};
         // #EXP-1538: a session that is over shows none of the stream's slots.
@@ -8150,8 +8224,18 @@ impl SteerSessionView {
         } else {
             Vec::new()
         };
-        let queue = self.dock_queue();
-        let mut out = vec![DockSource::Queued { messages: queued }, DockSource::Tasks { session_name: None, queue }];
+        // #EXP-1545: a root's Dock shows its picked Live child's Queue.
+        let tasks = match &self.queue_from {
+            Some((child, name)) => DockSource::Tasks { session_name: Some(name.clone()), queue: child.read(cx).dock_queue() },
+            None => DockSource::Tasks { session_name: None, queue: self.dock_queue() },
+        };
+        // #EXP-1732: a root's suggested tasks with an open item dock first.
+        let mut out = if self.tree_scope {
+            crate::session_chat::suggestion_sources(&self.tree_suggestions)
+        } else {
+            Vec::new()
+        };
+        out.extend([DockSource::Queued { messages: queued }, tasks]);
         out.extend(self.dock_banners(cx));
         out
     }
@@ -8164,6 +8248,19 @@ impl SteerSessionView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<crate::dock::SheetContent> {
+        // #EXP-1732: a docked suggested-tasks card = THE suggestions sheet.
+        if let Some(domain::session_tree::SessionChatRow::Suggestions { id, start_all, items, .. }) =
+            self.tree_suggestions.iter().find(|suggestions| suggestions.id() == row.id).cloned()
+        {
+            let team_id = self.row.as_ref().and_then(|session| session.team_id.clone());
+            return Some(crate::session_chat::suggestions_sheet(&id, start_all, &items, team_id.as_deref(), cx));
+        }
+        // #EXP-1545: the picked child's Queue opens that child's Trace.
+        if row.kind == domain::dock::DockKind::Tasks {
+            if let Some((child, _)) = self.queue_from.clone() {
+                return child.update(cx, |child, cx| child.render_session_dock_sheet(row, window, cx));
+            }
+        }
         let body = match row.kind {
             domain::dock::DockKind::Tasks => self.render_task_queue(window, cx)?,
             domain::dock::DockKind::Queued => self.render_queue_strip(cx)?,

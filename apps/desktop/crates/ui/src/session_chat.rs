@@ -46,6 +46,7 @@ use sync::Store;
 
 use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
 use domain::session_results::SessionResultEntry;
+use domain::dock::DockSource;
 use domain::session_tree::{SessionChatRow, SessionChatView, ChatTab, SESSION_CHAT, CHATS_LIST};
 use domain::results_tab::RESULTS_TAB;
 use domain::session_screen::{
@@ -1803,6 +1804,50 @@ pub(crate) fn ask_row_sheet(
     Some(crate::plan_card::question_sheet(&facts, body, images, window, cx))
 }
 
+/// N-12: the suggestions rows with an OPEN item as Dock sources
+/// (`suggestionSources` ×4): the row leaves the Conversation and opens as
+/// [`suggestions_sheet`].
+pub(crate) fn suggestion_sources(rows: &[SessionChatRow]) -> Vec<DockSource> {
+    use domain::session_tree::SuggestionState;
+    let rows: Vec<domain::dock::DockSuggestionsRow> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SessionChatRow::Suggestions { id, header, items, .. } => Some(domain::dock::DockSuggestionsRow {
+                id: id.clone(),
+                header: header.clone(),
+                items: items
+                    .iter()
+                    .map(|item| domain::dock::DockSuggestionItem {
+                        state: match item.state {
+                            SuggestionState::Open => "open",
+                            SuggestionState::Started => "started",
+                            SuggestionState::Here => "here",
+                            SuggestionState::Filed => "filed",
+                        }
+                        .into(),
+                        title: item.title.clone(),
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        })
+        .collect();
+    domain::dock::suggestion_sources(&rows)
+}
+
+/// N-12: the Conversation rows THE Dock holds (web `chatDockedIds`): the
+/// suggestions rows with an open item (S-3: a waiting plan / question is
+/// never docked; it stays inline).
+pub(crate) fn docked_ids(rows: &[SessionChatRow]) -> HashSet<String> {
+    suggestion_sources(rows)
+        .into_iter()
+        .filter_map(|source| match source {
+            DockSource::Suggestions { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect()
+}
+
 /// A picture card as the Guide's tile (a click opens the lightbox).
 pub(crate) fn picture_row(
     id: &str,
@@ -2193,6 +2238,61 @@ fn suggestion_item_row(
                 .into_any_element()
         }
     }
+}
+
+/// N-12: THE suggestions sheet (the DockCard opened, web
+/// `ChatSuggestionsSheet`): the items exactly as [`suggestions_card`]
+/// lists them, hairline-divided; the footer = Start all while more than
+/// one item is open.
+pub(crate) fn suggestions_sheet(
+    message_id: &str,
+    start_all: bool,
+    items: &[domain::session_tree::SuggestionRow],
+    team_id: Option<&str>,
+    cx: &App,
+) -> crate::dock::SheetContent {
+    use gpui_component::button::Button;
+    let rows = items.iter().enumerate().map(|(index, item)| {
+        div()
+            .w_full()
+            .min_w_0()
+            .when(index > 0, |row| row.border_t_1().border_color(theme::tokens::glass::STROKE_ROW.to_hsla()))
+            .child(suggestion_item_row(message_id, item, team_id, cx))
+    });
+    let body = div()
+        .id(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)))
+        .flex_shrink(1.)
+        .min_h_0()
+        .overflow_y_scroll()
+        .px_1()
+        .pb_3()
+        .child(
+            v_flex()
+                .id("chat-suggestions-sheet")
+                .w_full()
+                .min_w_0()
+                .text_xs()
+                .children(rows),
+        )
+        .into_any_element();
+    let footer = start_all.then(|| {
+        let message_id = message_id.to_string();
+        let all_key = suggestion_key(&message_id, None);
+        crate::dock::sheet_footer(
+            h_flex().w_full().justify_end().child(
+                Button::new("chat-suggestions-start-all")
+                    .primary()
+                    .web_sm()
+                    .label(SESSION_CHAT.copy.suggestions.start_all.clone())
+                    .loading(suggestion_pending(&all_key, cx))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        start_all_suggestions(message_id.clone(), cx);
+                    }),
+            ),
+        )
+    });
+    crate::dock::SheetContent { meta: None, action: None, body, footer }
 }
 
 /// An open item's ⋯ = THE Menu (web `session-chat-view`): Do it here ·
@@ -3030,6 +3130,18 @@ struct ResultsState {
     stack_hovered: Option<String>,
 }
 
+/// #EXP-1545: a Live child's relay viewer, read for its Queue only.
+struct QueueFeed {
+    /// The child's name as the chat's tabs show it.
+    name: String,
+    view: Entity<crate::steer_viewer::SteerSessionView>,
+    /// #EXP-1678: when the chat attached it (the probe deadline's clock).
+    attached: Instant,
+    /// This process runs the child: its engine, no network stream at all.
+    local: bool,
+    _sub: Subscription,
+}
+
 /// EXP-1686 (`chat_mode`): the agent whose conversation this tree is;
 /// `None` = a chat.
 fn conversation_agent(model: &ChatModel) -> Option<&str> {
@@ -3037,6 +3149,34 @@ fn conversation_agent(model: &ChatModel) -> Option<&str> {
     (domain::session_tree::chat_mode(agent_id) == domain::session_tree::ChatMode::Bubbles)
         .then_some(agent_id)
         .flatten()
+}
+
+/// #EXP-1545: the tree's Live (not ended) children with their tab names
+/// (top-level chips and the sessions folded under them). EXP-1686: an agent's
+/// chat has no chips, so its children come straight from the tree.
+fn live_children(view: &SessionChatView, root: &SessionRow, cx: &App) -> Vec<(String, String)> {
+    let root_id = root.id.as_str();
+    if domain::session_tree::chat_mode(root.agent_id.as_deref()) == domain::session_tree::ChatMode::Bubbles {
+        return crate::session_data::tree_of_root(root_id, cx)
+            .into_iter()
+            .filter(|row| row.id != root_id && !row.is_ended())
+            .map(|row| (row.id, row.title.unwrap_or_default()))
+            .collect();
+    }
+    view.tabs
+        .iter()
+        .filter_map(|tab| match tab {
+            ChatTab::Session { session_id, name, nested, .. } => Some(
+                std::iter::once((session_id.clone(), name.clone()))
+                    .chain(nested.iter().map(|item| (item.session_id.clone(), item.name.clone())))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .flatten()
+        .filter(|(id, _)| id != root_id)
+        .filter(|(id, _)| crate::session_data::session(id, cx).is_some_and(|row| !row.is_ended()))
+        .collect()
 }
 
 pub(crate) struct SessionChatScreenView {
@@ -3085,6 +3225,17 @@ pub(crate) struct SessionChatScreenView {
     /// the tab pane hosts.
     focus: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _focus_sub: Option<Subscription>,
+    /// #EXP-1545 (dock.json CHAT QUEUE): one relay viewer per Live child
+    /// of the tree, read for its Queue only (its per-session slots, seeded
+    /// LOCAL FIRST from the last-known memo): the root view's Dock shows the
+    /// picked one's ([`SteerSessionView::set_queue_from`]).
+    ///
+    /// [`SteerSessionView::set_queue_from`]: crate::steer_viewer::SteerSessionView::set_queue_from
+    queue_feeds: HashMap<String, QueueFeed>,
+    /// #EXP-1678: remote children read closed (their activeAt then, when).
+    closed_queue_reads: HashMap<String, (Option<i64>, Instant)>,
+    /// #EXP-1678: a probe re-read is scheduled.
+    probe_timer: Option<gpui::Task<()>>,
     /// #EXP-1562 (`?card=`): a waiting card to scroll to (and ring) in the
     /// root's session view.
     reveal: Option<String>,
@@ -3176,6 +3327,9 @@ impl SessionChatScreenView {
             _ring_tick: None,
             focus: None,
             _focus_sub: None,
+            queue_feeds: HashMap::new(),
+            closed_queue_reads: HashMap::new(),
+            probe_timer: None,
             reveal: None,
             plan_state: Default::default(),
             plan_painted: None,
@@ -3263,6 +3417,9 @@ impl SessionChatScreenView {
     /// (never the sessions).
     pub(crate) fn shutdown(&mut self, cx: &mut App) {
         self.root_view.update(cx, |view, cx| view.shutdown(cx));
+        for (_, feed) in self.queue_feeds.drain() {
+            feed.view.update(cx, |view, _| view.shutdown());
+        }
         self.flush_issue(cx);
         if self.focus_owned {
             if let Some((_, view)) = self.focus.take() {
@@ -3526,6 +3683,156 @@ impl SessionChatScreenView {
         };
         let subtitle = screen_subtitle(Some(&model.root), agent.as_ref(), cx);
         screen_header(ScreenHeader { avatar, title, subtitle, trailing, gear, menu, back, tabs }, cx)
+    }
+
+    /// #EXP-1545 + #EXP-1678 (dock.json ONE CHILD STREAM): keep a viewer
+    /// for every Live child THIS process runs (its engine: no network) and
+    /// ONE eNet viewer among the rest, on the child
+    /// [`domain::dock::chat_queue_probe`] names (one per remote child was a
+    /// burst of joins to one device on every chat open). Each repaints the
+    /// chat when its Queue or what the probe reads moved.
+    fn sync_queue_feeds(&mut self, live: Vec<(String, String)>, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use domain::dock::{chat_queue_child_state, chat_queue_probe, ChildQueueState, ChatQueueProbe, CLOSED_QUEUE_TTL_MS, PROBE_DEADLINE_MS};
+        let ttl = Duration::from_millis(CLOSED_QUEUE_TTL_MS);
+        let active_at = |id: &str, cx: &App| {
+            crate::session_data::session(id, cx).and_then(|row| {
+                row.last_turn_at
+                    .as_deref()
+                    .and_then(domain::session_tree::iso_ms)
+                    .or_else(|| row.started_at.as_deref().and_then(domain::session_tree::iso_ms))
+            })
+        };
+        let now = Instant::now();
+        let root_open = self.root_view.read(cx).inner().read(cx).dock_queue().is_some();
+        let mut keep: HashSet<String> = HashSet::new();
+        let mut probes = Vec::new();
+        for (id, _) in &live {
+            let local = self.queue_feeds.get(id).map(|feed| feed.local)
+                .unwrap_or_else(|| crate::session_screen::local_engine(id, cx).is_some());
+            if local {
+                keep.insert(id.clone());
+                continue;
+            }
+            let at = active_at(id, cx);
+            let remembered = self
+                .closed_queue_reads
+                .get(id)
+                .is_some_and(|(seen_at, when)| *seen_at == at && now.duration_since(*when) < ttl);
+            let (open, stream) = match self.queue_feeds.get(id) {
+                Some(feed) => {
+                    let view = feed.view.read(cx);
+                    let attached = now.duration_since(feed.attached).as_millis() as u64;
+                    (view.dock_queue().is_some(), Some(view.probe_stream(attached)))
+                }
+                None => (false, None),
+            };
+            probes.push(ChatQueueProbe { session_id: id.clone(), active_at: at, state: chat_queue_child_state(open, remembered, stream) });
+        }
+        for probe in &probes {
+            if probe.state != ChildQueueState::Closed {
+                continue;
+            }
+            let fresh = self
+                .closed_queue_reads
+                .get(&probe.session_id)
+                .is_some_and(|(seen_at, when)| *seen_at == probe.active_at && now.duration_since(*when) < ttl);
+            if !fresh {
+                self.closed_queue_reads.insert(probe.session_id.clone(), (probe.active_at, now));
+            }
+        }
+        let wanted = chat_queue_probe(root_open, &probes);
+        if let Some(wanted) = &wanted {
+            keep.insert(wanted.clone());
+        }
+        let gone: Vec<String> = self.queue_feeds.keys().filter(|id| !keep.contains(id.as_str())).cloned().collect();
+        for id in gone {
+            if let Some(feed) = self.queue_feeds.remove(&id) {
+                feed.view.update(cx, |view, _| view.shutdown());
+            }
+        }
+        let mut attached_remote = false;
+        for (id, name) in live {
+            if !keep.contains(&id) {
+                continue;
+            }
+            if let Some(feed) = self.queue_feeds.get_mut(&id) {
+                feed.name = name;
+                continue;
+            }
+            // A child THIS process runs reads its engine: an eNet viewer of
+            // our own run found only our own endpoint (`no_endpoint`) and
+            // fell back to a relay tunnel to ourselves.
+            let (feed_kind, source) = crate::session_screen::resolve_source(&id, cx);
+            let local = feed_kind == crate::session_screen::SessionFeed::Local;
+            attached_remote |= !local;
+            let view = cx.new(|cx| {
+                crate::steer_viewer::SteerSessionView::with_source(id.clone(), source, window, cx)
+            });
+            let read = |view: &crate::steer_viewer::SteerSessionView| (view.dock_queue(), view.probe_stream(0).phase, view.probe_stream(0).replayed);
+            let mut last = read(view.read(cx));
+            let sub = cx.observe(&view, move |_, view, cx| {
+                let now = read(view.read(cx));
+                if now != last {
+                    last = now;
+                    cx.notify();
+                }
+            });
+            self.queue_feeds.insert(id, QueueFeed { name, view, attached: now, local, _sub: sub });
+        }
+        // Re-read at the probe deadline after an attach, and (every remote
+        // child read closed) once the closed memory runs out.
+        let rearm = if attached_remote {
+            Some(Duration::from_millis(PROBE_DEADLINE_MS))
+        } else if wanted.is_none() && !probes.is_empty() && !root_open && self.probe_timer.is_none() {
+            Some(ttl)
+        } else {
+            None
+        };
+        if let Some(after) = rearm {
+            self.probe_timer = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(after).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.probe_timer = None;
+                    cx.notify();
+                });
+            }));
+        }
+    }
+
+    /// #EXP-1545 (`chatDockQueue` ×4): the Live child whose Queue the
+    /// Dock's `tasks` card shows, with its name; `None` = the root's own
+    /// (open, or nothing to show at all).
+    fn chat_queue_from(&self, model: &ChatModel, cx: &App) -> Option<(Entity<crate::steer_viewer::SteerSessionView>, String)> {
+        use domain::dock::{chat_dock_queue, ChatQueueCandidate};
+        let active_at = |row: &SessionRow| {
+            row.last_turn_at
+                .as_deref()
+                .and_then(domain::session_tree::iso_ms)
+                .or_else(|| row.started_at.as_deref().and_then(domain::session_tree::iso_ms))
+        };
+        let mut candidates = vec![ChatQueueCandidate {
+            session_id: self.root_id.clone(),
+            name: model.view.title.clone(),
+            root: true,
+            ended: model.root.is_ended(),
+            active_at: active_at(&model.root),
+            open: self.root_view.read(cx).inner().read(cx).dock_queue().is_some(),
+        }];
+        for (id, feed) in &self.queue_feeds {
+            let row = crate::session_data::session(id, cx);
+            candidates.push(ChatQueueCandidate {
+                session_id: id.clone(),
+                name: feed.name.clone(),
+                root: false,
+                ended: row.as_ref().is_none_or(SessionRow::is_ended),
+                active_at: row.as_ref().and_then(active_at),
+                open: feed.view.read(cx).dock_queue().is_some(),
+            });
+        }
+        let pick = chat_dock_queue(&candidates)?;
+        let name = pick.session_name?;
+        let feed = self.queue_feeds.get(&pick.session_id)?;
+        Some((feed.view.clone(), name))
     }
 
     // ── the Results tab ──────────────────────────────────────────────────
@@ -3952,6 +4259,11 @@ impl Render for SessionChatScreenView {
         if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
             inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
         }
+        // #EXP-1545: a Live child's Queue rides the root's Dock.
+        let children = live_children(&model.view, &model.root, cx);
+        self.sync_queue_feeds(children, window, cx);
+        let queue_from = self.chat_queue_from(&model, cx);
+        inner.update(cx, |inner, _| inner.set_queue_from(queue_from));
         let chat = session_pane(&self.root_view, cx);
         // EXP-1686: the call panel covers an agent chat's body while it runs.
         let chat = match agent_chat {
@@ -4103,6 +4415,157 @@ mod tests {
         draw(cx);
         view.read_with(cx, |view, _| assert_eq!(view.tab, SessionScreenTab::Results));
         assert!(cx.debug_bounds(beside).is_some());
+    }
+
+    /// One agent chat ("r1") holding one agent message `body`.
+    fn seed_agent_chat(body: &'static str, cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "r1",
+                "team_id": "t1",
+                "root_id": "r1",
+                "agent_id": "ag1",
+                "status": "idle",
+                "shared": true,
+                "created_at": "2026-11-04T09:00:00.000Z",
+                "updated_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |collection, cx| {
+                collection.seed(root.key(), root);
+                cx.notify();
+            });
+            let conversation: domain::rows::ConversationRow = serde_json::from_value(serde_json::json!({
+                "id": "c1",
+                "session_id": "r1",
+                "created_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.conversations.update(cx, |collection, cx| {
+                collection.seed(conversation.key(), conversation);
+                cx.notify();
+            });
+            let message: MessageRow = serde_json::from_value(serde_json::json!({
+                "id": "m1",
+                "conversation_id": "c1",
+                "author_kind": "agent",
+                "body": body,
+                "created_at": "2026-11-04T10:00:00.000Z",
+            }))
+            .unwrap();
+            collections.messages.update(cx, |collection, cx| {
+                collection.seed(message.key(), message);
+                cx.notify();
+            });
+        });
+    }
+
+    /// #EXP-1732: the agent's reply as the root's session view streams it
+    /// (the Chat tab IS that view).
+    fn stream_reply(view: &Entity<SessionChatScreenView>, body: &'static str, cx: &mut gpui::VisualTestContext) {
+        cx.update(|_, cx| {
+            let inner = view.read(cx).root_view.read(cx).inner().clone();
+            inner.update(cx, |inner, cx| {
+                inner.apply_events_for_test(
+                    vec![
+                        steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+                        steer::ViewerEvent::Activity(1, steer::ActivityEvent::narration(body)),
+                    ],
+                    cx,
+                )
+            });
+        });
+    }
+
+    /// EXP-1228: a right press on an agent chat's bubbles opens THE
+    /// transcript menu (Copy): the Chat tab is the root's session view.
+    #[gpui::test]
+    fn a_right_press_on_an_agent_chat_opens_the_transcript_menu(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey, what's up?", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        stream_reply(&view, "Hey, what's up?", cx);
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let bounds = cx.debug_bounds(MESSAGE_BUBBLE_BODY).expect("the reply's bubble paints");
+        let opens = || crate::steer_viewer::TRANSCRIPT_MENU_OPENS.with(|opens| opens.get());
+        let before = opens();
+        cx.simulate_mouse_down(
+            bounds.origin + gpui::point(px(4.), px(4.)),
+            gpui::MouseButton::Right,
+            gpui::Modifiers::default(),
+        );
+        assert_eq!(opens(), before + 1, "the right press opens the transcript menu");
+    }
+
+    /// EXP-1739: real chat text (bold, code spans, paragraphs, a list) swept
+    /// with the pointer in the chat screen (the root's session view), under the window's selection
+    /// layer and the shell's cached dock: a right press hands the selection
+    /// to Copy, a code span as its code (it paints over a placeholder of
+    /// non-breaking spaces, which copied as blank: Copy stayed disabled).
+    #[gpui::test]
+    fn a_right_press_on_selected_chat_text_enables_copy(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton, Pixels, Render, StyleRefinement, VisualTestContext};
+
+        /// The shell's shape: the dock cached under the Root's selection layer.
+        struct Shell(Entity<SessionChatScreenView>);
+        impl Render for Shell {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div()
+                    .size_full()
+                    .child(gpui_base::TextSelectionLayer)
+                    .child(gpui::AnyView::from(self.0.clone()).cached(StyleRefinement::default().size_full()))
+            }
+        }
+        const REPLY: &str = "**Package repos:** yes. `pkg.exponential.at` is a small server.\n\nInstall with `curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh`.\n\n- **Phone writes:** live test still running.";
+        seed_agent_chat(REPLY, cx);
+        let (shell, cx) = cx.add_window_view(|window, cx| Shell(cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx))));
+        let cx: &mut VisualTestContext = cx;
+        let view = shell.read_with(cx, |shell, _| shell.0.clone());
+        stream_reply(&view, REPLY, cx);
+        for _ in 0..3 {
+            cx.update(|window, _| window.refresh());
+            cx.run_until_parked();
+        }
+        // #EXP-1736: the bubble sits under its sender's avatar + name line, so
+        // the sweeps measure from the bubble's own text block.
+        let body = cx.debug_bounds(MESSAGE_BUBBLE_BODY).expect("the bubble's text paints");
+        let text = |x: f32, y: f32| body.origin + gpui::point(px(x), px(y));
+        // Right-click Copy's text after sweeping `from` → `to` ("" = disabled).
+        let copy_after_sweep = |from: gpui::Point<Pixels>, to: gpui::Point<Pixels>, cx: &mut VisualTestContext| {
+            let off = gpui::point(px(4.), px(4.));
+            cx.simulate_mouse_down(off, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_up(off, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+            cx.run_until_parked();
+            cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+            cx.run_until_parked();
+            cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+            cx.run_until_parked();
+            cx.simulate_mouse_down(to, MouseButton::Right, Modifiers::default());
+            cx.simulate_mouse_up(to, MouseButton::Right, Modifiers::default());
+            cx.run_until_parked();
+            crate::steer_viewer::TRANSCRIPT_MENU_TEXT.with(|text| text.borrow().clone())
+        };
+        // The bubble's lines: the first paragraph, the second, the list item.
+        let (first, second, item) = (10., 40., 70.);
+        let prose = copy_after_sweep(text(0., first), text(144., first), cx);
+        assert!(prose.starts_with("Package"), "prose: {prose:?}");
+        let code = copy_after_sweep(text(304., second), text(404., second), cx);
+        assert_eq!(code, "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh", "a code span copies its code");
+        let all = copy_after_sweep(text(0., first), text(804., item), cx);
+        for part in ["Package repos:", "pkg.exponential.at is a small server.", "Install with curl -fsSL", "Phone writes: live test"] {
+            assert!(all.contains(part), "multi-paragraph Copy carries {part:?}: {all:?}");
+        }
+        assert!(!all.contains('\u{a0}'), "no placeholder spaces: {all:?}");
     }
 
     /// chats.json THE WAY BACK, the desktop's whole path: an agent's chat, a
