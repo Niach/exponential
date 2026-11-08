@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-08-desktop-on-exponential-desktop`,
+    date: `2026-11-08`,
+    title: `The desktop app on Exponential Desktop`,
+    summary: `On Exponential Desktop the app runs once as your device and fills the screen, windows get one title bar, switching teams lands, and an idle desktop stops redrawing; password fields are masked.`,
+    body: `- **Password fields are masked**: password fields in apps and on the Exponential Desktop lock screen show dots instead of the typed text.
+- **One app per desktop**: on Exponential Desktop the desktop app runs once per session, stays resident as your device and fills the screen.
+- **Windows**: every window has one title bar with the usual window controls, and dragging a window out of a tile works better.
+- **Switching teams**: picking a team in the switcher lands on it, and the connection state is shown clearly.
+- **Screens and taskbar**: the taskbar, sidebar and desktop follow a screen's new size, taskbar previews keep their pictures in their box, and a failed frame redraws the whole screen.
+- **Less work when idle**: an idle desktop stops redrawing, so it uses less power.`,
+  },
+  {
     id: `2026-11-07-app-forms-save-on-phones`,
     date: `2026-11-07`,
     title: `App forms save again on phones`,

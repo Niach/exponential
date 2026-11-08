@@ -500,6 +500,23 @@ fn a_focused_number_field_selects_its_seed_and_typing_replaces_it(cx: &mut TestA
     assert!(note.contains("seeded"), "an Input keeps its text: {note}");
 }
 
+/// eDE's lock screen showed the typed password: an `Input{type: password}`
+/// draws bullets and still hands the real text to its binding.
+#[gpui::test]
+fn a_password_input_is_masked(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "password", "component": "Input", "props": {"label": "Password", "name": "password", "type": "password", "value": {"@path": "/password"}}},
+        {"id": "user", "component": "Input", "props": {"label": "User", "name": "user", "value": "danny"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, cx| v.set_data("/password", Some(json!("hunter2")), cx).unwrap());
+    draw(cx);
+    let id = "password.field";
+    assert_eq!(view.read_with(cx, |v, cx| v.field_masked(id, cx)), Some(true), "a password is drawn as bullets");
+    assert_eq!(view.read_with(cx, |v, cx| v.field_text(id, cx)).as_deref(), Some("hunter2"), "the binding keeps the real text");
+    assert_eq!(view.read_with(cx, |v, cx| v.field_masked("user.field", cx)), Some(false), "a plain field is not");
+}
+
 #[gpui::test]
 fn picked_files_reach_the_host_and_the_upload_event(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
@@ -1372,6 +1389,29 @@ fn a_mixed_checkbox_presses_to_checked_and_reads_mixed(cx: &mut TestAppContext) 
             }
         }
     }
+}
+
+/// #EXP-1739 overlayAnchor on gpui: a wheel over the container holding a
+/// Popover's anchor scrolls it, and the Popover closes (the core raises it,
+/// the view takes it with the scroll); a frame that moves nothing keeps it.
+#[gpui::test]
+fn a_wheel_over_the_anchors_container_closes_its_popover(cx: &mut TestAppContext) {
+    let fixture: Value = serde_json::from_str(include_str!("../../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap();
+    let tree = json!({"id": "root", "component": "Box", "children": [fixture["overlayAnchor"]["surface"].clone()]});
+    let (view, _, cx) = surface(cx, tree, false);
+    view.update(cx, |v, _| v.record_bounds(true));
+    draw(cx);
+    let open = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.layers().iter().any(|l| l.owner == "pop"));
+    assert!(open(&view, cx), "opens against its anchor");
+    draw(cx);
+    assert!(open(&view, cx), "a frame that moves nothing keeps it");
+    let list = view.read_with(cx, |v, _| v.painted_bounds("list").expect("the container painted"));
+    // Low in the container, clear of the Popover hanging under the anchor.
+    let at = list.bottom_left() + gpui::point(px(10.0), px(-10.0));
+    cx.simulate_event(ScrollWheelEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-40.0))), ..Default::default() });
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.surface().scroll_offset("list").1) > 0.0, "the wheel scrolled the container");
+    assert!(!open(&view, cx), "the Popover closed with its anchor's scroll");
 }
 
 /// #EDE-65: a Box's `on.hover` through the painter: interactions-round1.json

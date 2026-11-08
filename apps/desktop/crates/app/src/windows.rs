@@ -17,6 +17,11 @@ static WINDOW_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 /// Cascade offset so a second window doesn't open exactly over the first.
 const CASCADE_STEP: f32 = 24.;
 
+/// The session is Exponential Desktop (eDE sets `XDG_CURRENT_DESKTOP`).
+fn on_exponential_desktop() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| desktops.split(':').any(|d| d == "Exponential"))
+}
+
 pub fn open_shell_window(cx: &mut App) {
     let ordinal = WINDOW_ORDINAL.fetch_add(1, Ordering::SeqCst);
 
@@ -48,7 +53,10 @@ pub fn open_shell_window(cx: &mut App) {
     // spawn (§3.6; hello_world main.rs, story lib.rs).
     cx.spawn(async move |cx| {
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            // #EDE-64: on Exponential Desktop the window fills the ground
+            // panel (the compositor honours a maximize asked before the first
+            // frame); un-maximized it floats at the saved size.
+            window_bounds: Some(if on_exponential_desktop() { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
             window_min_size: Some(min_size),
             kind: WindowKind::Normal,
             // Associate the window with our `.desktop` entry so Linux

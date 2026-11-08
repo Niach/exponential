@@ -307,6 +307,8 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
         ShellEvent::SwitcherPick { entry_kind, id } => {
             if let Some(hit) = s.switcher.entries.iter().find(|x| &x.kind == entry_kind && &x.id == id) {
                 s.switcher.current = hit.clone();
+                // #EDE-65: the switcher lives in the start menu; a pick closes it.
+                s.start_menu = closed_start_menu();
             }
         }
         ShellEvent::SwitcherSet { entries } => {
