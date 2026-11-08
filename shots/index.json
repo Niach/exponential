@@ -1994,15 +1994,6 @@
         "sha256": "efd3ae0e46918d78657a7daa8626c3e8901a508100899679b73b170801203bbd"
       }
     },
-    "ede-rail": {
-      "ede": {
-        "file": "shots/ede-rail/ede.webp",
-        "width": 1280,
-        "height": 720,
-        "bytes": 5894,
-        "sha256": "3e42eb29cd1e05b4e1c7c031977a48f01ef1f5c578488c87aa9238ce2d1bc0b3"
-      }
-    },
     "ede-scale": {
       "ede": {
         "file": "shots/ede-scale/ede.webp",
@@ -2044,8 +2035,8 @@
         "file": "shots/ede-switcher/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 7196,
-        "sha256": "9a958cd62d29da8ca1e8afbc9c274c91dd03061e1687e6ee778502aab497f399"
+        "bytes": 7044,
+        "sha256": "9ed16e69edcb1cace8fd3a082af929339c25a3359a981ecf6eb938270ca6d067"
       }
     },
     "ede-tray-menu": {
