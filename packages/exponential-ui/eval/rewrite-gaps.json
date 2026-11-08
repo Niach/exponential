@@ -120,7 +120,6 @@
     { "id": "os-live-activity-island", "class": "native", "with": "drawn by the OS (the Dynamic Island, Android's status-bar chip): never a surface" },
     { "id": "os-notification-actions", "class": "native", "with": "drawn by the OS (UNNotificationCategory actions, NotificationCompat.Action + RemoteInput): never a surface" },
     { "id": "session-row", "class": "expressible", "with": "Row (two densities) + depth + a trailing Icon; the session mark is IconDisc (app extension)" },
-    { "id": "session-xref", "class": "expressible", "with": "S-3: one compact Row (a muted Text kind label, Avatar (sm) or the session IconDisc, the name, a trailing chevron Icon); a tap pushes that session" },
     { "id": "chat-results", "class": "expressible", "with": "the Stack band + StackRail (Section tree) and one Changes Row over the pull request, then the results sections (Text title + Image thumbnails + one line of Text each)" },
     { "id": "results-tab", "class": "expressible", "with": "the results sections alone (Text title + Image thumbnails + one line of Text each)" },
     { "id": "needs-you", "class": "expressible", "with": "List + Row (leading Icon, title, meta time, subtitle), the inbox row" },

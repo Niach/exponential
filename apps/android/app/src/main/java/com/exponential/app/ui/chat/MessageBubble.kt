@@ -81,7 +81,7 @@ fun MessageBubble(
                 .background(if (own) GlassTokens.RowFillActive else GlassTokens.OpaqueCardFill, shape)
                 .border(GlassTokens.Hairline, if (own) GlassTokens.StrokeStrong else GlassTokens.StrokeCard, shape)
                 .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
                 .testTag(testTag),
         ) {
             val name = author?.takeIf { !own && it.isNotEmpty() }

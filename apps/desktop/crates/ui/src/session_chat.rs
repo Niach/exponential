@@ -1164,6 +1164,9 @@ pub(crate) struct MessageBubble {
     pub width: Option<gpui::Pixels>,
 }
 
+/// The bubble's text block (tests measure from it).
+pub(crate) const MESSAGE_BUBBLE_BODY: &str = "message-bubble-body";
+
 /// THE bubble ([`MessageBubble`]).
 pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
     let theme = cx.theme();
@@ -1176,9 +1179,9 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         .min_w_0()
         .rounded(px(sizes.radius))
         .border_1()
-        .px_3()
-        .pt_2()
-        .pb_1()
+        // Today's phone bubble ×4: 14 across, 10 down.
+        .px(px(14.))
+        .py(px(10.))
         .map(|card| match width {
             Some(width) => card.w(width),
             None => card.max_w(gpui::relative(sizes.max_width.wide)),
@@ -1192,7 +1195,21 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
             }
         })
         .when(queued, |card| card.opacity(0.7))
-        .child(div().min_w_0().child(body))
+        // The sender's name: the bubble's own `author` line, at its top.
+        .when_some(name.filter(|name| !name.is_empty() && !own), |card, name| {
+            card.child(
+                div()
+                    .max_w_full()
+                    .min_w_0()
+                    .truncate()
+                    .pb(px(2.))
+                    .text_size(px(sizes.name_size))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(muted)
+                    .child(SharedString::from(name)),
+            )
+        })
+        .child(div().min_w_0().debug_selector(|| MESSAGE_BUBBLE_BODY.to_string()).child(body))
         .when(!time.is_empty(), |card| {
             card.child(
                 h_flex()
@@ -1216,18 +1233,6 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         .min_w_0()
         .gap_1()
         .map(|column| if own { column.items_end() } else { column.items_start() })
-        .when_some(name.filter(|name| !name.is_empty() && !own), |column, name| {
-            column.child(
-                div()
-                    .max_w_full()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(sizes.name_size))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(muted)
-                    .child(SharedString::from(name)),
-            )
-        })
         .child(card)
         .when(queued || unqueue.is_some(), |column| {
             column.child(
@@ -1379,7 +1384,8 @@ pub(crate) fn conversation_input<'a>(
     use domain::transcript_grouping::{TranscriptAgent, TranscriptChat, TranscriptInput, TranscriptMember};
     let store = Store::try_global(cx);
     let mut input = TranscriptInput {
-        viewer_id: crate::queries::active_account(cx).map(|me| me.user_id),
+        // No store (a styleguide entry) = no viewer, never a panic.
+        viewer_id: store.and_then(|_| crate::queries::active_account(cx)).map(|me| me.user_id),
         chat: TranscriptChat {
             session_id: session_id.to_string(),
             title: title.to_string(),
@@ -4875,6 +4881,10 @@ mod tests {
         }
         let bounds = cx.debug_bounds(SESSION_CHAT.test_ids.conversation.as_str()).expect("the conversation paints");
         let at = |x: f32, y: f32| bounds.origin + gpui::point(px(x), px(y));
+        // #EXP-1736: the bubble sits under its sender's avatar + name line, so
+        // the sweeps measure from the bubble's own text block.
+        let body = cx.debug_bounds(MESSAGE_BUBBLE_BODY).expect("the bubble's text paints");
+        let text = |x: f32, y: f32| body.origin + gpui::point(px(x), px(y));
         // Right-click Copy's text after sweeping `from` → `to` ("" = disabled).
         let copy_after_sweep = |from: gpui::Point<Pixels>, to: gpui::Point<Pixels>, cx: &mut VisualTestContext| {
             let off = at(1800., 900.);
@@ -4892,12 +4902,12 @@ mod tests {
             crate::steer_viewer::TRANSCRIPT_MENU_TEXT.with(|text| text.borrow().clone())
         };
         // The bubble's lines: the first paragraph, the second, the list item.
-        let (first, second, item) = (52., 82., 112.);
-        let prose = copy_after_sweep(at(496., first), at(640., first), cx);
+        let (first, second, item) = (10., 40., 70.);
+        let prose = copy_after_sweep(text(0., first), text(144., first), cx);
         assert!(prose.starts_with("Package"), "prose: {prose:?}");
-        let code = copy_after_sweep(at(800., second), at(900., second), cx);
+        let code = copy_after_sweep(text(304., second), text(404., second), cx);
         assert_eq!(code, "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh", "a code span copies its code");
-        let all = copy_after_sweep(at(496., first), at(1300., item), cx);
+        let all = copy_after_sweep(text(0., first), text(804., item), cx);
         for part in ["Package repos:", "pkg.exponential.at is a small server.", "Install with curl -fsSL", "Phone writes: live test"] {
             assert!(all.contains(part), "multi-paragraph Copy carries {part:?}: {all:?}");
         }

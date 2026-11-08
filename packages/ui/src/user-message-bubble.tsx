@@ -124,7 +124,7 @@ export function MessageBubble({
     </>
   )
   const bubbleClass = cn(
-    `min-w-0 rounded-2xl border px-3 py-2 text-sm`,
+    `min-w-0 rounded-2xl border px-3.5 py-2.5 text-sm`,
     BUBBLE_WIDTH,
     out
       ? `border-glass-stroke-strong bg-glass-active text-foreground/90`
