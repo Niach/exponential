@@ -35,6 +35,8 @@ name: record-compose-fixtures
 # VAPP-290 (2026-11-07): re-recorded for the core catalog's Window (the
 # kitchen sink's window node: the Compose goldens + `Window.png`, the web
 # baseline rewrite's gpui budget).
+# EXP-1745 (2026-11-08): re-recorded for the Exponential theme's Switch at
+# the IDE's 36×20 (glass-active off track, light off-thumb, no shadow).
 
 on:
   workflow_dispatch: {}

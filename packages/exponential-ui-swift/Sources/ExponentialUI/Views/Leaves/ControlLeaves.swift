@@ -170,7 +170,7 @@ struct SwitchTrackLeaf: View {
                 Circle()
                     .fill(thumb.style.background ?? cx.themeColor("background") ?? .white)
                     .frame(width: size, height: size)
-                    .shadow(color: .black.opacity(0.15), radius: 1, y: 1)
+                    .shadow(color: .black.opacity(thumb.style.shadows.isEmpty ? 0 : 0.15), radius: 1, y: 1)
                     .offset(x: checked ? cx.size.width - size - inset : inset, y: inset)
             }
             .frame(width: cx.size.width, height: cx.size.height, alignment: .topLeading)
