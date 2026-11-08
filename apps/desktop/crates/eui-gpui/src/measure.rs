@@ -39,7 +39,15 @@ use crate::text;
 const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
 /// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
-pub(crate) const SANS_FALLBACKS: [&str; 12] = [
+///
+/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system drops
+/// a face it is asked to load by family when the face has no `m` glyph
+/// (`load_family`), which removes Noto Color Emoji from its font database,
+/// and with it the colour face its own per-character emoji fallback reaches
+/// for: every emoji then drew as a box or a monochrome outline. Unnamed, the
+/// platform's emoji fallback finds it.
+#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+pub(crate) const SANS_FALLBACKS: &[&str] = &[
     ".SystemUIFont",
     "Noto Sans",
     "Noto Sans CJK SC",
@@ -52,6 +60,18 @@ pub(crate) const SANS_FALLBACKS: [&str; 12] = [
     "Apple Color Emoji",
     "Noto Color Emoji",
     "Segoe UI Emoji",
+];
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+pub(crate) const SANS_FALLBACKS: &[&str] = &[
+    ".SystemUIFont",
+    "Noto Sans",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "PingFang SC",
+    "Hiragino Sans",
+    "Microsoft YaHei",
+    "Segoe UI",
+    "DejaVu Sans",
 ];
 
 /// Mono families tried, in order, when the theme's mono cannot load.

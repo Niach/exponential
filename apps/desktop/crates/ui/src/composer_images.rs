@@ -18,7 +18,7 @@
 //! type) stages as a FILE tile — the Files section's type glyph + filename +
 //! the same ✕ — with NO marker; files cap at [`MAX_STEER_FILES`] × 50 MB
 //! beside the 4 × 10 MB images, upload through the same sequential idempotent
-//! path and ride the message's file block (`steer::build_steer_message`).
+//! path and ride the message's file block (`domain::image_message::build_steer_message`).
 
 use std::sync::Arc;
 
@@ -30,17 +30,12 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::TextareaState;
 use gpui_component::{h_flex, ActiveTheme as _, Disableable as _, Sizable as _};
 
-use steer::{
-    build_steer_message, insert_image_marker, renumber_image_markers, SteerFile, MAX_STEER_FILES,
-    MAX_STEER_IMAGES,
-};
+use steer::{insert_image_marker, renumber_image_markers, MAX_STEER_FILES, MAX_STEER_IMAGES};
 
 use domain::composer_send::{after_send, ComposerContent, SendOutcome};
 
 use crate::icons::registry;
-use crate::markdown::image_paste::{
-    self, max_upload_bytes_for, pasted_image_parts, ACCEPTED_IMAGE_CONTENT_TYPES,
-};
+use crate::markdown::image_paste::{self, max_upload_bytes_for, pasted_image_parts};
 
 /// Wave D: the ONE rejection notice ×4 (type/size/empty).
 pub(crate) const ATTACH_REJECTED: &str = "Images up to 10 MB and files up to 50 MB can be attached";
@@ -75,30 +70,29 @@ pub(crate) struct PendingImage {
     pub(crate) is_file: bool,
 }
 
-/// One upload the sender performs, snapshotted off the strip so the
-/// background task owns nothing of the view.
-pub(crate) struct UploadJob {
-    pub(crate) key: u64,
-    pub(crate) uploaded_id: Option<String>,
-    pub(crate) uploaded_name: Option<String>,
-    pub(crate) filename: String,
-    pub(crate) content_type: String,
-    /// An `Arc` clone — the bytes themselves are never copied.
-    pub(crate) image: Arc<gpui::Image>,
+/// One upload the sender performs (`api::attachment_upload::UploadJob`),
+/// its bytes the thumbnail's own buffer.
+pub(crate) type UploadJob = api::attachment_upload::UploadJob<PreviewBytes>;
+
+/// The staged bytes as the upload reads them: an `Arc` clone of the
+/// thumbnail's `gpui::Image`, so the bytes themselves are never copied.
+#[derive(Clone)]
+pub(crate) struct PreviewBytes(pub(crate) Arc<gpui::Image>);
+
+impl AsRef<[u8]> for PreviewBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0.bytes
+    }
 }
 
 /// A raw staged file: `(filename, content type, bytes)`.
 pub(crate) type StagedFile = (String, String, Vec<u8>);
 
-/// One upload that landed: `(strip key, attachment id, the server's
-/// sanitized filename)`.
-pub(crate) type Uploaded = (u64, String, String);
-
-/// Is `content_type` one of the five inline image types (an IMAGE tile with
-/// a marker)? Everything else stages as a file.
-pub(crate) fn is_inline_image(content_type: &str) -> bool {
-    ACCEPTED_IMAGE_CONTENT_TYPES.contains(&content_type)
-}
+// #EDE-65 lane L: the upload loop and the sent message are gpui-free in
+// `api::attachment_upload`, shared with eDE's shell.
+pub(crate) use api::attachment_upload::{
+    file_keys, is_inline_image, upload_all, uploaded_message, UploadSendError, Uploaded,
+};
 
 /// The composer's staged images.
 #[derive(Default)]
@@ -196,7 +190,7 @@ impl PendingImages {
 
     /// Wave D: the message to send once every upload landed (call after
     /// [`Self::note_uploaded`]) — the prose, the image embeds, then the file
-    /// lines with the server's filenames (`steer::build_steer_message`).
+    /// lines with the server's filenames (`domain::image_message::build_steer_message`).
     pub(crate) fn message(&self, text: &str) -> String {
         let resolved: Vec<Uploaded> = self
             .pending
@@ -297,7 +291,7 @@ impl PendingImages {
                 uploaded_name: image.uploaded_name.clone(),
                 filename: image.filename.clone(),
                 content_type: image.content_type.clone(),
-                image: image.preview.clone(),
+                bytes: PreviewBytes(image.preview.clone()),
             })
             .collect()
     }
@@ -416,66 +410,6 @@ fn insert_marker(input: &Entity<TextareaState>, index: u32, window: &mut Window,
     };
     let inserted = inserted.to_string();
     input.update(cx, |state, cx| state.insert(inserted, window, cx));
-}
-
-/// Run `jobs` SEQUENTIALLY and idempotently: an already-uploaded image is
-/// skipped, a mid-batch failure returns what landed so the caller can keep
-/// the draft and a retry uploads only the rest (web parity). `upload` is the
-/// route-specific call (session files or team session files).
-pub(crate) fn upload_all(
-    jobs: Vec<UploadJob>,
-    upload: impl Fn(&str, &str, &[u8]) -> anyhow::Result<image_paste::UploadedImage>,
-) -> Result<Vec<Uploaded>, (Vec<Uploaded>, String)> {
-    let mut resolved: Vec<Uploaded> = Vec::with_capacity(jobs.len());
-    for job in jobs {
-        match job.uploaded_id {
-            Some(id) => {
-                let name = job.uploaded_name.unwrap_or(job.filename);
-                resolved.push((job.key, id, name));
-            }
-            None => {
-                let image = upload(&job.filename, &job.content_type, &job.image.bytes)
-                    .map_err(|err| (resolved.clone(), err.to_string()))?;
-                // The SERVER's sanitized filename is the file line's text.
-                let name = image.filename.clone().unwrap_or(job.filename);
-                resolved.push((job.key, image.id, name));
-            }
-        }
-    }
-    Ok(resolved)
-}
-
-/// EXP-1537: why an upload-then-send did not go out. Both arms carry the
-/// uploads that landed, so a retry uploads only the rest.
-pub(crate) enum UploadSendError {
-    Upload(Vec<Uploaded>, String),
-    Send(Vec<Uploaded>, api::ApiError),
-}
-
-/// The keys of `jobs` that are FILES (no marker, the message's file block).
-pub(crate) fn file_keys(jobs: &[UploadJob]) -> Vec<u64> {
-    jobs.iter()
-        .filter(|job| !is_inline_image(&job.content_type))
-        .map(|job| job.key)
-        .collect()
-}
-
-/// Wave D: the message once every upload landed — the prose, the image
-/// embeds, then the file lines with the server's filenames
-/// (`steer::build_steer_message`). Off the snapshot alone, so a send whose
-/// view closed under its upload still goes out (EXP-1537).
-pub(crate) fn uploaded_message(text: &str, file_keys: &[u64], resolved: &[Uploaded]) -> String {
-    let images: Vec<String> = resolved
-        .iter()
-        .filter(|(key, _, _)| !file_keys.contains(key))
-        .map(|(_, id, _)| id.clone())
-        .collect();
-    let files: Vec<SteerFile> = resolved
-        .iter()
-        .filter(|(key, _, _)| file_keys.contains(key))
-        .map(|(_, id, name)| SteerFile::new(id.clone(), name.clone()))
-        .collect();
-    build_steer_message(text, &images, &files)
 }
 
 /// EXP-1537: a send landed: the field clears only if it still holds
@@ -598,56 +532,6 @@ fn clamp_to_char_boundary(text: &str, at: usize) -> usize {
 mod tests {
     use super::*;
 
-    fn uploaded(id: &str) -> image_paste::UploadedImage {
-        serde_json::from_value(serde_json::json!({ "id": id, "url": format!("/api/attachments/{id}") }))
-            .expect("a minimal upload response")
-    }
-
-    fn job(key: u64, uploaded: Option<&str>) -> UploadJob {
-        UploadJob {
-            key,
-            uploaded_id: uploaded.map(str::to_string),
-            uploaded_name: None,
-            filename: format!("{key}.png"),
-            content_type: "image/png".into(),
-            image: Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, vec![key as u8])),
-        }
-    }
-
-    /// The upload is sequential and idempotent: landed ids are reused, a
-    /// failure returns what landed so far so the retry uploads only the rest.
-    #[test]
-    fn upload_all_skips_landed_images_and_reports_partial_failures() {
-        let calls = std::cell::RefCell::new(Vec::new());
-        let ok = upload_all(vec![job(1, Some("att-1")), job(2, None)], |filename, _, bytes| {
-            calls.borrow_mut().push(filename.to_string());
-            Ok(uploaded(&format!("att-{}", bytes[0])))
-        })
-        .unwrap();
-        assert_eq!(
-            ok,
-            vec![
-                (1, "att-1".to_string(), "1.png".to_string()),
-                (2, "att-2".to_string(), "2.png".to_string())
-            ]
-        );
-        assert_eq!(calls.borrow().as_slice(), &["2.png".to_string()]);
-
-        let failed = upload_all(vec![job(3, None), job(4, None)], |filename, _, _| {
-            if filename == "4.png" {
-                anyhow::bail!("boom");
-            }
-            Ok(uploaded("att-3"))
-        });
-        match failed {
-            Err((resolved, error)) => {
-                assert_eq!(resolved, vec![(3, "att-3".to_string(), "3.png".to_string())]);
-                assert_eq!(error, "boom");
-            }
-            Ok(_) => panic!("expected the failure"),
-        }
-    }
-
     /// Wave D: a non-image pick is READ (any type, 50 MB) and stages as a
     /// file; an empty one comes back bare and is refused with the notice.
     #[test]
@@ -754,15 +638,6 @@ mod tests {
             strip.message("look [Image #1]"),
             "look [Image #1]\n\n![image](/api/attachments/11111111-1111-4111-8111-111111111111)\n[notes (1).pdf](/api/attachments/33333333-3333-4333-8333-333333333333)"
         );
-    }
-
-    /// A retry reuses the landed id AND its server name.
-    #[test]
-    fn upload_all_reuses_the_landed_name() {
-        let mut landed = job(7, Some("att-7"));
-        landed.uploaded_name = Some("server.png".into());
-        let ok = upload_all(vec![landed], |_, _, _| anyhow::bail!("never called")).unwrap();
-        assert_eq!(ok, vec![(7, "att-7".to_string(), "server.png".to_string())]);
     }
 
     #[test]

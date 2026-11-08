@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that session, on a Local desktop and on a team alike; the Exponential app's session (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header with the switcher, search, new and the rail toggle, header_rail, the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json), the corner with the start and chat buttons); eDE prunes those it does not draw (the header, header_rail, ide_nav, the corners) and never feeds /shell/ide, and the IDE prunes `chats`. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher, ede_rail (the IDE's toggle).",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that session, on a Local desktop and on a team alike; the Exponential app's session (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header with the switcher, search and new, the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json), and the corner: the person's Assistant with the Exponential mark, the Computer button (Terminal, Files, Source control, Version history, the trunk's failure badge) and Settings, #EXP-1741); eDE prunes those it does not draw (the header, ide_nav, the corner) and never feeds /shell/ide, and the IDE prunes `chats`. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -64,21 +64,6 @@
                   "direction": "horizontal",
                   "gap": "xs",
                   "align": "center"
-                },
-                "visible": {
-                  "@call": "not",
-                  "args": {
-                    "value": {
-                      "@call": "cond",
-                      "args": {
-                        "if": {
-                          "@path": "/shell/rail"
-                        },
-                        "then": true,
-                        "else": false
-                      }
-                    }
-                  }
                 },
                 "children": [
                   {
@@ -231,23 +216,6 @@
                             "then": true,
                             "else": false
                           }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "id": "rail_collapse",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-rail-collapse",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Collapse the sidebar"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_rail"
                         }
                       }
                     }
@@ -504,122 +472,6 @@
                         }
                       }
                     ]
-                  }
-                ]
-              },
-              {
-                "id": "header_rail",
-                "component": "Stack",
-                "props": {
-                  "direction": "vertical",
-                  "gap": "xs",
-                  "align": "center"
-                },
-                "visible": {
-                  "@call": "cond",
-                  "args": {
-                    "if": {
-                      "@path": "/shell/rail"
-                    },
-                    "then": true,
-                    "else": false
-                  }
-                },
-                "children": [
-                  {
-                    "id": "rail_expand",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-rail-expand",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Expand the sidebar"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_rail"
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "id": "ide_rail_inbox",
-                    "component": "Icon",
-                    "props": {
-                      "name": {
-                        "@path": "/shell/ide/inbox"
-                      }
-                    },
-                    "style": {
-                      "width": 32,
-                      "height": 32
-                    },
-                    "visible": {
-                      "@call": "cond",
-                      "args": {
-                        "if": {
-                          "@path": "/shell/ide/inbox"
-                        },
-                        "then": true,
-                        "else": false
-                      }
-                    }
-                  },
-                  {
-                    "id": "rail_search",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-search",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Search"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_start_menu",
-                          "args": {
-                            "toggle": true
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "id": "rail_new",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-create-issue",
-                      "variant": "default",
-                      "size": "icon",
-                      "label": "New issue"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_launch",
-                          "args": {
-                            "app": "at.exponential"
-                          }
-                        }
-                      }
-                    },
-                    "visible": {
-                      "@call": "not",
-                      "args": {
-                        "value": {
-                          "@call": "cond",
-                          "args": {
-                            "if": {
-                              "@path": "/shell/ide/noBoard"
-                            },
-                            "then": true,
-                            "else": false
-                          }
-                        }
-                      }
-                    }
                   }
                 ]
               },
@@ -1934,159 +1786,131 @@
                   "gap": "xs",
                   "align": "center"
                 },
-                "visible": {
-                  "@call": "not",
-                  "args": {
-                    "value": {
-                      "@call": "cond",
-                      "args": {
-                        "if": {
-                          "@path": "/shell/rail"
-                        },
-                        "then": true,
-                        "else": false
-                      }
-                    }
-                  }
-                },
                 "children": [
                   {
-                    "id": "start",
-                    "component": "Button",
+                    "id": "ide_assistant",
+                    "component": "Box",
                     "props": {
-                      "icon": "brand-exponential",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Start"
+                      "pressable": true
                     },
                     "style": {
-                      "width": 40,
-                      "height": 40
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_start_menu",
-                          "args": {
-                            "toggle": true
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "id": "ide_start_badge",
-                    "component": "Icon",
-                    "props": {
-                      "name": {
-                        "@path": "/shell/ide/startBadge"
-                      },
-                      "size": "sm"
-                    },
-                    "style": {
-                      "marginLeft": -20,
-                      "alignSelf": "flex-start"
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "height": 40,
+                      "paddingLeft": "$spacing.sm",
+                      "paddingRight": "$spacing.sm",
+                      "borderRadius": "$radius.md",
+                      "flexGrow": 1,
+                      "minWidth": 0
                     },
                     "visible": {
                       "@call": "cond",
                       "args": {
                         "if": {
-                          "@path": "/shell/ide/startBadge"
+                          "@path": "/shell/ide/assistant"
                         },
                         "then": true,
                         "else": false
                       }
-                    }
-                  },
-                  {
-                    "id": "chat",
-                    "component": "Button",
-                    "props": {
-                      "icon": "action-chat",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Chat"
-                    },
-                    "style": {
-                      "width": 40,
-                      "height": 40
                     },
                     "on": {
                       "press": {
-                        "functionCall": {
-                          "@call": "ede_chat"
+                        "event": {
+                          "name": "ide_open",
+                          "context": {
+                            "kind": "assistant",
+                            "id": {
+                              "@path": "/shell/ide/assistant/id"
+                            }
+                          }
                         }
                       }
-                    }
+                    },
+                    "children": [
+                      {
+                        "id": "ide_assistant_mark",
+                        "component": "Icon",
+                        "props": {
+                          "name": "brand-exponential",
+                          "size": "sm"
+                        }
+                      },
+                      {
+                        "id": "ide_assistant_name",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "@path": "/shell/ide/assistant/name"
+                          },
+                          "variant": "label",
+                          "lines": 1
+                        }
+                      }
+                    ]
                   },
                   {
                     "id": "corner_spacer",
                     "component": "Box",
                     "style": {
                       "flexGrow": 1
-                    }
-                  }
-                ]
-              },
-              {
-                "id": "corner_rail",
-                "component": "Stack",
-                "props": {
-                  "direction": "vertical",
-                  "gap": "xs",
-                  "align": "center"
-                },
-                "visible": {
-                  "@call": "cond",
-                  "args": {
-                    "if": {
-                      "@path": "/shell/rail"
                     },
-                    "then": true,
-                    "else": false
-                  }
-                },
-                "children": [
-                  {
-                    "id": "rail_chat",
-                    "component": "Button",
-                    "props": {
-                      "icon": "action-chat",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Chat"
-                    },
-                    "style": {
-                      "width": 40,
-                      "height": 40
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_chat"
+                    "visible": {
+                      "@call": "not",
+                      "args": {
+                        "value": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/assistant"
+                            },
+                            "then": true,
+                            "else": false
+                          }
                         }
                       }
                     }
                   },
                   {
-                    "id": "rail_start",
-                    "component": "Button",
+                    "id": "ide_computer",
+                    "component": "Icon",
                     "props": {
-                      "icon": "brand-exponential",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Start"
+                      "name": {
+                        "@path": "/shell/ide/computer"
+                      }
                     },
                     "style": {
-                      "width": 40,
-                      "height": 40
+                      "width": 32,
+                      "height": 32
+                    },
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/shell/ide/computer"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "ide_settings",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-settings",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Settings"
                     },
                     "on": {
                       "press": {
-                        "functionCall": {
-                          "@call": "ede_start_menu",
-                          "args": {
-                            "toggle": true
+                        "event": {
+                          "name": "ide_open",
+                          "context": {
+                            "kind": "settings",
+                            "id": "settings"
                           }
                         }
                       }

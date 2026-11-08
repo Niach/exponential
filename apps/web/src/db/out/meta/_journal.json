@@ -1842,6 +1842,13 @@
       "when": 1794010828331,
       "tag": "0262_assistant_prompt_v3",
       "breakpoints": true
+    },
+    {
+      "idx": 263,
+      "version": "7",
+      "when": 1794121857893,
+      "tag": "0263_merge_mode_auto",
+      "breakpoints": true
     }
   ]
 }

@@ -370,14 +370,17 @@ export function PopoverNative(props: NativeProps): JSX.Element {
     let hasPointerDownOutside = false
     const layer = createLayer({
       onInteractOutside: (e) => {
+        // VAPP-276: a press or focus in ANOTHER open overlay (a second panel
+        // applet) dismisses nothing (the core's rule), and a press on the
+        // anchor is its toggle. These are React's own onInteractOutside, so
+        // they run BEFORE Radix's bookkeeping: an interaction they prevent
+        // is not "outside", and the close still returns focus to the anchor.
+        if (withinOtherOverlay(contentEl, e.target) || (anchored() && withinAnchor(anchor(), e.target))) e.preventDefault()
         if (!e.defaultPrevented) {
           hasInteractedOutside = true
           if (e.detail.originalEvent.type === `pointerdown`) hasPointerDownOutside = true
         }
-        if (withinAnchor(anchor(), e.target) && (hasTrigger() || anchored())) e.preventDefault()
-        // VAPP-276: a press or focus in ANOTHER open overlay (a second panel
-        // applet) dismisses nothing (the core's rule).
-        if (withinOtherOverlay(contentEl, e.target)) e.preventDefault()
+        if (withinAnchor(anchor(), e.target) && hasTrigger()) e.preventDefault()
         if (e.detail.originalEvent.type === `focusin` && hasPointerDownOutside) e.preventDefault()
       },
       onDismiss: () => setOpen(false),

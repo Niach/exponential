@@ -109,8 +109,6 @@ export const teamImportProcedures = {
           .values({
             name: input.name,
             slug,
-            // What `teams.create` gives a new team (EXP-1709, until the EXP-1711 flip).
-            mergeMode: `approval`,
           })
           .returning({ id: teams.id, slug: teams.slug })
         const [row] = await tx

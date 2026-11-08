@@ -48,3 +48,33 @@ describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
     })
   }
 })
+
+// VAPP-289: a web font still loading lays the page out in its fallback; the
+// swap moves the anchor without anything having moved (the core lays out
+// with its fonts loaded), so a Popover that starts open stays open.
+describe(`watchAnchor while the fonts load`, () => {
+  it(`a font swap re-lays the anchor out and keeps it open; a move after it closes it`, async () => {
+    const fx = (fixture as unknown as { overlayAnchor: { surface: NestedNode } }).overlayAnchor
+    const fonts = { status: `loading` }
+    Object.defineProperty(document, `fonts`, { configurable: true, value: fonts })
+    let shift = 0
+    const rect = vi.spyOn(HTMLElement.prototype, `getBoundingClientRect`).mockImplementation(() => new DOMRect(shift, 0, 100, 40))
+    const shown = () => document.querySelector(`[data-xui-overlay="Popover"]`) !== null
+    const frames = () => new Promise((resolve) => setTimeout(resolve, 50))
+    try {
+      render(() => <ExponentialSurface root={tree(fx.surface)} theme="neutral" id="oa" />)
+      await frames()
+      expect(shown()).toBe(true)
+      shift = 7
+      fonts.status = `loaded`
+      await frames()
+      expect(shown(), `the swap is not a move`).toBe(true)
+      shift = 20
+      await frames()
+      expect(shown(), `a move once the fonts settled closes it`).toBe(false)
+    } finally {
+      rect.mockRestore()
+      delete (document as { fonts?: unknown }).fonts
+    }
+  })
+})

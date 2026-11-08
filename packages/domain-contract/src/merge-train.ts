@@ -114,8 +114,11 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
       return { pr: { ...pr, state, queuedSince }, post: null }
     }
     case `push`:
-      if (pr.state === `held`) return same
-      return { pr: { ...pr, state: `checks` }, post: null }
+      // #EXP-1711 (Danny 2026-11-08): a new head resets the bounces; it
+      // revives a bounces hold (the agent is back), never a person's or the
+      // 24 h one, and the clock keeps running from the first queue.
+      if (pr.state === `held` && pr.holdReason !== `bounces`) return same
+      return { pr: { ...pr, state: `checks`, attempts: 0, holdReason: null }, post: null }
     case `train_start`:
       return pr.state === `queued` ? { pr: { ...pr, state: `testing` }, post: null } : same
     case `train_landed`:

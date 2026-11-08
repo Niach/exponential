@@ -51,7 +51,6 @@ describe(`githubForge`, () => {
       user: { id: 42, login: `octo` },
       head: { sha: `h1`, ref: `exp/a` },
       base: { ref: `master` },
-      mergeable: false,
     })
     const pr = await githubForge.readPullRequest(repo, 7)
     expect(pr).toMatchObject({
@@ -63,7 +62,6 @@ describe(`githubForge`, () => {
       baseRef: `master`,
       title: `Add x`,
       author: `octo <42+octo@users.noreply.github.com>`,
-      mergeable: false,
     })
     expect(await githubForge.readPullRequest(repo, 8)).toBeNull()
   })

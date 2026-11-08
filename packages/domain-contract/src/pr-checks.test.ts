@@ -11,8 +11,6 @@ import {
   checksWakeState,
   gatedChecksState,
   checksWakeText,
-  mergeGate,
-  mergeGateText,
   type PrChecksState,
   type PrChecksUnknown,
 } from "./pr-checks"
@@ -36,17 +34,11 @@ describe(`pr-checks fixture`, () => {
   it.each(fixture.githubStatus)(`github status $github`, ({ github, expected }) => {
     expect(checkStatusFromGithub(github)).toBe(expected as never)
   })
-  it.each(fixture.gate)(`gate: $name`, ({ checks, expected }) => {
-    expect(mergeGate(checks)).toEqual(expected as never)
-  })
   it.each(fixture.wakeText)(`wake text $state`, ({ number, state, failing, expected }) => {
     expect(checksWakeText(number, state as `success` | `failure`, failing)).toBe(expected)
   })
   it.each(fixture.queuedText)(`queued text`, ({ number, names, expected }) => {
     expect(checksQueuedText(number, names)).toBe(expected)
-  })
-  it.each(fixture.gateText)(`gate text`, ({ number, verdict, expected }) => {
-    expect(mergeGateText(number, verdict as never)).toBe(expected)
   })
   it.each(fixture.brief)(`brief`, ({ state, checks, unknown, expected }) => {
     expect(checksBrief(state as PrChecksState, checks, unknown as PrChecksUnknown | undefined)).toEqual(expected)
