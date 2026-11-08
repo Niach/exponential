@@ -208,7 +208,8 @@ fn template_items_charge_their_nodes_against_max_components() {
 fn two_thousand_streamed_messages_cost_linear() {
     // #EXP-1742: a growth-ratio gate, never an absolute budget (a loaded
     // runner slows both sizes alike). Warm up, then the min of a few runs.
-    let mut s = streamed(2000).2;
+    // The first run also bounds a hang (20 s, a debug build on a loaded runner).
+    let mut s = timed(20_000, "2,000 streamed updateComponents", || streamed(2000)).2;
     assert!(s.issues().is_empty(), "{:?}", &s.issues()[..3]);
     // A replaced component replaces in place (order kept).
     s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "c5", "component": "Text", "text": "five"}]}})).unwrap();
@@ -220,7 +221,6 @@ fn two_thousand_streamed_messages_cost_linear() {
     let ratio = total(large).as_secs_f64() / total(small).as_secs_f64().max(1e-6);
     eprintln!("streamed n=500: apply {:?} layout {:?}; n=2,000: apply {:?} layout {:?}; ratio {ratio:.1}x", small.0, small.1, large.0, large.1);
     assert!(ratio < 10.0, "4x the messages cost {ratio:.1}x (n=500 {small:?}, n=2,000 {large:?}): super-linear");
-    timed(20_000, "2,000 streamed updateComponents", || streamed(2000));
 }
 
 /// `n` streamed messages: a List of `n` ids, then one `updateComponents`
