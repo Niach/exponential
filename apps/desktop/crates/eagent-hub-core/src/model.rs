@@ -314,6 +314,10 @@ pub struct HubState {
     pub messages: Vec<HubMessage>,
     pub devices: BTreeMap<String, HubDevice>,
     pub agents: BTreeMap<String, HubAgent>,
+    /// #EXP-1735: teamId → the team's LEAD Assistant (`teams.lead_assistant_id`), the one every member's
+    /// Assistant reports to. A team without one is absent.
+    #[serde(default)]
+    pub leads: BTreeMap<String, String>,
 }
 
 /// Everything the hub does besides its own state.

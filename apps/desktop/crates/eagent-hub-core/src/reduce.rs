@@ -53,6 +53,32 @@ pub fn tree_agent_id(root: &HubSession) -> Option<String> {
     root.agent_id.clone().or_else(|| root.started_by_agent_id.clone())
 }
 
+/// #EXP-1735: the team LEAD Assistant `row` reports to, or None. `row` works in a team whose lead is another
+/// member's Assistant than the one acting for its tree (the Assistant's children and the threads it started);
+/// never the Assistant's own conversation root, never a team agent's tree, never the lead's own work.
+pub fn lead_of(state: &HubState, row: &HubSession) -> Option<String> {
+    let lead_id = state.leads.get(&row.team_id)?;
+    if state.agents.get(lead_id).map(|a| a.role) != Some(AgentRole::Assistant) {
+        return None;
+    }
+    let root = state.sessions.get(&row.root_id)?;
+    let acting = tree_agent_id(root)?;
+    if &acting == lead_id || state.agents.get(&acting).map(|a| a.role) != Some(AgentRole::Assistant) {
+        return None;
+    }
+    if row.id == root.id && root.agent_id.as_ref() == Some(&acting) {
+        return None;
+    }
+    Some(lead_id.clone())
+}
+
+/// #EXP-1735: the lead's conversation (its root session) a transition of `child` also reaches.
+fn lead_listener(state: &HubState, child: &HubSession) -> Option<HubSession> {
+    let lead_id = lead_of(state, child)?;
+    let conversation = state.sessions.get(&state.agents.get(&lead_id)?.root_session_id)?;
+    (is_live(conversation) && conversation.id != child.id).then(|| conversation.clone())
+}
+
 /// A reader of `listener` may not see `origin`.
 pub fn ask_hidden(listener: &HubSession, origin: &HubSession) -> bool {
     !origin.shared && (listener.shared || listener.user_id != origin.user_id)
@@ -261,16 +287,25 @@ struct Deliver<'a> {
     fallback_to_self: bool,
     skip: Option<&'a dyn Fn(&HubState, &HubSession) -> bool>,
     sealed: Option<Sealed>,
+    /// #EXP-1735: the team lead's conversation hears it too (after the others, once).
+    lead: bool,
 }
 
 impl Deliver<'_> {
     fn new(author_kind: AuthorKind, body: String, card: Option<Card>, waking: bool) -> Self {
-        Self { author_kind, body, card, hidden: None, waking, fallback_to_self: false, skip: None, sealed: None }
+        Self { author_kind, body, card, hidden: None, waking, fallback_to_self: false, skip: None, sealed: None, lead: false }
     }
 }
 
 fn deliver(ctx: &mut Ctx, child: &HubSession, message: Deliver) {
-    let all = bus_listeners(&ctx.state, child);
+    let mut all = bus_listeners(&ctx.state, child);
+    if message.lead {
+        if let Some(lead) = lead_listener(&ctx.state, child) {
+            if !all.iter().any(|listener| listener.id == lead.id) {
+                all.push(lead);
+            }
+        }
+    }
     let listeners: Vec<&HubSession> = all.iter().filter(|l| !message.skip.is_some_and(|skip| skip(&ctx.state, l))).collect();
     for listener in listeners {
         let plain = Line::new(message.body.clone(), message.card.clone());
@@ -353,6 +388,7 @@ fn bus_ask(ctx: &mut Ctx, child: &HubSession, message_id: &str, card: &Card) {
     let mirror = Card::Ask { session_id: child.id.clone(), message_id: message_id.to_string() };
     let mut message = Deliver::new(AuthorKind::Agent, copy::ask_text(&child.id, card), Some(mirror.clone()), true);
     message.hidden = Some(Line::new(copy::ask_hidden_text(&child.id, card), Some(mirror)));
+    message.lead = true;
     deliver(ctx, child, message);
 }
 
@@ -383,6 +419,7 @@ fn bus_report(ctx: &mut Ctx, child: &HubSession, summary: Option<&str>, summary_
         copy::private_text(&child.id, lead),
         Some(Card::Report { session_id: child.id.clone(), summary: lead.to_string(), is_final: true }),
     ));
+    message.lead = true;
     deliver(ctx, child, message);
     for row in ctx.state.sessions.values_mut() {
         row.wake_on.retain(|id| *id != child.id);
@@ -1321,9 +1358,10 @@ fn trees_moved(ctx: &Ctx, agent: &HubAgent, since: i64) -> bool {
     let moved = |row: &&HubSession| row.last_activity_at.is_some_and(|at| at > since);
     if agent.role == AgentRole::Assistant {
         // An Assistant watches all its member's chats; its own conversation's turns are not news, its children are.
+        // #EXP-1735: a team's lead also watches the work that reports to it.
         return rows.iter().any(|row| {
             row.user_id == agent.owner_id && (row.agent_id.as_ref() != Some(&agent.id) || row.id != row.root_id) && moved(row)
-        });
+        }) || ctx.state.sessions.values().any(|row| moved(&row) && lead_of(&ctx.state, row).as_ref() == Some(&agent.id));
     }
     let started_by = |row: &HubSession| row.started_by_agent_id.as_ref() == Some(&agent.id);
     let roots: HashSet<&str> = rows
@@ -1606,6 +1644,12 @@ pub fn hydrate(given: &Value) -> Result<HubState, String> {
     for device in list(given, "devices") {
         let device: HubDevice = serde_json::from_value(merged(&[&d["device"], device])).map_err(|e| format!("given device: {e}"))?;
         state.devices.insert(device.id.clone(), device);
+    }
+    if let Some(leads) = given.get("leads").and_then(Value::as_object) {
+        for (team, lead) in leads {
+            let lead = lead.as_str().ok_or(format!("given lead of {team}: not an id"))?;
+            state.leads.insert(team.clone(), lead.to_string());
+        }
     }
     for agent in list(given, "agents") {
         let team = serde_json::json!({ "teamId": d["session"]["teamId"] });

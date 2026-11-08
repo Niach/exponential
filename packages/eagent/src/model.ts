@@ -135,6 +135,9 @@ export interface HubState {
   messages: HubMessage[]
   devices: Record<string, HubDevice>
   agents: Record<string, HubAgent>
+  /** #EXP-1735: teamId → the team's LEAD Assistant (`teams.lead_assistant_id`), the one every member's Assistant
+   *  reports to. A team without one is absent. */
+  leads: Record<string, string>
 }
 
 /** Everything the hub does besides its own state: rows it posts, edits,
