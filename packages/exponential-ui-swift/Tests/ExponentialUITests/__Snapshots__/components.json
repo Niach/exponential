@@ -25628,6 +25628,1112 @@
       }
     ]
   },
+  "RecordTable\/search=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/search=true" : {
+    "height" : 96,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          96
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          240,
+          60
+        ],
+        "id" : "record-table.toolbar.search"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          240,
+          20
+        ],
+        "id" : "record-table.toolbar.search.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          240,
+          36
+        ],
+        "id" : "record-table.toolbar.search.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          248,
+          40,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          320,
+          60,
+          14,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          36,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          72,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          84,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          96,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/totals=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/totals=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.#totals",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.#totals.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.#totals.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.#totals.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.#totals.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
   "Resizable\/direction=horizontal" : {
     "height" : 20,
     "nodes" : [
@@ -34867,6 +35973,366 @@
       }
     ]
   },
+  "Table\/totals=false" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/totals=true" : {
+    "height" : 132,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          132
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          99,
+          390,
+          33
+        ],
+        "id" : "table.row.#totals",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          99,
+          130,
+          32
+        ],
+        "id" : "table.cell.#totals.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          99,
+          130,
+          32
+        ],
+        "id" : "table.cell.#totals.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          99,
+          130,
+          32
+        ],
+        "id" : "table.cell.#totals.2",
+        "part" : "cell"
+      }
+    ]
+  },
   "Table\/wide" : {
     "height" : 256,
     "nodes" : [
@@ -35933,6 +37399,178 @@
           20
         ],
         "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/swipeable=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/swipeable=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.thumb",
+        "part" : "thumb",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
       }
     ]
   },

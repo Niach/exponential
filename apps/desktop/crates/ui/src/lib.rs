@@ -140,6 +140,8 @@ mod mention_input;
 mod menu_window;
 #[cfg(test)]
 mod overlay_anchor_tests;
+#[cfg(test)]
+mod pointer_menu_live_tests;
 mod wysiwyg;
 mod native_dialog;
 mod navigation;

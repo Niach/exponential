@@ -15,9 +15,13 @@ import at.exponential.ui.model.press
 import at.exponential.ui.model.resizeDrag
 import at.exponential.ui.model.scrollTo
 import at.exponential.ui.model.scrollToIndex
+import at.exponential.ui.model.isSwipeableTabContent
 import at.exponential.ui.model.setOpen
+import at.exponential.ui.model.swipeBlockedAt
+import at.exponential.ui.model.tabSwipe
 import at.exponential.ui.model.toastHold
 import at.exponential.ui.theme.Mode
+import at.exponential.ui.theme.TransformOp
 import at.exponential.ui.theme.ThemeHandle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -201,6 +205,103 @@ class Round2InteractionTest {
         )
         assertTrue(cases.size >= 90)
         assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
+    }
+
+    /** FEED-200: fixtures/swipe.json's lock, offset, settle and blocks groups through the facade. */
+    @Test
+    fun theSwipeFixtureReplaysThroughTheFacade() {
+        val cases = Round2Suites.swipe()
+        assertEquals(setOf("lock", "offset", "settle", "blocks"), cases.map { it.first.substringBefore(' ') }.toSet())
+        assertTrue(cases.size >= 30)
+        assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
+    }
+
+    private fun swipeTabs(swipeable: Boolean = true, panel: String = """{"id":"panel_b","component":"Text","props":{"text":"B"}}"""): String =
+        """{"id":"root","component":"Box","children":[{"id":"swipe_tabs","component":"Tabs","style":{"width":360},"props":{"swipeable":$swipeable,"value":{"@path":"/tab"},"tabs":[{"label":"One","value":"a"},{"label":"Two","value":"b"},{"label":"Three","value":"c"}]},
+           "on":{"change":{"event":{"name":"tab"}}},
+           "children":[{"id":"panel_a","component":"Text","props":{"text":"A"}},$panel,{"id":"panel_c","component":"Text","props":{"text":"C"}}]}]}"""
+
+    private fun SurfaceModel.tabContent(owner: String): Int = nodes.first { it.owner == owner && it.part == "content" }.index
+
+    private fun SurfaceModel.translateX(id: String): Float =
+        style(idx(id)).transform.filterIsInstance<TransformOp.Translate>().sumOf { it.x.toDouble() }.toFloat()
+
+    /** FEED-200: swipe events on a swipeable Tabs' `content` move the panels, settle through the core and fire `change`. */
+    @Test
+    fun aSwipeableTabsPagesBySwipeEvents() {
+        val host = RecordingHost()
+        val m = model(swipeTabs(), host = host)
+        m.setData("/tab", JsonValue.Str("a"))
+        val content = m.tabContent("swipe_tabs")
+        assertTrue(m.isSwipeableTabContent(content))
+        val width = m.frame(content).width
+        assertTrue("the content is measured", width > 0f)
+
+        // The finger drags: the active panel follows it, nothing changes yet.
+        m.tabSwipe(content, "start", -10f)
+        m.tabSwipe(content, "move", -60f)
+        assertEquals(-60f, m.translateX("panel_a"), 0.5f)
+        assertTrue(host.actions.isEmpty())
+
+        // Let go: a cancel snaps back, no change.
+        m.tabSwipe(content, "cancel", -60f)
+        assertEquals(0f, m.translateX("panel_a"), 0.5f)
+        assertTrue(host.actions.isEmpty())
+
+        // A slow drag short of half a page stays.
+        m.tabSwipe(content, "start", -20f)
+        m.tabSwipe(content, "end", -20f, -0.1f)
+        assertTrue(host.actions.isEmpty())
+        assertEquals("a", m.data["tab"]?.string)
+
+        // A leftwards fling pages forward: `change {value}` and the bound value.
+        m.tabSwipe(content, "start", -12f)
+        m.tabSwipe(content, "move", -40f)
+        m.tabSwipe(content, "end", -40f, -0.8f)
+        assertEquals(listOf("tab"), host.actions.map { it.name })
+        assertEquals("b", (host.actions[0].payload ?: host.actions[0].context)["value"]?.string)
+        assertEquals("b", m.data["tab"]?.string)
+
+        // A slow drag past half a page to the right pages back.
+        m.tabSwipe(content, "start", 10f)
+        m.tabSwipe(content, "end", width * 0.75f, 0f)
+        assertEquals(listOf("tab", "tab"), host.actions.map { it.name })
+        assertEquals("a", m.data["tab"]?.string)
+
+        // Never past the first page.
+        m.tabSwipe(content, "start", 10f)
+        m.tabSwipe(content, "end", width * 0.9f, 1.2f)
+        assertEquals(2, host.actions.size)
+    }
+
+    /** FEED-200: a Tabs without `swipeable` ignores swipes (no pager, no gesture). */
+    @Test
+    fun aPlainTabsIgnoresSwipes() {
+        val host = RecordingHost()
+        val m = model(swipeTabs(swipeable = false), host = host)
+        m.setData("/tab", JsonValue.Str("a"))
+        val content = m.tabContent("swipe_tabs")
+        assertFalse(m.isSwipeableTabContent(content))
+        m.tabSwipe(content, "start", -40f)
+        m.tabSwipe(content, "end", -40f, -1f)
+        assertTrue(host.actions.isEmpty())
+        assertEquals("a", m.data["tab"]?.string)
+    }
+
+    /** FEED-200: a touch starting inside a sideways control (a Slider) is that control's; text is the pager's. */
+    @Test
+    fun aSwipeStartingOnASliderIsTheSlidersOwn() {
+        val panel = """{"id":"panel_b","component":"Box","children":[{"id":"panel_b_text","component":"Text","props":{"text":"B"}}]}"""
+        val first = """{"id":"panel_a","component":"Stack","props":{"direction":"vertical"},"children":[{"id":"volume","component":"Slider","props":{"label":"Volume","value":{"@path":"/volume"},"min":0,"max":10}},{"id":"panel_a_text","component":"Text","props":{"text":"A"}}]}"""
+        val m = model(swipeTabs(panel = panel).replace("""{"id":"panel_a","component":"Text","props":{"text":"A"}}""", first))
+        m.setData("/tab", JsonValue.Str("a"))
+        val content = m.tabContent("swipe_tabs")
+        val origin = m.frame(content).topLeft
+        fun at(id: String) = m.frame(m.idx(id)).center.let { it - origin }
+        val slider = at("volume")
+        assertTrue("a Slider drags sideways", m.swipeBlockedAt(content, slider.x, slider.y))
+        val text = at("panel_a_text")
+        assertFalse("text is the pager's", m.swipeBlockedAt(content, text.x, text.y))
     }
 
     /**

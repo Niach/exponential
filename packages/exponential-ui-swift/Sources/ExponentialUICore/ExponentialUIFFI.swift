@@ -9186,6 +9186,63 @@ public func supportedCatalogIdsFor(extensionIds: [String]) -> [String]  {
 })
 }
 /**
+ * FEED-200: whether a touch starting inside a node of `component` (its
+ * `direction` prop, its resolved `overflowX`) is that node's, not an
+ * enclosing pager's.
+ */
+public func swipeBlocks(component: String, direction: String?, overflowX: String?) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_swipe_blocks(
+        FfiConverterString.lower(component),
+        FfiConverterOptionString.lower(direction),
+        FfiConverterOptionString.lower(overflowX),$0
+    )
+})
+}
+/**
+ * FEED-200 (fixtures/swipe.json): the swipe pager's axis lock for a touch
+ * that moved (`dx`, `dy`): `pending`, `horizontal` or `vertical`.
+ */
+public func swipeLock(dx: Double, dy: Double) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_swipe_lock(
+        FfiConverterDouble.lower(dx),
+        FfiConverterDouble.lower(dy),$0
+    )
+})
+}
+/**
+ * FEED-200: the offset a pager's pages are DRAWN at while the finger is at
+ * `offset` (screen px; resisted past an end, at most one page).
+ */
+public func swipeOffset(index: UInt32, count: UInt32, offset: Double, width: Double, rtl: Bool) -> Double  {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_swipe_offset(
+        FfiConverterUInt32.lower(index),
+        FfiConverterUInt32.lower(count),
+        FfiConverterDouble.lower(offset),
+        FfiConverterDouble.lower(width),
+        FfiConverterBool.lower(rtl),$0
+    )
+})
+}
+/**
+ * FEED-200: the page a released swipe settles on (`offset` screen px,
+ * `velocity` px/ms at the release).
+ */
+public func swipeSettle(index: UInt32, count: UInt32, offset: Double, velocity: Double, width: Double, rtl: Bool) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_swipe_settle(
+        FfiConverterUInt32.lower(index),
+        FfiConverterUInt32.lower(count),
+        FfiConverterDouble.lower(offset),
+        FfiConverterDouble.lower(velocity),
+        FfiConverterDouble.lower(width),
+        FfiConverterBool.lower(rtl),$0
+    )
+})
+}
+/**
  * A package template as its server messages (JSON array), null when the
  * package has no such template. `data_json` = the caller's data.
  */
@@ -9705,6 +9762,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for() != 9150) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_blocks() != 10430) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_lock() != 21594) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_offset() != 58703) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_settle() != 23994) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_template_messages_json() != 21577) {

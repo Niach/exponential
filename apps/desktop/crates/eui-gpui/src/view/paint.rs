@@ -180,7 +180,7 @@ impl SurfaceView {
         Some(fills.into_iter().rev().fold(base, |under, fill| under.blend(fill)))
     }
 
-    fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
+    pub(crate) fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
         let o = self.cache.owner_of(index);
         self.cache.node(o).map(|n| n.props.clone()).unwrap_or_default()
     }
@@ -419,6 +419,16 @@ impl SurfaceView {
         let kids = self.children_elements(index, child_place, window, cx);
         let kids = if kids_shown { kids } else { Vec::new() };
         el = el.children(kids);
+        // FEED-200: the trackpad pages a swipeable Tabs (`view/swipe.rs`):
+        // its content's probe paints after the subtree, a node that pans
+        // itself inside reports the pointer over it.
+        if !ghost && !style.pointer_none {
+            if self.is_swipe_content(index) {
+                el = el.child(self.swipe_content_probe(index));
+            } else if self.is_swipe_blocker(index) {
+                el = el.child(self.swipe_blocker_probe(index));
+            }
+        }
         // The shimmer band sweeps OVER the content (the web's `::after`),
         // clipped to its own box; the node's children stay unclipped.
         if let (Some(band), Some(a)) = (anim.and_then(|a| a.band), style.animation.as_ref()) {

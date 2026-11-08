@@ -733,6 +733,9 @@
         },
         "addable": {
           "description": "A + button firing `new`."
+        },
+        "swipeable": {
+          "description": "Touch: swipe pages the panels."
         }
       },
       "description": "Tab navigation; the child at index i is the panel of tab i.",
@@ -1581,9 +1584,12 @@
         },
         "stickyHeader": {
           "description": "Pins the header while rows scroll."
+        },
+        "totals": {
+          "description": "Totals."
         }
       },
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "example": {
         "columns": [
           {
@@ -3142,7 +3148,16 @@
           "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         "columns": {
-          "description": "The fields shown, in order; default every schema field."
+          "description": "Fields/columns."
+        },
+        "search": {
+          "description": "Search."
+        },
+        "filter": {
+          "description": "Enum filter."
+        },
+        "totals": {
+          "description": "Totals."
         },
         "add": {
           "description": "Shows the Add button."
@@ -3191,9 +3206,21 @@
         },
         "authorOptions": {
           "description": "Filled by the host."
+        },
+        "searchValue": {
+          "description": "Filled by the host."
+        },
+        "filterValue": {
+          "description": "Filled by the host."
+        },
+        "filterLabel": {
+          "description": "Filled by the host."
+        },
+        "filterOptions": {
+          "description": "Filled by the host."
         }
       },
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
@@ -3530,6 +3557,9 @@
         },
         "truncate": {
           "description": "One line with an ellipsis; cells wrap otherwise."
+        },
+        "format": {
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "description": "One table column."

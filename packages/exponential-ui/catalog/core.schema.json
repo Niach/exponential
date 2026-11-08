@@ -4099,6 +4099,11 @@
           "description": "A + button firing `new`.",
           "default": false
         },
+        "swipeable": {
+          "type": "boolean",
+          "description": "Touch: swipe pages the panels.",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
         },
@@ -9709,7 +9714,7 @@
     },
     "Table": {
       "type": "object",
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "properties": {
         "component": {
           "const": "Table"
@@ -9782,6 +9787,11 @@
         "stickyHeader": {
           "type": "boolean",
           "description": "Pins the header while rows scroll.",
+          "default": false
+        },
+        "totals": {
+          "type": "boolean",
+          "description": "Totals.",
           "default": false
         },
         "slots": {
@@ -15111,7 +15121,7 @@
     },
     "RecordTable": {
       "type": "object",
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "properties": {
         "component": {
           "const": "RecordTable"
@@ -15126,10 +15136,22 @@
         },
         "columns": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "The fields shown, in order; default every schema field."
+          "items": {},
+          "description": "Fields/columns."
+        },
+        "search": {
+          "type": "boolean",
+          "description": "Search.",
+          "default": false
+        },
+        "filter": {
+          "type": "string",
+          "description": "Enum filter."
+        },
+        "totals": {
+          "type": "boolean",
+          "description": "Totals.",
+          "default": false
         },
         "add": {
           "type": "boolean",
@@ -15218,6 +15240,25 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
+          "description": "Filled by the host."
+        },
+        "searchValue": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Filled by the host."
+        },
+        "filterValue": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Filled by the host."
+        },
+        "filterLabel": {
+          "type": "string",
+          "description": "Filled by the host."
+        },
+        "filterOptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/option"
+          },
           "description": "Filled by the host."
         },
         "style": {
@@ -25056,6 +25097,10 @@
           "type": "boolean",
           "description": "One line with an ellipsis; cells wrap otherwise.",
           "default": false
+        },
+        "format": {
+          "type": "string",
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "required": [
