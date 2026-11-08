@@ -113,7 +113,8 @@ pub fn open_shell_window(cx: &mut App) {
                 #[cfg(target_os = "linux")]
                 let root = {
                     use gpui::Styled as _;
-                    root.bg(gpui::transparent_black())
+                    use gpui_component::RootExt as _;
+                    root.bordered(false, cx).bg(gpui::transparent_black())
                 };
                 // EXP-290 macOS glass: stock `Root` paints an opaque
                 // full-window `tokens.background` fill UNDER everything, which

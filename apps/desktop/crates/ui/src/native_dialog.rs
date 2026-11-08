@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, prelude::FluentBuilder as _, px, size, AnyElement, AnyView, App,
+    actions, deferred, div, prelude::FluentBuilder as _, px, size, AnyElement, AnyView, App,
     AppContext as _, Entity, FocusHandle, Focusable, FontWeight, Global,
     InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Render,
     ScrollHandle, SharedString, Size, Styled, StatefulInteractiveElement as _, Window, WindowId,
@@ -417,17 +417,26 @@ fn push_layer(
     });
 }
 
+/// The paint priority of [`render_layer`]: gpui-component's sheet layer is
+/// mounted by `Root` after the window content and its dialogs paint deferred
+/// at `10 + id`, so 9 keeps the in-window dialogs above a sheet and below a
+/// gpui-component dialog (the pre-0.9 composition order).
+const LAYER_PRIORITY: usize = 9;
+
 /// Every open dialog layer of `window`, bottom first — composed by each
 /// window root ABOVE its content and below the toasts. `None` = none open.
 pub(crate) fn render_layer(window: &Window, cx: &App) -> Option<AnyElement> {
     let id = window.window_handle().window_id();
     let layers = registry(cx)?.read(cx).layers.get(&id)?.clone();
     Some(
-        div()
-            .absolute()
-            .inset_0()
-            .children(layers.into_iter().map(|shell| shell.into_any_element()))
-            .into_any_element(),
+        deferred(
+            div()
+                .absolute()
+                .inset_0()
+                .children(layers.into_iter().map(|shell| shell.into_any_element())),
+        )
+        .with_priority(LAYER_PRIORITY)
+        .into_any_element(),
     )
 }
 

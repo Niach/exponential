@@ -40,6 +40,9 @@ pub(crate) struct WindowState {
     pending_focus_restore: Option<WeakFocusHandle>,
     /// Source of stable dialog identities, including their rendered subtrees.
     next_dialog_id: usize,
+    // Exponential patch (#EXP-1739): whether `decorate` wraps the window in
+    // the Linux client-side `window_border` (default); see [`RootExt`].
+    bordered: bool,
 }
 
 #[derive(Clone)]
@@ -117,6 +120,7 @@ impl WindowState {
             sheet_size: None,
             pending_focus_restore: None,
             next_dialog_id: 0,
+            bordered: true,
         }
     }
 
@@ -732,7 +736,35 @@ impl gpui_base::RootPlugin for WindowState {
         _window: &mut Window,
         _cx: &mut App,
     ) -> impl IntoElement {
-        window_border().child(surface)
+        // Exponential patch (#EXP-1739): an unbordered window gets its
+        // surface back as is (the app draws its own frame).
+        if self.bordered {
+            window_border().child(surface).into_any_element()
+        } else {
+            surface.into_any_element()
+        }
+    }
+}
+
+// Exponential patch (#EXP-1739): the pre-0.8 `Root::bordered` opt-out, now
+// that `Root` lives in gpui-base and the frame is this crate's plugin.
+/// Settings of this crate's window-state plugin, on a freshly built [`Root`].
+pub trait RootExt: Sized {
+    /// Whether the window wears the Linux client-side frame and shadow
+    /// ([`window_border`]); default `true`. A window that draws its own
+    /// frame (or none) passes `false`.
+    fn bordered(self, bordered: bool, cx: &mut App) -> Self;
+}
+
+impl RootExt for gpui_base::Root {
+    fn bordered(self, bordered: bool, cx: &mut App) -> Self {
+        if let Some(state) = self.plugin::<WindowState>() {
+            state.update(cx, |state, cx| {
+                state.bordered = bordered;
+                cx.notify();
+            });
+        }
+        self
     }
 }
 

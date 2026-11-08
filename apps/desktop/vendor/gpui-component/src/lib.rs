@@ -100,6 +100,8 @@ pub use crate::Disableable;
 pub use element_ext::*;
 pub use global_state::GlobalState;
 pub use gpui_base::Root;
+// Exponential patch (#EXP-1739): `Root::bordered`, see `root.rs`.
+pub use root::RootExt;
 pub use gpui_base::animation;
 pub use gpui_base::{
     AxisExt, Edges, FocusTrapElement, InteractiveElementExt, LengthExt, Measure, OngoingScrollExt,

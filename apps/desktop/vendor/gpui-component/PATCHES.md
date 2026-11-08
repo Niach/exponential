@@ -30,6 +30,13 @@ upstream carries them).
   (`src/native_menu/fallback.rs`). `PopupMenu::close` is public (Escape's
   dismiss), and the managed tooltip's outer div carries the `tooltip` debug
   selector.
+- #EXP-1739, the window frame opt-out: `src/root.rs` gives `WindowState` a
+  `bordered` flag (default `true`) and a public `RootExt` trait (re-exported
+  from `src/lib.rs`) whose `Root::bordered(false, cx)` sets it on a freshly
+  built `Root`; `WindowState`'s `RootPlugin::decorate` then returns the
+  surface without the Linux client-side `window_border`. This is the
+  pre-0.8 `Root::bordered(false)` the app's own rounded frame
+  (`crates/ui/src/window_frame.rs`) and the transparent menu window use.
 - #EXP-1488, every button has an accessible name: `src/button/button.rs`
   (upstream now has `Button::accessibility_label()` and names a button by it,
   else its label): with neither, the tooltip text is the name (and is then not

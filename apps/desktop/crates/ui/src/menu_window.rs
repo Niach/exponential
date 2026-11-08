@@ -361,7 +361,10 @@ pub(crate) fn open(
             // decoration wrapper — it framed the whole transparent layer in
             // a 1px border and a shadow (macOS never draws it).
             cx.new(|cx| {
-                Root::new(layer, window, cx).bg(gpui::transparent_black())
+                use gpui_component::RootExt as _;
+                Root::new(layer, window, cx)
+                    .bordered(false, cx)
+                    .bg(gpui::transparent_black())
             })
         });
         match opened {

@@ -27,7 +27,7 @@ use std::{
 };
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Context, Div,
+    deferred, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Context, Div,
     ElementId, Entity, Global, Hsla, InteractiveElement as _, IntoElement, MouseButton,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Task, Window, WindowId,
@@ -636,14 +636,23 @@ pub(crate) fn layer_for_window(window: &Window, cx: &mut App) -> Entity<ToastLay
     layer
 }
 
-/// The toast layer as a root overlay (after the dialog layer, so a toast
-/// sits over a dialog): every window root renders this.
+/// The paint priority of [`render_layer`]: above gpui-component's sheets
+/// (mounted by `Root` after the content) and dialogs (deferred at `10 + id`),
+/// below the popups and tooltips (`gpui_base::POPUP_PRIORITY` and up) and
+/// the blocking wait.
+pub(crate) const LAYER_PRIORITY: usize = gpui_base::POPUP_PRIORITY - 2;
+
+/// The toast layer as a root overlay (deferred above the dialog layers, so a
+/// toast sits over a dialog): every window root renders this.
 pub(crate) fn render_layer(window: &mut Window, cx: &mut App) -> AnyElement {
-    div()
-        .absolute()
-        .inset_0()
-        .child(layer_for_window(window, cx))
-        .into_any_element()
+    deferred(
+        div()
+            .absolute()
+            .inset_0()
+            .child(layer_for_window(window, cx)),
+    )
+    .with_priority(LAYER_PRIORITY)
+    .into_any_element()
 }
 
 pub(crate) use domain::stack::StackItem;

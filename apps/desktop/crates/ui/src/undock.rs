@@ -316,7 +316,8 @@ fn undocked_root(
     #[cfg(target_os = "linux")]
     let root = {
         use gpui::Styled as _;
-        root.bg(gpui::transparent_black())
+        use gpui_component::RootExt as _;
+        root.bordered(false, cx).bg(gpui::transparent_black())
     };
     #[cfg(target_os = "macos")]
     let root = {
