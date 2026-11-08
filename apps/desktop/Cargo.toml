@@ -4,9 +4,10 @@
 # and the SDK crates they link; the compositor workspace in apps/ede takes
 # ede-protocol by path and never links gpui.
 members = ["crates/*"]
-# #EXP-1484 / #EXP-1620: the vendored, patched iroh and gpui-component (see
-# the [patch] sections below) are third-party crates, not ours.
-exclude = ["vendor/iroh", "vendor/gpui-component"]
+# #EXP-1484 / #EXP-1620 / #EDE-65: the vendored, patched iroh, gpui-component
+# and gpui_wgpu (see the [patch] sections below) are third-party crates, not
+# ours.
+exclude = ["vendor/iroh", "vendor/gpui-component", "vendor/gpui_wgpu"]
 resolver = "2"
 
 [workspace.package]
@@ -152,6 +153,13 @@ agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_comp
 [patch."https://github.com/zed-industries/zed"]
 ztracing = { path = "crates/ztracing" }
 ztracing_macro = { path = "crates/ztracing_macro" }
+# #EDE-65: zed's cosmic text system (Linux) drew most emoji monochrome or as
+# boxes: `load_family` deleted any face without an `m` glyph (Noto Color
+# Emoji once named), and per-character fallback took any monochrome face
+# covering the codepoint. vendor/gpui_wgpu = the crate at the pinned zed rev
+# plus both fixes (vendor/gpui_wgpu/PATCHES.md). Drop it once upstream
+# carries them.
+gpui_wgpu = { path = "vendor/gpui_wgpu" }
 
 # #EXP-1484: iroh 1.4.1 keeps a closed connection's direct path selected while
 # another connection to the same peer stays open (a restarted peer redialing),

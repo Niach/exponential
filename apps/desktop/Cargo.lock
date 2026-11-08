@@ -4647,7 +4647,6 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#cc053a4a6fa2fd0e8793201ed9099466af1be0b1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4666,6 +4665,7 @@ dependencies = [
  "smallvec",
  "swash",
  "unicode-bidi",
+ "unicode-properties",
  "unicode-segmentation",
  "wasm-bindgen",
  "wasm-bindgen-futures",
