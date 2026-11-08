@@ -75,8 +75,8 @@ gpui-component-macros = { git = "https://github.com/longbridge/gpui-component", 
 # its sixel/kitty/iTerm2 graphics pipeline (alacritty_terminal has none and its
 # maintainers declined it). `pty` (default) OFF: we own the PTY via portable-pty.
 # Pinned EXACTLY: the 0.5.x line changes public API between patch releases.
-rio-vt = { version = "=0.5.26", default-features = false, features = ["graphics"] }
-rio-graphics = { version = "=0.5.26", default-features = false }        # GraphicData/ColorType/texture keys the terminal crate names
+rio-vt = { version = "=0.5.29", default-features = false, features = ["graphics"] }
+rio-graphics = { version = "=0.5.29", default-features = false }        # GraphicData/ColorType/texture keys the terminal crate names
 image = { version = "0.25", default-features = false }                 # RenderImage frames for inline images; already in the tree via gpui
 portable-pty = "0.9"                                                   # resolves 0.9.0
 rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
