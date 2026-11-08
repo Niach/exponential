@@ -667,8 +667,10 @@ pub(crate) fn render_row(
             let busy = props.busy.contains(&row.key);
             let mut button = if pill.primary {
                 surface::glass_pill_button_primary(pill_id, surface::PillSize::Sm)
+                    .accessibility_label(pill.action.label())
             } else {
                 surface::glass_pill_button(pill_id, surface::PillSize::Sm, cx)
+                    .accessibility_label(pill.action.label())
             }
             .label(pill.action.label())
             .loading(busy)

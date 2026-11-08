@@ -158,13 +158,13 @@ export function assistantScheduleTriggers(
 }
 
 /** The Assistant's Model row value (`modelValueCases`): the pinned model,
- *  else the dispatcher root's default for the login's CLI (never `Last
+ *  else the device default for the login's CLI (never `Last
  *  used`). */
 export function assistantModelValue(input: { model?: string | null; cli?: string | null }): string {
   const pinned = input.model?.trim()
   if (pinned) return input.model!
   const defaults = contractJson.deviceAgentDefaults
-  return input.cli === `codex` ? defaults.codexThreadModel : defaults.threadModel
+  return input.cli === `codex` ? defaults.codexModel : defaults.model
 }
 
 /** NEW-99 (`runsOnCases`): the Runs on device picker's devices. An
@@ -260,4 +260,18 @@ export function coordinatorOf(
   teamId: string
 ): string | null {
   return agents.find((agent) => agent.teamId === teamId && isCoordinator(agent))?.id ?? null
+}
+
+export const LEAD = fixture.lead
+export const LEAD_COPY = fixture.lead.copy
+/** The option id of "no lead Assistant". */
+export const LEAD_NONE = `none`
+
+/** #EXP-1735 (`lead.optionCases`): the Lead Assistant row's options:
+ *  `none`, then the team's members by display name, then id. */
+export function leadOptions<T extends { userId: string; name: string }>(members: readonly T[]): (T | typeof LEAD_NONE)[] {
+  const sorted = [...members].sort(
+    (a, b) => a.name.localeCompare(b.name) || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0)
+  )
+  return [LEAD_NONE, ...sorted]
 }

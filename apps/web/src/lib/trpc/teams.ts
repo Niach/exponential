@@ -9,8 +9,8 @@ import {
   publicProcedure,
   generateTxId,
 } from "@/lib/trpc"
-import { teams, teamMembers } from "@/db/schema"
-import { asc, eq } from "drizzle-orm"
+import { agents, teams, teamMembers } from "@/db/schema"
+import { and, asc, eq } from "drizzle-orm"
 import { teamColumns } from "@/lib/team-columns"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
@@ -191,11 +191,24 @@ export const teamsRouter = router({
         // contract, never trimmed server-side beyond the trailing whitespace
         // the launcher would drop anyway). Empty string = no team prompt.
         agentPrompt: agentPromptSchema.optional(),
+        // #EXP-1730: the team's LEAD Assistant, the one every member's
+        // Assistant reports to: a member's Assistant (null = none).
+        leadAssistantId: z.string().uuid().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { teamId: id, agentPrompt, yoloMode, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
+      if (updates.leadAssistantId) {
+        const [lead] = await ctx.db
+          .select({ ownerId: agents.ownerId })
+          .from(agents)
+          .where(and(eq(agents.id, updates.leadAssistantId), eq(agents.role, `assistant`)))
+          .limit(1)
+        if (!lead || !(await getTeamMember(lead.ownerId, id))) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `The lead Assistant must be a team member's Assistant` })
+        }
+      }
       if (yoloMode !== undefined && updates.mergeMode === undefined) {
         updates.mergeMode = yoloMode ? `auto` : `approval`
       }

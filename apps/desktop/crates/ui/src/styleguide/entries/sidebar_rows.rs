@@ -63,7 +63,11 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(div().h(px(12.)))
         .child(
             rail_section_label("Agents", cx).child(
-                Button::new("sg-sidebar-new-agent").ghost().xsmall().icon(registry::UI_ADD),
+                Button::new("sg-sidebar-new-agent")
+                    .accessibility_label("New agent")
+                    .ghost()
+                    .xsmall()
+                    .icon(registry::UI_ADD),
             ),
         )
         .child(
@@ -80,6 +84,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 ROW_GROUP,
                 Some(rail_badge_element(RailBadge::Dot(yellow), 12., cx)),
                 Button::new("sg-sidebar-agent-settings")
+                    .accessibility_label("Agent settings")
                     .ghost()
                     .xsmall()
                     .icon(Icon::from(registry::NAV_SETTINGS)),

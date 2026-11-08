@@ -13,6 +13,7 @@
 
 import { CORE_CATALOG_ID } from "../src/catalog"
 import { displayString, englishFormatter, fixedOffset, formatFunctions } from "../src/format"
+import { formatChartValue, type ChartValueFormat } from "../src/chart"
 import { resolveDynamic } from "../src/dynamic"
 import { reduceNested, reduceSurface } from "../src/reducer"
 import { MAX_DEPTH } from "../src/limits"
@@ -136,14 +137,43 @@ const ZONED_CALLS: { name: string; timeZone: string; offsetMinutes: number; call
   { name: `calendar-day-never-shifts`, timeZone: `Pacific/Kiritimati`, offsetMinutes: 840, call: `formatDate`, args: { value: `2026-10-14`, style: `long` } },
 ]
 
+/** FEED-205: `Chart.valueFormat` over the fallback (ticks, tooltip, values). */
+const CHART_VALUES: { name: string; value: number; valueFormat?: ChartValueFormat }[] = [
+  { name: `default-number`, value: 12000 },
+  { name: `number-decimals`, value: 1234.5, valueFormat: { type: `number`, decimals: 2 } },
+  { name: `currency-eur`, value: 12000, valueFormat: { type: `currency`, currency: `EUR` } },
+  { name: `currency-eur-whole`, value: -4250, valueFormat: { type: `currency`, currency: `EUR`, decimals: 0 } },
+  { name: `currency-default-usd`, value: 9.5, valueFormat: { type: `currency` } },
+  { name: `currency-bad-code-is-number`, value: 1500, valueFormat: { type: `currency`, currency: `euro` } },
+  { name: `percent-ratio`, value: 0.256, valueFormat: { type: `percent` } },
+  { name: `percent-decimals`, value: 0.25678, valueFormat: { type: `percent`, decimals: 1 } },
+  { name: `compact-small`, value: 999, valueFormat: { type: `compact` } },
+  { name: `compact-fraction`, value: 0.01234, valueFormat: { type: `compact` } },
+  { name: `compact-one-decimal`, value: 1234, valueFormat: { type: `compact` } },
+  { name: `compact-thousands`, value: 12000, valueFormat: { type: `compact` } },
+  { name: `compact-whole-units`, value: 123456, valueFormat: { type: `compact` } },
+  { name: `compact-millions`, value: 1234567, valueFormat: { type: `compact` } },
+  { name: `compact-rounds-up-a-unit`, value: 999999, valueFormat: { type: `compact` } },
+  { name: `compact-billions`, value: 2500000000, valueFormat: { type: `compact` } },
+  { name: `compact-trillions-cap`, value: 1.5e15, valueFormat: { type: `compact` } },
+  { name: `compact-negative`, value: -45600, valueFormat: { type: `compact` } },
+  { name: `compact-zero`, value: 0, valueFormat: { type: `compact` } },
+  { name: `compact-decimals`, value: 12345, valueFormat: { type: `compact`, decimals: 1 } },
+  { name: `compact-currency-eur`, value: 12000, valueFormat: { type: `compact`, currency: `EUR` } },
+  { name: `compact-currency-usd`, value: 1234567, valueFormat: { type: `compact`, currency: `usd` } },
+  { name: `compact-currency-code-prefix`, value: 12000, valueFormat: { type: `compact`, currency: `CHF` } },
+  { name: `compact-currency-negative`, value: -2500, valueFormat: { type: `compact`, currency: `GBP` } },
+]
+
 function formatFixture() {
   return {
-    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §3). \`calls\`: each format function (A2UI basic formatNumber/formatCurrency/formatDate/pluralize + core formatPercent/formatRelativeTime) through the ENGLISH fallback Formatter (src/format.ts englishFormatter; catalog/locale.json \`englishFallback\`; = Intl en-US, ICU 74+), instants in UTC, \`now\` explicit: the Rust core's fallback (and any renderer without ICU) replays them EXACTLY — the conformance run uses the fallback. A platform Formatter (Foundation, android.icu) may be checked too after mapping U+202F and U+00A0 to a space on both sides (newer ICU puts U+202F before AM/PM). A numeric string = optional whitespace, sign, decimal digits, fraction, exponent; hex, Infinity and separators are not numbers. \`zoned\`: the same functions in a non-UTC surface zone: the fallback takes \`offsetMinutes\` (the host's UTC offset at that instant), an ICU Formatter takes \`timeZone\`; a calendar day never shifts. \`display\`: what a string/markdown prop SHOWS for a bound value (src/format.ts displayString: ECMAScript Number→String, booleans, nothing for null/objects); no locale.`,
+    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §3). \`calls\`: each format function (A2UI basic formatNumber/formatCurrency/formatDate/pluralize + core formatPercent/formatRelativeTime) through the ENGLISH fallback Formatter (src/format.ts englishFormatter; catalog/locale.json \`englishFallback\`; = Intl en-US, ICU 74+), instants in UTC, \`now\` explicit: the Rust core's fallback (and any renderer without ICU) replays them EXACTLY — the conformance run uses the fallback. A platform Formatter (Foundation, android.icu) may be checked too after mapping U+202F and U+00A0 to a space on both sides (newer ICU puts U+202F before AM/PM). A numeric string = optional whitespace, sign, decimal digits, fraction, exponent; hex, Infinity and separators are not numbers. \`zoned\`: the same functions in a non-UTC surface zone: the fallback takes \`offsetMinutes\` (the host's UTC offset at that instant), an ICU Formatter takes \`timeZone\`; a calendar day never shifts. \`display\`: what a string/markdown prop SHOWS for a bound value (src/format.ts displayString: ECMAScript Number→String, booleans, nothing for null/objects); no locale. \`chartValues\` (FEED-205): a Chart value in its \`valueFormat\` (src/chart.ts formatChartValue: the axis ticks, the tooltip, the value labels; the Rust core puts them in \`props.chart.tickLabels\`/\`valueLabels\`) through the fallback; \`compact\` = Intl en-US \`notation: compact\` (\`compactSuffixes\`), composed over \`number\`/\`currency\` where a Formatter has no compact of its own, the suffix after the last digit.`,
     locale: `en-US`,
     timeZone: `UTC`,
     calls: FORMAT_CALLS.map((c) => ({ name: c.name, call: { "@call": c.call, args: c.args }, expected: resolveDynamic({ "@call": c.call, args: c.args }, {}) })),
     zoned: ZONED_CALLS.map((c) => ({ name: c.name, timeZone: c.timeZone, offsetMinutes: c.offsetMinutes, call: { "@call": c.call, args: c.args }, expected: formatFunctions(englishFormatter(fixedOffset(c.offsetMinutes)))[c.call as `formatDate`](c.args) })),
     display: DISPLAY_VALUES.map((d) => ({ name: d.name, value: d.value, expected: displayString(d.value) })),
+    chartValues: CHART_VALUES.map((c) => ({ name: c.name, value: c.value, ...(c.valueFormat ? { valueFormat: c.valueFormat } : {}), expected: formatChartValue(englishFormatter(), c.value, c.valueFormat) })),
   }
 }
 

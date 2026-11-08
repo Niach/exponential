@@ -188,6 +188,7 @@ pub struct Button {
     base: gpui_base::Button,
     icon: Option<ButtonIcon>,
     label: Option<SharedString>,
+    accessibility_label: Option<SharedString>,
     children: Vec<AnyElement>,
     disabled: bool,
     pub(crate) selected: bool,
@@ -231,6 +232,7 @@ impl Button {
             base: gpui_base::Button::new(id),
             icon: None,
             label: None,
+            accessibility_label: None,
             children: Vec::new(),
             disabled: false,
             selected: false,
@@ -293,6 +295,15 @@ impl Button {
     /// Set label to the Button, if no label is set, the button will be in Icon Button mode.
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Set the name assistive technology announces (Exponential, #EXP-1488).
+    /// Without one the button is named by its label, else by its tooltip
+    /// text: an icon button whose words only live in its children or nowhere
+    /// says them here.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -594,7 +605,13 @@ impl RenderOnce for Button {
             })
             .refine_style(&instance_style);
 
-        let accessibility_label = self.label.clone();
+        // #EXP-1488: explicit name, else the label, else the tooltip's words
+        // (the web's icon buttons carry the same string as aria-label).
+        let accessibility_label = self
+            .accessibility_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .or_else(|| self.tooltip.as_ref().map(|(tooltip, _)| tooltip.clone()));
         let content = h_flex()
             .id("label")
             .size_full()

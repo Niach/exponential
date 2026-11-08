@@ -517,6 +517,7 @@ fn panel_header(
 
 fn close_button(id: &'static str, closable: bool, cx: &App) -> Button {
     Button::new(id)
+        .accessibility_label("Close")
         .ghost()
         .cursor_pointer()
         .xsmall()

@@ -468,8 +468,8 @@ type IssueRow = typeof issues.$inferSelect
  * FB-3 (the cold-start thread FILED it), FB-8 (a widget report the Triage
  * agent closed as a duplicate of FB-3) and FB-9 (the widget report it started
  * a thread for). Product Feedback is the live board no view photographs, so
- * its rows cost no board shot. None of their titles says "cold start" (the
- * `search` view types it).
+ * its rows cost no board shot. None of their titles says "cold start"; FB-3
+ * is Alex's, so the `search` view (`by:alex`) lists it.
  */
 async function seedFeedbackIssues(ctx: {
   teamId: string
@@ -730,6 +730,9 @@ async function seedSessionTree(ctx: {
     createdAt: daysAgo(20),
     updatedAt: daysAgo(20),
   })
+  // #EXP-1735: the demo user's Assistant leads the team (agent-settings.json
+  // `lead`), so Settings › Agents' Lead Assistant row names a member.
+  await db.update(teams).set({ leadAssistantId: DEMO_ASSISTANT_ID }).where(eq(teams.id, teamId))
   await db.insert(sessions).values(
     agentSpecs.map((spec) =>
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {

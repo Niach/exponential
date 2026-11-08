@@ -1628,6 +1628,8 @@ fn panel_icon_button(
     };
     div()
         .id(element_id)
+        .role(gpui::Role::Button)
+        .aria_label(label.clone())
         .group(GROUP)
         .size(px(CARD_ICON_SIZE))
         .flex_shrink_0()

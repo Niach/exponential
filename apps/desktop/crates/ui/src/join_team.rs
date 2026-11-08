@@ -721,7 +721,10 @@ impl Render for JoinTeamView {
             })
             .child(
                 {
-                    let primary = Button::new("join-team-primary").primary().web_md();
+                    let primary = Button::new("join-team-primary")
+                        .primary()
+                        .web_md()
+                        .accessibility_label(primary_label);
                     if self.embedded { primary.rounded_full() } else { primary }
                 }
                     .label(primary_label)

@@ -202,8 +202,17 @@ pub fn choice_tile(
         }
     });
     let fill = if tile.selected { ink.accent } else { ink.card };
+    // #EXP-1488 (a11y.json ChoiceTiles): a radio tile named by its label.
+    let name = tile.label.clone();
     div()
         .id(id)
+        .when(interactive, |this| {
+            this.role(gpui::Role::RadioButton).aria_label(name).aria_toggled(if tile.selected {
+                gpui::accesskit::Toggled::True
+            } else {
+                gpui::accesskit::Toggled::False
+            })
+        })
         .size_full()
         .flex()
         .flex_col()

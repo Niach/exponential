@@ -1,16 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Locks the REV2-3 fan-out contract of sendToUsers: ONE fcm_tokens query for
-// the whole recipient set (no per-recipient SELECT), per-user relay POSTs
-// carrying the recipient's userId in data, a bounded worker pool (a wedged
-// relay may pin at most RELAY_CONCURRENCY of Bun's process-global fetch-pool
-// slots — the same pool the Electric shape proxy long-polls through), a
-// timeout signal on every POST, and error isolation (one failed POST never
-// aborts the rest or throws).
+// the whole recipient set (no per-recipient SELECT), one sealed relay POST
+// /push per device carrying the recipient's userId in data, a bounded worker
+// pool (a wedged relay may pin at most RELAY_CONCURRENCY of Bun's
+// process-global fetch-pool slots — the same pool the Electric shape proxy
+// long-polls through), a timeout signal on every POST, and error isolation
+// (one failed POST never aborts the rest or throws).
 //
 // EXP-264 extends recipients from bare user ids to `{ userId, data? }`: the
 // per-recipient data is merged OVER the shared payload data, and the userId is
 // written LAST so nothing can clobber the routing key.
+//
+// NEW-14: only rows with a relay capability + push public key are reachable;
+// the bare-token /send shim is gone.
 
 const h = vi.hoisted(() => {
   // The module caches PUSH_RELAY_URL at first use — set it before import.
@@ -55,13 +58,26 @@ import { pushOpen, pushPublicKey } from "@/lib/push-seal"
 
 const fetchMock = vi.fn()
 
-function relayOk(invalidTokens: string[] = []) {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({ invalidTokens }),
-    text: async () => ``,
-  }
+const secret = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 7))
+const pub = Buffer.from(pushPublicKey(secret)).toString(`base64url`)
+
+/** A device row as the fan-out query returns it. */
+function row(userId: string, capability: string) {
+  return { userId, relayCapability: capability, pushPublicKey: pub }
+}
+
+function relayOk() {
+  return { ok: true, status: 202, json: async () => ({ delivered: true }), text: async () => `` }
+}
+
+function openBody(call: unknown[]) {
+  const body = JSON.parse((call[1] as RequestInit).body as string)
+  const plain = pushOpen(secret, new Uint8Array(Buffer.from(body.sealed, `base64url`)))
+  return { body, payload: JSON.parse(Buffer.from(plain).toString(`utf8`)) }
+}
+
+function capabilityOf(call: unknown[]): string {
+  return ((call[1] as RequestInit).headers as Record<string, string>).Authorization
 }
 
 beforeEach(() => {
@@ -78,12 +94,8 @@ afterEach(() => {
 })
 
 describe(`sendToUsers (REV2-3)`, () => {
-  it(`fetches all recipients' tokens in ONE query and POSTs once per user with their userId in data`, async () => {
-    h.selectResults.push([
-      { userId: `u1`, token: `t1a` },
-      { userId: `u1`, token: `t1b` },
-      { userId: `u2`, token: `t2a` },
-    ])
+  it(`fetches all recipients' devices in ONE query and POSTs once per device with their userId in data`, async () => {
+    h.selectResults.push([row(`u1`, `cap_1a`), row(`u1`, `cap_1b`), row(`u2`, `cap_2a`)])
     fetchMock.mockResolvedValue(relayOk())
 
     await sendToUsers(
@@ -96,37 +108,24 @@ describe(`sendToUsers (REV2-3)`, () => {
     )
 
     expect(h.selectCalls.count).toBe(1)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
 
-    const bodies = fetchMock.mock.calls.map((call) =>
-      JSON.parse((call[1] as RequestInit).body as string)
+    const dataByCapability = new Map(
+      fetchMock.mock.calls.map((call) => [capabilityOf(call), openBody(call).payload.data])
     )
-    expect(bodies).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          tokens: [`t1a`, `t1b`],
-          data: { type: `issue_comment`, issueId: `i-1`, userId: `u1` },
-        }),
-        expect.objectContaining({
-          tokens: [`t2a`],
-          data: { type: `issue_comment`, issueId: `i-1`, userId: `u2` },
-        }),
-      ])
-    )
-    // Every POST carries an abort signal so a wedged relay can't hold the
-    // socket past the timeout.
+    expect(dataByCapability.get(`Bearer cap_1a`)).toEqual({ type: `issue_comment`, issueId: `i-1`, userId: `u1` })
+    expect(dataByCapability.get(`Bearer cap_1b`)).toEqual({ type: `issue_comment`, issueId: `i-1`, userId: `u1` })
+    expect(dataByCapability.get(`Bearer cap_2a`)).toEqual({ type: `issue_comment`, issueId: `i-1`, userId: `u2` })
+    // Every POST goes to /push and carries an abort signal so a wedged relay
+    // can't hold the socket past the timeout.
     for (const call of fetchMock.mock.calls) {
+      expect(call[0]).toBe(`http://relay.test/push`)
       expect((call[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
     }
   })
 
   it(`caps in-flight relay requests at the worker-pool size`, async () => {
-    h.selectResults.push(
-      Array.from({ length: 20 }, (_, i) => ({
-        userId: `u${i}`,
-        token: `t${i}`,
-      }))
-    )
+    h.selectResults.push(Array.from({ length: 20 }, (_, i) => row(`u${i}`, `cap_${i}`)))
 
     let active = 0
     let peak = 0
@@ -149,16 +148,12 @@ describe(`sendToUsers (REV2-3)`, () => {
     expect(peak).toBe(8)
   })
 
-  it(`collects invalid tokens across users into one prune and survives per-request failures`, async () => {
-    h.selectResults.push([
-      { userId: `u1`, token: `t1` },
-      { userId: `u2`, token: `t2` },
-      { userId: `u3`, token: `t3` },
-    ])
+  it(`survives per-request failures without throwing or pruning`, async () => {
+    h.selectResults.push([row(`u1`, `cap_1`), row(`u2`, `cap_2`), row(`u3`, `cap_3`)])
     fetchMock
-      .mockResolvedValueOnce(relayOk([`t1`]))
+      .mockResolvedValueOnce(relayOk())
       .mockRejectedValueOnce(new Error(`relay wedged`))
-      .mockResolvedValueOnce(relayOk([`t3`]))
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}), text: async () => `x` })
 
     await expect(
       sendToUsers([{ userId: `u1` }, { userId: `u2` }, { userId: `u3` }], {
@@ -168,14 +163,11 @@ describe(`sendToUsers (REV2-3)`, () => {
     ).resolves.toBeUndefined()
 
     expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(h.deleteCalls.count).toBe(1)
+    expect(h.deleteCalls.count).toBe(0)
   })
 
   it(`merges per-recipient data over the shared payload, userId last`, async () => {
-    h.selectResults.push([
-      { userId: `u1`, token: `t1` },
-      { userId: `u2`, token: `t2` },
-    ])
+    h.selectResults.push([row(`u1`, `cap_1`), row(`u2`, `cap_2`)])
     fetchMock.mockResolvedValue(relayOk())
 
     await sendToUsers(
@@ -188,19 +180,16 @@ describe(`sendToUsers (REV2-3)`, () => {
       { title: `Hi`, data: { type: `issue_comment`, issueId: `i-1` } }
     )
 
-    const dataByToken = new Map(
-      fetchMock.mock.calls.map((call) => {
-        const body = JSON.parse((call[1] as RequestInit).body as string)
-        return [body.tokens[0], body.data]
-      })
+    const dataByCapability = new Map(
+      fetchMock.mock.calls.map((call) => [capabilityOf(call), openBody(call).payload.data])
     )
-    expect(dataByToken.get(`t1`)).toEqual({
+    expect(dataByCapability.get(`Bearer cap_1`)).toEqual({
       type: `issue_comment`,
       issueId: `i-1`,
       notificationId: `n-1`,
       userId: `u1`,
     })
-    expect(dataByToken.get(`t2`)).toEqual({
+    expect(dataByCapability.get(`Bearer cap_2`)).toEqual({
       type: `issue_comment`,
       issueId: `i-1`,
       notificationId: `n-2`,
@@ -208,7 +197,7 @@ describe(`sendToUsers (REV2-3)`, () => {
     })
   })
 
-  it(`skips the relay entirely when no recipient has a token`, async () => {
+  it(`skips the relay entirely when no recipient has a device`, async () => {
     h.selectResults.push([])
 
     await sendToUsers([{ userId: `u1` }], { title: `Hi`, data: {} })
@@ -225,30 +214,16 @@ describe(`sendToUsers (REV2-3)`, () => {
   })
 })
 
-// EXP-1428: a row carrying a relay capability + push public key is pushed
-// sealed to POST /push (one request per device, Bearer capability); rows
-// without one keep the legacy /send shim exactly as above.
+// EXP-1428: every device is pushed sealed to POST /push (one request per
+// device, Bearer capability).
 describe(`sendToUsers sealed /push (EXP-1428)`, () => {
-  const secret = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 7))
-  const pub = Buffer.from(pushPublicKey(secret)).toString(`base64url`)
-
-  function openBody(call: unknown[]) {
-    const body = JSON.parse((call[1] as RequestInit).body as string)
-    const plain = pushOpen(secret, new Uint8Array(Buffer.from(body.sealed, `base64url`)))
-    return { body, payload: JSON.parse(Buffer.from(plain).toString(`utf8`)) }
-  }
-
-  it(`routes capability rows to /push sealed and legacy rows to /send`, async () => {
+  it(`seals the merged payload for the device and skips rows without a capability`, async () => {
     h.selectResults.push([
-      { userId: `u1`, token: `t1`, relayCapability: `cap_a`, pushPublicKey: pub },
-      { userId: `u1`, token: `t1-old`, relayCapability: null, pushPublicKey: null },
-      { userId: `u2`, token: `t2`, relayCapability: null, pushPublicKey: null },
+      row(`u1`, `cap_a`),
+      { userId: `u1`, relayCapability: null, pushPublicKey: null },
+      { userId: `u2`, relayCapability: `cap_nokey`, pushPublicKey: null },
     ])
-    fetchMock.mockImplementation(async (url: string) =>
-      url.endsWith(`/push`)
-        ? { ok: true, status: 202, json: async () => ({ delivered: true }), text: async () => `` }
-        : relayOk()
-    )
+    fetchMock.mockResolvedValue(relayOk())
 
     await sendToUsers(
       [{ userId: `u1`, data: { notificationId: `n-1` } }, { userId: `u2` }],
@@ -261,35 +236,53 @@ describe(`sendToUsers sealed /push (EXP-1428)`, () => {
     )
 
     const calls = fetchMock.mock.calls
-    const push = calls.filter((c) => (c[0] as string) === `http://relay.test/push`)
-    const send = calls.filter((c) => (c[0] as string) === `http://relay.test/send`)
-    expect(push).toHaveLength(1)
-    expect(send).toHaveLength(2)
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toBe(`http://relay.test/push`)
+    expect(calls.some((c) => (c[0] as string).endsWith(`/send`))).toBe(false)
 
-    const init = push[0][1] as RequestInit
+    const init = calls[0][1] as RequestInit
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer cap_a`)
     expect(init.signal).toBeInstanceOf(AbortSignal)
-    const { body, payload } = openBody(push[0])
+    const { body, payload } = openBody(calls[0])
     expect(body.collapseId).toBe(`issue-i-1`)
     expect(payload).toEqual({
       title: `Hello`,
       body: `World`,
       data: { type: `issue_comment`, issueId: `i-1`, notificationId: `n-1`, userId: `u1` },
     })
-    // The sealed row is never part of a /send token batch.
-    const sentTokens = send.flatMap(
-      (c) => JSON.parse((c[1] as RequestInit).body as string).tokens
-    )
-    expect(sentTokens.sort()).toEqual([`t1-old`, `t2`])
+    expect(h.deleteCalls.count).toBe(0)
+  })
+
+  it(`carries a question's sealedText inside the sealed payload (#VAPP-45)`, async () => {
+    h.selectResults.push([row(`u1`, `cap_q`)])
+    fetchMock.mockResolvedValue(relayOk())
+    const sealedText = `exp-sealed:v1:1:${`A`.repeat(200)}`
+
+    await sendToUsers([{ userId: `u1` }], {
+      title: `T needs you`,
+      body: `New message in a session`,
+      data: { type: `agent_message`, sessionId: `s-1`, rootId: `s-1`, sealedText },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const { body, payload } = openBody(fetchMock.mock.calls[0])
+    expect(JSON.stringify(body)).not.toContain(sealedText)
+    expect(payload.data.sealedText).toBe(sealedText)
+    expect(payload.data.userId).toBe(`u1`)
+    expect(payload.body).toBe(`New message in a session`)
+  })
+
+  it(`never posts when every row is bare`, async () => {
+    h.selectResults.push([{ userId: `u1`, relayCapability: null, pushPublicKey: null }])
+
+    await sendToUsers([{ userId: `u1` }], { title: `Hi`, data: {} })
+
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(h.deleteCalls.count).toBe(0)
   })
 
   it(`deletes rows whose install is gone (410) or capability revoked (401)`, async () => {
-    h.selectResults.push([
-      { userId: `u1`, token: `t1`, relayCapability: `cap_gone`, pushPublicKey: pub },
-      { userId: `u2`, token: `t2`, relayCapability: `cap_revoked`, pushPublicKey: pub },
-      { userId: `u3`, token: `t3`, relayCapability: `cap_busy`, pushPublicKey: pub },
-    ])
+    h.selectResults.push([row(`u1`, `cap_gone`), row(`u2`, `cap_revoked`), row(`u3`, `cap_busy`)])
     const status: Record<string, number> = {
       "Bearer cap_gone": 410,
       "Bearer cap_revoked": 401,
@@ -366,19 +359,5 @@ describe(`sealedPlaintext budget`, () => {
     const data = { type: `agent_message`, rootId: `s`, userId: `u`, sealedText: `exp-sealed:v1:1:${`A`.repeat(1500)}` }
     const json = JSON.parse(Buffer.from(sealedPlaintext(`T`, `B`, data)).toString())
     expect(json.data).toEqual(data)
-  })
-})
-
-describe(`sendToUsers legacy /send (#VAPP-45)`, () => {
-  it(`never carries a question's sealedText`, async () => {
-    h.selectResults.push([{ userId: `u1`, token: `t1`, relayCapability: null, pushPublicKey: null }])
-    fetchMock.mockResolvedValue(relayOk())
-    await sendToUsers([{ userId: `u1` }], {
-      title: `T`,
-      body: `B`,
-      data: { type: `agent_message`, rootId: `s`, sealedText: `exp-sealed:v1:1:AAAA` },
-    })
-    const sent = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-    expect(sent.data).toEqual({ type: `agent_message`, rootId: `s`, userId: `u1` })
   })
 })

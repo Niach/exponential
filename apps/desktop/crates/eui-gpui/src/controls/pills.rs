@@ -171,6 +171,7 @@ pub fn glass_pill_button(
         .hover(custom_variant_fill(chrome.fill_active))
         .active(custom_variant_fill(chrome.fill_active))
         .foreground(foreground.opacity(0.7));
+    // a11y: named by the caller (its label, tooltip or `accessibility_label`).
     let button = gpui_component::button::Button::new(id)
         .custom(variant)
         .border_1()
@@ -200,6 +201,7 @@ pub fn glass_pill_button_primary(
     size: PillSize,
 ) -> gpui_component::button::Button {
     use gpui_component::button::ButtonVariants as _;
+    // a11y: named by the caller (its label, tooltip or `accessibility_label`).
     let button = gpui_component::button::Button::new(id).primary();
     match size {
         PillSize::Sm => button.web_xs().rounded_full(),

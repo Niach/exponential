@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-08-app-editor-says-why`,
+    date: `2026-11-08`,
+    title: `The app editor says why nothing starts`,
+    summary: `The app editor's header shows its status and device, like queued · no device online, and its + menu picks the Device, Account and Model it builds on.`,
+    body: `- **App editor**: the header shows what the editor session is doing and on which device, for example \`queued · no device online\`, so a stuck start is never silent.
+- **Pick where it builds**: the app editor's + menu has Device, Account and Model, like every chat, and the first message starts on what you picked.`,
+  },
+  {
     id: `2026-11-08-auto-merge-for-every-team`,
     date: `2026-11-08`,
     title: `Auto-merge for every team`,

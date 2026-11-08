@@ -3206,6 +3206,92 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v103 (#EXP-1730 phase A, the one-tree model): the readers move off
+        // `conversations` onto the session tree. `messages.session_id` (NULL
+        // only on a dm/channel row), `sessions.digest` (the list digest, JSON
+        // text), `agents.defaults` (the runner defaults object, JSON text,
+        // '{}' = none) and `apps.agent_id` arrive as guarded additive ALTERs,
+        // backfilled from the local rows so nothing blanks before the resync,
+        // and each shape's cursor resets only when its column was added so
+        // synced rows re-arrive carrying the server's values. Then the
+        // `conversations` table drops with its cursor: nothing reads it, the
+        // shape is no longer subscribed.
+        migrator.registerMigration("v103_one_tree_additive") { db in
+            var reset: [String] = []
+            let hasConversations = try db.tableExists("conversations")
+            if try db.tableExists("messages"),
+               try db.columns(in: "messages").contains(where: { $0.name == "session_id" }) == false {
+                try db.alter(table: "messages") { t in
+                    t.add(column: "session_id", .text)
+                }
+                if hasConversations {
+                    try db.execute(sql: """
+                        UPDATE "messages" SET "session_id" = (
+                            SELECT NULLIF("c"."session_id", '') FROM "conversations" "c"
+                            WHERE "c"."id" = "messages"."conversation_id"
+                        )
+                        """)
+                }
+                reset.append("messages")
+            }
+            if try db.tableExists("messages") {
+                try db.execute(sql: """
+                    CREATE INDEX IF NOT EXISTS "messages_on_session_id"
+                    ON "messages"("session_id")
+                    """)
+            }
+            if try db.tableExists("sessions"),
+               try db.columns(in: "sessions").contains(where: { $0.name == "digest" }) == false {
+                try db.alter(table: "sessions") { t in
+                    t.add(column: "digest", .text)
+                }
+                if hasConversations,
+                   try db.columns(in: "conversations").contains(where: { $0.name == "digest" }) {
+                    try db.execute(sql: """
+                        UPDATE "sessions" SET "digest" = (
+                            SELECT "c"."digest" FROM "conversations" "c"
+                            WHERE "c"."session_id" = "sessions"."id" AND "c"."digest" IS NOT NULL
+                            LIMIT 1
+                        )
+                        """)
+                }
+                reset.append("sessions")
+            }
+            if try db.tableExists("agents"),
+               try db.columns(in: "agents").contains(where: { $0.name == "defaults" }) == false {
+                try db.alter(table: "agents") { t in
+                    t.add(column: "defaults", .text).notNull().defaults(to: "{}")
+                }
+                let legacy = Set(try db.columns(in: "agents").map(\.name))
+                if legacy.isSuperset(of: ["device_id", "cli", "account", "model"]) {
+                    try db.execute(sql: """
+                        UPDATE "agents" SET "defaults" = json_object(
+                            'deviceId', "device_id", 'cli', "cli", 'account', "account", 'model', "model"
+                        )
+                        """)
+                }
+                reset.append("agents")
+            }
+            if try db.tableExists("apps"),
+               try db.columns(in: "apps").contains(where: { $0.name == "agent_id" }) == false {
+                try db.alter(table: "apps") { t in
+                    t.add(column: "agent_id", .text)
+                }
+                reset.append("apps")
+            }
+            try db.execute(sql: "DROP TABLE IF EXISTS \"conversations\"")
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: "DELETE FROM \"electric_offsets\" WHERE \"shape\" = 'conversations'")
+                for shape in reset {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = ?
+                        """, arguments: [shape])
+                }
+            }
+        }
+
         return migrator
     }
 
@@ -3527,8 +3613,6 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pull_request_checks")
             try db.execute(sql: "DELETE FROM pull_requests")
             try db.execute(sql: "DELETE FROM messages")
-            // NEW-3: a session's conversation, wiped with its messages.
-            try db.execute(sql: "DELETE FROM conversations")
             try db.execute(sql: "DELETE FROM session_issues")
             try db.execute(sql: "DELETE FROM sessions")
             // VAPP-110: the team's apps, their records (VAPP-122) and versions.

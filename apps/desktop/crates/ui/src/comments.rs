@@ -349,6 +349,7 @@ fn comment_card_content(
                     // reads as a second surface. Edit stays author-only;
                     // SLOP-4: a reporter's comment offers Delete alone.
                     Button::new(SharedString::from(format!("comment-menu-{comment_id}")))
+                        .accessibility_label("Comment actions")
                         .ghost()
                         .web_icon_xs()
                         .icon(Icon::new(registry::UI_MORE_VERTICAL))
@@ -585,6 +586,8 @@ pub(crate) fn comment_row(
             let parent_id = comment_id.clone();
             div()
                 .id(SharedString::from(format!("comment-reply-{comment_id}")))
+                .role(gpui::Role::Button)
+                .aria_label("Leave a reply…")
                 .w_full()
                 .py_1()
                 .text_xs()
@@ -806,6 +809,7 @@ fn composer_submit_button(
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> Button {
     crate::composer::composer_submit(id, registry::UI_SUBMIT, disabled, cx)
+        .accessibility_label("Send comment")
         .loading(submitting)
         .on_click(cx.listener(move |this, _, window, cx| match scope {
             PendingScope::Reply => this.submit_reply(window, cx),

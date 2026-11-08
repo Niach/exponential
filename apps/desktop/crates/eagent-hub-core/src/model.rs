@@ -302,8 +302,10 @@ pub struct HubAgent {
     pub owner_id: String,
     pub team_id: String,
     pub role: AgentRole,
-    /// The owner's conversation session with the agent (where firings land).
-    pub conversation_id: String,
+    /// #EXP-1730: the agent's ONE root session, its persistent chat (where firings land; its runs are
+    /// child sessions). Phase A: the owner's conversation with it. `conversationId` = the old name.
+    #[serde(alias = "conversationId")]
+    pub root_session_id: String,
     pub triggers: Vec<Trigger>,
     /// triggerId → the due minute it last fired for.
     pub fired_at: BTreeMap<String, i64>,
@@ -317,6 +319,10 @@ pub struct HubState {
     pub messages: Vec<HubMessage>,
     pub devices: BTreeMap<String, HubDevice>,
     pub agents: BTreeMap<String, HubAgent>,
+    /// #EXP-1735: teamId → the team's LEAD Assistant (`teams.lead_assistant_id`), the one every member's
+    /// Assistant reports to. A team without one is absent.
+    #[serde(default)]
+    pub leads: BTreeMap<String, String>,
 }
 
 /// Everything the hub does besides its own state.

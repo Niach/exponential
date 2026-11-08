@@ -287,7 +287,7 @@ pub(crate) fn chat_selectable(
     cx: &App,
 ) -> Stateful<Div> {
     let cell = match select {
-        Some((selected, selecting)) => select_cell(key, selected, selecting, on_toggle, cx).into_any_element(),
+        Some((selected, selecting)) => select_cell(key, "Select".into(), selected, selecting, on_toggle, cx).into_any_element(),
         None => div().w(px(SELECT_CELL_W)).flex_shrink_0().into_any_element(),
     };
     let frame = div()
@@ -523,6 +523,9 @@ pub(crate) fn composer_agent_row(
         circles.push(
             div()
                 .id(SharedString::from(spec.test_ids.option.replace("{id}", &id)))
+                .role(gpui::Role::RadioButton)
+                .aria_label(name.clone())
+                .aria_toggled(if selected { gpui::Toggled::True } else { gpui::Toggled::False })
                 .flex_shrink_0()
                 .cursor_pointer()
                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx))

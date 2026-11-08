@@ -329,6 +329,7 @@ impl AppImportView {
             let (view, name) = (view.clone(), upstream.name.clone());
             let select = upstream_select(
                 SharedString::from(format!("{row_id}-picker")),
+                SharedString::from(upstream.name.clone()),
                 picker,
                 self.pending.active(),
                 move |value, cx| {

@@ -171,8 +171,14 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
     let legend_h = if entries.is_empty() { 0.0 } else { legend_lh + gap };
     let plot_h = (cx.h - title_h - legend_h).max(1.0);
     let width = cx.w;
+    // FEED-205: the tick and value labels the core formatted in the chart's
+    // `valueFormat` (`props.chart.tickLabels` / `valueLabels[s][i]`).
+    let labels_of = |v: Option<&Value>| v.and_then(Value::as_array).map(|a| a.iter().map(|v| display_text(Some(v))).collect::<Vec<_>>());
+    let tick_labels: Vec<String> = labels_of(chart.get("tickLabels")).unwrap_or_else(|| ticks.iter().map(|t| fmt_value(cx.formatter, *t)).collect());
+    let value_labels: Vec<Vec<String>> = chart.get("valueLabels").and_then(Value::as_array).map(|a| a.iter().map(|r| labels_of(Some(r)).unwrap_or_default()).collect()).unwrap_or_default();
+    let value_label = |si: usize, i: usize, v: f32| value_labels.get(si).and_then(|r| r.get(i)).cloned().unwrap_or_else(|| fmt_value(cx.formatter, v));
     // Gutters for the axes.
-    let y_label_w = if show_axes { ticks.iter().map(|t| fmt_value(cx.formatter, *t).chars().count()).max().unwrap_or(1) as f32 * axis_size * 0.62 + 8.0 } else { 0.0 };
+    let y_label_w = if show_axes { tick_labels.iter().map(|t| t.chars().count()).max().unwrap_or(1) as f32 * axis_size * 0.62 + 8.0 } else { 0.0 };
     let (pl, pr, pt) = if spark { (1.0, 1.0, 2.0) } else { (y_label_w.max(4.0), 8.0, if show_values || !y_label.is_empty() { 16.0 } else { 8.0 }) };
     let pb = if spark || slices { 2.0 } else if show_axes { 20.0 + if x_label.is_empty() { 0.0 } else { 14.0 } } else { 8.0 };
     let inner_w = (width - pl - pr).max(1.0);
@@ -340,11 +346,10 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
             }
         });
     if show_axes {
-        for t in &ticks {
+        for (ti, t) in ticks.iter().enumerate() {
             let y = y_of(*t);
-            plot = plot.child(
-                div().absolute().left_0().top(px(y - 7.0)).w(px(pl - 6.0)).h(px(14.0)).text_right().text_size(px(axis_size)).line_height(px(14.0)).text_color(axis_color).whitespace_nowrap().child(SharedString::from(fmt_value(cx.formatter, *t))),
-            );
+            let text = tick_labels.get(ti).cloned().unwrap_or_else(|| fmt_value(cx.formatter, *t));
+            plot = plot.child(div().absolute().left_0().top(px(y - 7.0)).w(px(pl - 6.0)).h(px(14.0)).text_right().text_size(px(axis_size)).line_height(px(14.0)).text_color(axis_color).whitespace_nowrap().child(SharedString::from(text)));
         }
         let slot = inner_w / n_cat as f32;
         for (i, c) in categories.iter().enumerate() {
@@ -363,7 +368,7 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
             let bw = slot * 0.7 / series.len().max(1) as f32;
             for (i, v) in s.values.iter().enumerate() {
                 let x = if kind == "bar" { pl + slot * i as f32 + slot * 0.15 + bw * si as f32 + bw / 2.0 } else { x_of(i) };
-                plot = plot.child(div().absolute().left(px(x - 20.0)).top(px(y_of(*v) - 15.0)).w(px(40.0)).text_center().text_size(px(axis_size)).line_height(px(14.0)).text_color(value_color).child(SharedString::from(fmt_value(cx.formatter, *v))));
+                plot = plot.child(div().absolute().left(px(x - 60.0)).top(px(y_of(*v) - 15.0)).w(px(120.0)).text_center().text_size(px(axis_size)).line_height(px(14.0)).text_color(value_color).whitespace_nowrap().child(SharedString::from(value_label(si, i, *v))));
             }
         }
     }
@@ -379,11 +384,11 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
         let mut body = div().flex().flex_col().gap(px(2.0)).text_size(px(fs)).line_height(px(fs + 4.0)).text_color(tip_fg).whitespace_nowrap();
         let (anchor_x, lines): (f32, Vec<(String, Hsla, String)>) = if slices {
             let label = categories.get(h).cloned().unwrap_or_default();
-            (width / 2.0, vec![(label, slice_colors.get(h).copied().unwrap_or(grid_color), slice_values.get(h).map(|v| fmt_value(cx.formatter, *v)).unwrap_or_default())])
+            (width / 2.0, vec![(label, slice_colors.get(h).copied().unwrap_or(grid_color), slice_values.get(h).map(|v| value_label(0, h, *v)).unwrap_or_default())])
         } else {
             let label = categories.get(h).cloned().unwrap_or_default();
             body = body.child(div().font_weight(gpui::FontWeight(600.0)).child(SharedString::from(label)));
-            (x_of(h), series.iter().map(|s| (s.name.clone(), s.color, s.values.get(h).map(|v| fmt_value(cx.formatter, *v)).unwrap_or_default())).collect())
+            (x_of(h), series.iter().enumerate().map(|(si, s)| (s.name.clone(), s.color, s.values.get(h).map(|v| value_label(si, h, *v)).unwrap_or_default())).collect())
         };
         for (name, color, value) in lines {
             body = body.child(div().flex().flex_row().items_center().gap(px(6.0)).child(div().size(px(8.0)).rounded(px(2.0)).bg(color)).child(SharedString::from(if name.is_empty() { value } else { format!("{name}: {value}") })));

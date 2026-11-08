@@ -6,7 +6,7 @@
 use serde_json::{json, Value};
 
 use super::{bool_prop, js, str_prop, Builder, NodeKind};
-use crate::chart::{chart_extent, nice_ticks, series_color, ChartSeries, DONUT_HOLE};
+use crate::chart::{chart_data, chart_extent, format_chart_value, nice_ticks, series_color, ValueFormat, DONUT_HOLE};
 use crate::code::tokenize_code;
 use crate::theme::RecipeQuery;
 
@@ -107,7 +107,15 @@ impl Builder<'_, '_> {
     pub(crate) fn chart(&mut self, index: u32) {
         let props = self.nodes[index as usize].props.clone();
         let kind = str_prop(&props, "kind").unwrap_or("bar").to_string();
-        let series: Vec<ChartSeries> = props.get("series").and_then(|s| serde_json::from_value(s.clone()).ok()).unwrap_or_default();
+        // FEED-205: `rows` + `categoryField` + series `field`s resolve here
+        // into plain `categories` / `series[].values`, which painters read.
+        let (categories, series) = chart_data(&props);
+        if props.get("rows").is_some_and(Value::is_array) {
+            let node = &mut self.nodes[index as usize].props;
+            node.insert("categories".into(), json!(categories));
+            let n = crate::json::number;
+            node.insert("series".into(), Value::Array(series.iter().map(|s| json!({"name": s.name, "values": s.values.iter().map(|v| if v.is_finite() { n(*v) } else { Value::Null }).collect::<Vec<_>>(), "tone": s.tone})).collect()));
+        }
         let extent = chart_extent(&kind, &series, props.get("min").and_then(Value::as_f64), props.get("max").and_then(Value::as_f64));
         let ticks = nice_ticks(extent.min, extent.max, 5);
         let slices = matches!(kind.as_str(), "pie" | "donut");
@@ -116,9 +124,11 @@ impl Builder<'_, '_> {
         let legend = props.get("showLegend").and_then(Value::as_bool).unwrap_or(true) && count >= 2 && kind != "sparkline";
         let n = crate::json::number;
         // Round 2 §3: tick and value labels through the surface formatter
-        // with its default digits (0..3), like the reference's
-        // `formatter.number(v)`. `valueLabels[s][i]` = series s, value i.
-        let fmt = |v: f64| self.ctx.formatter.number(v, crate::format::NumberOptions::default());
+        // in the chart's `valueFormat` (FEED-205; default the formatter's
+        // number, 0..3 digits), like the reference's `formatChartValue`.
+        // `valueLabels[s][i]` = series s, value i (the tooltip's too).
+        let value_format = ValueFormat::of(props.get("valueFormat"));
+        let fmt = |v: f64| if v.is_finite() { format_chart_value(self.ctx.formatter, v, &value_format) } else { String::new() };
         let labels: Vec<String> = ticks.ticks.iter().map(|t| fmt(*t)).collect();
         let value_labels: Vec<Vec<String>> = series.iter().map(|s| s.values.iter().map(|v| fmt(*v)).collect()).collect();
         let chart = json!({

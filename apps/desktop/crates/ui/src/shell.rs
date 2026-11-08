@@ -1293,6 +1293,7 @@ impl Shell {
         if !matches!(phase, UpdatePhase::Downloading { .. } | UpdatePhase::Installing) {
             banner = banner.child(
                 Button::new("update-dismiss")
+                    .accessibility_label("Dismiss")
                     .ghost().cursor_pointer()
                     .small()
                     .icon(registry::UI_CLOSE)

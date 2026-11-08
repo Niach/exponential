@@ -38,8 +38,6 @@ data class SessionsSendInput(
     val effort: String? = null,
     val computerUse: Boolean? = null,
     val ultracode: Boolean? = null,
-    /** EXP-1583: claude only — the model its subagents run on. */
-    val subagentModel: String? = null,
     val mcpServerIds: List<String>? = null,
     /** #EXP-1661: the skills a NEW root runs with (omitted when none). */
     val skillIds: List<String>? = null,
@@ -93,7 +91,6 @@ data class SessionsSendInput(
             effort: String? = null,
             computerUse: Boolean? = null,
             ultracode: Boolean? = null,
-            subagentModel: String? = null,
             mcpServerIds: List<String>? = null,
             skillIds: List<String>? = null,
         ): SessionsSendInput = SessionsSendInput(
@@ -105,7 +102,6 @@ data class SessionsSendInput(
             effort = effort,
             computerUse = computerUse,
             ultracode = ultracode,
-            subagentModel = subagentModel?.takeIf { it.isNotEmpty() },
             mcpServerIds = mcpServerIds?.takeIf { it.isNotEmpty() },
             skillIds = skillIds?.takeIf { it.isNotEmpty() },
             text = text?.takeIf { it.isNotBlank() },

@@ -120,6 +120,11 @@ impl RenderOnce for IconPickerElement {
         // row, so they share ONE height — the 32px control rung (`CTL_MD_H`,
         // web h-9's desktop twin).
         let mut trigger = Button::new(SharedString::from(format!("{id_prefix}-icon-trigger")))
+            .accessibility_label(if has_pick {
+                format!("Icon: {selected}")
+            } else {
+                "Pick an icon".to_string()
+            })
             .outline()
             .cursor_pointer()
             .size(px(crate::controls::CTL_MD_H))
@@ -220,6 +225,11 @@ pub(crate) fn color_picker(
     let fill =
         crate::settings::parse_hex_color(&selected).unwrap_or(cx.theme().muted_foreground);
     let trigger = Button::new(SharedString::from(format!("{id_prefix}-color-trigger")))
+        .accessibility_label(if selected.is_empty() {
+            "Pick a color".to_string()
+        } else {
+            format!("Color: {selected}")
+        })
         .outline()
         .cursor_pointer()
         .size(px(crate::controls::CTL_MD_H))
@@ -278,6 +288,9 @@ pub(crate) fn icon_swatch_grid(
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("{id_prefix}-icon-{name}")))
+                .role(gpui::Role::Button)
+                .aria_label(name)
+                .aria_toggled(if is_selected { gpui::Toggled::True } else { gpui::Toggled::False })
                 .size(px(ICON_CELL))
                 .flex()
                 .items_center()
@@ -322,6 +335,9 @@ pub(crate) fn color_swatch_grid(
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("{id_prefix}-swatch-{color}")))
+                .role(gpui::Role::Button)
+                .aria_label(color)
+                .aria_toggled(if is_selected { gpui::Toggled::True } else { gpui::Toggled::False })
                 .size(px(24.))
                 .rounded_full()
                 .p(px(2.))

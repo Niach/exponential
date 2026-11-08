@@ -345,7 +345,6 @@
         "mcpServerIds (set)",
         "computerUse",
         "ultracode",
-        "subagentModel",
         "resume (the composer's Resume toggle; absent = false)"
       ],
       "cases": [
@@ -372,8 +371,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -396,8 +394,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": true
         },
@@ -424,8 +421,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -448,8 +444,7 @@
               "m1"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": true
         },
@@ -476,8 +471,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -500,8 +494,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -528,8 +521,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -552,8 +544,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -580,8 +571,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -604,8 +594,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -632,8 +621,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -656,8 +644,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -684,8 +671,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -707,8 +693,7 @@
               "m1"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -735,8 +720,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -759,8 +743,7 @@
               "m2"
             ],
             "computerUse": true,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -787,8 +770,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d2",
@@ -811,8 +793,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -839,8 +820,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -863,8 +843,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -891,8 +870,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -916,8 +894,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "same": false
         },
@@ -944,8 +921,7 @@
               "m2"
             ],
             "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
+            "ultracode": false
           },
           "b": {
             "deviceId": "d1",
@@ -969,7 +945,6 @@
             ],
             "computerUse": null,
             "ultracode": false,
-            "subagentModel": null,
             "resume": true
           },
           "same": false

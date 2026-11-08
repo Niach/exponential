@@ -185,7 +185,7 @@ pub(crate) fn comment_attachments_strip(
                 Some(images),
                 cx,
             );
-            images_column = images_column.child(with_remove_badge(element, &row.id, remove, cx));
+            images_column = images_column.child(with_remove_badge(element, row, remove, cx));
         } else {
             any_file = true;
             files_row = files_row.child(file_chip(row, remove, cx));
@@ -262,6 +262,8 @@ fn image_tile(
             "comment-attachment-image-{}",
             attachment.id
         )))
+        .role(gpui::Role::Button)
+        .aria_label(format!("View {label}"))
         .flex_shrink_0()
         .rounded(px(theme::tokens::radius::LG))
         .overflow_hidden()
@@ -306,7 +308,7 @@ fn image_tile(
             }
         });
 
-    with_remove_badge(tile.into_any_element(), &attachment.id, remove, cx)
+    with_remove_badge(tile.into_any_element(), attachment, remove, cx)
 }
 
 /// Edit mode's ✕ over a large tile's top-right corner (web's
@@ -314,7 +316,7 @@ fn image_tile(
 /// opening the lightbox / player. `None` = the tile as it is.
 fn with_remove_badge(
     tile: gpui::AnyElement,
-    attachment_id: &str,
+    attachment: &Attachment,
     remove: Option<impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>,
     cx: &App,
 ) -> gpui::AnyElement {
@@ -327,10 +329,11 @@ fn with_remove_badge(
                 // EXP-862: a GHOST close glyph, at the 24px size — a 32px
                 // badge covers half a 64px thumbnail.
                 crate::controls::ghost_icon_button(
-                    SharedString::from(format!("comment-attachment-remove-{attachment_id}")),
+                    SharedString::from(format!("comment-attachment-remove-{}", attachment.id)),
                     Icon::new(registry::UI_CLOSE),
                     cx,
                 )
+                .accessibility_label(format!("Delete {}", attachment_label(attachment)))
                 .web_icon_xs()
                 .absolute()
                 .top(px(-6.))
@@ -408,6 +411,7 @@ fn file_chip(
                 "comment-attachment-remove-{}",
                 attachment.id
             )))
+            .accessibility_label(format!("Delete {label}"))
             .ghost()
             .with_size(px(16.))
             .rounded_full()
@@ -612,6 +616,7 @@ fn pending_chip(
                 "comment-pending-remove-{}-{key}",
                 scope.id_prefix()
             )))
+            .accessibility_label(format!("Remove {}", item.filename))
             .ghost()
             .with_size(px(16.))
             .rounded_full()

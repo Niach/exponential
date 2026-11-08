@@ -10,13 +10,11 @@ import {
   agentEffortValues,
   agentModelValues,
   agentSupportsAccountRotation,
-  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
-import { contract } from "@exp/domain-contract"
 
 // The agent options cluster (EXP-257; the launch dialog's right half until
 // EXP-825 retired that dialog for the Agent page composer, whose inline
@@ -69,14 +67,6 @@ export function modelChoices(agent: string): ValueChoice[] {
   }))
 }
 
-/** The subagent model choices (claude's vocabulary whatever the agent). */
-export function subagentModelChoices(): ValueChoice[] {
-  return contract.codingModel.values.map((value) => ({
-    value,
-    label: modelLabel(value),
-  }))
-}
-
 export function effortLabel(value: string): string {
   return value === `xhigh` ? `XHigh` : modelLabel(value)
 }
@@ -101,14 +91,6 @@ type AgentOptionsFieldsProps = {
   onAgentChange: (agent: string) => void
   model: string
   onModelChange: (model: string) => void
-  /** EXP-981: claude's subagent model (explicit). Omit the pair entirely on
-   * a surface that does not edit it (a trigger). */
-  subagentModel?: string
-  onSubagentModelChange?: (model: string) => void
-  /** The dispatcher root's model (threads + team agents); the device
-   * settings edit it, right under Model. */
-  threadModel?: string
-  onThreadModelChange?: (model: string) => void
   effortValue: string
   onEffortChange: (effort: string) => void
   /**
@@ -134,10 +116,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     onAgentChange,
     model,
     onModelChange,
-    subagentModel,
-    onSubagentModelChange,
-    threadModel,
-    onThreadModelChange,
     effortValue,
     onEffortChange,
     device,
@@ -194,31 +172,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         models={modelOptions}
         disabled={!pinned}
       />
-      {onThreadModelChange && pinned && (
-        /* Owner 2026-10-15: the model a thread's or team agent's DISPATCHER
-           root runs on, right under Model, the same row component. */
-        <ModelPicker
-          triggerVariant="row"
-          width="md"
-          mobileTitle="Chat model"
-          value={threadModel || null}
-          onChange={onThreadModelChange}
-          models={modelOptions}
-          data-testid={`${idPrefix}-thread-model`}
-        />
-      )}
-      {onSubagentModelChange && agentSupportsSubagentModel(agent) && (
-        /* EXP-981: claude only — the model its SUBAGENTS run on (explicit,
-           contract default Opus). */
-        <ModelPicker
-          triggerVariant="row"
-          width="md"
-          mobileTitle="Subagent model"
-          value={subagentModel || null}
-          onChange={onSubagentModelChange}
-          models={subagentModelChoices()}
-        />
-      )}
       <EffortPicker
         mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
         value={effortValue === `` ? effortSentinel : effortValue}

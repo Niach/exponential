@@ -361,6 +361,7 @@ impl WidgetPane {
             )
             .child(
                 // The switch and the menu are their own targets.
+                // a11y: a click guard, not a control
                 h_flex()
                     .id(SharedString::from(format!("widget-controls-{}", widget.id)))
                     .flex_shrink_0()

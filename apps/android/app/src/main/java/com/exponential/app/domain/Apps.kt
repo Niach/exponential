@@ -274,6 +274,45 @@ object Apps {
         return EditorDeviceChoice(deviceId, move = root != null && deviceId != root.deviceId)
     }
 
+    /** #EXP-1729 (`editorHeaderCases`, apps.json `editorHeader`): the editor
+     *  header's `status · device` subtitle and its tone. */
+    object EditorHeader {
+        const val QUEUED = "queued"
+        const val NEEDS_INPUT = "needs input"
+        const val WORKING = "working…"
+        const val NO_DEVICE_ONLINE = "no device online"
+    }
+
+    enum class EditorHeaderTone(val wire: String) { Attention("attention"), Active("active"), Muted("muted") }
+
+    data class EditorHeaderRoot(val status: String, val busy: Boolean, val needsInput: Boolean)
+
+    /** [name] = the device label, else its id. */
+    data class EditorHeaderDevice(val name: String, val online: Boolean)
+
+    data class EditorHeaderValue(val subtitle: String, val tone: EditorHeaderTone)
+
+    /** [root] = my editor root (null = none); [device] = the device the
+     *  composer shows ([editorDevice]'s pick; null = none). */
+    fun editorHeader(root: EditorHeaderRoot?, device: EditorHeaderDevice?): EditorHeaderValue {
+        val live = root != null && root.status != DomainContract.sessionStatusEnded
+        val word = when {
+            !live -> null
+            root!!.needsInput -> EditorHeader.NEEDS_INPUT
+            root.busy -> EditorHeader.WORKING
+            root.status == DomainContract.sessionStatusQueued -> EditorHeader.QUEUED
+            else -> null
+        }
+        val offline = device?.online != true
+        val subtitle = listOfNotNull(word, if (offline) EditorHeader.NO_DEVICE_ONLINE else device!!.name).joinToString(" · ")
+        val tone = when {
+            (live && root!!.needsInput) || offline -> EditorHeaderTone.Attention
+            live && (root!!.busy || root.status == DomainContract.sessionStatusQueued) -> EditorHeaderTone.Active
+            else -> EditorHeaderTone.Muted
+        }
+        return EditorHeaderValue(subtitle, tone)
+    }
+
     // Contract `apps` (packages/domain-contract/contract.json), locked by AppsTest.
     const val SLUG_MAX = 64
     const val NAME_MAX = 64

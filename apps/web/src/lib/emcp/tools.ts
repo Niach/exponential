@@ -65,6 +65,7 @@ import { db } from "@/db/connection"
 import { answeredMessageFiles, forwardMessageFiles } from "@/lib/sessions/forward-attachments"
 import {
   agents,
+  apps,
   prompts,
   skills,
   attachments,
@@ -4363,7 +4364,7 @@ export function registerExponentialTools(
     `exponential_agents_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's agents: id, name, triggers (schedules and the event names they listen on), device and owner. Message one with exponential_sessions_send {agentId, text}.`,
+      description: `List a team's agents: id, name, triggers (schedules and the event names they listen on), device and owner. lead: true = the team's lead Assistant, whom every member's Assistant reports to. Message one with exponential_sessions_send {agentId, text}.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {
@@ -4389,7 +4390,14 @@ export function registerExponentialTools(
         const agent = await loadAgentForUser(user.id, id)
         if (!access.full) assertTeamFullyGranted(access, agent.teamId)
         const { triggerState: _state, ...rest } = agent
-        return ok(rest)
+        // #EXP-1730: its root session (phase A: your conversation with it)
+        // and the app it builds, if any.
+        const [[root], [app]] = await Promise.all([
+          db.select({ id: sessions.id }).from(sessions)
+            .where(and(eq(sessions.agentId, id), eq(sessions.userId, user.id), isNull(sessions.parentId))).limit(1),
+          db.select({ slug: apps.slug }).from(apps).where(and(eq(apps.agentId, id), isNull(apps.deletedAt))).limit(1),
+        ])
+        return ok({ ...rest, rootSessionId: root?.id ?? null, appSlug: app?.slug ?? null })
       } catch (e) {
         return err(e)
       }

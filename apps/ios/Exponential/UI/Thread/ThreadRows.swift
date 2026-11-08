@@ -27,8 +27,8 @@ enum ThreadPage: Hashable {
 }
 
 /// VAPP-110: what an app EDITOR puts into the thread screen hosting its
-/// chat (`ThreadScreen.editor`): the header title (glyph + name + version
-/// pill), the band under it (the Chat | Preview | Versions control) and the
+/// chat (`ThreadScreen.editor`): the chat header's title block (#EXP-1729:
+/// the app's disc + name over `status · device`), the band under it (the Chat | Preview | Versions control) and the
 /// pane covering the Conversation (nil = the Chat tab); VAPP-121: the
 /// header's trailing round button (Export; nil = none).
 struct ThreadEditorSlot {
@@ -39,6 +39,21 @@ struct ThreadEditorSlot {
     /// #FEED-204: the composer's Device row and an ended root's move.
     var device: SessionComposerFooter.DeviceMenu? = nil
     var appMove: ThreadComposerDraft.AppMove? = nil
+    /// #EXP-1729: the composer's Account and Model rows.
+    var picks: ThreadEditorPicks? = nil
+}
+
+/// #EXP-1729 (composer-menu.json `account`/`model`, an app editor's
+/// composer, always): THE launch composer's Account and Model rows while the
+/// root is ended (a pick rides the next send); a live root reads its own
+/// (the session switches), `liveAccount` standing in when its own switch
+/// offers no row.
+struct ThreadEditorPicks {
+    let account: SessionComposerFooter.AccountMenu
+    let agent: String
+    let model: String
+    let onPickModel: (String) -> Void
+    var liveAccount: SessionComposerFooter.AccountMenu?
 }
 
 /// EXP-1295: everything ONE root's screen reads, in one snapshot — the root
@@ -53,7 +68,7 @@ struct ThreadRows: Sendable {
     let sessionIssues: [SessionIssueEntity]
     /// The root's linked issues in link order.
     let issues: [IssueEntity]
-    /// NEW-8: keyed through their conversations (`SessionMessage`).
+    /// #EXP-1730: keyed by `messages.session_id` (`SessionMessage`).
     let messages: [SessionMessage]
     let pullRequests: [PullRequestEntity]
     /// Per pull request id, the issues it closes (`pull_request_issues`).
@@ -472,9 +487,9 @@ struct ThreadRows: Sendable {
                 SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || ifnull(max("m"."created_at"), '')
                     || ':' || ifnull(sum(length("m"."body")), 0) || ':' || ifnull(sum(length("m"."card")), 0)
                     || ':' || count("m"."answered_at") || ':' || count("m"."consumed_at")
-                    || ':' || ifnull(group_concat(DISTINCT "c"."session_id"), '')
-                FROM "messages" "m" JOIN "conversations" "c" ON "c"."id" = "m"."conversation_id"
-                WHERE "m"."root_id" = ?1 AND "c"."session_id" IS NOT NULL AND "c"."session_id" <> ''
+                    || ':' || ifnull(group_concat(DISTINCT "m"."session_id"), '')
+                FROM "messages" "m"
+                WHERE "m"."root_id" = ?1 AND "m"."session_id" IS NOT NULL AND "m"."session_id" <> ''
                 """, arguments: [id]) ?? "",
             try stamp(db, table: "users", where: "\"id\" IN (SELECT \"author_id\" FROM \"messages\" WHERE \"root_id\" = ?1)", id),
             try digest(db, table: "session_issues", where: "\"session_id\" = ?1", id),
@@ -493,8 +508,8 @@ struct ThreadRows: Sendable {
         // #EXP-1464: the question / plan cards of the sessions cards name.
         parts.append(try String.fetchOne(db, sql: """
             SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || count("m"."answered_at")
-            FROM "messages" "m" JOIN "conversations" "c" ON "c"."id" = "m"."conversation_id"
-            WHERE "m"."root_id" <> ?1 AND "c"."session_id" IN (\(named))
+            FROM "messages" "m"
+            WHERE "m"."root_id" <> ?1 AND "m"."session_id" IN (\(named))
                 AND json_valid("m"."card") AND json_extract("m"."card", '$.kind') IN ('question', 'plan')
             """, arguments: [id]) ?? "")
         // S-3: the team's agents (the marks of the links).

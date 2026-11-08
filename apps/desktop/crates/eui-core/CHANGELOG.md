@@ -6,6 +6,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Tabs `swipeable` (#FEED-200): `swipe::{swipe_lock, swipe_step, swipe_offset, swipe_settle, swipe_progress, swipe_indicator, swipe_blocks}` + the `SWIPE_*` constants (`fixtures/swipe.json`); `Surface::event(index, "swipe", {phase: start|move|end|cancel, offset, velocity})` on a swipeable Tabs (its root or `content`) draws the panels and the `thumb` part at the drawn offset (paint-only `transform`, no transition under the finger) and settles on release (`value` written through, `change`). `LocalState.tab_swipe` / `tab_pager` (`TabPager`, measured after each pass).
+- Chart `valueFormat` + rows (#FEED-205): `chart::format_chart_value` / `ValueFormat` fill `props.chart.tickLabels` and `valueLabels` in the chart's format; `Formatter::compact` (default: `format::compose_compact` over `number`/`currency`); `chart::chart_data` resolves `rows` + `categoryField` + series `field` into `categories`/`series`.
+- Pixel snapping (EXP-1629): `Surface::set_pixel_snap(Some(scale))` lays out on the device-pixel grid the way gpui's own layout does: absolute lengths round to it before layout (a non-zero border to at least one device pixel), measured sizes round up to it, and every box's outer edges round in absolute coordinates after layout, half a pixel toward zero. Off by default.
 - A streamed 0.9 surface costs linear again: the upgrade bridge advances its id maps in place and keeps their inverse, instead of copying both per message (`upgrade_message09_in`, #EXP-1742).
 
 ## 0.19.1 (2026-11-07)

@@ -13,19 +13,13 @@
 // mirror.
 
 import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
-import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential_app/eui"
+import { chartData, chartExtent, chartSummaryParams, formatChartValue, niceTicks, seriesColor, DONUT_HOLE, type ChartValueFormat } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useElementSize } from "../platform"
 import { tokenVar, visualScale } from "@exponential_app/eui/web"
-import { arr, bool, num, str, useParts, objects } from "./shared"
-
-interface Series {
-  name: string
-  values: number[]
-  tone?: string
-}
+import { bool, num, str, useParts } from "./shared"
 
 const colorVar = (i: number, tone?: string) => tokenVar(seriesColor(i, tone)) ?? `currentColor`
 const AXIS_FONT = 11
@@ -37,9 +31,9 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const kind = str(props.kind, `bar`)
   const sparkline = kind === `sparkline`
   const round = kind === `pie` || kind === `donut`
-  const series = objects<Series>(props.series).map((s) => ({ name: str(s?.name), tone: s?.tone, values: arr<unknown>(s?.values).map((v) => num(v, NaN)) }))
+  // FEED-205: `rows` + `categoryField` + series `field`s, else the props.
+  const { categories, series } = chartData(props)
   const longest = Math.max(0, ...series.map((s) => s.values.length))
-  const categories = arr<unknown>(props.categories).map(String)
   const n = Math.max(categories.length, longest)
   // Round 2 §7: `height` = the WHOLE chart box (title, legend and axes
   // inside); the plot takes what is left of it.
@@ -52,8 +46,9 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const width = Math.max(40, size.width || 320)
   const height = Math.max(16, size.measured && size.height > 0 ? size.height : boxHeight)
   // Ticks, value labels, the tooltip and the summary format through the
-  // surface Formatter (round 2 §3).
-  const fmt = useMemo(() => ({ format: (v: number) => ctx.formatter.number(v) }), [ctx.formatter])
+  // surface Formatter (round 2 §3) in the chart's `valueFormat` (FEED-205).
+  const valueFormat = props.valueFormat as ChartValueFormat | undefined
+  const fmt = useMemo(() => ({ format: (v: number) => formatChartValue(ctx.formatter, v, valueFormat) }), [ctx.formatter, JSON.stringify(valueFormat ?? null)])
   const [active, setActive] = useState<number | null>(null)
   const plotRef = useRef<SVGSVGElement>(null)
 

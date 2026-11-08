@@ -1024,7 +1024,7 @@ public enum Chats {
 
 extension Chats {
     /// `digestMessages` (chats.json `digestCases`, TS `chats.ts`): a
-    /// conversation's server-kept digest (`conversations.digest`) back as the
+    /// session's server-kept digest (#EXP-1730: `sessions.digest`) back as the
     /// TreeMessages every list rule reads — its messages (first, preview,
     /// waiting; once each), one bodiless agent message per kept agent time
     /// (a time a kept agent message already stands for is skipped, compared

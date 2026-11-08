@@ -35,7 +35,7 @@ export interface HubSession {
   shared: boolean
   /** A team agent's conversation (persistent: it never ends). */
   agentId: string | null
-  /** The agent whose session started this root. */
+  /** The agent whose session started this root (#EXP-1730 phase B: becomes the agent root as `parentId`). */
   startedByAgentId: string | null
   /** #EXP-1402: the ended sibling this row continues (its lineage). */
   continuedFromId: string | null
@@ -88,7 +88,7 @@ export type Card =
 
 export interface HubMessage {
   id: string
-  /** The conversation (session) it is in. */
+  /** The session it is in (#EXP-1730: `messages.session_id`). */
   sessionId: string
   authorKind: `user` | `agent` | `system`
   /** The session that wrote it into another's conversation (the bus, a send). */
@@ -124,8 +124,9 @@ export interface HubAgent {
   teamId: string
   /** `assistant` watches all its member's chats (its quiet-tick rule). */
   role: `agent` | `assistant`
-  /** The owner's conversation session with the agent (where firings land). */
-  conversationId: string
+  /** #EXP-1730: the agent's ONE root session, its persistent chat (where firings land; its runs are
+   *  child sessions). Phase A: the owner's conversation with it. */
+  rootSessionId: string
   triggers: Trigger[]
   /** triggerId → the due minute it last fired for. */
   firedAt: Record<string, number>
@@ -138,6 +139,9 @@ export interface HubState {
   messages: HubMessage[]
   devices: Record<string, HubDevice>
   agents: Record<string, HubAgent>
+  /** #EXP-1735: teamId → the team's LEAD Assistant (`teams.lead_assistant_id`), the one every member's Assistant
+   *  reports to. A team without one is absent. */
+  leads: Record<string, string>
 }
 
 /** Everything the hub does besides its own state: rows it posts, edits,

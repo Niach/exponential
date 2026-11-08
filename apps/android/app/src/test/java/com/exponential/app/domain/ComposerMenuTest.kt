@@ -81,7 +81,6 @@ class ComposerMenuTest {
                     account = b("account"),
                     model = b("model"),
                     repositories = b("repositories"),
-                    subagentModel = b("subagentModel"),
                     ultracode = b("ultracode"),
                     mcp = b("mcp"),
                     skills = b("skills"),

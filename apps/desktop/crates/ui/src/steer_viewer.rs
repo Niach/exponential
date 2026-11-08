@@ -429,6 +429,10 @@ pub(crate) struct SteerSessionView {
     /// #FEED-204 (apps.json EDITOR DEVICE): an app editor's Device row and
     /// where its next send goes; `None` on every other composer.
     editor_device: Option<crate::device_move::EditorDevice>,
+    /// #EXP-1729 (apps.json `editorHeader`): an ENDED app editor root's held
+    /// Account / Model picks (THE launch rows; they ride its next send);
+    /// `None` on every other composer and on a live root.
+    editor_runner: Option<crate::launch_options::EditorRunner>,
     /// EXP-1294: whether the signed-in person may message (and Stop) this
     /// session — a SHARED session any team member, a private one only its
     /// starter. Re-read with the row.
@@ -780,10 +784,6 @@ impl SteerSessionView {
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| {
                 this.refresh_replies(cx);
             }));
-            // NEW-8: a message's session is its conversation's.
-            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| {
-                this.refresh_replies(cx);
-            }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
@@ -849,6 +849,7 @@ impl SteerSessionView {
             teams_picked: None,
             teams_seed: None,
             editor_device: None,
+            editor_runner: None,
             may_message: false,
             guide_results: None,
             feed: SteerFeed::new(),
@@ -3693,8 +3694,13 @@ impl SteerSessionView {
         let scope = self.to_assistant(cx).then(|| self.teams_picked.clone());
         // #FEED-204: an ended editor root's send to another device.
         let editor_move = self.editor_device.as_ref().and_then(crate::device_move::EditorDevice::move_target);
+        // #EXP-1729: an ended editor root's held Account / Model picks ride
+        // the send (`{sessionId, text, account, model}`; reviveRoot applies
+        // them), or the move's `{appId, deviceId, …}`.
+        let editor_picks = self.editor_runner.as_ref().map(|runner| runner.picks.clone());
+        let editor_move = (editor_move, editor_picks);
         if self.pending_images.is_empty() {
-            let mut input = Self::message_input(editor_move.as_ref(), &self.session_id, &text, Vec::new());
+            let mut input = Self::message_input(&editor_move, &self.session_id, &text, Vec::new());
             input.scope_team_ids = scope;
             self.post_message(input, sent, window, cx);
             return;
@@ -3730,7 +3736,7 @@ impl SteerSessionView {
                     .map_err(|(resolved, error)| composer_images::UploadSendError::Upload(resolved, error))?;
                     let message = composer_images::uploaded_message(&text, &file_keys, &resolved);
                     let ids = resolved.iter().map(|(_, id, _)| id.clone()).collect();
-                    let mut input = Self::message_input(editor_move.as_ref(), &session_id, &message, ids);
+                    let mut input = Self::message_input(&editor_move, &session_id, &message, ids);
                     input.scope_team_ids = scope;
                     match crate::sealing::send_blocking(&trpc, &input, &plan) {
                         Ok(_) => Ok(()),
@@ -3770,20 +3776,43 @@ impl SteerSessionView {
         .detach();
     }
 
-    /// #FEED-204: a message into the session, or (`editor_move`: team, app,
-    /// device) the `sessions.send({appId, deviceId})` that revives an ended
-    /// editor root on another device.
+    /// #FEED-204: a message into the session, or (`editor_move`'s move:
+    /// team, app, device) the `sessions.send({appId, deviceId})` that revives
+    /// an ended editor root on another device; #EXP-1729: either naming the
+    /// held picks.
     fn message_input(
-        editor_move: Option<&(String, String, String)>,
+        (editor_move, picks): &EditorRevive,
         session_id: &str,
         text: &str,
         attachment_ids: Vec<String>,
     ) -> api::sessions::SendInput {
-        match editor_move {
+        let mut input = match editor_move {
             Some((team_id, app_id, device_id)) => {
                 crate::chat_launch::app_send_input(team_id, app_id, Some(device_id.as_str()), text, attachment_ids)
             }
             None => api::sessions::SendInput::message(session_id, text, attachment_ids),
+        };
+        if let Some(picks) = picks {
+            picks.apply(&mut input, false);
+        }
+        input
+    }
+
+    /// #EXP-1729: an ended app editor root's held Account / Model picks
+    /// (`None` anywhere else).
+    pub(crate) fn set_editor_runner(
+        &mut self,
+        runner: Option<crate::launch_options::EditorRunner>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let same = match (&self.editor_runner, &runner) {
+            (Some(current), Some(next)) => current.same_as(next),
+            (None, None) => true,
+            _ => false,
+        };
+        self.editor_runner = runner;
+        if !same {
+            cx.notify();
         }
     }
 
@@ -4133,6 +4162,11 @@ pub(crate) fn merge_ended_phase(current: &ViewerPhase, next: ViewerPhase) -> Vie
 /// out of scope: it can only make the caption appear a beat early, never
 /// hide a genuinely stalled run.
 pub(crate) type FeedPulse = (usize, Option<FeedItem>);
+
+/// #FEED-204 / #EXP-1729: an ended editor root's send: the move (team id,
+/// app id, device id; `None` = a plain message) and the held Account /
+/// Model picks.
+type EditorRevive = (Option<(String, String, String)>, Option<crate::launch_options::EditorPicks>);
 
 /// `first` and what the channel already holds, in order, at most
 /// [`DRAIN_BATCH_MAX`] events.
@@ -4704,7 +4738,7 @@ pub(crate) fn ask_choice_button(
 ) -> Button {
     // THE checkbox (the button's click toggles it; the box only paints).
     let leading = multi.then(|| {
-        crate::controls::checkbox("choice-check", picked.into(), false, cx).into_any_element()
+        crate::controls::checkbox("choice-check", picked.into(), false, cx).aria_label(label.clone()).into_any_element()
     });
     let check = (picked && !multi)
         .then(|| Icon::new(registry::UI_CHECK).xsmall().flex_shrink_0().text_color(cx.theme().foreground).into_any_element());
@@ -4727,6 +4761,7 @@ fn ask_option_button_trailing(
     let muted = cx.theme().muted_foreground;
     let label_color = if primary { cx.theme().primary_foreground } else { cx.theme().foreground };
     let mut button = Button::new(id)
+        .accessibility_label(label.clone())
         .cursor_pointer()
         .w_full()
         .h_auto()
@@ -6943,6 +6978,8 @@ impl SteerSessionView {
                 card = card.child(
                     h_flex()
                         .id(("steer-step-current", item.id as usize))
+                        .role(gpui::Role::Button)
+                        .aria_label(SharedString::from(text.clone()))
                         .mt_1()
                         .w_full()
                         .min_w_0()
@@ -7076,6 +7113,7 @@ impl SteerSessionView {
             .unwrap_or_else(|| domain::plan_card::copy().answered.clone());
         let editable = open && self.step_editable(item);
         let item_id = item.id;
+        let step_label = SharedString::from(card.map(|card| card.text.clone()).unwrap_or_default());
         h_flex()
             .id(("steer-step", item_id as usize))
             .w_full()
@@ -7085,7 +7123,9 @@ impl SteerSessionView {
             .py_1()
             .text_xs()
             .when(editable, |this| {
-                this.cursor_pointer()
+                this.role(gpui::Role::Button)
+                    .aria_label(step_label)
+                    .cursor_pointer()
                     .rounded(px(theme::tokens::radius::SM))
                     .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -8220,7 +8260,10 @@ impl SteerSessionView {
         cx: &App,
     ) -> Option<(crate::account_switch::SwitchContext, Vec<crate::account_switch::SwitchTarget>)> {
         let row = self.row.as_ref()?;
-        let device_online = row.device_id.is_some() && (self.is_local() || !self.device(cx).offline);
+        // #EXP-1729: an app editor's composer offers Account › always (an
+        // offline machine disables its rows instead).
+        let device_online = row.device_id.is_some()
+            && (self.is_local() || self.editor_device.is_some() || !self.device(cx).offline);
         if !crate::account_switch::composer_offers_account(self.run_open(), device_online, self.may_message) {
             return None;
         }
@@ -8419,14 +8462,17 @@ impl SteerSessionView {
             })
             .unwrap_or_default();
         let account_switch = self.composer_account_switch(cx);
+        let editor_runner = self.editor_runner.clone().filter(|_| !self.configurable());
+        let configurable = self.configurable();
         let to_assistant = self.to_assistant(cx);
         let rows = composer_menu_rows(
             surface,
             ComposerMenuConditions {
                 // #FEED-204: an app editor's composer reads its device.
                 device: self.editor_device.is_some(),
-                account: account_switch.is_some(),
-                model: self.configurable(),
+                // #EXP-1729: an ended editor root's held picks.
+                account: account_switch.is_some() || editor_runner.is_some(),
+                model: self.configurable() || editor_runner.is_some(),
                 prompts: !prompts.is_empty(),
                 // #EXP-1715: the viewer's Assistant in more than one team.
                 assistant: to_assistant,
@@ -8559,6 +8605,11 @@ impl SteerSessionView {
                     // account}`, no text). A refusal disables its row.
                     Row::Account => {
                         let Some((context, targets)) = account_switch.clone() else {
+                            // #EXP-1729: THE launch rows; the pick rides
+                            // the ended editor root's next send.
+                            if let Some(runner) = &editor_runner {
+                                menu = runner.account_row(menu, "steer-menu-account", window, cx);
+                            }
                             continue;
                         };
                         let value = crate::account_switch::current_caption(&targets);
@@ -8592,6 +8643,10 @@ impl SteerSessionView {
                             sub
                         })
                     }
+                    Row::Model if !configurable => match &editor_runner {
+                        Some(runner) => runner.model_row(menu, window, cx),
+                        None => menu,
+                    },
                     Row::Model => {
                         let value = models
                             .iter()
@@ -9074,9 +9129,14 @@ fn exp_tool_preview_row(
         kind::ISSUE => {
             let issue_id = preview.id.clone()?;
             if let Some(card) = crate::issue_preview::card(&issue_id, cx) {
+                let issue_label = SharedString::from(
+                    preview.title.clone().or_else(|| preview.identifier.clone()).unwrap_or_default(),
+                );
                 return Some(
                     div()
                         .id(("steer-exp-issue", id as usize))
+                        .role(gpui::Role::Button)
+                        .aria_label(issue_label.clone())
                         .cursor_pointer()
                         .on_click(move |_, window, cx| {
                             crate::navigation::navigate(

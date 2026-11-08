@@ -27,7 +27,13 @@ fn card(id: &'static str, cx: &App) -> Div {
         .text_color(cx.theme().muted_foreground)
         .child(home_greeting::HOME_PLACEHOLDER);
     let composer = crate::composer::GlassComposer::new(placeholder.into_any_element())
-        .tool(Button::new((id, 0usize)).ghost().icon(registry::UI_ADD).into_any_element())
+        .tool(
+            Button::new((id, 0usize))
+                .accessibility_label(crate::chat_screen::PLUS_TOOLTIP)
+                .ghost()
+                .icon(registry::UI_ADD)
+                .into_any_element(),
+        )
         .submit(
             crate::composer::composer_submit((id, 1usize), registry::UI_SUBMIT, true, cx)
                 .into_any_element(),

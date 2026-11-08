@@ -263,6 +263,8 @@ impl ChangeEmailDialogView {
     ) -> impl IntoElement {
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(label)
             .text_xs()
             .text_color(cx.theme().muted_foreground)
             .cursor_pointer()

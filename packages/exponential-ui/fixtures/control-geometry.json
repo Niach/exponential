@@ -2016,7 +2016,7 @@
               "size": "default"
             },
             "geometry": {
-              "width": 32,
+              "width": 36,
               "height": 20,
               "borderRadius": 9999
             }
@@ -2028,7 +2028,7 @@
               "size": "default"
             },
             "geometry": {
-              "width": 32,
+              "width": 36,
               "height": 20,
               "borderRadius": 9999
             }
@@ -4687,7 +4687,7 @@
               "size": "default"
             },
             "geometry": {
-              "width": 32,
+              "width": 36,
               "height": 20,
               "borderRadius": 9999
             }
@@ -4699,7 +4699,7 @@
               "size": "default"
             },
             "geometry": {
-              "width": 32,
+              "width": 36,
               "height": 20,
               "borderRadius": 9999
             }

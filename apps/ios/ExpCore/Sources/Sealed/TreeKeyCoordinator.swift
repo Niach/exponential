@@ -103,13 +103,9 @@ public enum SealedRowsTouch {
             let args = StatementArguments(rootIds)
             try db.execute(sql: #"UPDATE "sessions" SET "root_id" = "root_id" WHERE "root_id" IN (\#(marks))"#, arguments: args)
             try db.execute(sql: #"UPDATE "messages" SET "root_id" = "root_id" WHERE "root_id" IN (\#(marks))"#, arguments: args)
-            try db.execute(sql: #"""
-                UPDATE "conversations" SET "session_id" = "session_id"
-                WHERE "session_id" IN (SELECT "id" FROM "sessions" WHERE "root_id" IN (\#(marks)))
-                """#, arguments: args)
         } else {
+            // #EXP-1730: the list digests ride on `sessions` now.
             try db.execute(sql: #"UPDATE "sessions" SET "root_id" = "root_id""#)
-            try db.execute(sql: #"UPDATE "conversations" SET "session_id" = "session_id""#)
         }
     }
 }

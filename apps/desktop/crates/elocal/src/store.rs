@@ -93,6 +93,7 @@ const COLUMN_TYPES: &[(&str, ColumnType)] = &[
     ("issue_brief", ColumnType::Json),
     ("guide", ColumnType::Json),
     ("digest", ColumnType::Json),
+    ("defaults", ColumnType::Json),
     ("blocked", ColumnType::Json),
 ];
 
@@ -204,6 +205,35 @@ impl LocalStore {
         self.write_many(table, vec![row])
     }
 
+    /// #EXP-1730 phase A: what the server's triggers keep in step on a write
+    /// (`populate_message_session_id`, `sync_agent_defaults`): a message
+    /// without its `session_id` gets its conversation's; an agent's
+    /// `defaults` object follows its `device_id`/`cli`/`account`/`model`.
+    fn server_triggers(&self, table: &str, mut row: Map<String, Value>) -> Map<String, Value> {
+        match table {
+            "messages" => {
+                let has_session = row.get("session_id").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+                let conversation = row.get("conversation_id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_string);
+                if let (false, Some(conversation)) = (has_session, conversation) {
+                    let session = self
+                        .row("conversations", &conversation)
+                        .ok()
+                        .flatten()
+                        .and_then(|c| c.get("session_id").cloned())
+                        .unwrap_or(Value::Null);
+                    row.insert("session_id".into(), session);
+                }
+            }
+            "agents" if ["device_id", "cli", "account", "model"].iter().any(|key| row.contains_key(*key)) => {
+                let text = |key: &str| row.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(|v| Value::String(v.to_string())).unwrap_or(Value::Null);
+                let defaults = serde_json::json!({"deviceId": text("device_id"), "cli": text("cli"), "account": text("account"), "model": text("model")});
+                row.insert("defaults".into(), defaults);
+            }
+            _ => {}
+        }
+        row
+    }
+
     /// Writes several rows of a table in one transaction.
     pub fn write_many(&self, table: &str, rows: Vec<Map<String, Value>>) -> Result<(), String> {
         let spec = Self::spec_of(table)?;
@@ -211,6 +241,7 @@ impl LocalStore {
         let msgs: Vec<ShapeMessage> = rows
             .into_iter()
             .map(|row| {
+                let row = self.server_triggers(spec.name, row);
                 let key = key_of(spec, &row)?;
                 keys.push(key_text(&key));
                 Ok(ShapeMessage::Insert { key, value: row })
@@ -294,5 +325,22 @@ mod tests {
         assert_eq!(seen[0], LocalDelta { table: "issues", keys: vec!["i1".into()] });
         assert_eq!(seen.len(), 4);
         assert!(store.rows("nope").is_err());
+    }
+
+    /// #EXP-1730 phase A: the server's triggers, emulated on write.
+    #[test]
+    fn writes_keep_the_one_tree_columns_in_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalStore::open(&dir.path().join("local.sqlite")).unwrap();
+        store.write("conversations", obj(json!({"id": "c1", "kind": "session", "session_id": "s1"}))).unwrap();
+        store.write("messages", obj(json!({"id": "m1", "conversation_id": "c1", "root_id": "s1", "body": "hi"}))).unwrap();
+        assert_eq!(store.row("messages", "m1").unwrap().unwrap()["session_id"], json!("s1"));
+        store.write("messages", obj(json!({"id": "m2", "conversation_id": "c1", "session_id": "s9"}))).unwrap();
+        assert_eq!(store.row("messages", "m2").unwrap().unwrap()["session_id"], json!("s9"), "a named session stays");
+        store.write("agents", obj(json!({"id": "a1", "device_id": "d1", "cli": "claude", "account": null, "model": ""}))).unwrap();
+        assert_eq!(
+            store.row("agents", "a1").unwrap().unwrap()["defaults"],
+            json!({"deviceId": "d1", "cli": "claude", "account": null, "model": null})
+        );
     }
 }

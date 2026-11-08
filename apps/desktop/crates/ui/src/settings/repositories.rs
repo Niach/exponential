@@ -1058,12 +1058,14 @@ fn installation_row(index: usize, inst: &GithubInstallation, cx: &gpui::App) -> 
 }
 
 /// The ONE primary action of a state (web `Pill mode="action" primary`).
+// a11y: named by the caller (every call site chains `.label(..)`).
 fn primary_pill(id: impl Into<gpui::ElementId>) -> Button {
     crate::surface::glass_pill_button_primary(id, crate::surface::PillSize::Sm)
 }
 
 /// Every inline action of the connection block is an `sm action` pill
 /// (FEED-42 control vocabulary).
+// a11y: named by the caller (every call site chains `.label(..)`).
 fn pill(id: impl Into<gpui::ElementId>, cx: &gpui::App) -> Button {
     crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
 }
@@ -1130,7 +1132,8 @@ impl RepositoriesPane {
                 ("repo-remove", index),
                 Icon::new(registry::UI_DELETE),
                 cx,
-            );
+            )
+            .accessibility_label("Remove repository");
             let linked = repo.boards.len();
             head = head.child(if linked > 0 {
                 let plural = if linked == 1 { "" } else { "s" };
@@ -1279,6 +1282,7 @@ impl RepositoriesPane {
         // Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
         // chevron-down (the chip opens a dropdown, it is not a picker row).
         let button = crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
+            .accessibility_label(format!("Default branch for {}", repo.full_name))
             .max_w(px(240.))
             .font_family(theme::terminal::FONT_FAMILY)
             .child(crate::surface::picker_value_label(SharedString::from(
@@ -1381,6 +1385,9 @@ impl RepositoriesPane {
                                 ))),
                                 cx,
                             )
+                            .role(gpui::Role::ListItem)
+                            .aria_selected(checked)
+                            .aria_label(SharedString::from(name.clone()))
                             .child(
                                 div()
                                     .flex_1()

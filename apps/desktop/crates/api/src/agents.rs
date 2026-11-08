@@ -196,6 +196,41 @@ pub fn set_coordinator(trpc: &TrpcClient, team_id: &str, agent_id: Option<&str>)
     trpc.mutation("agents.setCoordinator", &SetCoordinatorInput { team_id, agent_id })
 }
 
+/// #EXP-1735 the team's lead Assistant and its member (`agents.lead`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeadRef {
+    pub agent_id: String,
+    pub user_id: String,
+}
+
+#[derive(Deserialize)]
+struct LeadResponse {
+    #[serde(default)]
+    lead: Option<LeadRef>,
+}
+
+/// #EXP-1735 `agents.lead` (member read): the team's lead Assistant, or
+/// `None` (a lead whose member left the team counts as none).
+pub fn lead(trpc: &TrpcClient, team_id: &str) -> Result<Option<LeadRef>, ApiError> {
+    let response: LeadResponse = trpc.query_with_input("agents.lead", &TeamIdInput { team_id })?;
+    Ok(response.lead)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetLeadAssistantInput<'a> {
+    team_id: &'a str,
+    user_id: Option<&'a str>,
+}
+
+/// #EXP-1735 `agents.setLeadAssistant` (owner only): `user_id`'s Assistant
+/// becomes the team's lead (created on first use; the team's coordinator
+/// goes back to `agent` in the same write); `None` (sent as null) = none.
+pub fn set_lead_assistant(trpc: &TrpcClient, team_id: &str, user_id: Option<&str>) -> Result<TxOutput, ApiError> {
+    trpc.mutation("agents.setLeadAssistant", &SetLeadAssistantInput { team_id, user_id })
+}
+
 /// `agents.delete`: the definition and, by cascade, every conversation.
 pub fn delete(trpc: &TrpcClient, id: &str) -> Result<TxOutput, ApiError> {
     trpc.mutation("agents.delete", &IdInput { id })

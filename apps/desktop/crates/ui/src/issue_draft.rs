@@ -195,6 +195,7 @@ impl IssueDraft {
         let current_key = resolved.group_key.clone();
         let view = cx.entity().clone();
         let trigger = chip_button(SharedString::from(format!("{prefix}-status-chip")), cx)
+            .accessibility_label(format!("Change status (current: {})", resolved.name))
             .icon(crate::icons::resolved_status_icon(&resolved, cx))
             .child(crate::pickers::chip_label(resolved.name.clone(), false, cx))
             .into_any_element();
@@ -243,6 +244,7 @@ impl IssueDraft {
         let current = self.priority;
         let view = cx.entity().clone();
         let trigger = chip_button(SharedString::from(format!("{prefix}-priority-chip")), cx)
+            .accessibility_label(format!("Change priority (current: {})", config.label))
             .icon(option_icon(config, cx))
             .child(crate::pickers::chip_label(config.label, false, cx))
             .into_any_element();
@@ -297,7 +299,8 @@ impl IssueDraft {
         );
         let view = cx.entity().clone();
 
-        let chip = chip_button(SharedString::from(format!("{prefix}-assignee-chip")), cx);
+        let chip = chip_button(SharedString::from(format!("{prefix}-assignee-chip")), cx)
+            .accessibility_label(label.clone());
         let chip = match &selected_agent {
             Some(agent) => chip.child(crate::user_avatar::agent_avatar(
                 agent.icon.as_deref(),
@@ -364,6 +367,7 @@ impl IssueDraft {
         let view = cx.entity().clone();
 
         let trigger = chip_button(SharedString::from(format!("{prefix}-labels-chip")), cx)
+            .accessibility_label(label.clone())
             .icon(
                 Icon::from(ExpIcon::Tag)
                     .xsmall()
@@ -405,6 +409,7 @@ impl IssueDraft {
         crate::pickers::due_date_popover(
             SharedString::from(format!("{prefix}-due-popover")),
             chip_button(SharedString::from(format!("{prefix}-due-chip")), cx)
+                .accessibility_label(label.clone())
                 .icon(
                     Icon::from(ExpIcon::CalendarDays).xsmall().text_color(
                         crate::issue_list::due_glyph_color(
@@ -454,6 +459,7 @@ impl IssueDraft {
         // ×4: the board NAME, no chevron (the issue face's board chip).
         let label = SharedString::from(board.name.clone());
         let trigger = chip_button(SharedString::from(format!("{prefix}-board-chip")), cx)
+            .accessibility_label(label.clone())
             .icon(icon)
             .child(crate::pickers::chip_label(label, false, cx))
             .into_any_element();
