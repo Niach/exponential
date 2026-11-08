@@ -3,12 +3,14 @@ import type { LucideIcon } from "lucide-react"
 import { useRouter } from "@tanstack/react-router"
 import { A2UI_VERSION, DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, type AppPackage, type ResolvedScreen } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
+import { swipeBlocked } from "@exponential_app/eui/web"
 import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell, surfaceState } from "@exp/domain-contract/apps"
 import { appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
 import { AppSurfaceBoundary } from "@/components/apps/app-surface-boundary"
 import { ConsentCard, HostBanner, createAppHost, createConsentGate, type AppHostOptions } from "@/lib/exponential-ui-host"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import type { ScreenRequest } from "@/lib/app-screens"
+import { FACE_BODY_TOUCH_CLASS, primeTabEnter, useFaceSwipe } from "@/hooks/use-face-swipe"
 
 /** VAPP-198: who the preview runs as. */
 export type AppRunAs = NonNullable<AppHostOptions[`runAs`]>
@@ -229,6 +231,15 @@ function AppPreviewBody({
     </div>
   )
   const open = (id: string) => onScreen?.({ screen: id, params: {} })
+  // #FEED-201: the bar's screens page like every phone tab strip (THE pager,
+  // `useFaceSwipe`); a touch inside eUI content that pans sideways keeps it.
+  const ids = useMemo(() => screens.map((s) => s.template), [screens])
+  const shown = resolved?.screen ?? null
+  const swipe = useFaceSwipe(ids, shown, (id) => id && open(id), swipeBlocked)
+  const tap = (id: string) => {
+    if (shown) primeTabEnter(ids, shown, id)
+    open(id)
+  }
   const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className, phone)
   const surface = !shell || !resolved ? (
     <div className={`${frameClass} overflow-y-auto`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={testId}>
@@ -255,14 +266,23 @@ function AppPreviewBody({
     </div>
   ) : (
     // The phone tab bar under the surface, inside the frame.
-    <div className={`${frameClass} flex flex-col overflow-hidden`} style={frameStyle} data-testid={testId}>
-      <div className="relative min-h-0 flex-1 overflow-y-auto" style={{ padding: APPS_PREVIEW.padding }}>
+    <div
+      className={`${frameClass} flex flex-col overflow-hidden`}
+      style={{ ...frameStyle, ...swipe.style }}
+      data-testid={testId}
+      ref={swipe.ref}
+      onTouchStart={swipe.onTouchStart}
+      onTouchMove={swipe.onTouchMove}
+      onTouchEnd={swipe.onTouchEnd}
+      onTouchCancel={swipe.onTouchCancel}
+    >
+      <div className={`relative min-h-0 flex-1 overflow-y-auto ${FACE_BODY_TOUCH_CLASS}`} style={{ padding: APPS_PREVIEW.padding }} data-face-body="">
         {content}
       </div>
       <div className="flex shrink-0 p-2" data-testid={APPS_TEST_IDS.previewScreens}>
         <PhoneTabBar className="flex-1" aria-label="Screens">
           {screens.map((s) => (
-            <PhoneTab key={s.template} label={s.title} icon={<ScreenIcon name={s.icon ?? null} className="size-5" />} selected={s.template === resolved.screen} onClick={() => open(s.template)} />
+            <PhoneTab key={s.template} label={s.title} icon={<ScreenIcon name={s.icon ?? null} className="size-5" />} selected={s.template === resolved.screen} onClick={() => tap(s.template)} />
           ))}
         </PhoneTabBar>
       </div>

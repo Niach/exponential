@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -67,6 +68,7 @@ import at.exponential.ui.host.NavigateTarget
 import at.exponential.ui.host.Screens
 import com.exponential.app.ui.components.PhoneTabCapsule
 import com.exponential.app.ui.components.PhoneTabItem
+import com.exponential.app.ui.components.TabPager
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.data.db.AppVersionEntity
@@ -677,17 +679,25 @@ internal fun AppPackageSurface(
         // VAPP-218: `app_navigate` replaces the request (screen + params).
         navigate = if (screens.isEmpty()) null else navigateToScreen,
     )
+    // #FEED-201: the bar's screens page like every phone tab strip (THE
+    // pager, `TabPager`): each page opens its own surface on the host; a
+    // detail screen (`nav: false`) stands alone.
+    val paging = shell == Apps.ScreenShell.Bar && resolved != null && screens.any { it.screen == resolved.screen }
+    val pageSurfaces = remember(host) { mutableStateMapOf<String, String>() }
     // A new screen = a fresh surface on a minted id (round 9 §1.4): the id is state.
     var surfaceId by remember(host) { mutableStateOf<String?>(null) }
     var asked by remember(host) { mutableStateOf(false) }
-    LaunchedEffect(host, packageId, templateId, resolved) {
+    LaunchedEffect(host, packageId, templateId, resolved, paging) {
+        if (paging) return@LaunchedEffect
         if (packageId != null && templateId != null) {
             surfaceId = host.reopenSurface(surfaceId, Apps.Preview.SURFACE_ID, packageId, templateId, resolved?.data)
         }
         asked = true
     }
-    val hasSurface = surfaceId?.let(host.surfaces::containsKey) == true
-    if (Apps.surfaceState(hasPackage = true, applied = asked, hasSurface = hasSurface) == Apps.SurfaceState.NeedsUpdate) {
+    val shownSurface = if (paging) pageSurfaces[resolved?.screen] else surfaceId
+    val hasSurface = shownSurface?.let(host.surfaces::containsKey) == true
+    val shownAsked = if (paging) resolved?.screen in pageSurfaces else asked
+    if (Apps.surfaceState(hasPackage = true, applied = shownAsked, hasSurface = hasSurface) == Apps.SurfaceState.NeedsUpdate) {
         LaunchedEffect(packageJson) {
             val issues = runCatching { host.installPackage(packageJson) }.getOrNull()
             Log.w("AppHost", "app $appId: the package paints nothing: $issues")
@@ -702,21 +712,31 @@ internal fun AppPackageSurface(
         }
         return
     }
+    val banner: @Composable () -> Unit = {
+        AppHostBanner(
+            host,
+            upstreams = upstreams,
+            onConnect = teamId?.let { team -> { onOpenTeamSettings(team, com.exponential.app.domain.SettingsNav.MCP) } },
+        )
+    }
     Column(Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(Apps.Preview.PADDING.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            AppHostBanner(
-                host,
-                upstreams = upstreams,
-                onConnect = teamId?.let { team -> { onOpenTeamSettings(team, com.exponential.app.domain.SettingsNav.MCP) } },
-            )
-            surfaceId?.let { HostSurface(host, it, Modifier.fillMaxWidth()) }
+        if (paging && parsed != null && packageId != null) {
+            TabPager(
+                pages = screens.map { it.screen },
+                selected = resolved!!.screen,
+                onSelect = { latestScreen(it, emptyMap()) },
+                key = { it },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) { tab ->
+                // The shown screen keeps its request's params; a neighbour opens with its own.
+                val page = remember(parsed, tab, resolved) { if (tab == resolved.screen) resolved else Screens.resolve(parsed, tab, null) }
+                LaunchedEffect(host, packageId, page) {
+                    if (page != null) pageSurfaces[tab] = host.reopenSurface(pageSurfaces[tab], Apps.Preview.SURFACE_ID, packageId, page.screen, page.data)
+                }
+                AppScreenScroller(banner) { pageSurfaces[tab]?.let { HostSurface(host, it, Modifier.fillMaxWidth()) } }
+            }
+        } else {
+            AppScreenScroller(banner, Modifier.weight(1f)) { surfaceId?.let { HostSurface(host, it, Modifier.fillMaxWidth()) } }
         }
         if (shell == Apps.ScreenShell.Bar) {
             PhoneTabCapsule(
@@ -738,6 +758,21 @@ internal fun AppPackageSurface(
         }
     }
     AppConsentCard(consent)
+}
+
+/** One screen's surface under the host banner, in its own scroller. */
+@Composable
+private fun AppScreenScroller(banner: @Composable () -> Unit, modifier: Modifier = Modifier, surface: @Composable () -> Unit) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(Apps.Preview.PADDING.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        banner()
+        surface()
+    }
 }
 
 /** VERSIONS (VAPP-177): ONE grouped list, newest first: the `v{n}` pill +
