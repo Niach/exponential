@@ -1130,9 +1130,7 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         return;
     }
     shell.borrow().workspaces.save_current(&current);
-    if !picked_local {
-        accounts::ide_follow_team(id);
-    }
+    accounts::ide_follow(if picked_local { uicore_model::SwitcherKind::Local } else { uicore_model::SwitcherKind::Team }, id);
     // Another desktop or a team: the opened desktop and its chat go.
     let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
     if changed {
@@ -2557,6 +2555,12 @@ fn main() {
             model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
         let saved_team = workspaces.saved_team();
+        // A start on a Local desktop: a running Exponential app follows it too.
+        if saved_team.is_none() && !demo {
+            if let Some(current) = workspaces.current_local() {
+                accounts::ide_follow(current.kind, &current.id);
+            }
+        }
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
         feed.set("/shell", uicore_data::shell_feed(&model, &menu_apps, &favourites));

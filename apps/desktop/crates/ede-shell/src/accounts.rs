@@ -245,7 +245,8 @@ fn read_saved_team(path: &Path) -> Option<String> {
 }
 
 fn write_current(path: &Path, entry: &SwitcherEntry) -> std::io::Result<()> {
-    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id}).to_string())
+    // The account too (#EDE-65): the Exponential app starts on the team's own account.
+    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id, "account": entry.account}).to_string())
 }
 
 /// #EDE-65: what the switcher and the chat say about the connection: is an
@@ -266,12 +267,23 @@ pub fn team_deep_link(team_id: &str) -> String {
     format!("{}://team/{team_id}", api::login::OAUTH_CALLBACK_SCHEME)
 }
 
-/// #EDE-65: the Exponential app follows the switcher: the team link goes to
-/// the running app's single-instance socket (`exp-desktop.sock`); nothing
-/// runs = nothing to tell (it opens on its own last team, which this sets).
-pub fn ide_follow_team(team_id: &str) {
-    if ide_send(&team_deep_link(team_id)) {
-        tracing::info!(team = team_id, "the Exponential app follows the team");
+/// #EDE-65: the deep link that brings the Exponential app onto a Local
+/// desktop (the machine's one index, so the app knows the id).
+pub fn local_deep_link(desktop_id: &str) -> String {
+    format!("{}://local/{desktop_id}", api::login::OAUTH_CALLBACK_SCHEME)
+}
+
+/// #EDE-65: the Exponential app follows the switcher: the team's or the
+/// Local desktop's link goes to the running app's single-instance socket
+/// (`exp-desktop.sock`); nothing runs = nothing to tell (it opens on its own
+/// last pick).
+pub fn ide_follow(kind: uicore_model::SwitcherKind, id: &str) {
+    let link = match kind {
+        uicore_model::SwitcherKind::Local => local_deep_link(id),
+        _ => team_deep_link(id),
+    };
+    if ide_send(&link) {
+        tracing::info!(%link, "the Exponential app follows the switcher");
     }
 }
 
@@ -315,8 +327,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("switcher.json");
         assert_eq!(read_saved_team(&path), None);
-        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a1", "danny@example.com")).unwrap();
+        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a2", "work@example.com")).unwrap();
         assert_eq!(read_saved_team(&path).as_deref(), Some("t1"));
+        // The Exponential app reads the team's account from it (ui `session::ede_pick`).
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"kind": "team", "id": "t1", "account": "a2"}));
         write_current(&path, &SwitcherEntry::local("local", "Local")).unwrap();
         assert_eq!(read_saved_team(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -325,5 +340,6 @@ mod tests {
     #[test]
     fn the_team_link_is_the_one_the_app_parses() {
         assert_eq!(team_deep_link("e891ab20"), "exponential://team/e891ab20");
+        assert_eq!(local_deep_link("87858284"), "exponential://local/87858284");
     }
 }
