@@ -322,6 +322,7 @@ describe(`teams.update`, () => {
       `estimationType`,
       `iconUrl`,
       `id`,
+      `leadAssistantId`,
       `mergeMode`,
       `name`,
       `prMergedAutomation`,

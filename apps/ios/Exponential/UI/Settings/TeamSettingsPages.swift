@@ -832,6 +832,13 @@ private struct TeamAgentsPage: View {
         var events: [EventEntity] = []
         var sessionTitles: [String: String] = [:]
         var users: [UserEntity] = []
+        /// #EXP-1735: the Lead Assistant row's options (the team's members
+        /// and their display names).
+        var members: [AgentSettings.LeadMember] = []
+        /// The synced team row's `updated_at`: `agents.setLeadAssistant`
+        /// bumps it, so the lead is re-read whenever it moves (iOS does not
+        /// store `lead_assistant_id`).
+        var teamUpdatedAt: String?
     }
 
     @Environment(AppDependencies.self) private var deps
@@ -840,19 +847,21 @@ private struct TeamAgentsPage: View {
     @State private var data = Data()
     @State private var agentTarget: AgentPageTarget?
     @State private var showAssistant = false
-    /// #EXP-1717: the Coordinator pick (an option id) while its write is in
-    /// flight.
-    @State private var coordinatorPending: String?
+    /// #EXP-1735: the lead's member as an option id (`leadNone` = none),
+    /// from `agents.lead`.
+    @State private var leadUserId = AgentSettings.leadNone
+    /// #EXP-1735: the Lead Assistant pick while its write is in flight.
+    @State private var leadPending: String?
 
     var body: some View {
         TeamSettingsPageChrome(section: .agents) {
-            // #EXP-1717 (agent-settings.json `coordinator`): ONE settings
-            // Picker row above the agents list, owners pick, members read.
-            coordinatorRow
+            // #EXP-1735 (agent-settings.json `lead`): ONE settings Picker
+            // row where the Coordinator row was, owners pick, members read.
+            leadRow
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .glassSection()
-                .accessibilityIdentifier(AgentSettings.coordinatorRowTestId)
+                .accessibilityIdentifier(AgentSettings.leadRowTestId)
             TeamAgentsSection(
                 agents: data.agents,
                 isOwner: data.isOwner,
@@ -873,6 +882,12 @@ private struct TeamAgentsPage: View {
         // first use (once per team per app run).
         .task(id: "ensure/\(accountId)/\(teamId)") {
             await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)
+        }
+        // #EXP-1735: the lead's member comes from the server (its Assistant
+        // is another member's, never synced here), read on appear and again
+        // whenever the synced team row changes (a lead pick bumps it).
+        .task(id: "lead/\(accountId)/\(teamId)/\(data.teamUpdatedAt ?? "")") {
+            await loadLead()
         }
         .task(id: "\(accountId)/\(teamId)") {
             let teamId = teamId
@@ -898,55 +913,66 @@ private struct TeamAgentsPage: View {
                     sessionTitles: Dictionary(
                         sessions.map { ($0.id, $0.title ?? "") }, uniquingKeysWith: { a, _ in a }
                     ),
-                    users: try UserEntity.fetchAll(db)
+                    users: try UserEntity.fetchAll(db),
+                    members: try Self.leadMembers(db, teamId: teamId),
+                    teamUpdatedAt: try TeamEntity.fetchOne(db, key: teamId)?.updatedAt
                 )
-            }, apply: { next in
-                data = next
-                if let pending = coordinatorPending, currentCoordinator(next.agents) == pending {
-                    coordinatorPending = nil
-                }
-            })
+            }, apply: { data = $0 })
         }
     }
 
-    /// The team's coordinator as an option id (`coordinatorNone` = none).
-    private func currentCoordinator(_ agents: [AgentDefinitionEntity]) -> String {
-        AgentSettings.coordinatorOf(agents, teamId: teamId) ?? AgentSettings.coordinatorNone
+    /// #EXP-1735: the team's members with their display names.
+    private nonisolated static func leadMembers(_ db: Database, teamId: String) throws -> [AgentSettings.LeadMember] {
+        let userIds = try TeamMemberEntity.filter(Column("team_id") == teamId).fetchAll(db).map(\.userId)
+        let users = try UserEntity.filter(userIds.contains(Column("id"))).fetchAll(db)
+        let byId = Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return userIds.map { AgentSettings.LeadMember(userId: $0, name: memberDisplayName(byId[$0], id: $0)) }
     }
 
-    /// #EXP-1717: THE select row (the merge-mode row's look): Coordinator,
-    /// None or a team agent; an owner's pick saves at once.
-    private var coordinatorRow: some View {
-        let names = Dictionary(data.agents.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    private func loadLead() async {
+        do {
+            let lead = try await deps.agentsApi.lead(accountId: accountId, teamId: teamId)
+            leadUserId = lead?.userId ?? AgentSettings.leadNone
+        } catch {
+            // A failed read keeps the last value; the next team change retries.
+        }
+    }
+
+    /// #EXP-1735: THE select row (the Coordinator row's look): Lead
+    /// Assistant, None or a team member; an owner's pick saves at once.
+    private var leadRow: some View {
+        let names = Dictionary(data.members.map { ($0.userId, $0.name) }, uniquingKeysWith: { first, _ in first })
         return GlassPickerRow(
-            AgentSettings.CoordinatorCopy.label,
+            AgentSettings.LeadCopy.label,
             selection: Binding(
-                get: { coordinatorPending ?? currentCoordinator(data.agents) },
-                set: { saveCoordinator($0) }
+                get: { leadPending ?? leadUserId },
+                set: { saveLead($0) }
             ),
-            options: AgentSettings.coordinatorOptions(data.agents),
+            options: AgentSettings.leadOptions(data.members),
             label: { id in
-                id == AgentSettings.coordinatorNone ? AgentSettings.CoordinatorCopy.none : names[id] ?? id
+                id == AgentSettings.leadNone ? AgentSettings.LeadCopy.none : names[id] ?? memberPseudonym(userId: id)
             },
-            enabled: data.isOwner && coordinatorPending == nil
+            enabled: data.isOwner && leadPending == nil
         )
     }
 
-    /// #EXP-1717: `agents.setCoordinator {teamId, agentId | null}`, owner-only.
-    private func saveCoordinator(_ next: String) {
-        guard data.isOwner, next != currentCoordinator(data.agents) else { return }
-        coordinatorPending = next
-        let agentId = next == AgentSettings.coordinatorNone ? nil : next
+    /// #EXP-1735: `agents.setLeadAssistant {teamId, userId | null}`,
+    /// owner-only; a failure toasts and keeps the previous lead.
+    private func saveLead(_ next: String) {
+        guard data.isOwner, leadPending == nil, next != leadUserId else { return }
+        leadPending = next
+        let userId = next == AgentSettings.leadNone ? nil : next
         Task {
             do {
-                try await deps.agentsApi.setCoordinator(accountId: accountId, teamId: teamId, agentId: agentId)
+                try await deps.agentsApi.setLeadAssistant(accountId: accountId, teamId: teamId, userId: userId)
+                leadUserId = next
             } catch {
-                coordinatorPending = nil
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "update", thing: "the coordinator"),
+                    FeedbackStates.Errors.title(verb: "save", thing: "the lead Assistant"),
                     description: error.trpcUserMessage
                 )
             }
+            leadPending = nil
         }
     }
 }

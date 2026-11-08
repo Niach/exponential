@@ -814,7 +814,8 @@ describe(`exponential_agents_get`, () => {
   it(`reads one agent with its instructions, never its trigger state`, async () => {
     dbRows.current = [agentRow]
     const { triggerState: _state, ...rest } = agentRow
-    expect(parseOk(await tool(`exponential_agents_get`)({ id: UUID }))).toEqual(rest)
+    // #EXP-1730: + its root session and app (the mock answers every read with the row).
+    expect(parseOk(await tool(`exponential_agents_get`)({ id: UUID }))).toEqual({ ...rest, rootSessionId: UUID, appSlug: null })
   })
 
   it(`answers not found for a missing agent`, async () => {
@@ -1143,6 +1144,7 @@ describe(`exponential_teams_get`, () => {
       `estimationType`,
       `iconUrl`,
       `id`,
+      `leadAssistantId`,
       `mergeMode`,
       `name`,
       `prMergedAutomation`,

@@ -1876,7 +1876,7 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           }
         ]
       },
@@ -1958,7 +1958,7 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           }
         ]
       },
@@ -2047,12 +2047,12 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           },
           {
             "id": "ag2",
             "ownerId": "u1",
-            "conversationId": "a2"
+            "rootSessionId": "a2"
           }
         ]
       },
@@ -2190,7 +2190,7 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           }
         ]
       },

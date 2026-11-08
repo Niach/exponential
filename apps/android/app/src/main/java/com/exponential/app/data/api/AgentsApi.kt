@@ -55,6 +55,13 @@ data class AgentDto(
 @Serializable
 data class AgentResult(val agent: AgentDto, val txid: Long? = null)
 
+/** #EXP-1735: `agents.lead`'s lead (the Assistant and its member). */
+@Serializable
+data class TeamLeadDto(val agentId: String, val userId: String)
+
+@Serializable
+data class TeamLeadResult(val lead: TeamLeadDto? = null)
+
 @Serializable
 private data class AgentIdInput(val id: String)
 
@@ -158,6 +165,37 @@ class AgentsApi @Inject constructor(private val trpc: TrpcClient) {
             input = kotlinx.serialization.json.buildJsonObject {
                 put("teamId", kotlinx.serialization.json.JsonPrimitive(teamId))
                 put("agentId", agentId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: JsonNull)
+            },
+            inputSerializer = JsonObject.serializer(),
+        )
+    }
+
+    /**
+     * #EXP-1735 (agent-settings.json `lead`): the team's lead Assistant (its
+     * agent and member), null = none. Another member's Assistant is never in
+     * the viewer's synced agents, so the row reads it from the server.
+     */
+    suspend fun lead(accountId: String, teamId: String): TeamLeadDto? =
+        trpc.query(
+            accountId,
+            path = "agents.lead",
+            input = buildJsonObject { put("teamId", teamId) },
+            inputSerializer = JsonObject.serializer(),
+            outputSerializer = TeamLeadResult.serializer(),
+        ).lead
+
+    /**
+     * #EXP-1735: owner-only, the team's lead = [userId]'s Assistant (created
+     * on first use; null = none). A lead pick demotes the team's coordinator
+     * in the same write.
+     */
+    suspend fun setLeadAssistant(accountId: String, teamId: String, userId: String?) {
+        trpc.mutationUnit(
+            accountId,
+            path = "agents.setLeadAssistant",
+            input = buildJsonObject {
+                put("teamId", teamId)
+                put("userId", userId?.let { JsonPrimitive(it) } ?: JsonNull)
             },
             inputSerializer = JsonObject.serializer(),
         )

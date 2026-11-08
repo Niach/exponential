@@ -457,6 +457,37 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// #EXP-1735: the `lead` block (copy, test id, option cases).
+    private func leadBlock() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["lead"] as? [String: Any])
+    }
+
+    func testLeadCopyAndTestId() throws {
+        let block = try leadBlock()
+        let copy = try XCTUnwrap(block["copy"] as? [String: String])
+        XCTAssertEqual(AgentSettings.LeadCopy.label, copy["label"])
+        XCTAssertEqual(AgentSettings.LeadCopy.none, copy["none"])
+        XCTAssertEqual(AgentSettings.LeadCopy.refusedOwner, copy["refusedOwner"])
+        XCTAssertEqual(AgentSettings.LeadCopy.refusedMember, copy["refusedMember"])
+        XCTAssertEqual(AgentSettings.LeadCopy.noAssistant, copy["noAssistant"])
+        XCTAssertEqual(AgentSettings.leadRowTestId, (block["testIds"] as? [String: String])?["row"])
+    }
+
+    func testLeadOptionsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try leadBlock()["optionCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let members = try XCTUnwrap(testCase["members"] as? [[String: Any]]).map { row in
+                AgentSettings.LeadMember(
+                    userId: try XCTUnwrap(row["userId"] as? String),
+                    name: try XCTUnwrap(row["name"] as? String)
+                )
+            }
+            XCTAssertEqual(AgentSettings.leadOptions(members), testCase["expected"] as? [String], name)
+        }
+    }
+
     func testOrderedAgentsReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try assistantBlock()["orderCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
