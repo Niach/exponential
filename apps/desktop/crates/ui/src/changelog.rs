@@ -52,7 +52,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     summary: "When a pull request is ready, the merge train tests it with others and lands it on its own; Hold or Merge now from the … menu.",
     body: r#"- **Auto-merge for every team**: when a pull request is ready, the merge train tests it together with others and lands it on its own, then tells the agent that opened it.
 - **Hold or Merge now**: the … menu of a pull request holds its auto-merge, and team owners can merge it now.
-- **Settings → Merge**: pick Automatic or After approval; with After approval a ready pull request waits for Needs approval first."#,
+- **Settings → Merge**: pick Automatic or After approval; with After approval a ready pull request waits for Needs approval first.
+- **Local desktops stay on Exponential Desktop**: outside Exponential Desktop the desktop app no longer offers Local desktops, and anyone left on one starts back on their signed-in account and teams, with no new sign-in."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
