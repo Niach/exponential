@@ -865,11 +865,15 @@ impl HostPlugin for Host {
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
                         Some("stop") => {}
-                        Some("draft") => {
-                            shell.borrow_mut().chat_draft = arg("text");
-                            chat_menu_changed(&shell);
-                            refresh(&shell, cx);
-                        }
+                        Some("draft") => match chat::commit_emoji(&arg("text")) {
+                            // EXP-551: a closed exact `:shortcode:` becomes its emoji at once.
+                            Some(committed) => chat_set_draft(&shell, &committed, cx),
+                            None => {
+                                shell.borrow_mut().chat_draft = arg("text");
+                                chat_menu_changed(&shell);
+                                refresh(&shell, cx);
+                            }
+                        },
                         Some("slash") if !arg("prompt").is_empty() => chat_load_prompt(&shell, &arg("prompt"), cx),
                         Some("slash") => {
                             shell.borrow_mut().chat_menu_dismissed = Some(arg("insert"));
