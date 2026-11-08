@@ -19665,6 +19665,10 @@
           "type": "boolean",
           "description": "One line with an ellipsis; cells wrap otherwise.",
           "default": false
+        },
+        "format": {
+          "type": "string",
+          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
         }
       },
       "required": [

@@ -5208,6 +5208,14 @@
               "style": {
                 "minHeight": "$control.rowCompact"
               }
+            },
+            {
+              "when": {
+                "total": true
+              },
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
             }
           ],
           "checkbox": [
@@ -13450,6 +13458,14 @@
               },
               "style": {
                 "minHeight": "$control.rowCompact"
+              }
+            },
+            {
+              "when": {
+                "total": true
+              },
+              "style": {
+                "fontWeight": "$type.weight.medium"
               }
             }
           ],
@@ -21718,6 +21734,14 @@
               },
               "style": {
                 "minHeight": "$control.rowCompact"
+              }
+            },
+            {
+              "when": {
+                "total": true
+              },
+              "style": {
+                "fontWeight": "$type.weight.medium"
               }
             }
           ],
@@ -30092,6 +30116,14 @@
               },
               "style": {
                 "minHeight": "$control.rowCompact"
+              }
+            },
+            {
+              "when": {
+                "total": true
+              },
+              "style": {
+                "fontWeight": "$type.weight.medium"
               }
             }
           ],

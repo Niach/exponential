@@ -4455,6 +4455,15 @@
           "responsive": false,
           "default": false,
           "description": "Pins the header while rows scroll."
+        },
+        {
+          "name": "totals",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A last row: each number and currency column's sum."
         }
       ],
       "accessibility": {
@@ -8242,11 +8251,37 @@
         },
         {
           "name": "columns",
-          "type": "[string]",
+          "type": "[]",
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The fields shown, in order; default every schema field."
+          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+        },
+        {
+          "name": "search",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A search field over the text columns."
+        },
+        {
+          "name": "filter",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "An enum field: a Select narrows the rows to one value."
+        },
+        {
+          "name": "totals",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Table's totals over the shown rows."
         },
         {
           "name": "add",
@@ -8379,6 +8414,38 @@
           "type": "[option]",
           "required": false,
           "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "searchValue",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "filterValue",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "filterLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "filterOptions",
+          "type": "[option]",
+          "required": false,
+          "bindable": false,
           "responsive": false,
           "description": "Filled by the host."
         }

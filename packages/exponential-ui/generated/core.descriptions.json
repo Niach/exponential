@@ -1564,6 +1564,9 @@
         },
         "stickyHeader": {
           "description": "Pins the header while rows scroll."
+        },
+        "totals": {
+          "description": "A last row: each number and currency column's sum."
         }
       },
       "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
@@ -3107,7 +3110,16 @@
           "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         "columns": {
-          "description": "The fields shown, in order; default every schema field."
+          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+        },
+        "search": {
+          "description": "A search field over the text columns."
+        },
+        "filter": {
+          "description": "An enum field: a Select narrows the rows to one value."
+        },
+        "totals": {
+          "description": "Table's totals over the shown rows."
         },
         "add": {
           "description": "Shows the Add button."
@@ -3155,6 +3167,18 @@
           "description": "Filled by the host."
         },
         "authorOptions": {
+          "description": "Filled by the host."
+        },
+        "searchValue": {
+          "description": "Filled by the host."
+        },
+        "filterValue": {
+          "description": "Filled by the host."
+        },
+        "filterLabel": {
+          "description": "Filled by the host."
+        },
+        "filterOptions": {
           "description": "Filled by the host."
         }
       },
@@ -3478,6 +3502,9 @@
         },
         "truncate": {
           "description": "One line with an ellipsis; cells wrap otherwise."
+        },
+        "format": {
+          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
         }
       },
       "description": "One table column."

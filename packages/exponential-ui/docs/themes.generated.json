@@ -3282,7 +3282,9 @@
         "striped",
         "density",
         "stickyHeader",
-        "align"
+        "align",
+        "totals",
+        "total"
       ]
     },
     {
@@ -3930,6 +3932,8 @@
         "root",
         "unknown",
         "toolbar",
+        "search",
+        "filter",
         "count",
         "add",
         "loading",

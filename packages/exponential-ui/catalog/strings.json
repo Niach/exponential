@@ -109,6 +109,8 @@
     "zoomOut": "Zoom out",
     "zoomToFit": "Zoom to fit",
     "tree": "Tree",
-    "stepCompact": "Step {step} of {total} · {label}"
+    "stepCompact": "Step {step} of {total} · {label}",
+    "all": "All",
+    "total": "Total"
   }
 }

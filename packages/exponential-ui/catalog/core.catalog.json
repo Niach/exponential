@@ -666,6 +666,10 @@
           "type": "boolean",
           "default": false,
           "description": "One line with an ellipsis; cells wrap otherwise."
+        },
+        "format": {
+          "type": "string",
+          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
         }
       }
     },
@@ -4048,6 +4052,11 @@
           "type": "boolean",
           "default": false,
           "description": "Pins the header while rows scroll."
+        },
+        "totals": {
+          "type": "boolean",
+          "default": false,
+          "description": "A last row: each number and currency column's sum."
         }
       },
       "events": [
@@ -6525,10 +6534,21 @@
         },
         "columns": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "The fields shown, in order; default every schema field."
+          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+        },
+        "search": {
+          "type": "boolean",
+          "default": false,
+          "description": "A search field over the text columns."
+        },
+        "filter": {
+          "type": "string",
+          "description": "An enum field: a Select narrows the rows to one value."
+        },
+        "totals": {
+          "type": "boolean",
+          "default": false,
+          "description": "Table's totals over the shown rows."
         },
         "add": {
           "type": "boolean",
@@ -6634,6 +6654,32 @@
             "shape": "option"
           },
           "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "searchValue": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "filterValue": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "filterLabel": {
+          "type": "string",
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "filterOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
           "description": "Filled by the host.",
           "host": true
         }

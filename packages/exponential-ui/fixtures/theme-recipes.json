@@ -22079,7 +22079,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22163,7 +22164,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22239,7 +22241,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22315,7 +22318,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": true
+        "stickyHeader": true,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22399,7 +22403,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22531,7 +22536,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22607,7 +22613,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -22923,7 +22930,8 @@
         "selectable": "none",
         "striped": true,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -23055,7 +23063,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -23131,7 +23140,8 @@
         "selectable": "none",
         "striped": false,
         "density": "compact",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -23207,7 +23217,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {
@@ -23275,7 +23286,8 @@
         "selectable": "none",
         "striped": false,
         "density": "default",
-        "stickyHeader": false
+        "stickyHeader": false,
+        "totals": false
       },
       "visuals": {
         "neutral": {

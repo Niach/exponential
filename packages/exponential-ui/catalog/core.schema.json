@@ -9719,6 +9719,11 @@
           "description": "Pins the header while rows scroll.",
           "default": false
         },
+        "totals": {
+          "type": "boolean",
+          "description": "A last row: each number and currency column's sum.",
+          "default": false
+        },
         "slots": {
           "$ref": "#/$defs/Slots_Table"
         },
@@ -15013,10 +15018,22 @@
         },
         "columns": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "The fields shown, in order; default every schema field."
+          "items": {},
+          "description": "Field names or columns (key + Table's label, type, currency, decimals, align, width, format), in order; default every field."
+        },
+        "search": {
+          "type": "boolean",
+          "description": "A search field over the text columns.",
+          "default": false
+        },
+        "filter": {
+          "type": "string",
+          "description": "An enum field: a Select narrows the rows to one value."
+        },
+        "totals": {
+          "type": "boolean",
+          "description": "Table's totals over the shown rows.",
+          "default": false
         },
         "add": {
           "type": "boolean",
@@ -15105,6 +15122,25 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
+          "description": "Filled by the host."
+        },
+        "searchValue": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Filled by the host."
+        },
+        "filterValue": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Filled by the host."
+        },
+        "filterLabel": {
+          "type": "string",
+          "description": "Filled by the host."
+        },
+        "filterOptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/option"
+          },
           "description": "Filled by the host."
         },
         "style": {
@@ -24904,6 +24940,10 @@
           "type": "boolean",
           "description": "One line with an ellipsis; cells wrap otherwise.",
           "default": false
+        },
+        "format": {
+          "type": "string",
+          "description": "A date or dateTime column's pattern (`dd.MM.yy`)."
         }
       },
       "required": [
