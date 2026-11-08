@@ -4128,6 +4128,89 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-tabs-case-6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-6-label",
+                "component": "Text",
+                "props": {
+                  "text": "swipeable · true · fill",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6-swipe",
+                "component": "Tabs",
+                "props": {
+                  "swipeable": true,
+                  "fill": true,
+                  "value": "activity",
+                  "tabs": [
+                    {
+                      "label": "Dashboard",
+                      "value": "dashboard"
+                    },
+                    {
+                      "label": "Activity",
+                      "value": "activity"
+                    },
+                    {
+                      "label": "Income",
+                      "value": "income"
+                    },
+                    {
+                      "label": "Expenses",
+                      "value": "expenses"
+                    }
+                  ]
+                },
+                "style": {
+                  "maxWidth": 360
+                },
+                "children": [
+                  {
+                    "id": "c6-swipe_dashboard",
+                    "component": "Text",
+                    "props": {
+                      "text": "The dashboard panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_activity",
+                    "component": "Text",
+                    "props": {
+                      "text": "The activity panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_income",
+                    "component": "Text",
+                    "props": {
+                      "text": "The income panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_expenses",
+                    "component": "Text",
+                    "props": {
+                      "text": "The expenses panel.",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -8580,6 +8663,98 @@
                       "estimate": 5
                     }
                   ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-table-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-table-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "totals · dd.MM.yy · EUR",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-totals",
+                "component": "Table",
+                "props": {
+                  "columns": [
+                    {
+                      "key": "vendor",
+                      "label": "Vendor"
+                    },
+                    {
+                      "key": "date",
+                      "label": "Date",
+                      "type": "date",
+                      "format": "dd.MM.yy",
+                      "width": 104
+                    },
+                    {
+                      "key": "net",
+                      "label": "Net",
+                      "type": "currency",
+                      "currency": "EUR",
+                      "decimals": 2,
+                      "align": "end",
+                      "width": 96
+                    },
+                    {
+                      "key": "gross",
+                      "label": "Gross",
+                      "type": "currency",
+                      "currency": "EUR",
+                      "decimals": 2,
+                      "align": "end",
+                      "width": 96
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "e1",
+                      "date": "2026-11-03",
+                      "vendor": "Hetzner Online",
+                      "euer_line": "software",
+                      "receipt_status": "booked",
+                      "net": 38.66,
+                      "vat": 7.73,
+                      "gross": 46.39,
+                      "updatedAt": "2026-11-04T09:12:00Z"
+                    },
+                    {
+                      "id": "e2",
+                      "date": "2026-10-28",
+                      "vendor": "ÖBB Ticket",
+                      "euer_line": "travel",
+                      "receipt_status": "received",
+                      "net": 74.17,
+                      "vat": 7.42,
+                      "gross": 81.59,
+                      "updatedAt": "2026-10-29T17:40:00Z"
+                    },
+                    {
+                      "id": "e3",
+                      "date": "2026-10-21",
+                      "vendor": "Libro",
+                      "euer_line": "office",
+                      "receipt_status": "missing",
+                      "net": 20.75,
+                      "vat": 4.15,
+                      "gross": 24.9,
+                      "updatedAt": "2026-10-21T11:05:00Z"
+                    }
+                  ],
+                  "totals": true
                 }
               }
             ]
@@ -14555,7 +14730,7 @@
           "flexDirection": "column",
           "gap": "$spacing.lg",
           "padding": "$spacing.xl",
-          "maxWidth": 720
+          "maxWidth": 1040
         },
         "children": [
           {
@@ -14825,6 +15000,168 @@
                   "editorOpen": false,
                   "deleteOpen": false,
                   "loading": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-record-table-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-record-table-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "Autotax Expenses · search · filter · totals",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-expenses",
+                "component": "RecordTable",
+                "props": {
+                  "kind": "expense",
+                  "title": "Expenses",
+                  "search": true,
+                  "searchValue": "",
+                  "filterLabel": "Receipt status",
+                  "filterOptions": [
+                    {
+                      "label": "$string.all",
+                      "value": ""
+                    },
+                    {
+                      "label": "missing",
+                      "value": "missing"
+                    },
+                    {
+                      "label": "received",
+                      "value": "received"
+                    },
+                    {
+                      "label": "booked",
+                      "value": "booked"
+                    }
+                  ],
+                  "filterValue": "",
+                  "totals": true,
+                  "cols": [
+                    {
+                      "key": "date",
+                      "label": "Date",
+                      "sortable": true,
+                      "type": "date",
+                      "format": "dd.MM.yy",
+                      "width": 104
+                    },
+                    {
+                      "key": "vendor",
+                      "label": "Vendor",
+                      "sortable": true,
+                      "truncate": true
+                    },
+                    {
+                      "key": "euer_line",
+                      "label": "Category",
+                      "sortable": true,
+                      "truncate": true
+                    },
+                    {
+                      "key": "receipt_status",
+                      "label": "Receipt",
+                      "sortable": true,
+                      "truncate": true
+                    },
+                    {
+                      "key": "net",
+                      "label": "Net",
+                      "type": "currency",
+                      "align": "end",
+                      "currency": "EUR",
+                      "decimals": 2,
+                      "width": 96,
+                      "sortable": true
+                    },
+                    {
+                      "key": "vat",
+                      "label": "VAT",
+                      "type": "currency",
+                      "align": "end",
+                      "currency": "EUR",
+                      "decimals": 2,
+                      "width": 96,
+                      "sortable": true
+                    },
+                    {
+                      "key": "gross",
+                      "label": "Gross",
+                      "type": "currency",
+                      "align": "end",
+                      "currency": "EUR",
+                      "decimals": 2,
+                      "width": 96,
+                      "sortable": true
+                    },
+                    {
+                      "key": "updatedAt",
+                      "label": "Updated",
+                      "type": "relativeTime",
+                      "width": 136,
+                      "sortable": true
+                    },
+                    {
+                      "key": "menu",
+                      "label": "",
+                      "type": "slot",
+                      "slot": "menu",
+                      "width": 80
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "e1",
+                      "date": "2026-11-03",
+                      "vendor": "Hetzner Online",
+                      "euer_line": "software",
+                      "receipt_status": "booked",
+                      "net": 38.66,
+                      "vat": 7.73,
+                      "gross": 46.39,
+                      "updatedAt": "2026-11-04T09:12:00Z"
+                    },
+                    {
+                      "id": "e2",
+                      "date": "2026-10-28",
+                      "vendor": "ÖBB Ticket",
+                      "euer_line": "travel",
+                      "receipt_status": "received",
+                      "net": 74.17,
+                      "vat": 7.42,
+                      "gross": 81.59,
+                      "updatedAt": "2026-10-29T17:40:00Z"
+                    },
+                    {
+                      "id": "e3",
+                      "date": "2026-10-21",
+                      "vendor": "Libro",
+                      "euer_line": "office",
+                      "receipt_status": "missing",
+                      "net": 20.75,
+                      "vat": 4.15,
+                      "gross": 24.9,
+                      "updatedAt": "2026-10-21T11:05:00Z"
+                    }
+                  ],
+                  "count": "3 records",
+                  "fields": [],
+                  "path": "/recordTable/expenses/editor/draft",
+                  "editorOpen": false,
+                  "deleteOpen": false
                 }
               }
             ]

@@ -2,7 +2,7 @@ name: "exponential"
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: exponential
       POSTGRES_USER: postgres
@@ -10,7 +10,9 @@ services:
     ports:
       - 127.0.0.1:54321:5432
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PG 18 images keep the cluster in /var/lib/postgresql/18/docker: mount the
+      # parent. A PG 17 `postgres_data` volume stays untouched (INSTALL.md, Upgrading).
+      - pgdata:/var/lib/postgresql
     tmpfs:
       - /tmp
     command:
@@ -22,7 +24,7 @@ services:
   electric:
     # Pinned (like postgres/garage) so an upstream protocol change can't land
     # silently in every dev environment — bump deliberately.
-    image: electricsql/electric:1.4.11
+    image: electricsql/electric:1.8.1
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/exponential?sslmode=disable
       ELECTRIC_INSECURE: true
@@ -75,7 +77,7 @@ services:
       - 4002:4002
 
 volumes:
-  postgres_data:
+  pgdata:
   garage_meta:
   garage_data:
   caddy_data:

@@ -3071,6 +3071,11 @@
           "description": "A + button firing `new`.",
           "default": false
         },
+        "swipeable": {
+          "type": "boolean",
+          "description": "Touch: swipe pages the panels.",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
         },
@@ -19795,6 +19800,10 @@
           "type": "boolean",
           "description": "One line with an ellipsis; cells wrap otherwise.",
           "default": false
+        },
+        "format": {
+          "type": "string",
+          "description": "Date pattern (dd.MM.yy)."
         }
       },
       "required": [
