@@ -1,19 +1,6 @@
 ---
-/* Starlight's head plus one inline script: every genUI surface on the page
-   follows the site's theme switch (data-theme → data-xui-mode), so a
-   surface rendered at build time with no JS still flips light/dark. */
+/* Starlight's head (the site is dark only: genUI surfaces paint dark). */
 import Default from "@astrojs/starlight/components/Head.astro"
 ---
 
 <Default />
-<script is:inline>
-  ;(() => {
-    const sync = () => {
-      const mode = document.documentElement.dataset.theme === `light` ? `light` : `dark`
-      for (const el of document.querySelectorAll(`[data-xui-mode]`)) el.setAttribute(`data-xui-mode`, mode)
-    }
-    new MutationObserver(sync).observe(document.documentElement, { attributes: true, attributeFilter: [`data-theme`] })
-    document.addEventListener(`DOMContentLoaded`, sync)
-    document.addEventListener(`exp:surface-mounted`, sync)
-  })()
-</script>
