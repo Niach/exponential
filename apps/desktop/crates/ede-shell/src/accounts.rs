@@ -26,8 +26,9 @@ pub struct Workspaces {
 
 /// The shapes the shell syncs per account: the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
-/// published packages) and their records, for a connected desktop.
-const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records"];
+/// published packages) and their records, for a connected desktop;
+/// #EDE-65: the issues and their boards, for the start menu's search.
+const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records", "boards", "issues"];
 
 impl Workspaces {
     /// Opens the desktops index under `config_dir` and the shared accounts.
@@ -152,6 +153,19 @@ impl Workspaces {
         self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
     }
 
+    /// #EDE-65: what the start menu's issue search reads: every signed-in
+    /// account's store and every active Local desktop's (None = the demo's).
+    pub fn issue_sources(&self) -> Option<Vec<crate::issues::Source>> {
+        if self.demo {
+            return None;
+        }
+        let mut sources: Vec<crate::issues::Source> = self.auth.signed_in_accounts().iter().filter_map(|a| self.sync.store(&a.id)).map(crate::issues::Source::Account).collect();
+        for d in self.desktops.active() {
+            sources.push(crate::issues::Source::Local { id: d.id.clone(), name: d.name.clone(), path: self.desktops.desktop_dir(&d.id).join("local.sqlite") });
+        }
+        Some(sources)
+    }
+
     /// `/accounts`: what Settings' Account page lists.
     pub fn accounts_json(&self) -> Value {
         if self.demo {
@@ -198,12 +212,24 @@ pub fn team_deep_link(team_id: &str) -> String {
 /// the running app's single-instance socket (`exp-desktop.sock`); nothing
 /// runs = nothing to tell (it opens on its own last team, which this sets).
 pub fn ide_follow_team(team_id: &str) {
+    if ide_send(&team_deep_link(team_id)) {
+        tracing::info!(team = team_id, "the Exponential app follows the team");
+    }
+}
+
+/// A deep link to the running Exponential app's single-instance socket
+/// (false: nothing runs or the send failed).
+pub fn ide_send(link: &str) -> bool {
     let sock = api::default_data_dir().join("exp-desktop.sock");
-    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return };
-    if socket.connect(&sock).is_ok() {
-        match socket.send(team_deep_link(team_id).as_bytes()) {
-            Ok(_) => tracing::info!(team = team_id, "the Exponential app follows the team"),
-            Err(e) => tracing::warn!("exp-desktop.sock: {e}"),
+    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return false };
+    if socket.connect(&sock).is_err() {
+        return false;
+    }
+    match socket.send(link.as_bytes()) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("exp-desktop.sock: {e}");
+            false
         }
     }
 }

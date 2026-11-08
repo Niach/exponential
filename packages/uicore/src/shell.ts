@@ -378,6 +378,29 @@ export interface StartMenuEntry {
   category: string
 }
 
+/** EDE-65: one issue-search hit for the start menu (the engine ranks every source as one pool). */
+export interface StartMenuIssue {
+  id: string
+  identifier: string
+  title: string
+  status: string
+  source: SwitcherKind
+  sourceId: string
+  sourceName: string
+  board: string
+}
+
+export interface StartMenuIssueRow {
+  id: string
+  identifier: string
+  title: string
+  status: string
+  icon: string
+  source: SwitcherKind
+  sourceId: string
+  context: string
+}
+
 export interface StartMenuCategory {
   id: string
   label: string
@@ -463,4 +486,24 @@ export function startMenuCategories(apps: StartMenuApp[], favourites: string[] =
     if (g.id === `all` || g.id === `favourites` || count > 0) out.push({ id: g.id, label: g.label, count })
   }
   return out
+}
+
+/** EDE-65: the start menu's issue rows under its apps. */
+export const START_MENU_ISSUE_LIMIT = 8
+
+const ISSUE_ANCHORS = [`backlog`, `in_progress`, `in_review`, `done`, `cancelled`, `duplicate`]
+
+/** The ranked hits as rows: none without a query, else the first eight in the engine's order with a status icon and `<source> · <board>`. */
+export function startMenuIssues(state: ShellState, issues: StartMenuIssue[]): StartMenuIssueRow[] {
+  if (state.startMenu.query.trim().length === 0) return []
+  return issues.slice(0, START_MENU_ISSUE_LIMIT).map((i) => ({
+    id: i.id,
+    identifier: i.identifier,
+    title: i.title,
+    status: i.status,
+    icon: ISSUE_ANCHORS.includes(i.status) ? `status-${i.status.replaceAll(`_`, `-`)}` : `ui-issue`,
+    source: i.source,
+    sourceId: i.sourceId,
+    context: i.board ? `${i.sourceName} · ${i.board}` : i.sourceName,
+  }))
 }
