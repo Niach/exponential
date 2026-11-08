@@ -53,7 +53,7 @@ struct ThreadRows: Sendable {
     let sessionIssues: [SessionIssueEntity]
     /// The root's linked issues in link order.
     let issues: [IssueEntity]
-    /// NEW-8: keyed through their conversations (`SessionMessage`).
+    /// #EXP-1730: keyed by `messages.session_id` (`SessionMessage`).
     let messages: [SessionMessage]
     let pullRequests: [PullRequestEntity]
     /// Per pull request id, the issues it closes (`pull_request_issues`).
@@ -472,9 +472,9 @@ struct ThreadRows: Sendable {
                 SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || ifnull(max("m"."created_at"), '')
                     || ':' || ifnull(sum(length("m"."body")), 0) || ':' || ifnull(sum(length("m"."card")), 0)
                     || ':' || count("m"."answered_at") || ':' || count("m"."consumed_at")
-                    || ':' || ifnull(group_concat(DISTINCT "c"."session_id"), '')
-                FROM "messages" "m" JOIN "conversations" "c" ON "c"."id" = "m"."conversation_id"
-                WHERE "m"."root_id" = ?1 AND "c"."session_id" IS NOT NULL AND "c"."session_id" <> ''
+                    || ':' || ifnull(group_concat(DISTINCT "m"."session_id"), '')
+                FROM "messages" "m"
+                WHERE "m"."root_id" = ?1 AND "m"."session_id" IS NOT NULL AND "m"."session_id" <> ''
                 """, arguments: [id]) ?? "",
             try stamp(db, table: "users", where: "\"id\" IN (SELECT \"author_id\" FROM \"messages\" WHERE \"root_id\" = ?1)", id),
             try digest(db, table: "session_issues", where: "\"session_id\" = ?1", id),
@@ -493,8 +493,8 @@ struct ThreadRows: Sendable {
         // #EXP-1464: the question / plan cards of the sessions cards name.
         parts.append(try String.fetchOne(db, sql: """
             SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || count("m"."answered_at")
-            FROM "messages" "m" JOIN "conversations" "c" ON "c"."id" = "m"."conversation_id"
-            WHERE "m"."root_id" <> ?1 AND "c"."session_id" IN (\(named))
+            FROM "messages" "m"
+            WHERE "m"."root_id" <> ?1 AND "m"."session_id" IN (\(named))
                 AND json_valid("m"."card") AND json_extract("m"."card", '$.kind') IN ('question', 'plan')
             """, arguments: [id]) ?? "")
         // S-3: the team's agents (the marks of the links).

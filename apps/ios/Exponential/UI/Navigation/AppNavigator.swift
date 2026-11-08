@@ -146,7 +146,7 @@ extension AppRoute {
         let rows = (try? deps.db.pool(forAccountId: accountId).read { db in
             try SessionMessage.fetchAll(db, sql: """
                 \(SessionQueries.keyedMessagesSQL)
-                AND "conversations"."session_id" = ?
+                AND "messages"."session_id" = ?
                 AND json_extract("messages"."card", '$.kind') = 'plan'
                 """, arguments: [sessionId])
         }) ?? []
