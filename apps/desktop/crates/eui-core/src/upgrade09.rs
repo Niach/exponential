@@ -44,12 +44,24 @@ fn upgrade_catalog_id(id: &Value) -> Value {
 /// `surfaces`: per surface, every id seen so far → its 1.0 id (kept ids map
 /// to themselves). `catalogs`: the catalog a `createSurface` named, so a
 /// later `updateComponents` of a basic surface gets the basic rules.
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Upgrade09State {
     #[serde(default)]
     pub surfaces: IndexMap<String, IndexMap<String, String>>,
     #[serde(default)]
     pub catalogs: IndexMap<String, String>,
+    /// #EXP-1742: per surface, `surfaces`' inverse (target → original id),
+    /// kept across messages so a streamed message costs O(message), not
+    /// O(ids seen). A cache: never serialized or compared, rebuilt when its
+    /// size disagrees with the map's (a deserialized state).
+    #[serde(skip)]
+    owners: HashMap<String, HashMap<String, String>>,
+}
+
+impl PartialEq for Upgrade09State {
+    fn eq(&self, other: &Self) -> bool {
+        self.surfaces == other.surfaces && self.catalogs == other.catalogs
+    }
 }
 
 /// `version` absent or `"v0.9"`.
@@ -297,12 +309,14 @@ const BASIC_ID_PROPS: &[&str] = &["child", "trigger", "content"];
 struct Rekey<'a> {
     map: &'a mut IndexMap<String, String>,
     /// target → its original id (the map is injective).
-    owners: HashMap<String, String>,
+    owners: &'a mut HashMap<String, String>,
 }
 
 impl<'a> Rekey<'a> {
-    fn new(map: &'a mut IndexMap<String, String>) -> Self {
-        let owners = map.iter().map(|(old, target)| (target.clone(), old.clone())).collect();
+    fn new(map: &'a mut IndexMap<String, String>, owners: &'a mut HashMap<String, String>) -> Self {
+        if owners.len() != map.len() {
+            *owners = map.iter().map(|(old, target)| (target.clone(), old.clone())).collect();
+        }
         Rekey { map, owners }
     }
 
@@ -524,7 +538,8 @@ fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut 
 
 fn upgrade_components_with(components: &Value, catalog_id: Option<&Value>, state: &mut Upgrade09State, surface_id: &str, ctx: &Ctx) -> Value {
     let Some(items) = components.as_array() else { return components.clone() };
-    let mut rekey = Rekey::new(state.surfaces.entry(surface_id.to_string()).or_default());
+    let map = state.surfaces.entry(surface_id.to_string()).or_default();
+    let mut rekey = Rekey::new(map, state.owners.entry(surface_id.to_string()).or_default());
     let ids: Vec<String> = items.iter().filter_map(|c| c.as_object()?.get("id")?.as_str().map(str::to_string)).collect();
     rekey.define(&ids);
     Value::Array(items.iter().map(|c| upgrade_flat_entry(c, catalog_id, &mut rekey, ctx)).collect())
@@ -601,14 +616,22 @@ fn upgrade_update_components(body: &Obj, state: &mut Upgrade09State, ctx: &Ctx) 
 /// never mutated).
 pub fn upgrade_message09(message: &Value, state: &Upgrade09State) -> (Vec<Value>, Upgrade09State) {
     let mut next = state.clone();
-    let Some(m) = message.as_object() else { return (vec![message.clone()], next) };
+    let messages = upgrade_message09_in(message, &mut next);
+    (messages, next)
+}
+
+/// [`upgrade_message09`] advancing `state` in place: what a stream (the
+/// router, a surface) calls per message, so a message never copies the id
+/// maps of every message before it (#EXP-1742).
+pub fn upgrade_message09_in(message: &Value, next: &mut Upgrade09State) -> Vec<Value> {
+    let Some(m) = message.as_object() else { return vec![message.clone()] };
     let ctx = Ctx::plain();
     let mut rest = Obj::new();
     for (k, v) in m {
         let value = match (k.as_str(), v) {
             ("version", _) => continue,
-            ("createSurface", Value::Object(b)) => upgrade_create_surface(b, &mut next, &ctx),
-            ("updateComponents", Value::Object(b)) => upgrade_update_components(b, &mut next, &ctx),
+            ("createSurface", Value::Object(b)) => upgrade_create_surface(b, next, &ctx),
+            ("updateComponents", Value::Object(b)) => upgrade_update_components(b, next, &ctx),
             ("updateDataModel", Value::Object(b)) => {
                 let mut b = b.clone();
                 if !b.contains_key("value") {
@@ -620,7 +643,7 @@ pub fn upgrade_message09(message: &Value, state: &Upgrade09State) -> (Vec<Value>
         };
         rest.insert(k.clone(), value);
     }
-    (vec![with_version(rest)], next)
+    vec![with_version(rest)]
 }
 
 fn client_code(code: &str) -> Option<&'static str> {
@@ -752,8 +775,8 @@ fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
 /// §14.2: a nested card `{root, data}` → 1.0, `"version": "1.0"` first.
 pub fn upgrade_card09(surface: &Value) -> Value {
     let Some(s) = surface.as_object() else { return surface.clone() };
-    let mut map = IndexMap::new();
-    let mut rekey = Rekey::new(&mut map);
+    let (mut map, mut owners) = (IndexMap::new(), HashMap::new());
+    let mut rekey = Rekey::new(&mut map, &mut owners);
     let mut ids = Vec::new();
     if let Some(root) = s.get("root") {
         collect_card_ids(root, &mut ids);
@@ -1068,9 +1091,7 @@ pub fn upgrade09_json(request: &Value) -> Value {
             let mut state = state;
             let mut messages = Vec::new();
             for m in request.get("inputs").and_then(Value::as_array).into_iter().flatten() {
-                let (out, next) = upgrade_message09(m, &state);
-                messages.extend(out);
-                state = next;
+                messages.extend(upgrade_message09_in(m, &mut state));
             }
             json!({"messages": messages, "state": state})
         }
