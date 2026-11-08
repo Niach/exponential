@@ -69,8 +69,8 @@ switcher), and the model's: `ede_pin {app}` / `ede_unpin {app}` (kept in
 `~/.config/exponential-desktop/shell.json`), `ede_taskbar {app}` (Mint's
 click: launch, focus, minimize, or the previews of a group),
 `ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
-`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle; `{action:
-open, id}` opens a chat of the rail, #EDE-65), `ede_workspace {index}`,
+`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle; `{sessionId}`
+opens a chat of the rail, #EDE-65), `ede_workspace {index}`,
 `ede_history {action: undo|reset}` (the shell documents' history);
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
@@ -193,11 +193,13 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 ## Settings (#EDE-14, #EDE-47)
 
 `settings.json`, a shell document like the rest (editable, in the
-history), not an eApps package: ONE on-demand top-layer window, 1080 × 680
-centred on the output (`exclusiveZone` -1), the IDE's settings look (the
+history), not an eApps package. #EDE-65: Settings open into the sidebar
+like the IDE's: ONE on-demand top layer over the rail and the ground,
+standing on the taskbar (`exclusiveZone` -1, `margin.bottom` 48; the
 menu's Settings rows open it with `ede_open_document`, its close button
-`ede_close_document`): a 272 px sidebar nav on the left, the page on the
-right, no tile overview. The nav: **This device** (Display: every output's
+`ede_close_document`): the settings nav takes the rail's place, 272 px
+(`settingsWidth`, the IDE's settings column), and the page sits on the
+ground's rounded panel, no tile overview. The nav: **This device** (Display: every output's
 modes and scale, `ede_output` applies live and writes `[[outputs]]`; Sound:
 volumes, mute, the output and input devices, the playback streams; Network:
 Wi-Fi, wired, the networks in reach, VPN; Bluetooth; Power: battery,

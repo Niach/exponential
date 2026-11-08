@@ -189,7 +189,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notifications", notifications, None, Some(sample_notifications.clone()), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notification-center", center, None, Some(sample_notifications), window, cx)))
         .child(div().w(px(280.0)).child(styleguide_surface_in("sg-ede-tray-menu", tray_menu, None, Some(sample_tray_menu), window, cx)))
-        .child(div().w(px(1080.0)).child(styleguide_surface_in("sg-ede-settings", settings, None, Some(settings_data), window, cx)))
+        .child(div().w(px(1280.0)).h(px(672.0)).child(styleguide_surface_in("sg-ede-settings", settings, None, Some(settings_data), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-sound", applet_sound, None, Some(json!({"services": services, "applets": {"sound": {"icon": "media-volume-up"}}})), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-network", applet_network, None, Some(json!({"services": services})), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-bluetooth", applet_bluetooth, None, Some(json!({"services": services})), window, cx)))

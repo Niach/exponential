@@ -16,7 +16,7 @@ reflects: eDE has no top panel and no top tab band; its taskbar is Mint's
 grouped window list at the bottom (icon-only, pinning, grouping, hover
 previews) with the applets and the clock at the right end; the sidebar nav is
 Needs you + Chats (no Assistant entry); bottom-left = the Exponential start
-button and a chat button; Settings = one window with a sidebar nav (This
+button and a chat button; Settings = the nav in the sidebar's place and the page on the ground's panel (#EDE-65; before, one window with a sidebar nav: This
 device, Personal, Team); Files launches Nemo; Version history is a start-menu
 app entry. The IDE's sidebar never folds (EXP-723). #EDE-65 (Danny's
 decisions, superseding rows 3 to 9 where they differ): eDE's sidebar is the
@@ -95,7 +95,7 @@ Mint's icon-only `taskbar.json`). The IDE's Local desktops are `elocal`
 | Sidebar section Workspaces | `sidebar.workspacesOpen` | Section (`collapsible`), Row, Badge | label 24, rows 28 |
 | Alt-Tab switcher | `altTab.*`, `altTabOrder` | Box, Image, Text (`switcher.json` today) | overlay sized to its tiles (208 px each), 204 high |
 | Start menu (Mint's three columns: favourites + places + power, categories, apps; search at the bottom) | `startMenuApps`, `startMenuCategories`, `startMenu.query`, `startMenu.category` | Grid, List, Row (`icon`, `title`, `subtitle`), Input, Button, Separator | 760 × 620 |
-| Settings window (#EDE-47) | `settings.json`: the nav This device / Personal / Team beside the page | Sidebar, Section, Row, SettingsRow, Switch, Select, Slider, DatePicker (`inline`), EmptyState, Popover | 1080 × 680 centred on the output, nav 272, back row 40, rows 28, labels 24 |
+| Settings window (#EDE-47) | `settings.json`: the nav This device / Personal / Team beside the page | Sidebar, Section, Row, SettingsRow, Switch, Select, Slider, DatePicker (`inline`), EmptyState, Popover | over the rail and the ground, above the taskbar (#EDE-65): nav 272 (`settingsWidth`) where the rail is, the page on the ground's panel, back row 40, rows 28, labels 24 |
 
 ## Known gaps to close before the gate
 
