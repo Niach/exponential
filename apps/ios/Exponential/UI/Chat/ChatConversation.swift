@@ -136,7 +136,7 @@ struct ChatConversationView: View {
         let start = windowStart(all, pinned: pinnedStart)
         // #EXP-1736: who sent each row and the gap above it, over EVERY row
         // (a window's first row keeps its group's gap).
-        let layouts = transcriptLayouts(all)
+        let layouts = transcriptLayouts(all, fromStart: start == 0)
         LazyVStack(alignment: .leading, spacing: 0) {
             if start > 0 {
                 TranscriptLoadEarlierButton {
@@ -188,14 +188,18 @@ struct ChatConversationView: View {
     }
 
     /// #EXP-1736 (transcript-grouping.json `transcriptLayout`): the rows'
-    /// senders, groups and gaps by row id; the view's `origin` sent the
-    /// first message nobody else claims (the prompt it started this with).
-    private func transcriptLayouts(_ all: [SessionChatRow]) -> [String: TranscriptGrouping.RowLayout] {
+    /// senders, groups and gaps by row id. ONE origin rule (data first):
+    /// the view's `origin` (S-3, from the synced rows) sends the
+    /// conversation's first message while the window holds it (`fromStart`).
+    private func transcriptLayouts(
+        _ all: [SessionChatRow], fromStart: Bool
+    ) -> [String: TranscriptGrouping.RowLayout] {
         let input = rows.transcriptInput(
             items: all.map(ChatRows.transcriptItem),
             viewerId: viewerId,
             // The root's own origin (a focused view's names another session).
-            originSessionId: view.focusId == nil ? view.origin?.sessionId : nil
+            originSessionId: view.focusId == nil ? view.origin?.sessionId : nil,
+            fromStart: fromStart
         )
         return Dictionary(
             TranscriptGrouping.transcriptLayout(input).map { ($0.id, $0) },

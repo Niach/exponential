@@ -727,19 +727,30 @@ struct AgentSessionView: View {
                                 // runs project into edited-files cards, exactly
                                 // as they do in the main transcript.
                                 let laneRows = AgentFeed.laneRows(focused.items)
+                                // #EXP-1736: the tab is a transcript too:
+                                // its prose = THE message bubble under the
+                                // subagent's avatar, the turns to it own.
+                                let lane = Self.laneGrouping(laneRows, run: focused)
                                 ForEach(
                                     Array(laneRows.enumerated()), id: \.element.id
                                 ) { index, row in
-                                    SubagentLaneRow(
-                                        row: row, context: markdownContext, nested: false,
-                                        live: model.agentWorking, testResults: model.testResults
-                                    )
-                                    .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
-                                        // The SubagentRow header above the
-                                        // list is the first "previous row".
-                                        prev: index == 0 ? .tool : laneRows[index - 1].rowClass,
-                                        cur: row.rowClass
-                                    )))
+                                    let layout = lane.layouts[row.id]
+                                    TranscriptRow(
+                                        side: layout?.side ?? .full,
+                                        gap: lane.bubbleGaps[row.id] ?? Self.gapPoints(AgentFeed.transcriptGap(
+                                            // The SubagentRow header above the
+                                            // list is the first "previous row".
+                                            prev: index == 0 ? .tool : laneRows[index - 1].rowClass,
+                                            cur: row.rowClass
+                                        )),
+                                        avatar: lane.avatars[row.id]
+                                    ) {
+                                        SubagentLaneRow(
+                                            row: row, context: markdownContext, nested: false,
+                                            live: model.agentWorking, testResults: model.testResults,
+                                            author: layout?.name == true ? layout?.sender?.displayName : nil
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -1060,6 +1071,10 @@ struct AgentSessionView: View {
                     // #EXP-1736: a parent's or child's message reaching this
                     // session = THAT session's bubble (its name ` ›`).
                     senderBubble(input.body, layout: layout, streaming: false)
+                } else if layout?.side == .other {
+                    // ONE origin rule: the feed's first prompt = the
+                    // origin's bubble (the session that started this one).
+                    senderBubble(text, layout: layout, streaming: false)
                 } else {
                     UserMessageBubble(text: text, context: markdownContext)
                 }
@@ -1128,16 +1143,15 @@ struct AgentSessionView: View {
     /// it parses as a session input (`crossSessionInput`: that session's
     /// message); tool / thought / subagent / edits runs = `trace`;
     /// everything else (cards, pills, errors) and the tool-posted cards
-    /// = `full`. The S-3 `origin` claims the first prompt when it LEADS
-    /// the feed (the prompt the starting session sent).
+    /// = `full`. ONE origin rule (data first): the S-3 `origin` from the
+    /// synced rows + `fromStart` (the window holds the feed's first row)
+    /// go to the grouping, which reads the first prompt as the origin's.
     private func feedGrouping(
         _ entries: [TranscriptEntry], anchors: (anchors: [Int: [String]], unanchored: [String]), model: AgentSessionModel
     ) -> FeedGrouping {
         let viewerId = deps.auth.userId
         var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
         var extraSessions: [TranscriptGrouping.KnownSession] = []
-        var firstMessageIsPrompt: Bool?
-        var promptId: String?
         for entry in entries {
             let id = "row:\(entry.id)"
             var item = TranscriptGrouping.Item(id: id, kind: .full)
@@ -1150,7 +1164,6 @@ struct AgentSessionView: View {
                 switch feedItem {
                 case .narration:
                     item = TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
-                    if firstMessageIsPrompt == nil { firstMessageIsPrompt = false }
                 case let .userMessage(_, text, _):
                     if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
                         break
@@ -1161,15 +1174,10 @@ struct AgentSessionView: View {
                             authorSessionId: input.sessionId
                         )
                         extraSessions.append(TranscriptGrouping.KnownSession(id: input.sessionId, title: input.name, agentId: nil))
-                        if firstMessageIsPrompt == nil { firstMessageIsPrompt = false }
                     } else {
                         item = TranscriptGrouping.Item(
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
                         )
-                        if firstMessageIsPrompt == nil {
-                            firstMessageIsPrompt = true
-                            promptId = id
-                        }
                     }
                 case .tool, .thought, .subagent:
                     item = TranscriptGrouping.Item(id: id, kind: .trace)
@@ -1181,14 +1189,10 @@ struct AgentSessionView: View {
             items += Self.rowItemIds(entry.row).flatMap { anchors.anchors[$0] ?? [] }
                 .map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
         }
-        // The origin's prompt: no viewer behind it (the origin claims it).
-        let origin = firstMessageIsPrompt == true ? originSessionId : nil
-        if origin != nil, let promptId, let index = items.firstIndex(where: { $0.id == promptId }) {
-            items[index] = TranscriptGrouping.Item(id: promptId, kind: .message, authorKind: DomainContract.messageAuthorKindUser)
-        }
         let viewed = model.session ?? session
         let input = transcriptRows?.transcriptInput(
-            items: items, viewerId: viewerId, chat: viewed, originSessionId: origin, extraSessions: extraSessions
+            items: items, viewerId: viewerId, chat: viewed, originSessionId: originSessionId,
+            fromStart: model.transcriptFromStart, extraSessions: extraSessions
         ) ?? TranscriptGrouping.Input(
             viewerId: viewerId,
             chat: TranscriptGrouping.Chat(
@@ -1210,6 +1214,56 @@ struct AgentSessionView: View {
             }
             if item.kind == .message, previous?.kind == .message, layout.side != .full {
                 out.bubbleGaps[entryId] = layout.gap
+            }
+        }
+        return out
+    }
+
+    /// #EXP-1736: a subagent's own tab through the same grouping: the
+    /// subagent is the chat's own sender (its prose = its bubbles, its
+    /// calls = its trace), the turns addressed to it the viewer's own.
+    static func laneGrouping(_ rows: [AgentFeedRow], run: AgentSubagentRun) -> FeedGrouping {
+        let viewer = "viewer"
+        let items: [TranscriptGrouping.Item] = rows.map { row in
+            let id = "row:\(row.id)"
+            switch row {
+            case .toolRun, .edits, .expRun, .subagentRun:
+                return TranscriptGrouping.Item(id: id, kind: .trace)
+            case .ask:
+                return TranscriptGrouping.Item(id: id, kind: .full)
+            case let .single(item):
+                switch item {
+                case .narration:
+                    return TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
+                case .userMessage:
+                    return TranscriptGrouping.Item(
+                        id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewer
+                    )
+                case .tool, .thought, .subagent:
+                    return TranscriptGrouping.Item(id: id, kind: .trace)
+                default:
+                    return TranscriptGrouping.Item(id: id, kind: .full)
+                }
+            }
+        }
+        let title = (run.title ?? "").trimmingCharacters(in: .whitespaces)
+        let name = title.isEmpty ? SubagentTraceLine.label(run.agentType) : title
+        let input = TranscriptGrouping.Input(
+            viewerId: viewer,
+            chat: TranscriptGrouping.Chat(
+                sessionId: "subagent:\(run.subagentId)", title: name, agentId: nil, originSessionId: nil
+            ),
+            members: [], agents: [], sessions: [], items: items
+        )
+        var out = FeedGrouping()
+        var previous: TranscriptGrouping.Item?
+        for (item, layout) in zip(items, TranscriptGrouping.transcriptLayout(input)) {
+            defer { previous = item }
+            guard let rowId = Int(item.id.dropFirst(4)) else { continue }
+            out.layouts[rowId] = layout
+            if layout.avatar { out.avatars[rowId] = .session }
+            if item.kind == .message, previous?.kind == .message, layout.side != .full {
+                out.bubbleGaps[rowId] = layout.gap
             }
         }
         return out
@@ -3764,6 +3818,9 @@ struct SubagentLaneRow: View {
     var live: Bool = true
     /// The model's parsed test runs by call id (`AgentSessionModel.testResults`).
     var testResults: [String: TestResults] = [:]
+    /// #EXP-1736: the subagent's name on its group's first bubble (its own
+    /// tab only); nil = none.
+    var author: String? = nil
 
     var body: some View {
         switch row {
@@ -3778,7 +3835,8 @@ struct SubagentLaneRow: View {
                 .padding(.vertical, nested ? 2 : 0)
         case let .single(item):
             SubagentItemRow(
-                item: item, context: context, nested: nested, live: live, testResults: testResults
+                item: item, context: context, nested: nested, live: live, testResults: testResults,
+                author: author
             )
         default:
             EmptyView()
@@ -3799,6 +3857,8 @@ struct SubagentItemRow: View {
     /// The run is working a turn (see `SubagentLaneRow.live`).
     var live: Bool = true
     var testResults: [String: TestResults] = [:]
+    /// #EXP-1736: the bubble's name line in the subagent's own tab.
+    var author: String? = nil
 
     var body: some View {
         content.padding(.vertical, nested ? 2 : 0)
@@ -3825,7 +3885,14 @@ struct SubagentItemRow: View {
             // The main lane's rule: shimmer only while the run works.
             TraceLine(Trace.reasoning(running: running && live, durationMs: durationMs), size: .sm)
         case let .narration(_, text, _, _):
-            NarrationBubble(text: text, context: context)
+            if nested {
+                NarrationBubble(text: text, context: context)
+            } else {
+                // #EXP-1736: the subagent's own tab = THE message bubble.
+                MessageBubble(side: .other, author: author, time: nil) {
+                    AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
+                }
+            }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)
         case let .userMessage(_, text, _):

@@ -125,6 +125,17 @@ final class AgentSessionModel {
     /// already holds, or a page only the device has. What the transcript's
     /// "Load earlier" affordance is gated on.
     private(set) var canLoadEarlier = false
+    /// #EXP-1736 (transcript-grouping.json `fromStart`): the rendered
+    /// window begins at the session's very first row — nothing above it in
+    /// the feed, no older page on the device, no row trimmed off the front.
+    /// The ONE origin rule reads the first prompt as the origin's only then.
+    private(set) var transcriptFromStart = false
+    /// The feed's byte cap dropped rows off its front (`trimFeed`): the
+    /// start is gone for this viewer, so the origin never draws.
+    @ObservationIgnored private var feedHeadTrimmed = false
+    /// The device answered an older-page ask with nothing: the feed holds
+    /// the journal's first row (unlike a publisher that cannot page at all).
+    @ObservationIgnored private var historyReachedStart = false
     /// EXP-783: the id of the oldest RENDERED feed row — nil means the newest
     /// `AgentFeed.feedWindow` rows, `windowFromStart` the feed's own first row
     /// whatever it is. An id rather than an index, so an eviction or a replay
@@ -685,7 +696,10 @@ final class AgentSessionModel {
         guard historyRequest == nil, !historyExhausted, historyTruncated else { return false }
         guard let before = oldestSeq, before > 0 else {
             historyExhausted = true
+            // Seq 0 on screen = the journal's first row is held.
+            if oldestSeq == 0 { historyReachedStart = true }
             canLoadEarlier = false
+            if !applyingBatch { reproject() }
             return false
         }
         historyRequests += 1
@@ -746,7 +760,9 @@ final class AgentSessionModel {
         seqById = savedSeqs
         guard !page.isEmpty else {
             historyExhausted = true
+            historyReachedStart = true
             canLoadEarlier = false
+            if !applyingBatch { reproject() }
             return
         }
         // The prepended rows take ids BELOW every id on screen, so ordering by
@@ -776,6 +792,8 @@ final class AgentSessionModel {
             historyExhausted: historyExhausted, connected: connected
         )
         if canLoad != canLoadEarlier { canLoadEarlier = canLoad }
+        let fromStart = start == 0 && (!historyTruncated || historyReachedStart) && !feedHeadTrimmed
+        if fromStart != transcriptFromStart { transcriptFromStart = fromStart }
         let workflowIds = Set(workflows.map(\.id))
         let key = ProjectionKey(feedVersion: feedVersion, windowStart: start, workflowIds: workflowIds)
         guard key != projectedKey else { return }
@@ -2877,6 +2895,7 @@ final class AgentSessionModel {
         let before = feed.count
         let trimmed = AgentFeed.trim(feed: feed, bytes: feedBytes)
         guard trimmed.feed.count != before else { return }
+        feedHeadTrimmed = true
         for dropped in feed.prefix(before - trimmed.feed.count) {
             seqById.removeValue(forKey: dropped.id)
             if case let .tool(_, _, _, _, callId?, _, _, _, _, _, _, _, _) = dropped {

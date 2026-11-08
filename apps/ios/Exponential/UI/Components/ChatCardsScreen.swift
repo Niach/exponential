@@ -8,13 +8,13 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|record-form-field-states|plan-card|mention-pill|voice-call|call-controls|call-pill|settings-voice|device-readiness|device-attention|work-screen|session-xref|pr-checks|session-row>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|record-form-field-states|plan-card|mention-pill|voice-call|call-controls|call-pill|settings-voice|device-readiness|device-attention|work-screen|pr-checks|session-row>` (`sg_<name>`).
 struct ChatCardsScreen: View {
     let kind: String
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
+    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -97,7 +97,6 @@ struct ChatCardsScreen: View {
                     case "chat-menus": ChatMenuSpecimens()
                     case "schedule-picker": SchedulePickerSpecimens()
                     case "mention-pill": MentionPillSpecimens()
-                    case "session-xref": SessionXrefSpecimens()
                     case "sealed-locked": SealedLockedSpecimens()
                     case "voice-call": VoiceCallSpecimens()
                     case "call-controls": CallControlsSpecimens()

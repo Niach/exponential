@@ -125,12 +125,16 @@ struct ChatRows: Sendable {
 
     /// #EXP-1736 (transcript-grouping.json): the grouping's input over
     /// this snapshot's people, agents and sessions; `chat` = the session
-    /// whose transcript it is (the root, or a session's raw view).
+    /// whose transcript it is (the root, or a session's raw view);
+    /// `originSessionId` = its S-3 origin from the synced rows, `fromStart`
+    /// = the items begin at the conversation's first message (ONE origin
+    /// rule: only then does the first message read as the origin's).
     func transcriptInput(
         items: [TranscriptGrouping.Item],
         viewerId: String?,
         chat: SessionEntity? = nil,
         originSessionId: String?,
+        fromStart: Bool,
         extraSessions: [TranscriptGrouping.KnownSession] = []
     ) -> TranscriptGrouping.Input {
         let chat = chat ?? root
@@ -149,7 +153,8 @@ struct ChatRows: Sendable {
                 sessionId: chat.id,
                 title: title,
                 agentId: chat.agentId,
-                originSessionId: originSessionId
+                originSessionId: originSessionId,
+                fromStart: fromStart
             ),
             members: users.map { TranscriptGrouping.Named(id: $0.id, name: $0.name ?? $0.email) },
             agents: (xrefAgents + [agent].compactMap { $0 }).map { TranscriptGrouping.Named(id: $0.id, name: $0.name) },

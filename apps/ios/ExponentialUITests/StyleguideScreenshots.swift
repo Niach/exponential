@@ -1155,7 +1155,7 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (session 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
-        // sg_device-readiness (EXP-1375) · sg_session-xref · sg_pr-checks (#EXP-1611) ·
+        // sg_device-readiness (EXP-1375) · sg_pr-checks (#EXP-1611) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
         walkSpecimens(app)
@@ -1201,7 +1201,7 @@ final class StyleguideScreenshots: XCTestCase {
     static let specimenEntries = [
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-        "call-controls", "call-pill", "device-readiness", "session-xref",
+        "call-controls", "call-pill", "device-readiness",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab", "record-form-field-states",
@@ -1243,7 +1243,6 @@ final class StyleguideScreenshots: XCTestCase {
             case "call-controls": snapshot("sg_call-controls", settle: 2)
             case "call-pill": snapshot("sg_call-pill", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
-            case "session-xref": snapshot("sg_session-xref", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "record-form-field-states": snapshot("sg_record-form-field-states", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)

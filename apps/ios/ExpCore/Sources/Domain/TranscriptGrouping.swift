@@ -66,14 +66,25 @@ public enum TranscriptGrouping {
         public let sessionId: String
         public let title: String
         public let agentId: String?
-        /// The session that started it (session-chat.json `origin`), else nil.
+        /// The session that started it (session-chat.json `origin`, from the
+        /// synced rows), else nil.
         public let originSessionId: String?
+        /// The items begin at the conversation's first message (fixture
+        /// `fromStart`, absent = true).
+        public let fromStart: Bool
 
-        public init(sessionId: String, title: String, agentId: String?, originSessionId: String?) {
+        public init(
+            sessionId: String,
+            title: String,
+            agentId: String?,
+            originSessionId: String?,
+            fromStart: Bool = true
+        ) {
             self.sessionId = sessionId
             self.title = title
             self.agentId = agentId
             self.originSessionId = originSessionId
+            self.fromStart = fromStart
         }
     }
 
@@ -196,7 +207,7 @@ public enum TranscriptGrouping {
             }
             return Sender(kind: .session, id: chat.sessionId, name: chat.title, link: nil)
         }()
-        var originPending = !(chat.originSessionId ?? "").isEmpty
+        var originPending = !(chat.originSessionId ?? "").isEmpty && chat.fromStart
 
         var out: [RowLayout] = []
         var prevKey: String?
@@ -212,25 +223,28 @@ public enum TranscriptGrouping {
             } else {
                 let viewer = input.viewerId ?? ""
                 let own = item.authorKind == "user" && !viewer.isEmpty && item.authorId == viewer
-                let hasAuthorSession = !(item.authorSessionId ?? "").isEmpty
-                if let cross = fromSession(item.authorSessionId) {
+                let cross = fromSession(item.authorSessionId)
+                // The origin: the conversation's first message, unless it
+                // names its own sender; no later row.
+                let origin = originPending && cross == nil ? fromSession(chat.originSessionId) : nil
+                originPending = false
+                if let cross {
                     side = .other
                     sender = cross
+                } else if let origin {
+                    side = .other
+                    sender = origin
                 } else if own {
                     side = .own
                 } else {
                     side = .other
-                    let origin = originPending && !hasAuthorSession ? fromSession(chat.originSessionId) : nil
-                    if let origin {
-                        sender = origin
-                    } else if item.authorKind == "user" {
+                    if item.authorKind == "user" {
                         let id = item.authorId ?? ""
                         sender = Sender(kind: .member, id: id, name: members[id] ?? Copy.formerMember, link: nil)
                     } else {
                         sender = ownAgent
                     }
                 }
-                if !own, !hasAuthorSession { originPending = false }
             }
             let key: String?
             switch side {

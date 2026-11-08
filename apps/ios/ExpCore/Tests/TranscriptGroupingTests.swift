@@ -91,7 +91,8 @@ final class TranscriptGroupingTests: XCTestCase {
                     sessionId: try XCTUnwrap(string(chat["sessionId"])),
                     title: try XCTUnwrap(string(chat["title"])),
                     agentId: string(chat["agentId"]),
-                    originSessionId: string(chat["originSessionId"])
+                    originSessionId: string(chat["originSessionId"]),
+                    fromStart: chat["fromStart"] as? Bool ?? true
                 ),
                 members: try named(input["members"]),
                 agents: try named(input["agents"]),
