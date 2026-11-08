@@ -818,6 +818,9 @@ before the desktop starts), and every envelope is POSTed to the server's tunnel
   a `ui.frames` transaction carries each minute's p50/p95/p99/max, and a heartbeat every 50 ms on the
   main loop turns a block of 100 ms or more into a `ui.hang` transaction (a loop stuck for 2 s is a
   warning event from the watchdog thread). At most one long-frame or hang span a second.
+- Symbols: release builds carry line tables, which `packaging/split-debug.sh` moves into
+  `<name>.debug` files before packing (the shipped binaries stay as small as before);
+  `build-ede.yml` uploads them to GlitchTip on releases (`sentry-cli debug-files upload`).
 - `EXP_FRAME_STATS=1`: the same frame times as a stderr summary every 5 s, Sentry or not:
   `frame stats 5.0s: 300 frames (60.0/s) avg 2.10 ms, p50 2.0, p95 4.5, p99 8.0, max 12.3 ms; 0 long (>= 33 ms); 0 hangs (max 0 ms)`.
 
