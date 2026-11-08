@@ -848,7 +848,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
 /// One picker row: its mark, its label, its muted second line — and, when it
 /// is picked, whichever of the two marks its mode wears.
 /// Public so a host drawing THE picker rows inside its own sheet (#EXP-1433:
-/// the thread strip group's issue rows) paints them exactly as the picker.
+/// the chat strip group's issue rows) paints them exactly as the picker.
 public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let item: PickerItem<Value>
     let checked: PickerChecked

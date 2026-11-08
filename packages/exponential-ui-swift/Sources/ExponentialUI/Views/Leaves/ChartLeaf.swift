@@ -78,8 +78,8 @@ struct ChartLeaf: View {
 
     @ViewBuilder
     private func axes(_ g: ChartGeometry, color: Color, size: CGFloat) -> some View {
-        ForEach(Array(g.chart.ticks.enumerated()), id: \.offset) { _, t in
-            Text(ChartModel.format(t)).font(.system(size: size)).foregroundStyle(color).lineLimit(1)
+        ForEach(Array(g.chart.ticks.enumerated()), id: \.offset) { i, t in
+            Text(g.chart.tickLabel(i)).font(.system(size: size)).foregroundStyle(color).lineLimit(1)
                 .frame(width: max(g.left - 6, 0), height: 14, alignment: .trailing)
                 .offset(x: 0, y: g.y(t) - 7)
         }
@@ -102,9 +102,9 @@ struct ChartLeaf: View {
     private func values(_ g: ChartGeometry, color: Color, size: CGFloat) -> some View {
         ForEach(Array(g.chart.series.enumerated()), id: \.offset) { si, s in
             ForEach(Array(s.values.enumerated()), id: \.offset) { i, v in
-                Text(ChartModel.format(v)).font(.system(size: size)).foregroundStyle(color).lineLimit(1)
-                    .frame(width: 40, height: 14)
-                    .offset(x: (g.chart.kind == "bar" ? g.barX(si, i) + g.barWidth / 2 : g.x(i)) - 20, y: g.y(v) - 15)
+                Text(g.chart.valueLabel(si, i)).font(.system(size: size)).foregroundStyle(color).lineLimit(1).fixedSize()
+                    .frame(width: 120, height: 14)
+                    .offset(x: (g.chart.kind == "bar" ? g.barX(si, i) + g.barWidth / 2 : g.x(i)) - 60, y: g.y(v) - 15)
             }
         }
     }
@@ -117,8 +117,8 @@ struct ChartLeaf: View {
         let fg = tip.color ?? cx.ink
         let label = g.chart.categories[safe: h] ?? ""
         let lines: [(String, Color, String)] = g.chart.isSlices
-            ? [(label, colors[safe: h] ?? fg, g.chart.sliceValues[safe: h].map(ChartModel.format) ?? "")]
-            : g.chart.series.enumerated().map { i, s in (s.name, colors[safe: i] ?? fg, s.values[safe: h].map(ChartModel.format) ?? "") }
+            ? [(label, colors[safe: h] ?? fg, g.chart.sliceValues.indices.contains(h) ? g.chart.valueLabel(0, h) : "")]
+            : g.chart.series.enumerated().map { i, s in (s.name, colors[safe: i] ?? fg, s.values.indices.contains(h) ? g.chart.valueLabel(i, h) : "") }
         VStack(alignment: .leading, spacing: 2) {
             if !g.chart.isSlices, !label.isEmpty {
                 Text(label).font(.system(size: fs, weight: .semibold))
@@ -155,7 +155,7 @@ struct ChartGeometry {
         self.width = width
         self.height = height
         let spark = chart.kind == "sparkline"
-        let labelW: CGFloat = chart.showAxes ? CGFloat(chart.ticks.map { ChartModel.format($0).count }.max() ?? 1) * axisSize * 0.62 + 8 : 0
+        let labelW: CGFloat = chart.showAxes ? CGFloat(chart.ticks.indices.map { chart.tickLabel($0).count }.max() ?? 1) * axisSize * 0.62 + 8 : 0
         if spark {
             (left, right, top) = (1, 1, 2)
         } else {

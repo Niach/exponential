@@ -39,10 +39,10 @@ export function useSessionNav({
       )
       const backValue = backParam(next)
       const backSearch = backValue ? { back: backValue } : {}
-      if (target.to === `thread`) {
+      if (target.to === `chat`) {
         void navigate({
-          to: `/t/$teamSlug/threads/$threadId`,
-          params: { teamSlug, threadId: target.threadId },
+          to: `/t/$teamSlug/sessions/$sessionId`,
+          params: { teamSlug, sessionId: target.chatId },
           search: target.session
             ? { tab: `session`, session: target.session, ...backSearch }
             : backSearch,

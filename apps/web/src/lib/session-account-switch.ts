@@ -39,7 +39,7 @@ export const REASON_SIGNED_OUT = `Sign in to this account on that machine first.
 export const REASON_NEEDS_RELOGIN = `This account needs a re-login on that machine.`
 export const REASON_ALREADY = `This session is already on this account.`
 
-/** Who may steer a session (Threads v2 visibility ×4): a session on a
+/** Who may steer a session (the session visibility ×4): a session on a
  *  team-SHARED device = every member, any other = its starter only. */
 export function canSteerSession(
   session: { shared: boolean; userId: string },

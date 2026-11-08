@@ -175,6 +175,8 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
     Some(
         h_flex()
             .id(SharedString::from(format!("{id}-button")))
+            .role(gpui::Role::Button)
+            .aria_label(name)
             .flex_shrink_0()
             .items_center()
             .justify_center()
@@ -445,7 +447,7 @@ fn stack_list_row(entry: &PrEntry, cx: &mut App) -> crate::pr_rows::PrListRow {
                 Some(session_id) => crate::navigation::navigate(
                     window,
                     cx,
-                    crate::navigation::Screen::Thread { session_id },
+                    crate::navigation::Screen::Chat { session_id },
                 ),
                 None => {
                     if let Some(url) = url {

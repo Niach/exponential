@@ -5,7 +5,9 @@ import ExponentialUI
 import SwiftUI
 
 /// VAPP-110 / VAPP-177 (fixtures/apps.json `editorTabs`): THE EDITOR on a
-/// phone. Header = the app's glyph + name + the version pill, then the
+/// phone. #EXP-1729 (`editorHeader`): the header IS THE chat header: back ·
+/// the lead disc with the app's glyph · the app's name over its `status ·
+/// device` subtitle in its tone, then the
 /// trailing `…` (`app-editor-menu`, THE Menu in its sheet presentation):
 /// Versions (the count as trailing meta) · Settings · Export (once the app
 /// has a version) · Delete app (destructive; the creator or an owner).
@@ -13,7 +15,7 @@ import SwiftUI
 /// pane:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
-///   `user_id` = me) as THE thread screen's channel (`ThreadScreen` with an
+///   `user_id` = me) as THE chat screen's channel (`ChatScreen` with an
 ///   editor slot: ChannelMessageRow rows, cards answering in place, THE
 ///   composer). No session yet = the same pane, empty (`copy.chatEmpty`),
 ///   whose composer's first send is `sessions.send({appId, text, deviceId})`
@@ -121,7 +123,7 @@ struct AppEditorScreen: View {
         Group {
             if let app = model.app {
                 if let rootId = model.rootId {
-                    ThreadScreen(rootId: rootId, editor: slot(app))
+                    ChatScreen(rootId: rootId, editor: slot(app))
                         .id(rootId)
                 } else {
                     AppEditorShell(title: title(app), band: band(app), pane: pane(app), trailing: menuButton(app)) {
@@ -131,7 +133,7 @@ struct AppEditorScreen: View {
             } else if model.missing {
                 ZStack {
                     AppBackground()
-                    EmptyState(.threadNotFound)
+                    EmptyState(.chatNotFound)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
@@ -172,6 +174,9 @@ struct AppEditorScreen: View {
                     attachmentsApi: deps.attachmentsApi
                 )
             }
+            // #EXP-1729: the first send (composer or starter) carries the
+            // Account and Model picks.
+            firstDraft?.picks = { [model] in model.sendPicks }
         }
         .onChange(of: model.app?.teamId, initial: true) { _, team in firstDraft?.teamId = team ?? "" }
         .onChange(of: firstDraft == nil) { _, _ in firstDraft?.teamId = model.app?.teamId ?? "" }
@@ -272,41 +277,58 @@ struct AppEditorScreen: View {
 
     // MARK: - Chrome
 
-    private func slot(_ app: AppListEntry) -> ThreadEditorSlot {
-        ThreadEditorSlot(
+    private func slot(_ app: AppListEntry) -> ChatEditorSlot {
+        ChatEditorSlot(
             title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: menuButton(app),
-            device: model.deviceMenu, appMove: model.deviceAppMove
+            device: model.deviceMenu, appMove: model.deviceAppMove, picks: picks
         )
     }
 
-    /// VAPP-177: the header's trailing `…` round button (`app-editor-menu`),
-    /// THE Menu in its sheet presentation (the Apps row's `…` alike).
+    /// #EXP-1729: the composer's Account and Model rows (the launch
+    /// composer's, seeded from the shown device).
+    private var picks: ChatEditorPicks {
+        let launch = model.launch
+        return ChatEditorPicks(
+            account: model.launchAccountMenu,
+            agent: launch.agent,
+            model: launch.model,
+            onPickModel: { model.pickModel($0) },
+            liveAccount: model.liveAccountFallback
+        )
+    }
+
+    /// VAPP-177: the header's trailing `…` (`app-editor-menu`), THE chat
+    /// header's ghost button (#EXP-1729), THE Menu in its sheet presentation
+    /// (the Apps row's `…` alike); VAPP-235's pending-writes glyph before it.
     private func menuButton(_ app: AppListEntry) -> AnyView? {
         AnyView(
-            Button {
-                UIApplication.endEditing()
-                menuOpen = true
-            } label: {
-                PageHeaderGlyph(icon: AppIcons.uiMore, dot: false)
+            HStack(spacing: 4) {
+                AppOutboxPendingGlyph(appId: app.id)
+                ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: Apps.TestIds.menu) {
+                    UIApplication.endEditing()
+                    menuOpen = true
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("More")
-            .accessibilityIdentifier(Apps.TestIds.menu)
         )
     }
 
+    /// #EXP-1729 (apps.json `editorHeader`): THE chat header's title block:
+    /// the lead disc with the app's glyph, the name over `status · device`
+    /// in its tone (the version pill left the phone header).
     private func title(_ app: AppListEntry) -> some View {
-        HStack(spacing: 6) {
-            AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
-            Text(app.name)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityAddTraits(.isHeader)
-            AppVersionPill(app: app)
-            AppOutboxPendingGlyph(appId: app.id)
+        let header = model.header
+        let tone: ChatHeaderTitle.Tone = switch header.tone {
+        case .attention: .needsYou
+        case .active: .working
+        case .muted: .muted
         }
+        return ChatHeaderTitle(
+            title: app.name,
+            subtitle: header.subtitle,
+            subtitleTone: tone,
+            agentIcon: app.glyph,
+            agentColor: app.color ?? AppGlyph.neutralColor
+        )
     }
 
     private func band(_ app: AppListEntry) -> some View {
@@ -383,6 +405,7 @@ struct AppEditorScreen: View {
                 draft: firstDraft,
                 deviceId: model.deviceId,
                 deviceMenu: model.deviceMenu,
+                picks: picks,
                 teamId: app.teamId,
                 isDraftApp: draft
             )
@@ -1563,7 +1586,7 @@ struct AppSettingsSheet: View {
 }
 
 /// The editor before its first message: the same
-/// chrome the thread screen gives an editor root — the title, the band, a
+/// chrome the chat screen gives an editor root — the title, the band, a
 /// pane covering the chat — over the empty chat.
 private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
     let title: Title
@@ -1584,14 +1607,18 @@ private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .workHeaderBand { band }
+        // #EXP-1729: THE chat header over the band (the chat screen's).
+        .workHeaderBand {
+            ChatHeader {
+                title
+            } trailing: {
+                if let trailing { trailing }
+            }
+            band
+        }
+        .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
-        // The `…`: a bare glyph (web-mobile), no iOS 26 shared glass.
-        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: trailing != nil) { trailing }
-        .toolbar {
-            ToolbarItem(placement: .principal) { title }
-        }
     }
 }
 
@@ -1604,6 +1631,8 @@ private struct AppFirstMessageComposer: View {
     let deviceId: String?
     /// #FEED-204: the "+" Device row (apps.json EDITOR DEVICE).
     let deviceMenu: SessionComposerFooter.DeviceMenu
+    /// #EXP-1729: the "+" Account and Model rows (the launch picks).
+    let picks: ChatEditorPicks
     /// The team whose issues the "+" Issue page searches.
     let teamId: String?
     /// VAPP-176: a DRAFT app: `copy.draftPlaceholder`, opened focused.
@@ -1671,19 +1700,21 @@ private struct AppFirstMessageComposer: View {
         }
     }
 
-    /// #FEED-204: THE "+" sheet before the session exists: nothing to
-    /// configure yet (no agent = no Model row, no usage = no ring), so Photo
-    /// or file, Issue and Device.
+    /// #FEED-204 / #EXP-1729: THE "+" sheet before the session exists:
+    /// Photo or file, Issue, Device, Account and Model (the launch picks the
+    /// first send carries; no usage = no ring).
     private var controls: SessionComposerFooter.Controls {
         SessionComposerFooter.Controls(
-            modelValue: nil,
-            agent: "",
-            onPickModel: { _ in },
+            modelValue: picks.model,
+            agent: picks.agent,
+            onPickModel: picks.onPickModel,
             usageFraction: nil,
             usageSeverity: AgentUsagePresentation.severity(Double?.none),
             onUsage: {},
             teamId: teamId,
-            device: deviceMenu
+            account: picks.account,
+            device: deviceMenu,
+            editor: true
         )
     }
 
@@ -1722,6 +1753,9 @@ final class AppFirstMessageDraft: SessionComposerDraft {
     var steerSending = false
     /// A refused send: the host toasts it (the draft stays put).
     var sendError: String?
+    /// #EXP-1729: the editor composer's Account and Model picks, read at
+    /// send time.
+    @ObservationIgnored var picks: @MainActor () -> (cli: String?, account: String?, model: String?) = { (nil, nil, nil) }
 
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let sessionsApi: SessionsApi
@@ -1754,6 +1788,7 @@ final class AppFirstMessageDraft: SessionComposerDraft {
         let holdsFlag = !steerSending
         if holdsFlag { steerSending = true }
         defer { if holdsFlag { steerSending = false } }
+        let picked = picks()
         do {
             _ = try await sessionsApi.send(
                 accountId: accountId,
@@ -1761,7 +1796,10 @@ final class AppFirstMessageDraft: SessionComposerDraft {
                     appId: appId,
                     deviceId: deviceId,
                     text: text.isEmpty ? nil : text,
-                    attachmentIds: attachmentIds?.isEmpty == false ? attachmentIds : nil
+                    attachmentIds: attachmentIds?.isEmpty == false ? attachmentIds : nil,
+                    cli: picked.cli,
+                    account: picked.account,
+                    model: picked.model
                 )
             )
             return true

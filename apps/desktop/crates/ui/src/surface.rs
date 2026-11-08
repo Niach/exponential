@@ -253,7 +253,7 @@ pub(crate) fn rich_tab_padding(closable: bool) -> (f32, f32) {
 }
 
 /// EXP-1334 — THE strip chip box (web `stripTabClass`, ONE for every strip
-/// of chips: the thread header's issue + session chips, the work tabs strip
+/// of chips: the chat header's issue + session chips, the work tabs strip
 /// above the content card, the "+N" of a folded zone): 32px tall, 6px
 /// radius, 10px sides, `gap 4` (VAPP-279: genUI `strip` Tabs' `$spacing.xs`), `text_sm`. Three states and no more: at
 /// rest a `bordered` chip keeps its hairline (a tab has no stroke) and reads
@@ -320,7 +320,7 @@ impl RichTab {
 
 /// EXP-698/EXP-877 — the ONE RICH tab, byte-identical with the web chip
 /// (EXP-1334: THE strip chip box, [`strip_chip_frame`], the same box the
-/// thread header's chips wear): 32px tall, 6px radius, capped at
+/// chat header's chips wear): 32px tall, 6px radius, capped at
 /// [`RICH_TAB_MAX_W`], `pl 10 / pr 4` (the short right side is the 24px
 /// ghost × the caller appends; `pr 10` on a chip with no ×, EXP-905
 /// [`rich_tab_padding`]), `gap 6`, a 14px lead box holding a 14px glyph or

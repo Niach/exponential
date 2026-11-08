@@ -42,7 +42,7 @@
 //! team when needed; SLOP-4: a `reporter_reply` row is one of those), a
 //! issue-less `session_blocked` / `agent_message` row naming its session
 //! opens that session's screen (#EXP-1456 inbox-route.json: the viewer's own
-//! agent conversation = the agent's page, a thread, or the session), a
+//! agent conversation = the agent's page, a chat, or the session), a
 //! bundle opens the Inbox tab. With every shell window closed
 //! (macOS dock-resident app) the host's open-window hook is asked for one
 //! first. Mark-read stays what it is — the rail rows mark on click; a toast
@@ -613,7 +613,7 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
             navigation::navigate(window, cx, Screen::Devices);
             crate::device_settings::open(window, cx, device_id);
         }
-        // #EXP-1662: a session waiting on its own plan = its thread's plan tab.
+        // #EXP-1662: a session waiting on its own plan = its chat's plan tab.
         Route::Session { session_id } => {
             let screen = crate::plan_page::screen_for_session(&session_id, cx);
             crate::plan_page::prime_session(&session_id, cx);

@@ -135,7 +135,7 @@ pub struct LaunchSpec {
     pub context_layers: crate::engine::context_layout::ContextLayers,
     /// EXP-1134: the session is listed under its agent's own name for the
     /// conversation, so its adapter asks the agent for that name. EXP-1292: a
-    /// fresh thread with no linked issue and no title (one with an issue reads
+    /// fresh chat with no linked issue and no title (one with an issue reads
     /// its issue, an agent root its own name).
     pub name_conversation: bool,
     /// EXP-1330: a `/btw` aside — claude forks the resumed conversation

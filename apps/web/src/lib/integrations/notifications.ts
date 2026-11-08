@@ -536,7 +536,7 @@ export function fireAndForgetStatusChangeNotify(args: {
 
 // Fallback attribution for webhook/cron PR events, which carry no mapped app
 // user (EXP-463): the starter of the session that opened a PR closing the
-// issue (EXP-1291: `pull_requests.session_id`), else of a thread holding the
+// issue (EXP-1291: `pull_requests.session_id`), else of a chat holding the
 // issue, is the human whose agent produced the PR. Without this, a null actor
 // makes the exclusion below a no-op and the auto-subscribed creator gets
 // pushed about their OWN agent's PR. Ordered PR openers first, then most
@@ -566,10 +566,10 @@ async function loadPrSessionCandidates(
     })
     .from(sessions)
     .where(
-      // The PR's opener, or any session of a thread holding the issue.
+      // The PR's opener, or any session of a chat holding the issue.
       sql`${sessions.id} IN (${openers}) OR ${sessions.rootId} IN (SELECT s.root_id FROM session_issues si JOIN sessions s ON s.id = si.session_id WHERE si.issue_id = ${issue.id})`
     )
-    // The PR openers outrank the threads that only hold the issue.
+    // The PR openers outrank the chats that only hold the issue.
     .orderBy(sql`(${sessions.id} IN (${openers})) DESC`, desc(sessions.createdAt))
     .limit(PR_SESSION_CANDIDATE_LIMIT)
   const out: PrSessionCandidate[] = []
@@ -1307,7 +1307,7 @@ export async function notifySessionMessage(messageId: string): Promise<void> {
   if (recipients.length === 0) return
 
   const who = actor ? await actorName(actor) : `Someone`
-  const thread = await deriveSessionTitle({
+  const chat = await deriveSessionTitle({
     id: row.sessionId,
     rootId: row.rootId,
     title: row.title,
@@ -1319,8 +1319,8 @@ export async function notifySessionMessage(messageId: string): Promise<void> {
     type: `agent_message`,
     title:
       row.authorKind === `agent`
-        ? `${who}'s agent mentioned you in ${thread}`
-        : `${who} mentioned you in ${thread}`,
+        ? `${who}'s agent mentioned you in ${chat}`
+        : `${who} mentioned you in ${chat}`,
     body: sealed ? SEALED_MESSAGE_NOTIFY_BODY : source.length > 140 ? `${source.slice(0, 139)}…` : source,
     pushData: {
       sessionId: row.sessionId,
@@ -1334,8 +1334,8 @@ export async function notifySessionMessage(messageId: string): Promise<void> {
 }
 
 /** #EXP-1618: the inbox title of a session's leftover branch. */
-export const leftoverNotifyTitle = (thread: string, branch: string) =>
-  `Unpushed work from ${thread} was saved on ${branch}`
+export const leftoverNotifyTitle = (chat: string, branch: string) =>
+  `Unpushed work from ${chat} was saved on ${branch}`
 
 /**
  * #EXP-1618: a session's device could not push its work to the session's
@@ -1410,7 +1410,7 @@ export function fireAndForgetReporterReplyNotify(args: {
       )
       if (issue.assigneeId) recipients.add(issue.assigneeId)
       // Nobody follows the issue yet (a fresh unassigned widget issue, or a
-      // migrated helpdesk thread): fall back to every team member, the same
+      // migrated helpdesk conversation): fall back to every team member, the same
       // set a new widget issue reaches, so the reply never lands in a void.
       if (recipients.size === 0) {
         const memberRows = await db

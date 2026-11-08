@@ -578,8 +578,16 @@
           "$ref": "#/$defs/Style",
           "description": "Extra Box styles merged over the card's own."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (an `on.press` implies it).",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
+        },
+        "on": {
+          "$ref": "#/$defs/On_Card"
         },
         "visible": {
           "$ref": "common_types.json#/$defs/DynamicBoolean"
@@ -594,7 +602,10 @@
             "kind": "macro",
             "group": "layout",
             "lite": true,
-            "children": "many"
+            "children": "many",
+            "events": [
+              "press"
+            ]
           }
         }
       }
@@ -1275,6 +1286,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -1475,6 +1487,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -2391,6 +2404,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -2591,6 +2605,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -3119,6 +3134,7 @@
                 "camera",
                 "car",
                 "chart-line",
+                "chat-results",
                 "check",
                 "check-check",
                 "chevron-down",
@@ -3319,6 +3335,7 @@
                 "nav-apps",
                 "nav-boards",
                 "nav-changelog",
+                "nav-chats",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -4082,6 +4099,11 @@
           "description": "A + button firing `new`.",
           "default": false
         },
+        "swipeable": {
+          "type": "boolean",
+          "description": "Touch: swipe pages the panels.",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
         },
@@ -4419,6 +4441,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -4619,6 +4642,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -5582,6 +5606,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -5782,6 +5807,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -6443,6 +6469,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -6643,6 +6670,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -7215,6 +7243,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -7415,6 +7444,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -7932,6 +7962,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -8132,6 +8163,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -8588,6 +8620,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -8788,6 +8821,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -9680,7 +9714,7 @@
     },
     "Table": {
       "type": "object",
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "properties": {
         "component": {
           "const": "Table"
@@ -9757,7 +9791,7 @@
         },
         "totals": {
           "type": "boolean",
-          "description": "Sum row.",
+          "description": "Totals.",
           "default": false
         },
         "slots": {
@@ -9838,6 +9872,14 @@
           ],
           "description": "One per line, bar group or pie ring."
         },
+        "rows": {
+          "$ref": "common_types.json#/$defs/DynamicValue",
+          "description": "A query's `groups`; series read their `field`."
+        },
+        "categoryField": {
+          "type": "string",
+          "description": "The rows' category field."
+        },
         "title": {
           "type": "string",
           "description": "A title above the chart."
@@ -9862,6 +9904,10 @@
         "max": {
           "type": "number",
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        "valueFormat": {
+          "$ref": "#/$defs/valueFormat",
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         "showAxes": {
           "type": "boolean",
@@ -10029,6 +10075,14 @@
           ],
           "description": "Recent values (sparkline)."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (an `on.press` implies it).",
+          "default": false
+        },
+        "on": {
+          "$ref": "#/$defs/On_StatTile"
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -10048,7 +10102,10 @@
             "kind": "macro",
             "group": "data",
             "lite": true,
-            "children": "none"
+            "children": "none",
+            "events": [
+              "press"
+            ]
           }
         }
       }
@@ -10128,6 +10185,7 @@
                 "camera",
                 "car",
                 "chart-line",
+                "chat-results",
                 "check",
                 "check-check",
                 "chevron-down",
@@ -10328,6 +10386,7 @@
                 "nav-apps",
                 "nav-boards",
                 "nav-changelog",
+                "nav-chats",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -10880,6 +10939,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -11080,6 +11140,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -12301,6 +12362,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -12501,6 +12563,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -13733,6 +13796,7 @@
                 "camera",
                 "car",
                 "chart-line",
+                "chat-results",
                 "check",
                 "check-check",
                 "chevron-down",
@@ -13933,6 +13997,7 @@
                 "nav-apps",
                 "nav-boards",
                 "nav-changelog",
+                "nav-chats",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -14437,7 +14502,7 @@
     },
     "MessageBubble": {
       "type": "object",
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "properties": {
         "component": {
           "const": "MessageBubble"
@@ -14480,8 +14545,21 @@
           "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Caption above, in only."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (`on.press` or `href` imply it).",
+          "default": false
+        },
+        "href": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "format": "uri-reference",
+          "description": "The URL a press opens; implies `pressable`."
+        },
         "slots": {
           "$ref": "#/$defs/Slots_MessageBubble"
+        },
+        "on": {
+          "$ref": "#/$defs/On_MessageBubble"
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -14502,7 +14580,11 @@
             "lite": true,
             "children": "none",
             "slots": [
-              "attachment"
+              "attachment",
+              "avatar"
+            ],
+            "events": [
+              "press"
             ]
           }
         }
@@ -15039,7 +15121,7 @@
     },
     "RecordTable": {
       "type": "object",
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "properties": {
         "component": {
           "const": "RecordTable"
@@ -15055,20 +15137,20 @@
         "columns": {
           "type": "array",
           "items": {},
-          "description": "Field names or columns; default all."
+          "description": "Fields/columns."
         },
         "search": {
           "type": "boolean",
-          "description": "Search field.",
+          "description": "Search.",
           "default": false
         },
         "filter": {
           "type": "string",
-          "description": "Enum field to filter by."
+          "description": "Enum filter."
         },
         "totals": {
           "type": "boolean",
-          "description": "Sum row.",
+          "description": "Totals.",
           "default": false
         },
         "add": {
@@ -22314,6 +22396,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -22514,6 +22597,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -22970,6 +23054,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -23170,6 +23255,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -23599,6 +23685,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -23799,6 +23886,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -24250,6 +24338,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -24450,6 +24539,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -24868,7 +24958,11 @@
           "items": {
             "type": "number"
           },
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "type": "string",
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "enum": [
@@ -24883,9 +24977,33 @@
         }
       },
       "required": [
-        "name",
-        "values"
+        "name"
       ],
+      "additionalProperties": false
+    },
+    "valueFormat": {
+      "type": "object",
+      "description": "How a chart prints values.",
+      "properties": {
+        "type": {
+          "enum": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "description": "The format.",
+          "default": "number"
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "Fixed fraction digits."
+        }
+      },
       "additionalProperties": false
     },
     "pageItem": {
@@ -25128,6 +25246,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -25328,6 +25447,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -25819,6 +25939,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -26019,6 +26140,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -26389,6 +26511,15 @@
           "$ref": "#/$defs/EuiAction"
         },
         "hover": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_Card": {
+      "type": "object",
+      "properties": {
+        "press": {
           "$ref": "#/$defs/EuiAction"
         }
       },
@@ -26836,6 +26967,15 @@
       },
       "additionalProperties": false
     },
+    "On_StatTile": {
+      "type": "object",
+      "properties": {
+        "press": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
     "On_Button": {
       "type": "object",
       "properties": {
@@ -27150,6 +27290,18 @@
       "properties": {
         "attachment": {
           "$ref": "common_types.json#/$defs/ComponentId"
+        },
+        "avatar": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_MessageBubble": {
+      "type": "object",
+      "properties": {
+        "press": {
+          "$ref": "#/$defs/EuiAction"
         }
       },
       "additionalProperties": false

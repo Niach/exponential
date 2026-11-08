@@ -2,7 +2,7 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// #EXP-1611 (pr-checks.json CHECKS LIST): the thread header `…`'s Checks
+/// #EXP-1611 (pr-checks.json CHECKS LIST): the chat header `…`'s Checks
 /// submenu, phones = a page PUSHED in THE Menu's sheet. The entry and each
 /// row are THE menu item (`GlassMenuItemLabel`): glyph tinted by its tone
 /// (`ci-running` = THE spinner), the check's name, the duration as the

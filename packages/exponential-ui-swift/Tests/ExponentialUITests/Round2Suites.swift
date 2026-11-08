@@ -266,6 +266,29 @@ enum Round2Suites {
                 return same(JSONValue.string(try displayStringJson(valueJson: value)).json, d["expected"]!)
             }
         }
+        // FEED-205: a Chart value in its `valueFormat`, as the core hands it
+        // to this painter (`props.chart.valueLabels`) through Foundation.
+        let charts = list(f, "chartValues")
+        var labels: [String: JSONValue] = [:]
+        if !charts.isEmpty {
+            let children: [JSONValue] = charts.enumerated().map { i, c in
+                var props: [String: JSONValue] = ["kind": .string("bar"), "series": .array([.object(["name": .string("s"), "values": .array([c["value"]!])])])]
+                if let vf = c["valueFormat"] { props["valueFormat"] = vf }
+                return .object(["id": .string("c\(i)"), "component": .string("Chart"), "props": .object(props)])
+            }
+            let surface = try Surface(surfaceId: "chart-values", catalogId: coreCatalogId(), themeId: "", mode: "light")
+            surface.setFormatter(formatter: formatter)
+            _ = try surface.setNested(nestedJson: JSONValue.object(["id": .string("root"), "component": .string("Stack"), "children": .array(children)]).json)
+            _ = surface.setViewport(width: 390, height: 800, maxHeight: nil)
+            _ = try surface.layoutFixed(sizesJson: nil, wrap: true)
+            for n in surface.nodes() where n.component == "Chart" { labels[n.id] = JSONValue.parse(n.propsJson)["chart"]?["valueLabels"]?.array?.first?.array?.first }
+        }
+        out += charts.enumerated().map { i, c in
+            run("chart \(s(c, "name"))") {
+                guard let got = labels["c\(i)"]?.string else { return "no value label" }
+                return same(JSONValue.string(spaces(got)).json, spaced(c["expected"]!))
+            }
+        }
         return out
     }
 

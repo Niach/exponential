@@ -1,0 +1,482 @@
+{
+  "$comment": "FEED-200: the horizontal swipe pager, HAND-AUTHORED and replayed by packages/exponential-ui/src/swipe.test.ts (the TS reference the web renderers use), apps/desktop/crates/eui-core/tests/swipe.rs (the core: gpui and the surface's Tabs pager) and the FFI through packages/exponential-ui-swift + packages/exponential-ui-compose tests. `Tabs.swipeable` pages its panels with these rules; FEED-201 reuses them for app screens. Offsets/velocities = SCREEN px (px/ms), positive = rightwards; `rtl` mirrors which neighbour a drag reveals. constants = the shared numbers. lock = swipeLock(dx, dy): `pending` inside the slop, `horizontal` when |dx| > |dy|, else `vertical`. step = swipeStep(offset, rtl): left reveals the next page (LTR). offset = swipeOffset(index, count, offset, width, rtl): the drawn offset, `resistance` of the travel past an end, clamped to one width. settle = swipeSettle(index, count, offset, velocity, width, rtl) → the page a release lands on: one step towards the drag on a fling (|velocity| >= `velocity`, same sign as the offset, offset >= `slop`) or past `distance` x width unless flung back; never past an end. progress = swipeProgress(offset, width) (0..1, what the header indicator interpolates by). indicator = swipeIndicator(from, to, progress) → {x, w}. blocks = swipeBlocks(component, direction, overflowX): a touch starting inside a node that scrolls, pans or drags sideways is that node's, never the pager's. Compare numbers within 1e-6.",
+  "constants": {
+    "slop": 8,
+    "distance": 0.5,
+    "velocity": 0.4,
+    "resistance": 0.3
+  },
+  "lock": [
+    {
+      "name": "inside the slop",
+      "dx": 5,
+      "dy": 3,
+      "lock": "pending"
+    },
+    {
+      "name": "across past the slop",
+      "dx": -9,
+      "dy": 2,
+      "lock": "horizontal"
+    },
+    {
+      "name": "exactly the slop across",
+      "dx": 8,
+      "dy": 0,
+      "lock": "horizontal"
+    },
+    {
+      "name": "down past the slop",
+      "dx": 3,
+      "dy": 12,
+      "lock": "vertical"
+    },
+    {
+      "name": "a diagonal tie scrolls",
+      "dx": 10,
+      "dy": -10,
+      "lock": "vertical"
+    }
+  ],
+  "step": [
+    {
+      "name": "left = next",
+      "offset": -20,
+      "rtl": false,
+      "step": 1
+    },
+    {
+      "name": "right = previous",
+      "offset": 20,
+      "rtl": false,
+      "step": -1
+    },
+    {
+      "name": "rtl left = previous",
+      "offset": -20,
+      "rtl": true,
+      "step": -1
+    },
+    {
+      "name": "rtl right = next",
+      "offset": 20,
+      "rtl": true,
+      "step": 1
+    },
+    {
+      "name": "no travel",
+      "offset": 0,
+      "rtl": false,
+      "step": 0
+    }
+  ],
+  "offset": [
+    {
+      "name": "follows the finger towards a neighbour",
+      "index": 1,
+      "count": 4,
+      "offset": -120,
+      "width": 390,
+      "rtl": false,
+      "drawn": -120
+    },
+    {
+      "name": "resists past the first page",
+      "index": 0,
+      "count": 4,
+      "offset": 100,
+      "width": 390,
+      "rtl": false,
+      "drawn": 30
+    },
+    {
+      "name": "resists past the last page",
+      "index": 3,
+      "count": 4,
+      "offset": -100,
+      "width": 390,
+      "rtl": false,
+      "drawn": -30
+    },
+    {
+      "name": "rtl: right past the last page resists",
+      "index": 3,
+      "count": 4,
+      "offset": 100,
+      "width": 390,
+      "rtl": true,
+      "drawn": 30
+    },
+    {
+      "name": "never more than a page",
+      "index": 1,
+      "count": 4,
+      "offset": -500,
+      "width": 390,
+      "rtl": false,
+      "drawn": -390
+    },
+    {
+      "name": "one page resists both ways",
+      "index": 0,
+      "count": 1,
+      "offset": -50,
+      "width": 390,
+      "rtl": false,
+      "drawn": -15
+    }
+  ],
+  "settle": [
+    {
+      "name": "a slow short drag stays",
+      "index": 1,
+      "count": 4,
+      "offset": -100,
+      "velocity": -0.1,
+      "width": 390,
+      "rtl": false,
+      "settle": 1
+    },
+    {
+      "name": "a slow drag past half pages",
+      "index": 1,
+      "count": 4,
+      "offset": -200,
+      "velocity": -0.1,
+      "width": 390,
+      "rtl": false,
+      "settle": 2
+    },
+    {
+      "name": "exactly half pages",
+      "index": 1,
+      "count": 4,
+      "offset": 195,
+      "velocity": 0,
+      "width": 390,
+      "rtl": false,
+      "settle": 0
+    },
+    {
+      "name": "a fling pages early",
+      "index": 1,
+      "count": 4,
+      "offset": -40,
+      "velocity": -0.6,
+      "width": 390,
+      "rtl": false,
+      "settle": 2
+    },
+    {
+      "name": "a fling at the threshold pages",
+      "index": 1,
+      "count": 4,
+      "offset": 30,
+      "velocity": 0.4,
+      "width": 390,
+      "rtl": false,
+      "settle": 0
+    },
+    {
+      "name": "a fling inside the slop stays",
+      "index": 1,
+      "count": 4,
+      "offset": -5,
+      "velocity": -0.9,
+      "width": 390,
+      "rtl": false,
+      "settle": 1
+    },
+    {
+      "name": "flung back stays even past half",
+      "index": 1,
+      "count": 4,
+      "offset": -250,
+      "velocity": 0.5,
+      "width": 390,
+      "rtl": false,
+      "settle": 1
+    },
+    {
+      "name": "never past the last page",
+      "index": 3,
+      "count": 4,
+      "offset": -300,
+      "velocity": -1,
+      "width": 390,
+      "rtl": false,
+      "settle": 3
+    },
+    {
+      "name": "never before the first page",
+      "index": 0,
+      "count": 4,
+      "offset": 300,
+      "velocity": 1,
+      "width": 390,
+      "rtl": false,
+      "settle": 0
+    },
+    {
+      "name": "rtl: left reveals the previous page",
+      "index": 2,
+      "count": 4,
+      "offset": -250,
+      "velocity": 0,
+      "width": 390,
+      "rtl": true,
+      "settle": 1
+    },
+    {
+      "name": "rtl: a right fling pages forward",
+      "index": 2,
+      "count": 4,
+      "offset": 40,
+      "velocity": 0.8,
+      "width": 390,
+      "rtl": true,
+      "settle": 3
+    },
+    {
+      "name": "only one step per swipe",
+      "index": 0,
+      "count": 4,
+      "offset": -389,
+      "velocity": -3,
+      "width": 390,
+      "rtl": false,
+      "settle": 1
+    },
+    {
+      "name": "an unmeasured pager pages only on a fling",
+      "index": 0,
+      "count": 2,
+      "offset": -100,
+      "velocity": 0,
+      "width": 0,
+      "rtl": false,
+      "settle": 0
+    },
+    {
+      "name": "an index past the end clamps",
+      "index": 9,
+      "count": 3,
+      "offset": 0,
+      "velocity": 0,
+      "width": 390,
+      "rtl": false,
+      "settle": 2
+    },
+    {
+      "name": "no pages",
+      "index": 0,
+      "count": 0,
+      "offset": -300,
+      "velocity": -1,
+      "width": 390,
+      "rtl": false,
+      "settle": 0
+    }
+  ],
+  "progress": [
+    {
+      "name": "a third",
+      "offset": -130,
+      "width": 390,
+      "progress": 0.3333333333333333
+    },
+    {
+      "name": "sign-free",
+      "offset": 195,
+      "width": 390,
+      "progress": 0.5
+    },
+    {
+      "name": "capped at one",
+      "offset": 800,
+      "width": 390,
+      "progress": 1
+    },
+    {
+      "name": "unmeasured",
+      "offset": 50,
+      "width": 0,
+      "progress": 0
+    }
+  ],
+  "indicator": [
+    {
+      "name": "at rest",
+      "from": {
+        "x": 4,
+        "w": 80
+      },
+      "to": {
+        "x": 88,
+        "w": 60
+      },
+      "progress": 0,
+      "indicator": {
+        "x": 4,
+        "w": 80
+      }
+    },
+    {
+      "name": "halfway",
+      "from": {
+        "x": 4,
+        "w": 80
+      },
+      "to": {
+        "x": 88,
+        "w": 60
+      },
+      "progress": 0.5,
+      "indicator": {
+        "x": 46,
+        "w": 70
+      }
+    },
+    {
+      "name": "arrived",
+      "from": {
+        "x": 4,
+        "w": 80
+      },
+      "to": {
+        "x": 88,
+        "w": 60
+      },
+      "progress": 1,
+      "indicator": {
+        "x": 88,
+        "w": 60
+      }
+    },
+    {
+      "name": "leftwards",
+      "from": {
+        "x": 88,
+        "w": 60
+      },
+      "to": {
+        "x": 4,
+        "w": 80
+      },
+      "progress": 0.25,
+      "indicator": {
+        "x": 67,
+        "w": 65
+      }
+    },
+    {
+      "name": "progress clamps",
+      "from": {
+        "x": 0,
+        "w": 10
+      },
+      "to": {
+        "x": 100,
+        "w": 20
+      },
+      "progress": 2,
+      "indicator": {
+        "x": 100,
+        "w": 20
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "name": "a Table scrolls sideways",
+      "component": "Table",
+      "direction": null,
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a Chart scrubs",
+      "component": "Chart",
+      "direction": null,
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a Carousel pages itself",
+      "component": "Carousel",
+      "direction": null,
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a ZoomableImage pans",
+      "component": "ZoomableImage",
+      "direction": null,
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a Slider drags",
+      "component": "Slider",
+      "direction": null,
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a Resizable handle drags",
+      "component": "Resizable",
+      "direction": null,
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a horizontal List",
+      "component": "List",
+      "direction": "horizontal",
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a vertical List is the pager's",
+      "component": "List",
+      "direction": "vertical",
+      "overflowX": null,
+      "blocks": false
+    },
+    {
+      "name": "a ScrollArea scrolling both ways",
+      "component": "ScrollArea",
+      "direction": "both",
+      "overflowX": null,
+      "blocks": true
+    },
+    {
+      "name": "a vertical ScrollArea is the pager's",
+      "component": "ScrollArea",
+      "direction": "vertical",
+      "overflowX": null,
+      "blocks": false
+    },
+    {
+      "name": "a Box scrolling across",
+      "component": "Box",
+      "direction": null,
+      "overflowX": "auto",
+      "blocks": true
+    },
+    {
+      "name": "a clipped Box is the pager's",
+      "component": "Box",
+      "direction": null,
+      "overflowX": "hidden",
+      "blocks": false
+    },
+    {
+      "name": "text is the pager's",
+      "component": "Text",
+      "direction": null,
+      "overflowX": null,
+      "blocks": false
+    }
+  ]
+}

@@ -901,6 +901,13 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             let worktree = worktree.clone();
+            // A `--force` remove would yank a running agent's cwd — same gate
+            // as "Remove local copy", one level down.
+            let tip = if in_use {
+                "A session is active on this worktree. Stop it first."
+            } else {
+                "Remove this worktree from disk (confirmed)"
+            };
             let mut button = Button::new((remove_id, wt_ix))
                 .ghost()
                 .web_icon_xs()
@@ -909,15 +916,10 @@ impl LocalReposPane {
                 } else {
                     cx.theme().danger
                 }))
-                .disabled(busy || in_use);
-            // A `--force` remove would yank a running agent's cwd — same gate
-            // as "Remove local copy", one level down.
-            if in_use {
+                .disabled(busy || in_use)
+                .tooltip(tip);
+            if !in_use {
                 button = button
-                    .tooltip("A session is active on this worktree. Stop it first.");
-            } else {
-                button = button
-                    .tooltip("Remove this worktree from disk (confirmed)")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_remove_worktree(
                             full_name.clone(),

@@ -23,6 +23,8 @@ export const APP_COLUMNS = [
   `draft_package`,
   `created_by`,
   `granted_tools`,
+  // #EXP-1730 phase A: the app's agent (NULL = standalone).
+  `agent_id`,
   `deleted_at`,
   `created_at`,
   `updated_at`,

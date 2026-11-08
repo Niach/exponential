@@ -1,10 +1,11 @@
-// EXP-1293 / EXP-1316: `/sessions/$id` — a thread's session REDIRECTS into
-// its thread (`?tab=session&session=<id>`, `from` kept); a session under an
+// EXP-1293 / EXP-1316 / EXP-1733: `/sessions/$id` — a ROOT is its chat; a
+// child REDIRECTS into its root (`?tab=session&session=<id>`, `from` kept);
+// a session under an
 // agent's conversation (NEW-2: a root with `agentId`) keeps its own screen: back to the agent, the session's name,
 // no header Stop (Chats), the feed and the reply box. Lives under a `-` prefix so
 // the route generator ignores it.
 import type { ComponentType, ReactNode } from "react"
-import { render, screen } from "@testing-library/react"
+import { act, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -33,7 +34,7 @@ vi.mock(`@tanstack/react-router`, () => ({
     <div
       data-testid="navigate"
       data-to={to}
-      data-thread={params.threadId}
+      data-chat={params.sessionId}
       data-tab={search?.tab}
       data-session={search?.session}
       data-from={search?.from}
@@ -50,7 +51,7 @@ vi.mock(`@tanstack/react-router`, () => ({
     params?: Record<string, string>
     "data-testid"?: string
   }) => (
-    <a data-testid={rest[`data-testid`]} data-thread={params?.threadId}>
+    <a data-testid={rest[`data-testid`]} data-chat={params?.sessionId}>
       {children}
     </a>
   ),
@@ -70,10 +71,14 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
   useTreeSessions: () => ({ rows: [], tree: [], isReady: true }),
   useSessionCard: (row: { title: string | null } | null) =>
     row ? { name: row.title ?? `Untitled`, icon: `coding-running` } : null,
-  useSessionThread: () => ({ view: { title: `Reduce cold start below 800 ms` } }),
+  useSessionChat: (id: string) => ({
+    view: null,
+    root: mocks.row.current?.id === id && mocks.row.current?.rootId === id ? mocks.row.current : null,
+    isReady: true,
+    titleReady: true,
+  }),
   useSessionMessages: () => [],
-  useConversationSessions: () => ({ conversations: new Map(), isReady: true }),
-  useDigestMessages: () => ({ messages: [], isReady: true }),
+  useDigestMessages: () => ({ messages: [], isReady: true, loaded: new Set() }),
 }))
 vi.mock(`@/hooks/use-agent-row`, () => ({
   useAgentRow: (id: string | null) => ({
@@ -135,13 +140,13 @@ beforeEach(() => {
 })
 
 describe(`the session page`, () => {
-  it(`redirects a thread's session into its thread, keeping from`, () => {
+  it(`redirects a chat's session into its chat, keeping from`, () => {
     mocks.root.current = { id: `s1`, agentId: null, rootId: `s1`, teamId: `t1` }
     mocks.search.current = { from: `inbox` }
     render(<Page />)
     const target = screen.getByTestId(`navigate`)
-    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/threads/$threadId`)
-    expect(target.getAttribute(`data-thread`)).toBe(`s1`)
+    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/sessions/$sessionId`)
+    expect(target.getAttribute(`data-chat`)).toBe(`s1`)
     expect(target.getAttribute(`data-tab`)).toBe(`session`)
     expect(target.getAttribute(`data-session`)).toBe(`s2`)
     expect(target.getAttribute(`data-from`)).toBe(`inbox`)
@@ -165,7 +170,7 @@ describe(`the session page`, () => {
     expect(composer.textContent).toBe(`Type / for commands`)
   })
 
-  // Thread 58cb32df (chats.json STOP): an agent's tree has no header Stop
+  // Chat 58cb32df (chats.json STOP): an agent's tree has no header Stop
   // pill; the composer's turn stop and the agent menu's Stop remain.
   it(`has no header Stop under an agent, even while live`, () => {
     render(<Page />)
@@ -180,20 +185,36 @@ describe(`the session page`, () => {
     expect(screen.getByTestId(`agent-session-view`)).toBeTruthy()
   })
 
-  it(`says so when the session is not there`, () => {
-    mocks.row.current = null
+  it(`says so when the session is not there, after the sync grace`, () => {
+    vi.useFakeTimers()
+    try {
+      mocks.row.current = null
+      render(<Page />)
+      expect(screen.queryByText(`Chat not found`)).toBeNull()
+      act(() => {
+        vi.advanceTimersByTime(4_000)
+      })
+      expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
+      expect(screen.getByText(`Chat not found`)).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // EXP-1733: a ROOT's agent conversation opens the agent's page.
+  it(`sends an agent's conversation root to the agent page`, () => {
+    mocks.row.current = { id: `s2`, rootId: `s2`, agentId: `agent-1`, teamId: `t1` }
     render(<Page />)
-    expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
-    expect(screen.getByText(`Session not found`)).toBeTruthy()
+    expect(screen.getByTestId(`navigate`).getAttribute(`data-to`)).toBe(`/t/$teamSlug/agents/$agentId`)
   })
 
   // EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`.
-  it(`S-3: ?view=guide (old PR footers) opens the thread's conversation`, () => {
+  it(`S-3: ?view=guide (old PR footers) opens the chat's conversation`, () => {
     mocks.search.current = { view: `guide` }
     render(<Page />)
     const target = screen.getByTestId(`navigate`)
-    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/threads/$threadId`)
-    expect(target.getAttribute(`data-thread`)).toBe(`s1`)
+    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/sessions/$sessionId`)
+    expect(target.getAttribute(`data-chat`)).toBe(`s1`)
     expect(target.getAttribute(`data-tab`)).toBeNull()
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
   })

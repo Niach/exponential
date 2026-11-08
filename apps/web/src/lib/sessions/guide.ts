@@ -41,8 +41,8 @@ import {
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { syncPullRequestBodies } from "@/lib/pull-requests"
 
-// EXP-1291: the thread's ONE Guide = the ROOT's `sessions.guide` = every PR
-// body of the thread (`syncPullRequestBodies` re-renders them after each
+// EXP-1291: the chat's ONE Guide = the ROOT's `sessions.guide` = every PR
+// body of the chat (`syncPullRequestBodies` re-renders them after each
 // write). Every write is a jsonb read-modify-write under `FOR UPDATE` on the
 // ROOT row, so two sessions of the tree writing at once never lose one
 // another's entry. Entries are stamped with their writer (`sessionId`) + the
@@ -77,7 +77,7 @@ async function guideReach(tx: Db, session: Session): Promise<GuideReach> {
   return { mine, owns: ownedByAny(mine), reaches: ownedBySubtree(mine, tree) }
 }
 
-/** #EXP-1402: whether a topic's tag names a thread PR that is merged or
+/** #EXP-1402: whether a topic's tag names a chat PR that is merged or
  *  closed (an unknown URL is kept as written). */
 async function isDonePullRequestUrl(tx: Tx, rootId: string, url: string): Promise<boolean> {
   const [row] = await tx
@@ -269,7 +269,7 @@ export async function writeGuide(args: {
         const what = target.text ? ` text` : target.label ? ` label "${target.label}"` : ``
         throw new TRPCError({
           code: `NOT_FOUND`,
-          message: `Nothing in this thread's Guide matched topic "${topic}"${what} written by this session or its children`,
+          message: `Nothing in this tree's Guide matched topic "${topic}"${what} written by this session or its children`,
         })
       }
       next = removal.results
@@ -311,7 +311,7 @@ export async function writeGuide(args: {
         const text = args.text ?? existing?.text
         if (typeof text !== `string` || !text.trim()) {
           throw bad(
-            `Nothing in this thread's Guide matched topic "${topic}" written by this session or its children: text is required for a new topic`
+            `Nothing in this tree's Guide matched topic "${topic}" written by this session or its children: text is required for a new topic`
           )
         }
         // EXP-1397: a NEW topic of a writer with an open PR is that PR's; a
@@ -416,7 +416,8 @@ export async function publishGuidePicture(
       if (exceedsGuideCap(upsert.results.filter(owns))) throw guideCapError()
       const inserted = await tx
         .insert(attachments)
-        .values(sessionAttachmentValues(prepared, { teamId: input.teamId }, input.uploaderId))
+        // #EXP-1730: a result names the session that filed it.
+        .values({ ...sessionAttachmentValues(prepared, { teamId: input.teamId }, input.uploaderId), sessionId: writer })
         .onConflictDoNothing({ target: attachments.id })
         .returning({ id: attachments.id })
       if (inserted.length === 0) {
@@ -452,7 +453,7 @@ export async function publishGuidePicture(
 
 /** EXP-1397: a merged PR's logical session's untagged text topics went out
  *  with it: stamped with its URL, they leave every still-open body of the
- *  thread (a body excludes by prUrl only). The PR's recorded session first;
+ *  chat (a body excludes by prUrl only). The PR's recorded session first;
  *  a PR with none (UI-opened, adopted) resolves through its head: the
  *  session that pushed it (#EXP-1540), else the ONE logical session sitting
  *  on it: two live lineages on the same head stamp nobody's rather than the
@@ -489,7 +490,7 @@ export async function tagGuideForMergedPullRequest(pr: {
  *  merging) tags its logical session's untagged text topics with it. Only
  *  entries STAMPED with the logical session: a legacy unstamped one is
  *  nobody's and stays in every body. True = the Guide moved (the caller
- *  re-renders the thread's bodies). */
+ *  re-renders the chat's bodies). */
 export async function tagGuideForPullRequest(args: { sessionId: string; prUrl: string }): Promise<boolean> {
   return db.transaction(async (tx) => {
     const lock = await lockGuide(tx, args.sessionId)

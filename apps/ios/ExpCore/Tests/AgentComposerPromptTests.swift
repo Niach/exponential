@@ -85,7 +85,7 @@ final class AgentComposerPromptTests: XCTestCase {
     func testSubmitTitlesFollowTheSubject() {
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .none), "Start chat")
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 1)), "Start coding")
-        // Several issues are still ONE thread.
+        // Several issues are still ONE chat.
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 3)), "Start coding")
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .prompt), "Start session")
         // NEW-3: a message into an agent's DM.

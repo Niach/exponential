@@ -80,9 +80,9 @@ const caller = (userId: string) =>
 const row = async (id: string) =>
   (await db.select().from(sessions).where(eq(sessions.id, id)).limit(1))[0]!
 
-/** An agent conversation that started a thread and watches it, plus a
- *  child of the thread and a teammate. `shared` = the agent runs on a
- *  device shared with the team (its conversation is shared; the thread on
+/** An agent conversation that started a chat and watches it, plus a
+ *  child of the chat and a teammate. `shared` = the agent runs on a
+ *  device shared with the team (its conversation is shared; the chat on
  *  the owner's private device is not). */
 async function managed(shared: boolean) {
   const owner = await user()
@@ -111,7 +111,7 @@ async function managed(shared: boolean) {
     .values({ teamId, name: `Big Brother`, deviceId: agentDevice, ownerId: owner })
     .returning({ id: agents.id })
   const conversation = (await sendSession({ userId: owner, input: { agentId: agent!.id, text: `watch` } })).sessionId
-  const thread = (
+  const chat = (
     await sendSession({
       userId: owner,
       callerSessionId: conversation,
@@ -119,11 +119,11 @@ async function managed(shared: boolean) {
       input: { teamId, deviceId, text: `secret work` },
     })
   ).sessionId
-  const childId = (await sendSession({ userId: owner, input: { parentId: thread, text: `child` } })).sessionId
+  const childId = (await sendSession({ userId: owner, input: { parentId: chat, text: `child` } })).sessionId
   expect((await row(conversation)).shared).toBe(shared)
-  expect((await row(thread)).shared).toBe(false)
-  expect((await row(conversation)).wakeOn).toContain(thread)
-  return { owner, mate, teamId, deviceId, conversation, thread, childId, host: caller(owner) }
+  expect((await row(chat)).shared).toBe(false)
+  expect((await row(conversation)).wakeOn).toContain(chat)
+  return { owner, mate, teamId, deviceId, conversation, chat, childId, host: caller(owner) }
 }
 
 const SECRET = `Rotated the prod key xyz-123.`
@@ -148,7 +148,7 @@ async function openPr(w: Awaited<ReturnType<typeof managed>>, sessionId: string,
   return (
     await recordPullRequestOpened({
       teamId: w.teamId,
-      rootSessionId: w.thread,
+      rootSessionId: w.chat,
       sessionId,
       repositoryId: repo!.id,
       repoFullName: fullName,
@@ -164,35 +164,35 @@ async function openPr(w: Awaited<ReturnType<typeof managed>>, sessionId: string,
 }
 
 describe.skipIf(!ready.ok)(`#EXP-1408: a private chat's bus lines into a shared conversation`, () => {
-  it(`#FEED-194: a turn reply reaches the starting agent's shared conversation as the neutral line; the thread's own parent keeps the text`, async () => {
+  it(`#FEED-194: a turn reply reaches the starting agent's shared conversation as the neutral line; the chat's own parent keeps the text`, async () => {
     const w = await managed(true)
-    await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
-    await w.host.reply({ sessionId: w.thread, body: SECRET })
-    expect((await fromSession(w.conversation, w.thread)).filter((m) => m.card === null)).toMatchObject([
-      { authorKind: `agent`, body: privateText({ id: w.thread }, PRIVATE_REPLY_LEAD), consumedAt: null },
+    await w.host.claim({ sessionId: w.chat, deviceId: w.deviceId })
+    await w.host.reply({ sessionId: w.chat, body: SECRET })
+    expect((await fromSession(w.conversation, w.chat)).filter((m) => m.card === null)).toMatchObject([
+      { authorKind: `agent`, body: privateText({ id: w.chat }, PRIVATE_REPLY_LEAD), consumedAt: null },
     ])
     // Inside the private tree (same reader) the child's reply reaches its parent whole.
     await w.host.claim({ sessionId: w.childId, deviceId: w.deviceId })
     await w.host.reply({ sessionId: w.childId, body: SECRET })
-    expect((await fromSession(w.thread, w.childId)).filter((m) => m.card === null)).toMatchObject([{ body: SECRET }])
+    expect((await fromSession(w.chat, w.childId)).filter((m) => m.card === null)).toMatchObject([{ body: SECRET }])
   })
 
   it(`the end report arrives neutral (body and card summary); the summary from the last reply too`, async () => {
     const w = await managed(true)
-    await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
-    await w.host.reply({ sessionId: w.thread, body: `Last words: ${SECRET}` })
-    await endSession({ userId: w.owner, sessionId: w.thread, summary: SECRET })
-    const reports = (await fromSession(w.conversation, w.thread)).filter((m) => kindOf(m) === `report`)
+    await w.host.claim({ sessionId: w.chat, deviceId: w.deviceId })
+    await w.host.reply({ sessionId: w.chat, body: `Last words: ${SECRET}` })
+    await endSession({ userId: w.owner, sessionId: w.chat, summary: SECRET })
+    const reports = (await fromSession(w.conversation, w.chat)).filter((m) => kindOf(m) === `report`)
     expect(reports).toMatchObject([
       {
         authorKind: `agent`,
-        body: privateText({ id: w.thread }, PRIVATE_REPORT_LEAD),
+        body: privateText({ id: w.chat }, PRIVATE_REPORT_LEAD),
         consumedAt: null,
-        card: { kind: `report`, sessionId: w.thread, summary: PRIVATE_REPORT_LEAD, final: true },
+        card: { kind: `report`, sessionId: w.chat, summary: PRIVATE_REPORT_LEAD, final: true },
       },
     ])
-    // The child's report into the private thread keeps its text.
-    const [childReport] = (await fromSession(w.thread, w.childId)).filter((m) => kindOf(m) === `report`)
+    // The child's report into the private chat keeps its text.
+    const [childReport] = (await fromSession(w.chat, w.childId)).filter((m) => kindOf(m) === `report`)
     expect(childReport!.card).toMatchObject({ kind: `report`, summary: expect.not.stringContaining(PRIVATE_REPORT_LEAD) })
     const all = await db.select().from(messages).where(inSession(w.conversation))
     expect(JSON.stringify(all)).not.toContain(`xyz-123`)
@@ -200,52 +200,52 @@ describe.skipIf(!ready.ok)(`#EXP-1408: a private chat's bus lines into a shared 
 
   it(`a PR line names the session only (no pullRequestId); every other event is the server's own copy`, async () => {
     const w = await managed(true)
-    await openPr(w, w.thread, 11)
-    const lines = (await fromSession(w.conversation, w.thread)).filter((m) => eventOf(m) === `pr_opened`)
+    await openPr(w, w.chat, 11)
+    const lines = (await fromSession(w.conversation, w.chat)).filter((m) => eventOf(m) === `pr_opened`)
     expect(lines).toEqual([
       expect.objectContaining({
         authorKind: `system`,
-        body: privateText({ id: w.thread }, PRIVATE_PR_LEAD),
+        body: privateText({ id: w.chat }, PRIVATE_PR_LEAD),
         consumedAt: null,
-        card: { kind: `event`, event: `pr_opened`, sessionId: w.thread },
+        card: { kind: `event`, event: `pr_opened`, sessionId: w.chat },
       }),
     ])
-    await db.transaction((tx) => busLine(tx, { id: w.thread, parentId: null }, `session_stuck`, BUS_COPY.session_stuck(31), { waking: true }))
-    const stuck = (await fromSession(w.conversation, w.thread)).filter((m) => eventOf(m) === `session_stuck`)
+    await db.transaction((tx) => busLine(tx, { id: w.chat, parentId: null }, `session_stuck`, BUS_COPY.session_stuck(31), { waking: true }))
+    const stuck = (await fromSession(w.conversation, w.chat)).filter((m) => eventOf(m) === `session_stuck`)
     expect(stuck).toMatchObject([{ body: BUS_COPY.session_stuck(31) }])
     // The claim line likewise.
-    await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
-    expect((await fromSession(w.conversation, w.thread)).find((m) => eventOf(m) === `session_claimed`)).toMatchObject({
+    await w.host.claim({ sessionId: w.chat, deviceId: w.deviceId })
+    expect((await fromSession(w.conversation, w.chat)).find((m) => eventOf(m) === `session_claimed`)).toMatchObject({
       body: BUS_COPY.session_claimed,
     })
   })
 
   it(`MCP sessions get of the conversation (a teammate, or its own agent) reads no private text`, async () => {
     const w = await managed(true)
-    await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
-    await w.host.reply({ sessionId: w.thread, body: SECRET })
-    await openPr(w, w.thread, 12)
-    await endSession({ userId: w.owner, sessionId: w.thread, summary: SECRET })
+    await w.host.claim({ sessionId: w.chat, deviceId: w.deviceId })
+    await w.host.reply({ sessionId: w.chat, body: SECRET })
+    await openPr(w, w.chat, 12)
+    await endSession({ userId: w.owner, sessionId: w.chat, summary: SECRET })
     for (const reader of [w.mate, w.owner]) {
       const tree = await getSessionTree(reader, w.conversation, { messages: 100 })
       expect(JSON.stringify(tree)).not.toContain(`xyz-123`)
-      expect(JSON.stringify(tree)).toContain(w.thread)
+      expect(JSON.stringify(tree)).toContain(w.chat)
     }
-    // The owner's agent reads the thread itself with its own auth; the teammate may not.
-    expect(JSON.stringify(await getSessionTree(w.owner, w.thread, { messages: 100 }))).toContain(`xyz-123`)
-    await expect(getSessionTree(w.mate, w.thread, { messages: 100 })).rejects.toBeTruthy()
+    // The owner's agent reads the chat itself with its own auth; the teammate may not.
+    expect(JSON.stringify(await getSessionTree(w.owner, w.chat, { messages: 100 }))).toContain(`xyz-123`)
+    await expect(getSessionTree(w.mate, w.chat, { messages: 100 })).rejects.toBeTruthy()
   })
 })
 
 describe.skipIf(!ready.ok)(`#EXP-1408: a visible origin keeps its text`, () => {
   it(`a private conversation of the same member gets the reply, the report and the PR line whole`, async () => {
     const w = await managed(false)
-    await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
-    await w.host.reply({ sessionId: w.thread, body: SECRET })
-    const pr = await openPr(w, w.thread, 13)
-    await endSession({ userId: w.owner, sessionId: w.thread, summary: SECRET })
-    const rows = await fromSession(w.conversation, w.thread)
-    // #FEED-194: the agent that started the thread hears its turn, whole.
+    await w.host.claim({ sessionId: w.chat, deviceId: w.deviceId })
+    await w.host.reply({ sessionId: w.chat, body: SECRET })
+    const pr = await openPr(w, w.chat, 13)
+    await endSession({ userId: w.owner, sessionId: w.chat, summary: SECRET })
+    const rows = await fromSession(w.conversation, w.chat)
+    // #FEED-194: the agent that started the chat hears its turn, whole.
     expect(rows.find((m) => m.card === null && m.authorKind === `agent`)).toMatchObject({ body: SECRET, consumedAt: null })
     expect(rows.find((m) => kindOf(m) === `report`)).toMatchObject({
       body: SECRET,

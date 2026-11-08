@@ -395,8 +395,8 @@ describe(`storage`, () => {
   })
 })
 
-describe(`operator routes and the /send compat shim`, () => {
-  test(`without the secret: /send, /stats and /healthz?deep=1 are 404, /healthz stays the constant, ?detail=1 reports`, async () => {
+describe(`operator routes`, () => {
+  test(`without the secret: /stats and /healthz?deep=1 are 404, /send is gone, /healthz stays the constant, ?detail=1 reports`, async () => {
     const relay = setup({ secret: null })
     const send = await relay.app.request(`http://relay/send`, { method: `POST`, body: `{}` })
     expect(send.status).toBe(404)
@@ -406,28 +406,33 @@ describe(`operator routes and the /send compat shim`, () => {
     expect(await (await relay.app.request(`http://relay/healthz?detail=1`)).json()).toEqual({
       ok: true,
       api: true,
-      compatSend: false,
       providers: { fcm: true, apns: true },
     })
   })
 
-  test(`with the secret: /send and /stats need it, /stats carries the API counters and providers`, async () => {
+  test(`with the secret: /stats needs it and carries the API counters and providers; /send stays gone`, async () => {
     const relay = setup({ secret: `s`, apns: null })
     expect((await relay.app.request(`http://relay/stats`)).status).toBe(401)
-    const send = await relay.app.request(`http://relay/send`, { method: `POST`, body: `{}` })
-    expect(send.status).toBe(401)
+    const send = await relay.app.request(`http://relay/send`, {
+      method: `POST`,
+      headers: { "x-relay-secret": `s` },
+      body: `{}`,
+    })
+    expect(send.status).toBe(404)
     const stats = await relay.app.request(`http://relay/stats`, { headers: { "x-relay-secret": `s` } })
-    expect(await stats.json()).toMatchObject({
+    const body = (await stats.json()) as Record<string, unknown>
+    expect(body).toMatchObject({
       ok: true,
       firebaseConfigured: true,
-      sendRequests: 0,
+      deepChecks: 0,
       providers: { fcm: true, apns: false },
       api: { registrations: 0, pushRequests: 0 },
     })
-    expect(await (await relay.app.request(`http://relay/healthz?detail=1`)).json()).toMatchObject({
+    expect(body).not.toHaveProperty(`sendRequests`)
+    expect(await (await relay.app.request(`http://relay/healthz?detail=1`)).json()).toEqual({
+      ok: true,
       api: true,
-      compatSend: true,
-      providers: { apns: false },
+      providers: { fcm: true, apns: false },
     })
   })
 

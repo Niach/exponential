@@ -1013,8 +1013,8 @@
     "titlePattern": "Couldn't {verb} {thing}",
     "retry": "Retry",
     "mergeRefusal": {
-      "$comment": "EXP-1391: a refused PR merge (Merge PR, Merge stack, Merge through here) is the failed-action toast ×4, title `Couldn't merge the PR` / `Couldn't merge the stack`, description = the server's message verbatim (it ends with `handoff` when the refusal was posted into the thread, session-thread.json EXP-1391), action = Retry on EVERY refusal. No client reads CONFLICT any more (the Fix conflicts run is gone).",
-      "handoff": "Sent to the thread."
+      "$comment": "EXP-1391: a refused PR merge (Merge PR, Merge stack, Merge through here) is the failed-action toast ×4, title `Couldn't merge the PR` / `Couldn't merge the stack`, description = the server's message verbatim (it ends with `handoff` when the refusal was posted into the chat, session-chat.json EXP-1391), action = Retry on EVERY refusal. No client reads CONFLICT any more (the Fix conflicts run is gone).",
+      "handoff": "Sent to the chat."
     },
     "inline": {
       "size": 13

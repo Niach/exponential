@@ -390,6 +390,23 @@ pub struct AppsSpec {
     pub screens: AppsScreens,
     /// VAPP-242: THE RUN VIEW's menu and THE NEW MENU (`run`).
     pub run: AppsRun,
+    /// #EXP-1729: the editor header's `status · device` words (`editorHeader`).
+    pub editor_header: AppsEditorHeader,
+}
+
+/// #EXP-1729 (`editorHeader.copy`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsEditorHeaderCopy {
+    pub queued: String,
+    pub needs_input: String,
+    pub working: String,
+    pub no_device_online: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AppsEditorHeader {
+    pub copy: AppsEditorHeaderCopy,
 }
 
 /// VAPP-242 (`run`): the menus' item keys in order and the editor's route.
@@ -645,6 +662,62 @@ pub fn editor_device(
         device_id: device_id.map(str::to_string),
         moves: root.is_some() && device_id != root_device,
     }
+}
+
+/// #EXP-1729 (`editorHeader`): the editor root as the header reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EditorHeaderRoot<'a> {
+    pub status: &'a str,
+    pub busy: bool,
+    pub needs_input: bool,
+}
+
+/// #EXP-1729: the subtitle's colour (attention = the needs-input amber,
+/// active = the foreground, muted = the default subtitle colour).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditorHeaderTone {
+    Attention,
+    Active,
+    Muted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditorHeader {
+    pub subtitle: String,
+    pub tone: EditorHeaderTone,
+}
+
+/// #EXP-1729 (fixture `editorHeaderCases`): the editor header's
+/// `status · device` subtitle and its tone. `device` = the device the
+/// composer shows ([`editor_device`]) as (name, online); `None` = none.
+pub fn editor_header(root: Option<EditorHeaderRoot<'_>>, device: Option<(&str, bool)>) -> EditorHeader {
+    let copy = &APPS.editor_header.copy;
+    let live = root.filter(|root| root.status != crate::contract::SESSION_STATUS_ENDED);
+    let word = live.and_then(|root| {
+        if root.needs_input {
+            Some(copy.needs_input.as_str())
+        } else if root.busy {
+            Some(copy.working.as_str())
+        } else if root.status == crate::contract::SESSION_STATUS_QUEUED {
+            Some(copy.queued.as_str())
+        } else {
+            None
+        }
+    });
+    let online = device.filter(|(_, online)| *online).map(|(name, _)| name);
+    let device_part = online.unwrap_or(copy.no_device_online.as_str());
+    let subtitle = match word {
+        Some(word) => format!("{word} · {device_part}"),
+        None => device_part.to_string(),
+    };
+    let tone = if live.is_some_and(|root| root.needs_input) || online.is_none() {
+        EditorHeaderTone::Attention
+    } else if live.is_some_and(|root| root.busy || root.status == crate::contract::SESSION_STATUS_QUEUED) {
+        EditorHeaderTone::Active
+    } else {
+        EditorHeaderTone::Muted
+    };
+    EditorHeader { subtitle, tone }
 }
 
 /// #VAPP-251 (fixture `surfaceStateCases`): what an app's pane shows.
@@ -1059,6 +1132,19 @@ pub fn slugify(name: &str, taken: &[&str]) -> String {
 /// What [`sort_apps`] orders.
 pub trait AppListLike {
     fn name(&self) -> &str;
+}
+
+impl AppListLike for crate::rows::AppRow {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// #EXP-1733: a list of borrowed rows sorts the same (`app_chat_rows`).
+impl<T: AppListLike + ?Sized> AppListLike for &T {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
 }
 
 /// The list order: by name (case- and accent-insensitive, the web's
@@ -1663,6 +1749,35 @@ mod tests {
                     device_id: expected["deviceId"].as_str().map(str::to_string),
                     moves: expected["move"].as_bool().unwrap(),
                 },
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn editor_header_replays_the_fixture() {
+        let cases = cases("editorHeaderCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let root = case["root"].as_object().map(|root| EditorHeaderRoot {
+                status: root["status"].as_str().unwrap(),
+                busy: root["busy"].as_bool().unwrap(),
+                needs_input: root["needsInput"].as_bool().unwrap(),
+            });
+            let device = case["device"]
+                .as_object()
+                .map(|device| (device["name"].as_str().unwrap(), device["online"].as_bool().unwrap()));
+            let expected = &case["expected"];
+            let tone = match expected["tone"].as_str().unwrap() {
+                "attention" => EditorHeaderTone::Attention,
+                "active" => EditorHeaderTone::Active,
+                "muted" => EditorHeaderTone::Muted,
+                other => panic!("unknown tone {other}"),
+            };
+            assert_eq!(
+                editor_header(root, device),
+                EditorHeader { subtitle: expected["subtitle"].as_str().unwrap().to_string(), tone },
                 "{}",
                 case["name"]
             );

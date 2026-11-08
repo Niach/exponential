@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { accountCaption, accountRow, automationDropped, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorDevice, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
+import { accountCaption, accountRow, automationDropped, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorDevice, editorHeader, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 import { screenParamsFromQuery, screenPath, screenShell, surfaceState } from "./apps"
 import { rollbackBody, rollbackTitle, rollbackWarns } from "./apps"
 
@@ -30,6 +30,9 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.editorDeviceCases)(`editorDevice (#FEED-204) $name`, (c) => {
     expect(editorDevice(c.root, c.candidates, c.remembered)).toEqual(c.expected)
+  })
+  test.each(fixture.editorHeaderCases)(`editorHeader (#EXP-1729) $name`, (c) => {
+    expect(editorHeader(c.root, c.device)).toEqual(c.expected)
   })
   test.each(fixture.automationRowCases.cases)(`automationRow (#VAPP-220) $name`, (c) => {
     expect(automationRow(c.row as AutomationRowInput)).toEqual(c.expected)

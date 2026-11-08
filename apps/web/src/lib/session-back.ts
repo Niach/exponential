@@ -1,7 +1,7 @@
 // S-3 inter-session links (web): an xref tap opens that session and PUSHES
 // the session on show onto `back`, the stack of session ids carried in the
 // route search (`back=<oldest>,…,<newest>`); the header's `‹` pops it. The
-// thread, session and agent routes all read it.
+// chat, session and agent routes all read it.
 
 /** The deepest stack kept (the oldest entries fall off). */
 export const BACK_STACK_CAP = 10
@@ -36,8 +36,8 @@ export function pushBack(stack: readonly string[], here: string | null): string[
 
 /** Where a session opens on web. */
 export type SessionTarget =
-  /** Its thread (a child = `?tab=session&session=<id>` in place). */
-  | { to: `thread`; threadId: string; session: string | null }
+  /** Its chat (a child = `?tab=session&session=<id>` in place). */
+  | { to: `chat`; chatId: string; session: string | null }
   /** The viewer's own conversation with a team agent = the agent's page. */
   | { to: `agent`; agentId: string }
   /** `/sessions/$id` (a session under an agent's tree, or one not synced
@@ -67,5 +67,5 @@ export function sessionTarget(
       ? { to: `agent`, agentId: root.agentId }
       : { to: `session`, sessionId }
   }
-  return { to: `thread`, threadId: root.id, session: row.id === root.id ? null : row.id }
+  return { to: `chat`, chatId: root.id, session: row.id === root.id ? null : row.id }
 }

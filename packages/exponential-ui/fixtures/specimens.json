@@ -392,6 +392,44 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen-card-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-card-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "pressable · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-card_press",
+                "component": "Card",
+                "props": {
+                  "title": "Expenses",
+                  "description": "12 this month",
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "c2-card_press_t",
+                    "component": "Text",
+                    "props": {
+                      "text": "Rent, travel, software",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -4088,6 +4126,89 @@
                 "style": {
                   "width": 320
                 }
+              }
+            ]
+          },
+          {
+            "id": "specimen-tabs-case-6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-6-label",
+                "component": "Text",
+                "props": {
+                  "text": "swipeable · true · fill",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6-swipe",
+                "component": "Tabs",
+                "props": {
+                  "swipeable": true,
+                  "fill": true,
+                  "value": "activity",
+                  "tabs": [
+                    {
+                      "label": "Dashboard",
+                      "value": "dashboard"
+                    },
+                    {
+                      "label": "Activity",
+                      "value": "activity"
+                    },
+                    {
+                      "label": "Income",
+                      "value": "income"
+                    },
+                    {
+                      "label": "Expenses",
+                      "value": "expenses"
+                    }
+                  ]
+                },
+                "style": {
+                  "maxWidth": 360
+                },
+                "children": [
+                  {
+                    "id": "c6-swipe_dashboard",
+                    "component": "Text",
+                    "props": {
+                      "text": "The dashboard panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_activity",
+                    "component": "Text",
+                    "props": {
+                      "text": "The activity panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_income",
+                    "component": "Text",
+                    "props": {
+                      "text": "The income panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c6-swipe_expenses",
+                    "component": "Text",
+                    "props": {
+                      "text": "The expenses panel.",
+                      "variant": "body"
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -8928,6 +9049,132 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-chart-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-chart-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "valueFormat · currency EUR",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-income",
+                "component": "Chart",
+                "props": {
+                  "kind": "bar",
+                  "title": "Income vs expenses",
+                  "categories": [
+                    "Jan",
+                    "Feb",
+                    "Mar",
+                    "Apr"
+                  ],
+                  "series": [
+                    {
+                      "name": "Income",
+                      "values": [
+                        4200,
+                        3900,
+                        4600,
+                        5100
+                      ],
+                      "tone": "success"
+                    },
+                    {
+                      "name": "Expenses",
+                      "values": [
+                        3100,
+                        3400,
+                        2900,
+                        3800
+                      ],
+                      "tone": "danger"
+                    }
+                  ],
+                  "showValues": true,
+                  "valueFormat": {
+                    "type": "currency",
+                    "currency": "EUR",
+                    "decimals": 0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-chart-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-chart-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "rows · valueFormat compact",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-income_rows",
+                "component": "Chart",
+                "props": {
+                  "kind": "line",
+                  "rows": [
+                    {
+                      "month": "Jan",
+                      "income": 42000,
+                      "expenses": 31000
+                    },
+                    {
+                      "month": "Feb",
+                      "income": 39000,
+                      "expenses": 34000
+                    },
+                    {
+                      "month": "Mar",
+                      "income": 46000,
+                      "expenses": 29000
+                    },
+                    {
+                      "month": "Apr",
+                      "income": 51000,
+                      "expenses": 38000
+                    }
+                  ],
+                  "categoryField": "month",
+                  "series": [
+                    {
+                      "name": "Income",
+                      "field": "income",
+                      "tone": "success"
+                    },
+                    {
+                      "name": "Expenses",
+                      "field": "expenses",
+                      "tone": "danger"
+                    }
+                  ],
+                  "valueFormat": {
+                    "type": "compact",
+                    "currency": "EUR"
+                  }
+                }
+              }
+            ]
           }
         ]
       }
@@ -9292,6 +9539,36 @@
                 "props": {
                   "label": "Open issues",
                   "value": "37"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-stat-tile-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stat-tile-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "pressable · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-tile_press",
+                "component": "StatTile",
+                "props": {
+                  "label": "Income",
+                  "value": "4,200",
+                  "delta": "+8 %",
+                  "tone": "success",
+                  "pressable": true
                 }
               }
             ]

@@ -11,11 +11,11 @@ final class SessionsApiWireTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    func testNewThreadCarriesTheRootFacetsAndOmitsEveryNil() throws {
-        let bare = try json(SessionsSendInput.newThread(teamId: "t-1", deviceId: "dev-1", text: "Go"))
+    func testNewChatCarriesTheRootFacetsAndOmitsEveryNil() throws {
+        let bare = try json(SessionsSendInput.newChat(teamId: "t-1", deviceId: "dev-1", text: "Go"))
         XCTAssertEqual(bare.keys.sorted(), ["deviceId", "teamId", "text"])
 
-        let full = try json(SessionsSendInput.newThread(
+        let full = try json(SessionsSendInput.newChat(
             teamId: "t-1",
             deviceId: "dev-1",
             options: SessionLaunchOptions(
@@ -42,13 +42,13 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(full["computerUse"] as? Bool, false)
 
         // A blank model is never sent (absent = blank on the server).
-        let blank = try json(SessionsSendInput.newThread(
+        let blank = try json(SessionsSendInput.newChat(
             teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(model: "", effort: ""), text: "Go"
         ))
         XCTAssertEqual(blank.keys.sorted(), ["deviceId", "effort", "teamId", "text"])
 
         // #EXP-1661: an empty skill pick never rides the wire.
-        let noSkills = try json(SessionsSendInput.newThread(
+        let noSkills = try json(SessionsSendInput.newChat(
             teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(skillIds: []), text: "Go"
         ))
         XCTAssertEqual(noSkills.keys.sorted(), ["deviceId", "teamId", "text"])
@@ -75,6 +75,23 @@ final class SessionsApiWireTests: XCTestCase {
             agentId: "as-1", text: "Hi", attachmentIds: [], issueIds: [], identifiers: [], scope: .allTeams
         ))
         XCTAssertTrue(forward["scopeTeamIds"] is NSNull)
+    }
+
+    /// #EXP-1729 (apps.json `editorHeader`): an app editor's send carries the
+    /// composer's Account and Model picks; none = no keys, a blank model never.
+    func testAppSendCarriesTheEditorPicks() throws {
+        let bare = try json(SessionsSendInput.app(appId: "a-1", deviceId: "dev-1", text: "Go"))
+        XCTAssertEqual(bare.keys.sorted(), ["appId", "deviceId", "text"])
+        let picked = try json(SessionsSendInput.app(appId: "a-1", deviceId: "dev-1", text: "Go", cli: "claude", account: "p-1", model: "opus"))
+        XCTAssertEqual(picked.keys.sorted(), ["account", "appId", "cli", "deviceId", "model", "text"])
+        XCTAssertEqual(picked["account"] as? String, "p-1")
+        XCTAssertEqual(picked["model"] as? String, "opus")
+        let blank = try json(SessionsSendInput.app(appId: "a-1", deviceId: nil, text: "Go", model: ""))
+        XCTAssertEqual(blank.keys.sorted(), ["appId", "text"])
+        XCTAssertEqual(
+            SessionsSendInput.app(appId: "a-1", deviceId: "d", text: "x", cli: "codex", account: "p", model: "m").with(text: "y"),
+            .app(appId: "a-1", deviceId: "d", text: "y", cli: "codex", account: "p", model: "m")
+        )
     }
 
     /// NEW-2: a message to an agent names the agent and nothing of a runner
@@ -222,6 +239,26 @@ final class SessionsApiWireTests: XCTestCase {
         let cleared = try json(SetCoordinatorInput(teamId: "t-1", agentId: nil))
         XCTAssertEqual(cleared.keys.sorted(), ["agentId", "teamId"])
         XCTAssertTrue(cleared["agentId"] is NSNull)
+    }
+
+    // #EXP-1735 `agents.setLeadAssistant`: the team and the member, an
+    // explicit null clearing it; `agents.lead` answers a member or null.
+    func testSetLeadAssistantSendsAnExplicitNull() throws {
+        let set = try json(SetLeadAssistantInput(teamId: "t-1", userId: "u-1"))
+        XCTAssertEqual(set.keys.sorted(), ["teamId", "userId"])
+        XCTAssertEqual(set["userId"] as? String, "u-1")
+        let cleared = try json(SetLeadAssistantInput(teamId: "t-1", userId: nil))
+        XCTAssertEqual(cleared.keys.sorted(), ["teamId", "userId"])
+        XCTAssertTrue(cleared["userId"] is NSNull)
+    }
+
+    func testLeadDecodesAMemberOrNull() throws {
+        let some = try JSONDecoder().decode(
+            TeamLeadResult.self, from: Data(#"{"lead":{"agentId":"ag-1","userId":"u-1"}}"#.utf8)
+        )
+        XCTAssertEqual(some.lead, TeamLead(agentId: "ag-1", userId: "u-1"))
+        let none = try JSONDecoder().decode(TeamLeadResult.self, from: Data(#"{"lead":null}"#.utf8))
+        XCTAssertNil(none.lead)
     }
 
     // `agents.update`: omit keeps, an explicit null clears (`account` /

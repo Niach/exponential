@@ -82,7 +82,7 @@ class StoreScreenshotsTest {
         // so anything above the fold is never composed and no matcher sees it.
         private const val FEED_QUESTION_FRAGMENT = "Lazy-load the markdown editor too"
 
-        // The thread's child session the stand-in desktop publishes to the
+        // The chat's child session the stand-in desktop publishes to the
         // relay (DEMO_SESSION_ID); the root's own card comes first and has no
         // feed of its own.
         private const val STEERED_SESSION_TITLE = "Profile the launch path"
@@ -163,27 +163,27 @@ class StoreScreenshotsTest {
         flow.pauseClock()
 
         // --- Issue detail: open APP-5 and wait for its markdown description.
-        // The live session row above the thread is what makes this shot read
+        // The live session row above the chat is what makes this shot read
         // "an agent is coding on this right now" instead of "live steering is
         // unavailable on this instance".
         composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
-        // EXP-1303: Threads v2 dropped the Work screen's face strip; the issue
-        // names its threads instead, and the live run's thread chip is what
+        // EXP-1303: the session-tree redesign dropped the Work screen's face strip; the issue
+        // names its chats instead, and the live run's chat chip is what
         // proves it (iOS `StoreScreenshots` parity).
-        flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("issue-chat-chip"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("2_issue-detail", popRects = true)
 
-        // --- Live steering: the chip opens the thread; its child's session
+        // --- Live steering: the chip opens the chat; its child's session
         // card (by title: the root's own card comes first) opens the session's
         // raw work (the pending question card still in place).
         // Gate on the FEED tag, not the screen: it shows "Connecting…" /
         // "Waiting for activity…" placeholders until the first relay frame
         // lands.
-        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
-        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
-        flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performScrollTo()
+        composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performClick()
+        flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION), SYNC_TIMEOUT)
         // EXP-1323: the conversation opens at its live tail, so the child's
         // card sits above the fold and the lazy list never composes it; drag
         // back up to it like the styleguide suite and iOS (a real drag, a
@@ -193,7 +193,7 @@ class StoreScreenshotsTest {
         repeat(6) {
             val shown = runCatching { composeRule.onAllNodes(steeredCard).onFirst().assertIsDisplayed() }.isSuccess
             if (!shown) {
-                composeRule.onNode(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
+                composeRule.onNode(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION))
                     .performTouchInput { swipeDown(startY = centerY, endY = bottom - 200f) }
                 flow.settle()
             }
@@ -209,10 +209,10 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)
-        // Session → issue → board: the session page is a page OF the thread
-        // (its strip stays on screen), so one Back leaves the thread.
+        // Session → issue → board: the session page is a page OF the chat
+        // (its strip stays on screen), so one Back leaves the chat.
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+        flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 
@@ -242,7 +242,7 @@ class StoreScreenshotsTest {
         // The clock is paused (EXP-1154): pump until the pop lands on the
         // board and its tab bar is back (the retired 5_review block's first
         // waitFor used to do this).
-        flow.waitFor(hasTestTag("tab-threads"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("tab-chats"), NAV_TIMEOUT)
         flow.settle()
 
         // S-3: the PR review slide (5_review) is retired with the Guide tab
@@ -251,11 +251,11 @@ class StoreScreenshotsTest {
         // NEW-7: the Actions slide is gone with the tab (prompts replaced
         // actions: the composer's `/` menu and Settings → Prompts).
 
-        // --- Inbox (thread 58cb32df: a page the Chats header's inbox circle
+        // --- Inbox (session 58cb32df: a page the Chats header's inbox circle
         // pushes; seeded with 5 notifications, 3 unread). Wait for a real
         // group row — capturing "You're all caught up" would silently ship
         // an empty screenshot.
-        composeRule.onNode(hasTestTag("tab-threads")).performClick()
+        composeRule.onNode(hasTestTag("tab-chats")).performClick()
         flow.waitFor(hasTestTag(com.exponential.app.domain.Chats.TestIds.INBOX_BUTTON), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag(com.exponential.app.domain.Chats.TestIds.INBOX_BUTTON)).performClick()
         flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)

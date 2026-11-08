@@ -1,7 +1,7 @@
 package com.exponential.app.domain
 
 /**
- * EXP-1291 Threads v2: Team settings → Agents — the Android mirror of
+ * EXP-1291: Team settings → Agents — the Android mirror of
  * `packages/domain-contract/src/agent-settings.ts` (desktop
  * `domain::agent_settings`, iOS `AgentSettings.swift`). Pure and byte-locked
  * by `fixtures/agent-settings.json` (`summaryCases`, `validationCases`),
@@ -302,6 +302,33 @@ object AgentSettings {
         /** `valueCases`: the team's coordinator id, or null. */
         fun <T> coordinatorOf(agents: List<T>, teamId: String, id: (T) -> String, team: (T) -> String, role: (T) -> String?): String? =
             agents.firstOrNull { team(it) == teamId && isCoordinator(role(it)) }?.let(id)
+    }
+
+    /**
+     * #EXP-1735 (agent-settings.json `lead`): THE team's lead Assistant, one
+     * member's Assistant every member's Assistant reports to. Owners pick it
+     * in Team settings › Agents (ONE settings Picker row where the
+     * Coordinator row was; members read it); `agents.setLeadAssistant`.
+     */
+    object Lead {
+        /** The option id of "no lead Assistant". */
+        const val NONE = "none"
+        const val LABEL = "Lead Assistant"
+        const val NONE_LABEL = "None"
+        const val REFUSED_OWNER = "Only the team's owners set its lead Assistant"
+        const val REFUSED_MEMBER = "Only a member of this team can lead it"
+        const val NO_ASSISTANT = "That member has no device to run an Assistant on yet"
+        const val TEST_ID_ROW = "settings-agents-lead"
+
+        data class MemberLike(val userId: String, val name: String)
+
+        /** `optionCases`: null (= [NONE]) first, then the team's members by
+         *  display name, then id. */
+        fun <T> leadOptions(members: List<T>, member: (T) -> MemberLike): List<T?> =
+            listOf<T?>(null) + members.sortedWith(
+                Comparator<T> { a, b -> compareNames(member(a).name, member(b).name) }
+                    .thenBy { member(it).userId },
+            )
     }
 
     object Assistant {

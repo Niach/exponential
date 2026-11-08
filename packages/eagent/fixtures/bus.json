@@ -1,5 +1,5 @@
 {
-  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns, unless S is a thread that agent started (#FEED-194: `startedByAgentId` = its agent: it asked for the work, so each turn reply wakes it)), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn) until a message revives it (tree.json, #FEED-206). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused.",
+  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns, unless S is a root session that agent started (#FEED-194: `startedByAgentId` = its agent: it asked for the work, so each turn reply wakes it)), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn) until a message revives it (tree.json, #FEED-206). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused. #EXP-1735 THE TEAM LEAD (`teams.lead_assistant_id`, `leadOf`): a session working in a team whose lead is ANOTHER member's Assistant than the one acting for its tree (the member's Assistant's children and the root sessions it started; never that Assistant's own conversation root, never a team agent's tree, never the lead's own work) also reports to the lead: its ask (question/plan mirror) and its END report reach the lead's conversation (its root session) after every other listener, once (a lead that already listens hears it once), waking, under the same PRIVACY rule (the lead is another member: a private session reaches it as the neutral line). Its turns, walls and PRs do not. A team without a lead reports as before.",
   "cases": [
     {
       "name": "a child's turn reply wakes its parent as the child's own message",
@@ -201,7 +201,7 @@
       ]
     },
     {
-      "name": "#FEED-194: the team agent that started a thread hears each turn; another agent's watching conversation and a child's turn do not reach it",
+      "name": "#FEED-194: the team agent that started a root session hears each turn; another agent's watching conversation and a child's turn do not reach it",
       "given": {
         "sessions": [
           {
@@ -378,7 +378,7 @@
       ]
     },
     {
-      "name": "a private thread's reply reaches a shared watcher as the neutral line, its owner's own watcher in full",
+      "name": "a private root session's reply reaches a shared watcher as the neutral line, its owner's own watcher in full",
       "given": {
         "sessions": [
           {
@@ -1131,13 +1131,13 @@
             "id": "ag1",
             "ownerId": "u1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           },
           {
             "id": "ag2",
             "ownerId": "u1",
             "role": "agent",
-            "conversationId": "pa1"
+            "rootSessionId": "pa1"
           }
         ]
       },
@@ -1935,6 +1935,712 @@
           "result": {
             "sessionId": "c1",
             "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "#EXP-1735: a member's Assistant's root session in a team reports its question and its end to the team's lead; its turns and PR do not",
+      "given": {
+        "sessions": [
+          {
+            "id": "c1",
+            "agentId": "a1",
+            "userId": "u1",
+            "teamId": "tp1",
+            "shared": false,
+            "scopeTeamIds": [
+              "t1"
+            ],
+            "wakeOn": [
+              "s2"
+            ]
+          },
+          {
+            "id": "c2",
+            "agentId": "a2",
+            "userId": "u2",
+            "teamId": "tp2",
+            "shared": false,
+            "deviceId": "d2"
+          },
+          {
+            "id": "s2",
+            "userId": "u1",
+            "startedByAgentId": "a1"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a1",
+            "ownerId": "u1",
+            "teamId": "tp1",
+            "role": "assistant",
+            "rootSessionId": "c1"
+          },
+          {
+            "id": "a2",
+            "ownerId": "u2",
+            "teamId": "tp2",
+            "role": "assistant",
+            "rootSessionId": "c2"
+          }
+        ],
+        "leads": {
+          "t1": "a2"
+        }
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 1000,
+            "data": {
+              "sessionId": "s2",
+              "body": "Working on it."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "s2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Working on it.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "s2",
+              "body": "Working on it.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "s2",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 2000,
+            "data": {
+              "sessionId": "s2",
+              "card": {
+                "kind": "question",
+                "question": "Ship it?",
+                "options": [
+                  "Yes",
+                  "No"
+                ]
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "s2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "question",
+                "question": "Ship it?",
+                "options": [
+                  "Yes",
+                  "No"
+                ]
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "s2",
+              "body": "Asks: Ship it?\nOptions: Yes | No (free text allowed)\nAnswer with exponential_sessions_send({sessionId: \"s2\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "s2",
+                "messageId": "m3"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m5",
+              "to": "c2",
+              "authorKind": "agent",
+              "authorSessionId": "s2",
+              "body": "Asks: Ship it?\nOptions: Yes | No (free text allowed)\nAnswer with exponential_sessions_send({sessionId: \"s2\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "s2",
+                "messageId": "m3"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "s2",
+            "messageId": "m3"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.pr_opened",
+            "at": 3000,
+            "data": {
+              "sessionId": "s2",
+              "number": 7,
+              "url": "https://x.test/pull/7",
+              "pullRequestId": "pr1"
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "s2"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 4000,
+            "data": {
+              "sessionId": "s2",
+              "summary": "Merged #7."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m6",
+              "to": "s2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "s2"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m7",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "s2",
+              "body": "Merged #7.",
+              "card": {
+                "kind": "report",
+                "sessionId": "s2",
+                "summary": "Merged #7.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m8",
+              "to": "c2",
+              "authorKind": "agent",
+              "authorSessionId": "s2",
+              "body": "Merged #7.",
+              "card": {
+                "kind": "report",
+                "sessionId": "s2",
+                "summary": "Merged #7.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "s2"
+            }
+          ],
+          "result": {
+            "sessionId": "s2",
+            "endedIds": [
+              "s2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "#EXP-1735: a private child of a member's Assistant reaches the lead as the neutral line; the lead's own work and an Assistant's own conversation never report to it",
+      "given": {
+        "sessions": [
+          {
+            "id": "c1",
+            "agentId": "a1",
+            "userId": "u1",
+            "teamId": "tp1",
+            "shared": false,
+            "scopeTeamIds": [
+              "t1"
+            ]
+          },
+          {
+            "id": "k1",
+            "parentId": "c1",
+            "userId": "u1",
+            "teamId": "t1"
+          },
+          {
+            "id": "c2",
+            "agentId": "a2",
+            "userId": "u2",
+            "teamId": "tp2",
+            "shared": false,
+            "scopeTeamIds": [
+              "t1"
+            ],
+            "deviceId": "d2"
+          },
+          {
+            "id": "k2",
+            "parentId": "c2",
+            "userId": "u2",
+            "teamId": "t1"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a1",
+            "ownerId": "u1",
+            "teamId": "tp1",
+            "role": "assistant",
+            "rootSessionId": "c1"
+          },
+          {
+            "id": "a2",
+            "ownerId": "u2",
+            "teamId": "tp2",
+            "role": "assistant",
+            "rootSessionId": "c2"
+          }
+        ],
+        "leads": {
+          "t1": "a2",
+          "tp1": "a2"
+        }
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 1000,
+            "data": {
+              "sessionId": "k1",
+              "card": {
+                "kind": "plan",
+                "plan": "Split the PR."
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "k1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "plan",
+                "plan": "Split the PR."
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "k1",
+              "body": "Proposes a plan:\n\nSplit the PR.\n\nDecide with exponential_sessions_send({sessionId: \"k1\", answer: {…}}) where answer = {decision: \"approved\" | \"rejected\", answers: {\"<question id>\": [\"<option>\"]}, feedback: \"<text>\"} if it is yours to decide; otherwise end your turn, a person decides in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "k1",
+                "messageId": "m1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c2",
+              "authorKind": "agent",
+              "authorSessionId": "k1",
+              "body": "Proposes a plan in a private chat.\nRead it with exponential_sessions({op: \"get\", id: \"k1\"}) and answer with exponential_sessions_send({sessionId: \"k1\", answer: {…}}) if you may see it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "k1",
+                "messageId": "m1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "k1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 2000,
+            "data": {
+              "sessionId": "k2",
+              "card": {
+                "kind": "question",
+                "question": "Which board?",
+                "custom": false
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "k2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "question",
+                "question": "Which board?",
+                "custom": false
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m5",
+              "to": "c2",
+              "authorKind": "agent",
+              "authorSessionId": "k2",
+              "body": "Asks: Which board?\nAnswer with exponential_sessions_send({sessionId: \"k2\", answer: {…}}) where answer = {answers: [\"<option>\"]} or {answer: \"<text>\"} if you know it; otherwise end your turn, a person answers in the card.",
+              "card": {
+                "kind": "ask",
+                "sessionId": "k2",
+                "messageId": "m4"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "k2",
+            "messageId": "m4"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 3000,
+            "data": {
+              "sessionId": "c1",
+              "card": {
+                "kind": "question",
+                "question": "Lunch?",
+                "custom": false
+              }
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m6",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "question",
+                "question": "Lunch?",
+                "custom": false
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m6"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 4000,
+            "data": {
+              "sessionId": "k1",
+              "summary": "Split."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m7",
+              "to": "k1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "k1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m8",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "k1",
+              "body": "Split.",
+              "card": {
+                "kind": "report",
+                "sessionId": "k1",
+                "summary": "Split.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m9",
+              "to": "c2",
+              "authorKind": "agent",
+              "authorSessionId": "k1",
+              "body": "A private chat finished.\nRead it with exponential_sessions({op: \"get\", id: \"k1\"}) if your account may see it.",
+              "card": {
+                "kind": "report",
+                "sessionId": "k1",
+                "summary": "A private chat finished.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "k1"
+            }
+          ],
+          "result": {
+            "sessionId": "k1",
+            "endedIds": [
+              "k1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "#EXP-1735: a team agent's root session and work in a team without a lead report as before",
+      "given": {
+        "sessions": [
+          {
+            "id": "c1",
+            "agentId": "a1",
+            "userId": "u1",
+            "teamId": "tp1",
+            "shared": false,
+            "scopeTeamIds": [
+              "t1",
+              "t2"
+            ]
+          },
+          {
+            "id": "k3",
+            "parentId": "c1",
+            "userId": "u1",
+            "teamId": "t2"
+          },
+          {
+            "id": "c3",
+            "agentId": "a3",
+            "userId": "u1",
+            "teamId": "t1",
+            "wakeOn": [
+              "s4"
+            ]
+          },
+          {
+            "id": "s4",
+            "userId": "u1",
+            "startedByAgentId": "a3"
+          },
+          {
+            "id": "c2",
+            "agentId": "a2",
+            "userId": "u2",
+            "teamId": "tp2",
+            "shared": false,
+            "deviceId": "d2"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a1",
+            "ownerId": "u1",
+            "teamId": "tp1",
+            "role": "assistant",
+            "rootSessionId": "c1"
+          },
+          {
+            "id": "a2",
+            "ownerId": "u2",
+            "teamId": "tp2",
+            "role": "assistant",
+            "rootSessionId": "c2"
+          },
+          {
+            "id": "a3",
+            "ownerId": "u1",
+            "teamId": "t1",
+            "rootSessionId": "c3"
+          }
+        ],
+        "leads": {
+          "t1": "a2"
+        }
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 1000,
+            "data": {
+              "sessionId": "k3",
+              "summary": "Done in t2."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "k3",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "k3"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "k3",
+              "body": "Done in t2.",
+              "card": {
+                "kind": "report",
+                "sessionId": "k3",
+                "summary": "Done in t2.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "k3"
+            }
+          ],
+          "result": {
+            "sessionId": "k3",
+            "endedIds": [
+              "k3"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 2000,
+            "data": {
+              "sessionId": "s4",
+              "summary": "Triaged."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "s4",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "s4"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "c3",
+              "authorKind": "agent",
+              "authorSessionId": "s4",
+              "body": "Triaged.",
+              "card": {
+                "kind": "report",
+                "sessionId": "s4",
+                "summary": "Triaged.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "s4"
+            }
+          ],
+          "result": {
+            "sessionId": "s4",
+            "endedIds": [
+              "s4"
+            ]
           }
         }
       ]

@@ -4,7 +4,6 @@ import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import {
-  conversationCollection,
   issueCollection,
   issueRelationCollection,
   messageCollection,
@@ -17,20 +16,18 @@ import {
 } from "@/lib/collections"
 import { sessionTitles } from "@exp/domain-contract/session-title"
 import { CHATS_TRANSCRIPT, digestMessages, type ConversationDigest } from "@exp/domain-contract/chats"
-import { sessionWaitingCard } from "@exp/domain-contract/thread-row-action"
+import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
 import {
-  buildSessionThread,
-  conversationSessions,
+  buildSessionChat,
   keyMessageRows,
   listAgents,
   type AgentLike,
-  partitionThreads,
+  partitionChats,
   sessionCard,
-  sessionConversationIds,
-  threadAskRow,
-  type ThreadRow,
+  chatAskRow,
+  type SessionChatRow,
   toTreeIssue,
   toTreeMessages,
   toTreePullRequest,
@@ -43,9 +40,9 @@ import {
   type SessionCard,
   type SessionIssueRow,
   type SessionRow,
-  type SessionThreadView,
+  type SessionChatView,
   type SyncedMessageRow,
-  type ThreadsListGroup,
+  type ChatsListGroup,
   type TreeIssue,
   type TreeMessage,
   type TreeSession,
@@ -53,9 +50,9 @@ import {
   type TreeSessionRead,
 } from "@/lib/session-tree"
 
-// EXP-1293 Threads v2 (web): ONE read layer over the session-tree shapes.
-// Every screen (Threads, the rail's Agents + Running, a thread, an agent's
-// channel, a session, an issue's Threads row) reads through these, and the
+// EXP-1293 (web): ONE read layer over the session-tree shapes.
+// Every screen (Chats, the rail's Agents + Running, a chat, an agent's
+// channel, a session, an issue's Chats row) reads through these, and the
 // view models are the contract's (fixture-locked ×4).
 
 /** Every synced session of the team(s) (roots + children), raw + tree form. */
@@ -80,7 +77,7 @@ export function useTeamSessions(teamId: string | readonly string[] | null | unde
   }, [data, isReady, key, keyVersion])
 }
 
-/** EXP-1316: a thread title may fall back past its issues (to the stored
+/** EXP-1316: a chat title may fall back past its issues (to the stored
  *  name, the first message) only once the shapes that could NAME an issue
  *  have reported ready: the links, then the linked issues (none linked = no
  *  wait), and the messages. Until then hosts hold the title (and the
@@ -96,38 +93,21 @@ export function titleShapesReady(input: {
   )
 }
 
-/** NEW-8: conversation id → session id over the synced `conversations`
- *  (`conversationSessions`): every message is keyed through it
- *  (`keyMessageRows`), never through its own legacy `sessionId`. Anything
- *  waiting on the messages waits on `isReady` too. */
-export function useConversationSessions(): {
-  conversations: Map<string, string>
-  isReady: boolean
-} {
-  const { data, isReady } = useLiveQuery(
-    (query) =>
-      query.from({ conversations: conversationCollection }).select(({ conversations }) => ({
-        id: conversations.id,
-        sessionId: conversations.sessionId,
-      })),
-    []
-  )
-  const conversations = useMemo(
-    () =>
-      conversationSessions((data ?? []) as { id: string; sessionId: string | null }[]),
-    [data]
-  )
-  return { conversations, isReady }
-}
-
 /** #EXP-1380: the messages the LIST reads (titles, previews, unread,
  *  rings) for the sessions of `teamIds` or of `sessionIds`, out of each
- *  conversation's server-kept digest (`digestMessages`): the list never
- *  syncs a transcript, a chat's messages load when it opens. */
+ *  session's server-kept digest (`sessions.digest`, #EXP-1730;
+ *  `digestMessages`): the list never syncs a transcript, a chat's messages
+ *  load when it opens. */
 export function useDigestMessages(scope: {
   teamIds?: readonly string[]
   sessionIds?: readonly string[]
-}): { messages: TreeMessage[]; isReady: boolean } {
+}): {
+  messages: TreeMessage[]
+  isReady: boolean
+  /** The ids of the synced session rows read (a requested one missing =
+   *  its row has not landed yet). */
+  loaded: ReadonlySet<string>
+} {
   const teamIds = scope.teamIds ?? null
   const sessionIds = scope.sessionIds ?? null
   const key = `${teamIds?.join(`,`) ?? ``}|${sessionIds?.join(`,`) ?? ``}`
@@ -135,21 +115,19 @@ export function useDigestMessages(scope: {
     (query) =>
       teamIds && teamIds.length > 0
         ? query
-            .from({ conversations: conversationCollection })
-            .where(({ conversations }) => inArray(conversations.teamId, [...teamIds]))
-            .select(({ conversations }) => ({
-              id: conversations.id,
-              sessionId: conversations.sessionId,
-              digest: conversations.digest,
+            .from({ sessions: sessionCollection })
+            .where(({ sessions }) => inArray(sessions.teamId, [...teamIds]))
+            .select(({ sessions }) => ({
+              id: sessions.id,
+              digest: sessions.digest,
             }))
         : sessionIds && sessionIds.length > 0
           ? query
-              .from({ conversations: conversationCollection })
-              .where(({ conversations }) => inArray(conversations.sessionId, [...sessionIds]))
-              .select(({ conversations }) => ({
-                id: conversations.id,
-                sessionId: conversations.sessionId,
-                digest: conversations.digest,
+              .from({ sessions: sessionCollection })
+              .where(({ sessions }) => inArray(sessions.id, [...sessionIds]))
+              .select(({ sessions }) => ({
+                id: sessions.id,
+                digest: sessions.digest,
               }))
           : undefined,
     [key]
@@ -159,38 +137,26 @@ export function useDigestMessages(scope: {
   const keyVersion = useKeyVersion()
   const messages = useMemo(
     () =>
-      ((data ?? []) as { sessionId: string | null; digest: unknown }[]).flatMap((row) =>
-        row.sessionId
-          ? openDigestMessages(
-              row.sessionId,
-              digestMessages(row.sessionId, row.digest as ConversationDigest | null),
-              rootOfSession
-            )
-          : []
+      ((data ?? []) as { id: string; digest: unknown }[]).flatMap((row) =>
+        openDigestMessages(
+          row.id,
+          digestMessages(row.id, row.digest as ConversationDigest | null),
+          rootOfSession
+        )
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [data, keyVersion]
   )
-  return { messages, isReady }
+  const loaded = useMemo(
+    () => new Set(((data ?? []) as { id: string }[]).map((row) => row.id)),
+    [data]
+  )
+  return { messages, isReady, loaded }
 }
 
 /** EXP-1459: a synced session's root (a row not synced yet = itself). */
 function rootOfSession(sessionId: string): string {
   return (sessionCollection.get(sessionId) as SessionRow | undefined)?.rootId ?? sessionId
-}
-
-/** NEW-8: the sessions among `sessionIds` whose own conversation has not
- *  synced yet. Every session owns one from its insert
- *  (`create_session_conversation`), so a missing row is the conversations
- *  stream lagging (a brand-new session), never "no messages": their
- *  messages are NOT ready (a disabled live query reports ready, empty). */
-export function sessionsAwaitingConversation(
-  conversations: ReadonlyMap<string, string>,
-  sessionIds: Iterable<string>
-): Set<string> {
-  const pending = new Set(sessionIds)
-  for (const sessionId of conversations.values()) pending.delete(sessionId)
-  return pending
 }
 
 /** EXP-1316 / EXP-1341: the sessions whose title (`sessionTitle`) could
@@ -205,9 +171,6 @@ export function unsettledTitleRoots(input: {
   linksReady: boolean
   issuesReady: boolean
   messagesReady: boolean
-  /** NEW-8: sessions whose conversation has not synced: their messages
-   *  are not ready even when the shapes are (`sessionsAwaitingConversation`). */
-  awaitingConversation?: ReadonlySet<string>
 }): Set<string> {
   // NEW-1: a session's own issues = the rows it holds (root or child alike).
   const holding = new Set(input.sessionIssues.map((link) => link.sessionId))
@@ -223,7 +186,7 @@ export function unsettledTitleRoots(input: {
       if (!input.issuesReady) held.add(session.id)
       continue
     }
-    if (!input.messagesReady || input.awaitingConversation?.has(session.id)) held.add(session.id)
+    if (!input.messagesReady) held.add(session.id)
   }
   return held
 }
@@ -231,9 +194,9 @@ export function unsettledTitleRoots(input: {
 /** Blank the title of the rows in `held` (their ladder still waits on a
  *  shape); every other row keeps its title. */
 export function holdTitles(
-  groups: ThreadsListGroup[],
+  groups: ChatsListGroup[],
   held: ReadonlySet<string>
-): ThreadsListGroup[] {
+): ChatsListGroup[] {
   if (held.size === 0) return groups
   return groups.map((group) => ({
     ...group,
@@ -272,9 +235,7 @@ function useTitleContext(teamIds: readonly string[]) {
     [issueKey]
   )
   // #EXP-1380: the digests, never the transcripts (`useDigestMessages`).
-  const { messages, isReady: digestsReady } = useDigestMessages({ teamIds })
-  const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const messagesReady = digestsReady && conversationsReady
+  const { messages, isReady: messagesReady } = useDigestMessages({ teamIds })
   const scopedLinksReady = teamIds.length > 0 && linksReady
   const ready = titleShapesReady({
     linksReady: scopedLinksReady,
@@ -291,9 +252,8 @@ function useTitleContext(teamIds: readonly string[]) {
       linksReady: scopedLinksReady,
       issuesReady,
       messagesReady,
-      conversations,
     }),
-    [links, issues, messages, ready, scopedLinksReady, issuesReady, messagesReady, conversations]
+    [links, issues, messages, ready, scopedLinksReady, issuesReady, messagesReady]
   )
 }
 
@@ -320,11 +280,11 @@ export function useSessionReads(): TreeSessionRead[] {
 }
 
 /**
- * The Threads list (Needs you · Running · Recent) for the ACTIVE team
+ * The Chats list (Needs you · Running · Recent) for the ACTIVE team
  * (`teamId`; null/array = every listed team, phones band per team).
  */
-export function useThreadsList(teamId: string | readonly string[] | null | undefined): {
-  groups: ThreadsListGroup[]
+export function useChatsList(teamId: string | readonly string[] | null | undefined): {
+  groups: ChatsListGroup[]
   isReady: boolean
 } {
   const teamIds = teamScopeIds(teamId ?? undefined)
@@ -336,7 +296,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
   const now = useNow(60_000)
   const nowIso = now.toISOString()
   return useMemo(() => {
-    const groups = partitionThreads({
+    const groups = partitionChats({
       sessions: tree,
       sessionIssues: context.sessionIssues,
       issues: context.issues,
@@ -354,10 +314,6 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       linksReady: context.linksReady,
       issuesReady: context.issuesReady,
       messagesReady: context.messagesReady,
-      awaitingConversation: sessionsAwaitingConversation(
-        context.conversations,
-        tree.map((session) => session.id)
-      ),
     })
     return { groups: holdTitles(groups, held), isReady: isReady && held.size === 0 }
   }, [tree, context, isReady, reads, nowIso])
@@ -453,7 +409,7 @@ export function useTreeSessions(rootId: string | null | undefined) {
   }, [data, self, isReady, rootId, keyVersion])
 }
 
-/** The PRs a thread opened (`root_session_id`). */
+/** The PRs a chat opened (`root_session_id`). */
 export function useRootPullRequests(rootId: string | null | undefined): PullRequestRow[] {
   const { data } = useLiveQuery(
     (query) =>
@@ -580,19 +536,20 @@ export interface MessagePage {
   loadMore: () => void
 }
 
-/** The chat's newest messages (by `rootId`, or by `conversationIds`) plus
- *  its conversations' waiting cards; `more` = older ones exist unloaded. */
+/** The chat's newest messages (by `rootId`, or else by `sessionIds`,
+ *  #EXP-1730 `messages.sessionId`) plus its sessions' waiting cards;
+ *  `more` = older ones exist unloaded. */
 function useNewestMessages(input: {
   key: string | null | undefined
   rootId?: string | null
-  conversationIds?: readonly string[]
-  /** The sessions whose digest's waiting card must load. */
+  /** The sessions whose digest's waiting card must load (and, without a
+   *  `rootId`, whose messages load). */
   sessionIds: readonly string[]
 }): { rows: SyncedMessageRow[]; more: boolean; isReady: boolean } {
   const limit = useChatMessageLimit(input.key)
   const rootId = input.rootId ?? null
-  const conversationIds = input.conversationIds ?? []
-  const scopeKey = rootId ?? conversationIds.join(`,`)
+  const sessionIds = input.sessionIds
+  const scopeKey = rootId ?? sessionIds.join(`,`)
   const { data, isReady } = useLiveQuery(
     (query) =>
       rootId
@@ -601,10 +558,10 @@ function useNewestMessages(input: {
             .where(({ messages }) => eq(messages.rootId, rootId))
             .orderBy(({ messages }) => messages.createdAt, `desc`)
             .limit(limit)
-        : conversationIds.length > 0
+        : sessionIds.length > 0
           ? query
               .from({ messages: messageCollection })
-              .where(({ messages }) => inArray(messages.conversationId, [...conversationIds]))
+              .where(({ messages }) => inArray(messages.sessionId, [...sessionIds]))
               .orderBy(({ messages }) => messages.createdAt, `desc`)
               .limit(limit)
           : undefined,
@@ -615,14 +572,14 @@ function useNewestMessages(input: {
     (query) =>
       input.sessionIds.length > 0
         ? query
-            .from({ conversations: conversationCollection })
-            .where(({ conversations }) => inArray(conversations.sessionId, [...input.sessionIds]))
-            .select(({ conversations }) => ({ digest: conversations.digest }))
+            .from({ sessions: sessionCollection })
+            .where(({ sessions }) => inArray(sessions.id, [...input.sessionIds]))
+            .select(({ sessions }) => ({ digest: sessions.digest }))
         : undefined,
     [sessionKey]
   )
   // #FEED-191 (chats.json): EVERY waiting card (`waits`; an older digest =
-  // its `waiting`), so one beyond the loaded page still reaches the thread.
+  // its `waiting`), so one beyond the loaded page still reaches the chat.
   const waitingIds = [
     ...new Set(
       ((digests ?? []) as { digest: unknown }[]).flatMap((row) => {
@@ -649,13 +606,13 @@ function useNewestMessages(input: {
   }, [data, waiting, limit, isReady])
 }
 
-/** The thread screen's whole model (`buildSessionThread`, fixture-locked). */
-export function useSessionThread(
+/** The chat screen's whole model (`buildSessionChat`, fixture-locked). */
+export function useSessionChat(
   rootId: string | null | undefined,
   /** EXP-1316: the session open in place (its chips = that level). */
   focus: string | null = null
 ): {
-  view: SessionThreadView | null
+  view: SessionChatView | null
   root: SessionRow | null
   rows: SessionRow[]
   pullRequests: PullRequestRow[]
@@ -670,7 +627,7 @@ export function useSessionThread(
 } {
   const { rows, tree, isReady } = useTreeSessions(rootId)
   const root = rows.find((row) => row.id === rootId) ?? null
-  // NEW-1: a row sits on the session that HOLDS the issue; the thread's
+  // NEW-1: a row sits on the session that HOLDS the issue; the chat's
   // issues = the union over its tree (`treeIssues`).
   const treeIds = rootId
     ? [...new Set([rootId, ...rows.map((row) => row.id)])].sort()
@@ -702,23 +659,17 @@ export function useSessionThread(
     [issueKey]
   )
   // EXP-1334: the tree's messages (`root_id`): the root's own rows plus its
-  // children's question / plan cards (`buildSessionThread` picks them).
+  // children's question / plan cards (`buildSessionChat` picks them).
   // #EXP-1380: the NEWEST of them (`useNewestMessages`), Load earlier widens.
   const newest = useNewestMessages({ key: rootId, rootId, sessionIds: treeIds })
   const treeDigests = useDigestMessages({ sessionIds: treeIds })
   const messageRows = newest.rows
   const messageRowsReady = newest.isReady
-  // NEW-8: keyed through their conversations; the title waits on both,
-  // and on the root's own conversation row (a brand-new thread's lags).
-  const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const messagesReady =
-    messageRowsReady &&
-    treeDigests.isReady &&
-    conversationsReady &&
-    (!rootId || sessionsAwaitingConversation(conversations, [rootId]).size === 0)
+  // #EXP-1730: keyed by their own `sessionId`; the title waits on both.
+  const messagesReady = messageRowsReady && treeDigests.isReady
   const messages = useMemo(
-    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
-    [messageRows, conversations]
+    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[]),
+    [messageRows]
   )
   // EXP-1334: the issue tree (`issue_relations` kind parent): a linked
   // sub-issue folds under its nearest LINKED ancestor. The walk passes
@@ -726,7 +677,7 @@ export function useSessionThread(
   // team's whole `parent` set (a filter on the linked ids would cut the
   // chain); what the view keys on is the FOLD below, which keeps its
   // identity while no linked issue's parent moved, so a relation elsewhere
-  // in the team never rebuilds the thread.
+  // in the team never rebuilds the chat.
   const { data: parentRelations } = useLiveQuery(
     (query) =>
       issueIds.length > 0
@@ -775,7 +726,7 @@ export function useSessionThread(
   const keyVersion = useKeyVersion()
   const view = useMemo(() => {
     if (!root) return null
-    return buildSessionThread({
+    return buildSessionChat({
       root: toTreeSession(root),
       sessions: linked.tree.length > 0 ? [...tree, ...linked.tree] : tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
@@ -816,7 +767,7 @@ export function useLinkedSessions(
 ): { tree: TreeSession[]; digests: TreeMessage[] } {
   const inTree = new Set(treeIds)
   // #EXP-1464: and every session a card names (a `thread_started` card, a
-  // report, an event line): an agent's threads are roots of their own.
+  // report, an event line): an agent's chats are roots of their own.
   const cardSessionId = (message: MessageRow): string | null => {
     const id = (message.card as { sessionId?: unknown } | null)?.sessionId
     return typeof id === `string` ? id : null
@@ -903,45 +854,41 @@ function useFoldedIssues(
 }
 
 /** The messages of ONE session (an agent's channel, an opened child): its
- *  own conversation's (NEW-8, keyed through `conversations`), oldest first.
+ *  own (#EXP-1730 `messages.sessionId`), oldest first.
  *  #EXP-1380: its NEWEST ones (`useNewestMessages`; a root shares its
- *  thread's limit), its waiting card always. */
+ *  chat's limit), its waiting card always. */
 export function useSessionMessages(sessionId: string | null | undefined): MessageRow[] {
-  const { conversations } = useConversationSessions()
-  const conversationIds = sessionId ? sessionConversationIds(conversations, [sessionId]) : []
   const sessionIds = useMemo(() => (sessionId ? [sessionId] : []), [sessionId])
-  const { rows } = useNewestMessages({ key: sessionId, conversationIds, sessionIds })
+  const { rows } = useNewestMessages({ key: sessionId, sessionIds })
   // EXP-1459: a new array when a tree key arrives, so readers re-open.
   const keyVersion = useKeyVersion()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => keyMessageRows(rows, conversations), [rows, conversations, keyVersion])
+  return useMemo(() => keyMessageRows(rows), [rows, keyVersion])
 }
 
-/** #EXP-1464 (thread-row-action.json): an expanded session row's waiting
+/** #EXP-1464 (chat-row-action.json): an expanded session row's waiting
  *  question / plan card (`sessionWaitingCard` over the session's newest
  *  messages + its digest's waiting card, any tree); undefined = loading. */
 export function useSessionWaitingCard(
   sessionId: string
-): Extract<ThreadRow, { type: `question` | `plan` }> | null | undefined {
-  const { conversations } = useConversationSessions()
-  const conversationIds = sessionConversationIds(conversations, [sessionId])
+): Extract<SessionChatRow, { type: `question` | `plan` }> | null | undefined {
   const sessionIds = useMemo(() => [sessionId], [sessionId])
-  const { rows, isReady } = useNewestMessages({ key: sessionId, conversationIds, sessionIds })
+  const { rows, isReady } = useNewestMessages({ key: sessionId, sessionIds })
   const keyVersion = useKeyVersion()
   return useMemo(() => {
     // EXP-1459: sealed cards open here (keyVersion re-opens them once a key lands).
-    const messages = toTreeMessages(keyMessageRows(rows, conversations))
+    const messages = toTreeMessages(keyMessageRows(rows))
     const id = sessionWaitingCard(sessionId, messages)
     const message = id ? messages.find((row) => row.id === id) : undefined
-    if (message) return threadAskRow(message)
+    if (message) return chatAskRow(message)
     return isReady ? null : undefined
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, isReady, conversations, sessionId, keyVersion])
+  }, [rows, isReady, sessionId, keyVersion])
 }
 
 /** Every message of ONE tree (`root_id`): an agent's conversation shows
- *  its children's question / plan cards like a thread does. NEW-8: keyed
- *  through `conversations`, oldest first. #EXP-1380: the NEWEST ones, the
+ *  its children's question / plan cards like a chat does. #EXP-1730: keyed
+ *  by `messages.sessionId`, oldest first. #EXP-1380: the NEWEST ones, the
  *  tree's waiting cards always; `more` + `loadEarlier` page further back. */
 export function useTreeMessages(rootId: string | null | undefined): MessageRow[] & {
   page?: MessagePage
@@ -953,11 +900,10 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
   )
   const newest = useNewestMessages({ key: rootId, rootId, sessionIds })
   const origins = useMirrorOrigins(newest.rows)
-  const { conversations } = useConversationSessions()
   const keyVersion = useKeyVersion()
   return useMemo(
     () =>
-      Object.assign(keyMessageRows([...newest.rows, ...origins], conversations), {
+      Object.assign(keyMessageRows([...newest.rows, ...origins]), {
         page: {
           more: newest.more,
           loaded: newest.rows.length,
@@ -968,11 +914,11 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
         } satisfies MessagePage,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [newest.rows, origins, newest.more, newest.isReady, conversations, rootId, keyVersion]
+    [newest.rows, origins, newest.more, newest.isReady, rootId, keyVersion]
   )
 }
 
-/** #EXP-1399 (session-thread.json): the ORIGIN cards of the `ask` mirrors
+/** #EXP-1399 (session-chat.json): the ORIGIN cards of the `ask` mirrors
  *  among `rows` that live in another tree (an escalated card draws the
  *  origin message); a mirror whose origin is already loaded adds nothing.
  *  The shape's visibility rule decides: an origin the viewer cannot see
@@ -1040,13 +986,9 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
         : undefined,
     [issueKey]
   )
-  // #EXP-1380: the rows' own conversations' DIGESTS (`useDigestMessages`).
-  const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const { messages, isReady: digestsReady } = useDigestMessages({ sessionIds: ids })
-  const messagesReady = conversationsReady && digestsReady
-  // A row whose conversation has not synced yet waits on it instead of
-  // reading "Untitled".
-  const awaitingKey = [...sessionsAwaitingConversation(conversations, ids)].join(`,`)
+  // #EXP-1380: the rows' own DIGESTS (`useDigestMessages`; #EXP-1730
+  // `sessions.digest` rides the row, so nothing lags behind it).
+  const { messages, isReady: messagesReady } = useDigestMessages({ sessionIds: ids })
   const keyVersion = useKeyVersion()
   return useMemo(() => {
     const sessions = rows.map(toTreeSession)
@@ -1057,7 +999,6 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
       linksReady: ids.length > 0 && linksReady,
       issuesReady,
       messagesReady: ids.length > 0 && messagesReady,
-      awaitingConversation: new Set(awaitingKey ? awaitingKey.split(`,`) : []),
     })
     const titles = sessionTitles(
       sessions.filter((session) => !held.has(session.id)),
@@ -1067,7 +1008,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
     )
     return { titles, held, ready: held.size === 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady, awaitingKey, keyVersion])
+  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady, keyVersion])
 }
 
 /** THE session card for any session row (`sessionCard` over its
@@ -1084,10 +1025,10 @@ export function useSessionCard(row: SessionRow | null): SessionCard | null {
   }, [row, titles, now])
 }
 
-/** The threads (roots) one issue sits in, newest activity first. NEW-1: a
+/** The chats (roots) one issue sits in, newest activity first. NEW-1: a
  *  `session_issues` row sits on the session HOLDING the issue (a child as
  *  often as a root), so the holders resolve to their roots. */
-export function useThreadsOfIssue(issueId: string | null | undefined): SessionRow[] {
+export function useChatsOfIssue(issueId: string | null | undefined): SessionRow[] {
   const { data } = useLiveQuery(
     (query) =>
       issueId

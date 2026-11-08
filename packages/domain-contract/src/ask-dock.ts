@@ -1,7 +1,7 @@
 // THE ask cards ×4: a question or plan card waiting on the viewer is a
 // DockCard of THE Dock (src/dock.ts, fixtures/dock.json); the composer never
 // leaves. This file keeps the cards' own words and models: the row's label
-// and title, the plan card's options ONE list ×4 (`planOptions`), a thread's
+// and title, the plan card's options ONE list ×4 (`planOptions`), a chat's
 // waiting cards. TS reference; desktop `domain::ask_dock`, iOS ExpCore
 // `AskDock.swift`, Android `domain/AskDock.kt` replay `fixtures/ask-dock.json`.
 
@@ -16,7 +16,7 @@ export interface AskDockPending {
   kind: AskDockKind
   /** The plan, or the question's text (markdown). */
   text: string
-  /** The asking session's name in a thread; null in the session view. */
+  /** The asking session's name in a chat; null in the session view. */
   sessionName: string | null
   /** Epoch ms (stack order, oldest first). */
   createdAt: number
@@ -86,10 +86,10 @@ export function askDockLabel(kind: AskDockKind): string {
   return kind === `plan` ? ASK_DOCK_COPY.planReady : ASK_DOCK_COPY.question
 }
 
-/** A thread's waiting cards, in Conversation order: every `plan` row with
+/** A chat's waiting cards, in Conversation order: every `plan` row with
  *  no decision and every unanswered `question` row, of ANY session in the
  *  tree. `sessionName` names the asking session (null = unnamed). */
-export function threadPendingAsks(
+export function chatPendingAsks(
   rows: readonly (
     | { type: `plan`; id: string; sessionId: string; plan: string; decision: string | null; questions?: readonly unknown[] }
     | { type: `question`; id: string; sessionId: string; question: string; answered: boolean }
@@ -115,9 +115,9 @@ export function threadPendingAsks(
   return pending
 }
 
-/** A thread's card captions: each session TAB's name (nested ones
+/** A chat's card captions: each session TAB's name (nested ones
  *  included); the root (no tab) = null. */
-export function threadSessionNames(
+export function chatSessionNames(
   tabs: readonly (
     | { kind: `session`; sessionId: string; name: string; nested: readonly { sessionId: string; name: string }[] }
     | { kind: string }

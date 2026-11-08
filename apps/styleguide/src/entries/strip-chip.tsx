@@ -4,10 +4,10 @@ import { AgentRunMark, Button, StatusGlyph, StripChip, StripOverflowButton, conc
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1334: THE strip chip, the one tab box of every strip of chips (the
-// thread header's issue + session chips, the work tab strip's tabs) and the
+// chat header's issue + session chips, the work tab strip's tabs) and the
 // "+N" of a folded zone, drawn bare: the REAL `StripChip` /
 // `StripOverflowButton` in every state the two strips put them in. The
-// composed strips are the "Work tab strip" and "Thread" islands.
+// composed strips are the "Work tab strip" and "Chat" islands.
 
 const UiCloseIcon = conceptIcon(`ui-close`)
 const noop = (): void => {}
@@ -30,30 +30,30 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1334`,
   title: `Strip chip`,
-  blurb: `The one chip of every strip of chips, identical in the thread header (issue and session chips) and the work tab strip (web md+, the IDE): the strip tab box (32 px, text-sm, rounded-md, a hairline at rest, the glass wash while active), inside it the lead glyph (an issue's status glyph, a session's agent mark), the mono identifier, the label truncating at 15rem, then the open nested item as "chip › open one" and a chevron-down on a chip that opens its subtree on a click instead of itself. A trailing control (the work tab's x) sits inside the box after the open button. "short" is the identifier alone, the tier a strip falls to before it folds; what does not fit folds into the "+N" overflow button, the same box at rest holding the count, the trigger of THE Menu listing the hidden chips.`,
+  blurb: `The one chip of every strip of chips, identical in the chat header (issue and session chips) and the work tab strip (web md+, the IDE): the strip tab box (32 px, text-sm, rounded-md, a hairline at rest, the glass wash while active), inside it the lead glyph (an issue's status glyph, a session's agent mark), the mono identifier, the label truncating at 15rem, then the open nested item as "chip › open one" and a chevron-down on a chip that opens its subtree on a click instead of itself. A trailing control (the work tab's x) sits inside the box after the open button. "short" is the identifier alone, the tier a strip falls to before it folds; what does not fit folds into the "+N" overflow button, the same box at rest holding the count, the trigger of THE Menu listing the hidden chips.`,
   status: {
     web: {
       state: `ok`,
       symbol: `StripChip / StripOverflowButton`,
       file: `packages/ui/src/strip-chip.tsx`,
-      note: `the thread header binds it as ThreadIssueTab / ThreadStripGroup (session-thread-view.tsx); the work tab strip as its tabs`,
+      note: `the chat header binds it as ChatIssueTab / ChatStripGroup (session-chat-view.tsx); the work tab strip as its tabs`,
     },
     desktop: {
       state: `ok`,
-      symbol: `thread_screen::strip_chip`,
-      file: `apps/desktop/crates/ui/src/thread_screen.rs`,
-      note: `the thread header's chip frame and its "+N"; the work tab strip's tabs are surface::rich_tab, not yet this one frame`,
+      symbol: `session_chat::strip_chip`,
+      file: `apps/desktop/crates/ui/src/session_chat.rs`,
+      note: `the chat header's chip frame and its "+N"; the work tab strip's tabs are surface::rich_tab, not yet this one frame`,
     },
     ios: {
       state: `ok`,
-      symbol: `ThreadStripTabs.issueChip / sessionChip / overflowChip`,
-      file: `apps/ios/Exponential/UI/Thread/ThreadStripTabs.swift`,
+      symbol: `ChatStripTabs.issueChip / sessionChip / overflowChip`,
+      file: `apps/ios/Exponential/UI/Chat/ChatStripTabs.swift`,
       note: `one painter per chip kind, no shared primitive; phones have no work tab strip`,
     },
     android: {
       state: `ok`,
       symbol: `IssueStripChip / SessionStripChip / MoreChip`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ThreadParts.kt`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/chat/ChatParts.kt`,
       note: `one composable per chip kind, no shared primitive; phones have no work tab strip`,
     },
   },
@@ -72,7 +72,7 @@ export const entry: StyleguideEntry = {
         <StripChip
           lead={inProgress}
           identifier="EXP-1334"
-          label="Thread header"
+          label="Chat header"
           path="EXP-1340"
           chevron
           active
@@ -82,7 +82,7 @@ export const entry: StyleguideEntry = {
       <Captioned caption="a session chip: the agent mark, the open nested session">
         <StripChip
           lead={<AgentRunMark agent="claude" state="working" ringClassName="ring-background" className="size-3.5" />}
-          label="Threads impl"
+          label="Chats impl"
           path="Android lane"
           chevron
           onClick={noop}

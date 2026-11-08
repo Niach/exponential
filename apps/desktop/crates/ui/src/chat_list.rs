@@ -3,7 +3,7 @@
 //! (the 52 lead disc, title + time, the two-line muted preview, the row word
 //! and the unread badge, a hairline under the text column only), the section
 //! headers. The IDE's Chats page
-//! ([`crate::threads_view`]) and the styleguide's `chat-list` entry paint
+//! ([`crate::chats_view`]) and the styleguide's `chat-list` entry paint
 //! these same functions; the model is `domain::chats`.
 
 use std::rc::Rc;
@@ -16,7 +16,7 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_selection_count, ChatSelectionAction, ChatLead, ChatPreviewKind, ChatRow, CHATS};
-use domain::session_tree::ThreadRowWord;
+use domain::session_tree::ChatRowWord;
 
 use crate::icons::registry;
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
@@ -27,10 +27,10 @@ const GLYPH_PX: f32 = 24.;
 /// The glyph before a row word ×4 (web `ChatRowText`, Android
 /// `ChatComponents`, iOS `wordIcon`): only a stack wears one (`pr-stack`);
 /// #EXP-1469: ready to merge has none, the lead disc already shows the PR.
-fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
+fn word_glyph(word: ChatRowWord) -> Option<crate::icons::ExpIcon> {
     match word {
-        ThreadRowWord::Stack => Some(registry::PR_STACK),
-        ThreadRowWord::ReadyToMerge | ThreadRowWord::Merged | ThreadRowWord::Offline | ThreadRowWord::Question => None,
+        ChatRowWord::Stack => Some(registry::PR_STACK),
+        ChatRowWord::ReadyToMerge | ChatRowWord::Merged | ChatRowWord::Offline | ChatRowWord::Question => None,
     }
 }
 
@@ -287,7 +287,7 @@ pub(crate) fn chat_selectable(
     cx: &App,
 ) -> Stateful<Div> {
     let cell = match select {
-        Some((selected, selecting)) => select_cell(key, selected, selecting, on_toggle, cx).into_any_element(),
+        Some((selected, selecting)) => select_cell(key, "Select".into(), selected, selecting, on_toggle, cx).into_any_element(),
         None => div().w(px(SELECT_CELL_W)).flex_shrink_0().into_any_element(),
     };
     let frame = div()
@@ -433,6 +433,58 @@ pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Opti
 /// you = the amber badge on it, busy reads only in the preview.
 pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div {
     let lead_glyph = agent_avatar_glyph(&row.icon, &row.color, row.assistant, false, GLYPH_PX, cx);
+    pinned_chat_row(
+        row.session_id.clone().unwrap_or_else(|| row.agent_id.clone()),
+        row.name.clone(),
+        lead_glyph,
+        &row.preview,
+        row.activity_at.as_deref(),
+        &row.time,
+        row.unread_count,
+        row.needs_you,
+        row.busy,
+        cx,
+    )
+}
+
+/// #EXP-1733 — one APP row of the Chats list (chats.json `appChatRows`,
+/// web `AppChatRowButton`): the agent row's look with the app's glyph in
+/// the disc (its icon + colour, the board glyph's fallback when unset), the
+/// viewer's session with the app for preview / time / unread.
+pub(crate) fn app_chat_row(row: &domain::chats::AppChatRow, cx: &App) -> Div {
+    let lead_glyph = crate::icons::app_icon(row.icon.as_deref(), row.color.as_deref())
+        .with_size(px(GLYPH_PX))
+        .into_any_element();
+    pinned_chat_row(
+        row.session_id.clone().unwrap_or_else(|| row.app_id.clone()),
+        row.name.clone(),
+        lead_glyph,
+        &row.preview,
+        row.activity_at.as_deref(),
+        &row.time,
+        row.unread_count,
+        row.needs_you,
+        row.busy,
+        cx,
+    )
+}
+
+/// The agent and app rows' shared body: THE chat row with `lead_glyph`
+/// ALWAYS in the lead disc (never the working mark or a PR glyph); needs
+/// you = the amber badge on it, busy reads only in the preview.
+#[allow(clippy::too_many_arguments)]
+fn pinned_chat_row(
+    session_id: String,
+    title: String,
+    lead_glyph: AnyElement,
+    preview: &domain::chats::ChatPreview,
+    activity_at: Option<&str>,
+    time: &str,
+    unread_count: usize,
+    needs_you: bool,
+    busy: bool,
+    cx: &App,
+) -> Div {
     let lead = div()
         .relative()
         .size(px(CHATS.shell.lead_disc))
@@ -443,7 +495,7 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
         .items_center()
         .justify_center()
         .child(lead_glyph)
-        .when(row.needs_you, |disc| {
+        .when(needs_you, |disc| {
             disc.child(
                 div()
                     .absolute()
@@ -458,24 +510,24 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
         })
         .into_any_element();
     let as_chat = ChatRow {
-        session_id: row.session_id.clone().unwrap_or_else(|| row.agent_id.clone()),
+        session_id,
         team_id: String::new(),
-        title: row.name.clone(),
+        title,
         device_id: None,
-        group: if row.needs_you {
-            domain::session_tree::ThreadsListKey::NeedsYou
-        } else if row.busy {
-            domain::session_tree::ThreadsListKey::Running
+        group: if needs_you {
+            domain::session_tree::ChatsListKey::NeedsYou
+        } else if busy {
+            domain::session_tree::ChatsListKey::Running
         } else {
-            domain::session_tree::ThreadsListKey::Recent
+            domain::session_tree::ChatsListKey::Recent
         },
         lead: ChatLead::Waiting,
-        preview: row.preview.clone(),
-        activity_at: row.activity_at.clone().unwrap_or_default(),
-        time: row.time.clone(),
-        unread_count: row.unread_count,
-        needs_you: row.needs_you,
-        busy: row.busy,
+        preview: preview.clone(),
+        activity_at: activity_at.unwrap_or_default().to_string(),
+        time: time.to_string(),
+        unread_count,
+        needs_you,
+        busy,
         word: None,
         dim: false,
     };
@@ -511,7 +563,7 @@ pub(crate) fn composer_agent_row(
 ) -> AnyElement {
     let spec = &*domain::composer_agent_row::COMPOSER_AGENT_ROW;
     let theme = cx.theme();
-    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+    let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
     // Web `size-5` inside the 40 px bubble (composer-agent-row.tsx).
     let glyph_size = 20.;
     let mut circles: Vec<AnyElement> = Vec::new();
@@ -523,6 +575,9 @@ pub(crate) fn composer_agent_row(
         circles.push(
             div()
                 .id(SharedString::from(spec.test_ids.option.replace("{id}", &id)))
+                .role(gpui::Role::RadioButton)
+                .aria_label(name.clone())
+                .aria_toggled(if selected { gpui::Toggled::True } else { gpui::Toggled::False })
                 .flex_shrink_0()
                 .cursor_pointer()
                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx))

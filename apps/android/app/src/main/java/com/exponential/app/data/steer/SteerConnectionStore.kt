@@ -205,7 +205,7 @@ class SteerConnectionStore @Inject constructor(
     }
 
     /// The connection a screen already holds for a session, without
-    /// attaching (EXP-1342: the thread header's Stop hands the shown page's
+    /// attaching (EXP-1342: the chat header's Stop hands the shown page's
     /// queue back to its composer before `sessions.stop`). Null = no screen
     /// has this session open, so there is no queue bar to hand back.
     fun peek(codingSessionId: String): SteerConnection? =

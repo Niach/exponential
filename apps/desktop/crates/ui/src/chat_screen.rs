@@ -33,7 +33,7 @@
 //! on the picked device (this machine or another), linking 1..N issues or
 //! naming an action. The hosting device picks the row up from its shapes
 //! ([`crate::session_pickup`]); the page lands on the new root
-//! (`Screen::Thread`) the moment the send answers, a dialog closes and lands
+//! (`Screen::Chat`) the moment the send answers, a dialog closes and lands
 //! its opener there.
 //!
 //! FEED-100: the page wears the DAWN — the faint brand mark's top half over
@@ -154,7 +154,7 @@ pub(crate) enum ComposerPicker {
 /// which login each agent CLI runs as there, and its account profiles. Empty
 /// for a row that never reported (an older build, or one that has not beaten
 /// yet): the Account pin then has nothing to offer and hides.
-fn device_agent_status(
+pub(crate) fn device_agent_status(
     row_id: &str,
     cx: &App,
 ) -> (
@@ -179,6 +179,24 @@ fn device_agent_status(
             row.agent_usage.as_ref(),
         ),
     )
+}
+
+/// EXP-696: what the launch cluster seeds from for `device` (`None` = this
+/// IDE: the local doctor and hub). #EXP-1729: an app editor's composer seeds
+/// its Account and Model the same way.
+pub(crate) fn remote_defaults(device: &queries::LaunchDevice, cx: &App) -> Option<launch_options::RemoteDefaults> {
+    if device.is_own {
+        return None;
+    }
+    let (accounts, usage) = device_agent_status(&device.row_id, cx);
+    Some(launch_options::RemoteDefaults {
+        agents: device.agents.clone(),
+        acp_agents: device.acp_agents.clone(),
+        settings: device.defaults.clone(),
+        accounts,
+        usage,
+        computer_use_run: device.computer_use_run,
+    })
 }
 
 /// The checked issues and everything their launch needs.
@@ -1355,19 +1373,7 @@ impl ChatScreenView {
 
     /// Re-point the options cluster at the settled machine.
     fn apply_device_defaults(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let remote = self
-            .remote_device()
-            .map(|device| {
-                let (accounts, usage) = device_agent_status(&device.row_id, cx);
-                launch_options::RemoteDefaults {
-                    agents: device.agents.clone(),
-                    acp_agents: device.acp_agents.clone(),
-                    settings: device.defaults.clone(),
-                    accounts,
-                    usage,
-                    computer_use_run: device.computer_use_run,
-                }
-            });
+        let remote = self.remote_device().and_then(|device| remote_defaults(device, cx));
         let Some(launch) = self.launch.as_mut() else {
             return;
         };
@@ -1867,7 +1873,7 @@ impl ChatScreenView {
                         // TOP of what it showed (Back returns there); the
                         // Home page gives way to the root it started.
                         navigation::defer_in_result_window(window, cx, move |window, cx| {
-                            let screen = Screen::Thread { session_id };
+                            let screen = Screen::Chat { session_id };
                             if in_dialog {
                                 navigation::navigate(window, cx, screen);
                             } else {
@@ -3165,6 +3171,65 @@ impl RunnerMenu {
             .map(|(label, _)| (*label).to_string())
     }
 
+    /// S-3: THE account picker's rows as the "+" Account › submenu (every
+    /// login the target machine reports, across agents; the EXP-992 usage
+    /// preview on hover), the pick checked. #EXP-1729: an app editor's
+    /// composer draws the same rows.
+    pub(crate) fn account_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        test_id: &'static str,
+        on_pick: Rc<dyn Fn(coding::AccountOption, &mut Window, &mut App)>,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        let row = ComposerMenuRow::Account;
+        let accounts = self.accounts.clone();
+        let picked = self.account_picked.clone();
+        menu.submenu_with_value(Some(row.menu_icon()), row.label(), self.account_value(), window, cx, move |mut sub, _, _| {
+            for option in &accounts {
+                let checked = option.account_option_key() == picked;
+                let agent = option.agent;
+                let label = SharedString::from(option.email.clone());
+                let picked_option = option.clone();
+                let on_pick = on_pick.clone();
+                sub = sub.item(crate::controls::pointer_account_item(
+                    format!("{test_id}-{}", option.account_option_key()),
+                    move || crate::coding_selects::agent_mark(agent),
+                    label,
+                    option.health.badge_label(),
+                    checked,
+                    option.limits.clone(),
+                    move |window, cx| on_pick(picked_option.clone(), window, cx),
+                ));
+            }
+            sub
+        })
+    }
+
+    /// S-3: THE model list of the picked agent as the "+" Model › submenu.
+    pub(crate) fn model_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        let row = ComposerMenuRow::Model;
+        let models = self.models;
+        let picked = self.model_picked.clone();
+        menu.submenu_with_value(Some(row.menu_icon()), row.label(), self.model_value(), window, cx, move |mut sub, _, _| {
+            for (label, value) in models {
+                let value = (*value).to_string();
+                let on_pick = on_pick.clone();
+                sub = sub.item(crate::controls::pointer_check_item(*label, picked == value, move |window, cx| {
+                    on_pick(value.clone(), window, cx)
+                }));
+            }
+            sub
+        })
+    }
+
     fn repo_value(&self) -> Option<String> {
         self.repo_picked
             .as_deref()
@@ -3339,71 +3404,37 @@ pub(crate) fn plus_menu(
                 if runner.accounts.is_empty() {
                     continue;
                 }
-                let accounts = runner.accounts.clone();
-                let picked = runner.account_picked.clone();
                 let view = view.clone();
-                menu.submenu_with_value(
-                    Some(row.menu_icon()),
-                    row.label(),
-                    runner.account_value(),
+                runner.account_row(
+                    menu,
+                    "chat-menu-account",
+                    Rc::new(move |option, window, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                ChatScreenView::launch_access(this).set_account(&option, window, cx);
+                                cx.notify();
+                            });
+                        }
+                    }),
                     window,
                     cx,
-                    move |mut sub, _, _| {
-                        for option in &accounts {
-                            let view = view.clone();
-                            let checked = option.account_option_key() == picked;
-                            let agent = option.agent;
-                            let label = SharedString::from(option.email.clone());
-                            let option = option.clone();
-                            // #EXP-1434: THE EXP-992 usage preview on hover.
-                            sub = sub.item(crate::controls::pointer_account_item(
-                                format!("chat-menu-account-{}", option.account_option_key()),
-                                move || crate::coding_selects::agent_mark(agent),
-                                label,
-                                option.health.badge_label(),
-                                checked,
-                                option.limits.clone(),
-                                move |window, cx| {
-                                    if let Some(view) = view.upgrade() {
-                                        let option = option.clone();
-                                        view.update(cx, |this, cx| {
-                                            ChatScreenView::launch_access(this).set_account(&option, window, cx);
-                                            cx.notify();
-                                        });
-                                    }
-                                },
-                            ));
-                        }
-                        sub
-                    },
                 )
             }
             // S-3: THE model list of the picked agent.
             (ComposerMenuRow::Model, _) => {
-                let models = runner.models;
-                let picked = runner.model_picked.clone();
                 let view = view.clone();
-                menu.submenu_with_value(
-                    Some(row.menu_icon()),
-                    row.label(),
-                    runner.model_value(),
+                runner.model_row(
+                    menu,
+                    Rc::new(move |value, window, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                ChatScreenView::launch_access(this).pick_model(&value, window, cx);
+                                cx.notify();
+                            });
+                        }
+                    }),
                     window,
                     cx,
-                    move |mut sub, _, _| {
-                        for (label, value) in models {
-                            let view = view.clone();
-                            let value = (*value).to_string();
-                            sub = sub.item(pointer_check_item(*label, picked == value, move |window, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    view.update(cx, |this, cx| {
-                                        ChatScreenView::launch_access(this).pick_model(&value, window, cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }));
-                        }
-                        sub
-                    },
                 )
             }
             // S-3: THE repository rows (only while the team has > 1).

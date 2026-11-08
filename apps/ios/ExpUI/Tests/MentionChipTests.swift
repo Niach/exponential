@@ -88,7 +88,7 @@ final class MentionChipDecorationTests: XCTestCase {
     }
 }
 
-/// Thread e4a04d22: the pill is ONE look ×4 — web `.mention-pill`: the
+/// Session e4a04d22: the pill is ONE look ×4 — web `.mention-pill`: the
 /// `--accent` fill, the `--border` hairline, `--accent-foreground` text at
 /// 13 medium, `0.4rem` side padding. The colours come off the shared design
 /// tokens; this locks both the values and that both paths carry them.

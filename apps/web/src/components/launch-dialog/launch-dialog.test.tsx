@@ -8,7 +8,7 @@ import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 // (`launch-composer.test.tsx`); this only proves the things the shell owns:
 // it opens on a request, it hands the seed to the composer once, it gets out
 // of the way once the session STARTED (EXP-1293: the composer then opens its
-// thread) and not before: while the start is in flight (`busy`) a
+// chat) and not before: while the start is in flight (`busy`) a
 // dismissal is refused; a failed start leaves it open.
 
 const steerEnabled = vi.hoisted(() => ({ value: true }))

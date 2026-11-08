@@ -13,7 +13,8 @@ import {
   PRIVATE_REPLY_LEAD,
   PRIVATE_REPORT_LEAD,
 } from "@exp/domain-contract/chats"
-import { messages, sessions, type Session } from "@/db/schema"
+import { agents, messages, sessions, teams, type Session } from "@/db/schema"
+import { getTeamMember } from "@/lib/auth/membership"
 import { insertMessage, inSession } from "@/lib/sessions/messages"
 import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
@@ -115,6 +116,60 @@ export async function busListeners(
   return parent ? [parent, ...rest] : rest
 }
 
+/** #EXP-1735 (eagent bus.json `leadOf`): the team LEAD Assistant `row`
+ *  reports to, or null. `row` works in a team whose lead
+ *  (`teams.lead_assistant_id`, a member's Assistant) is another member's
+ *  Assistant than the one acting for its tree (the Assistant's children and
+ *  the root sessions it started); never that Assistant's own conversation root,
+ *  never a team agent's tree, never the lead's own work, never a lead whose
+ *  member left the team. */
+export async function leadOf(
+  tx: Pick<Tx, `select`>,
+  row: Pick<Session, `id` | `rootId` | `teamId`>
+): Promise<{ id: string; ownerId: string } | null> {
+  const [team] = await tx
+    .select({ leadId: teams.leadAssistantId })
+    .from(teams)
+    .where(eq(teams.id, row.teamId))
+    .limit(1)
+  if (!team?.leadId) return null
+  const [root] = await tx
+    .select({ id: sessions.id, agentId: sessions.agentId, startedByAgentId: sessions.startedByAgentId })
+    .from(sessions)
+    .where(eq(sessions.id, row.rootId))
+    .limit(1)
+  const acting = root ? (root.agentId ?? root.startedByAgentId) : null
+  if (!root || !acting || acting === team.leadId) return null
+  if (row.id === root.id && root.agentId === acting) return null
+  const roles = await tx
+    .select({ id: agents.id, role: agents.role, ownerId: agents.ownerId })
+    .from(agents)
+    .where(inArray(agents.id, [acting, team.leadId]))
+  const lead = roles.find((agent) => agent.id === team.leadId)
+  if (lead?.role !== `assistant` || roles.find((agent) => agent.id === acting)?.role !== `assistant`) return null
+  if (!(await getTeamMember(lead.ownerId, row.teamId))) return null
+  return { id: lead.id, ownerId: lead.ownerId }
+}
+
+/** #EXP-1735: the lead's conversation (its member's root session with it)
+ *  an ask or a report of `child` also reaches, or null (none yet: the pick
+ *  opens it, `agents.setLeadAssistant`). */
+async function leadListener(tx: Tx, child: Pick<Session, `id`>): Promise<Listener | null> {
+  const [row] = await tx
+    .select({ id: sessions.id, rootId: sessions.rootId, teamId: sessions.teamId })
+    .from(sessions)
+    .where(eq(sessions.id, child.id))
+    .limit(1)
+  const lead = row ? await leadOf(tx, row) : null
+  if (!lead) return null
+  const [conversation] = await tx
+    .select(LISTENER)
+    .from(sessions)
+    .where(and(eq(sessions.agentId, lead.id), eq(sessions.userId, lead.ownerId), isNull(sessions.parentId)))
+    .limit(1)
+  return conversation && conversation.status !== `ended` && conversation.id !== child.id ? conversation : null
+}
+
 type Line = { body: string; card: MessageCard | null }
 
 /** EXP-1458: a sealed line's copy for the listeners in ANOTHER tree, sealed
@@ -179,9 +234,15 @@ async function deliver(
      *  get `inTree` (default: the line itself, a byte copy), listeners in
      *  another tree their `copies` entry, else `hidden`. */
     sealed?: { inTree?: Line; copies?: readonly ListenerCopy[] }
+    /** #EXP-1735: the team lead's conversation hears it too (after the
+     *  others, once; a sealed line reaches it as `hidden`: no copy is
+     *  sealed for it). */
+    lead?: boolean
   }
 ): Promise<string[]> {
   const all = await busListeners(tx, child)
+  const lead = message.lead ? await leadListener(tx, child) : null
+  if (lead && !all.some((listener) => listener.id === lead.id)) all.push(lead)
   const listeners = message.skip ? all.filter((listener) => !message.skip!(listener)) : all
   const origin =
     (message.hidden || message.sealed) && listeners.length > 0 ? await busOrigin(tx, child.id) : null
@@ -245,8 +306,8 @@ export function privateText(child: Pick<Session, `id`>, lead: string): string {
  *  as the child's own message. Blank = nothing. S-3: a team agent's
  *  conversation that WATCHES the child (not its parent) is not woken per
  *  turn: it hears the child's ask, wall, PR and report only, so a busy
- *  thread never spams its agent. #FEED-194: the agent that STARTED the
- *  thread does hear each turn: it asked for the work and waits on it. */
+ *  chat never spams its agent. #FEED-194: the agent that STARTED the
+ *  chat does hear each turn: it asked for the work and waits on it. */
 export async function busRelayTurn(
   tx: Tx,
   child: Pick<Session, `id` | `parentId` | `startedByAgentId`>,
@@ -359,6 +420,7 @@ export async function busAsk(
         copies: sealed?.listenerCopies,
       },
       waking: true,
+      lead: true,
     })
   }
   return deliver(tx, child, {
@@ -367,6 +429,7 @@ export async function busAsk(
     card: mirror,
     hidden: { body: askHiddenText(child, card), card: mirror },
     waking: true,
+    lead: true,
   })
 }
 
@@ -534,6 +597,7 @@ export async function busReport(
       },
       sealed: { copies: sealedReport.copies?.map((copy) => ({ ...copy, card: copy.card && ({ ...copy.card, sessionId: child.id, final: true } as MessageCard) })) },
       waking: true,
+      lead: true,
     })
     await forgetWatched(tx, [child.id])
     return ids
@@ -548,6 +612,7 @@ export async function busReport(
       card: { kind: `report`, sessionId: child.id, summary: PRIVATE_REPORT_LEAD, final: true },
     },
     waking: true,
+    lead: true,
   })
   await forgetWatched(tx, [child.id])
   return ids
@@ -599,7 +664,7 @@ export async function watchSessions(
   return live.map((entry) => entry.id)
 }
 
-/** #FEED-206: a revived thread root (`reviveRoot`) is WATCHED again, as at
+/** #FEED-206: a revived chat root (`reviveRoot`) is WATCHED again, as at
  *  its start: its report had dropped every watch (`forgetWatched`), so
  *  without this its new turns and its next report reach nobody. Its
  *  STARTER (the live session carrying its `thread_started` card: the team

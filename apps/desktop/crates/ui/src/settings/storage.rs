@@ -349,6 +349,8 @@ impl StoragePane {
             });
             div()
                 .id(SharedString::from(format!("storage-preview-{}", row.id)))
+                .role(gpui::Role::Button)
+                .aria_label(SharedString::from(row.filename.clone()))
                 .min_w_0()
                 .text_sm()
                 .whitespace_nowrap()
@@ -495,6 +497,7 @@ impl StoragePane {
                     Icon::from(ExpIcon::Trash2),
                     cx,
                 )
+                    .accessibility_label(format!("Delete {}", row.filename))
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_delete(&row_for_delete, window, cx);

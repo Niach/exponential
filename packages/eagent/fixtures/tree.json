@@ -1,5 +1,5 @@
 {
-  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per thread: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED thread root REVIVES the same row (idle, nothing flagged, message pending) and, as at its start, it is WATCHED again (#FEED-206: its report had dropped every watch): by its starter (the live session carrying its `thread_started` card, whoever revives it) and by a calling session outside its tree; to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (the Assistant's conversation root: the teams picked for the turn ∩ the member's, emcp access.json `assistantScope`; null on every other root = its own team only). A new session of a tree (a child, or a root an acting-agent caller starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team and the Assistant's children spawn in their target team. A message's `scopeTeamIds` is the Assistant's turn pick: only into its conversation ROOT (an `assistant` agent's), else refused (`invalid`, copy.scopeAssistantOnly); it replaces the root's scope (deduplicated, its own team dropped). The server resolves the Assistant root's NULL scope as every team its member belongs to (the hub knows no memberships: its cases name scopes explicitly) and clamps a stored pick to their teams of the moment (lib/sessions/tree-teams.ts).",
+  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per root session: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED root session REVIVES the same row (idle, nothing flagged, message pending) and, as at its start, it is WATCHED again (#FEED-206: its report had dropped every watch): by its starter (the live session carrying its `thread_started` card, whoever revives it) and by a calling session outside its tree; to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (the Assistant's conversation root: the teams picked for the turn ∩ the member's, emcp access.json `assistantScope`; null on every other root = its own team only). A new session of a tree (a child, or a root an acting-agent caller starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team and the Assistant's children spawn in their target team. A message's `scopeTeamIds` is the Assistant's turn pick: only into its conversation ROOT (an `assistant` agent's), else refused (`invalid`, copy.scopeAssistantOnly); it replaces the root's scope (deduplicated, its own team dropped). The server resolves the Assistant root's NULL scope as every team its member belongs to (the hub knows no memberships: its cases name scopes explicitly) and clamps a stored pick to their teams of the moment (lib/sessions/tree-teams.ts).",
   "cases": [
     {
       "name": "a person starts a root: queued, its first message pending",
@@ -446,7 +446,7 @@
       }
     },
     {
-      "name": "an agent's conversation starts a thread: watched by it, on its device, startedByAgentId",
+      "name": "an agent's conversation starts a root session: watched by it, on its device, startedByAgentId",
       "given": {
         "sessions": [
           {
@@ -729,7 +729,7 @@
       }
     },
     {
-      "name": "an ended thread root revives in place with the message pending",
+      "name": "an ended root session revives in place with the message pending",
       "given": {
         "sessions": [
           {
@@ -783,7 +783,7 @@
       }
     },
     {
-      "name": "#FEED-206: a thread an agent started, revived after its end, is watched by that agent again: its turns and its next report (explicit or automatic end) wake it, whoever revived it",
+      "name": "#FEED-206: a root session an agent started, revived after its end, is watched by that agent again: its turns and its next report (explicit or automatic end) wake it, whoever revived it",
       "given": {
         "sessions": [
           {
@@ -1876,7 +1876,7 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           }
         ]
       },
@@ -1938,7 +1938,7 @@
       }
     },
     {
-      "name": "#EXP-1720: an Assistant's new thread starts in a team of its scope, watched by it",
+      "name": "#EXP-1720: an Assistant's new session starts in a team of its scope, watched by it",
       "given": {
         "sessions": [
           {
@@ -1958,7 +1958,7 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           }
         ]
       },
@@ -2047,12 +2047,12 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           },
           {
             "id": "ag2",
             "ownerId": "u1",
-            "conversationId": "a2"
+            "rootSessionId": "a2"
           }
         ]
       },
@@ -2190,7 +2190,7 @@
             "ownerId": "u1",
             "teamId": "p1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           }
         ]
       },

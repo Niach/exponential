@@ -57,8 +57,6 @@ public enum ProseLinks {
             named = (teamSlug, ChipKind.board, boardSlug)
         case let .session(teamSlug, sessionId):
             named = (teamSlug, ChipKind.session, sessionId)
-        case let .thread(teamSlug, threadId):
-            named = (teamSlug, ChipKind.session, threadId)
         case let .agent(teamSlug, agentId):
             named = (teamSlug, ChipKind.agent, agentId)
         default:

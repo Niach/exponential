@@ -58,7 +58,7 @@ import com.exponential.app.ui.styleguide.ShareComposerSpecimenScreen
 import com.exponential.app.ui.styleguide.ShareComposerSpecimenTestId
 import com.exponential.app.ui.styleguide.ShareToSpecimenScreen
 import com.exponential.app.ui.styleguide.ShareToSpecimenTestId
-import com.exponential.app.ui.styleguide.ThreadCardsKind
+import com.exponential.app.ui.styleguide.ChatCardsKind
 import com.exponential.app.ui.styleguide.AppConsentSpecimenScreen
 import com.exponential.app.ui.styleguide.AppConsentSpecimenTestId
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
@@ -67,7 +67,7 @@ import com.exponential.app.ui.styleguide.DockCardSpecimenScreen
 import com.exponential.app.ui.styleguide.DockCardSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.RecordFormFieldStatesSpecimenScreen
 import com.exponential.app.ui.styleguide.RecordFormFieldStatesSpecimenTestId
-import com.exponential.app.ui.styleguide.ThreadCardsScreen
+import com.exponential.app.ui.styleguide.ChatCardsScreen
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.styleguide.ChatListSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatListSpecimenTestId
@@ -155,16 +155,16 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues ·
- *   sg_machine-settings · sg_threads ·
+ *   sg_machine-settings · sg_chats ·
  *   sg_session-row · sg_pr-row · sg_pr-checks ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
  *   sg_invite-accept · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
- *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card · sg_session-xref ·
- *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
+ *   sg_script-card · sg_comment-call-card · sg_chat-screen · sg_agent-channel ·
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
+ *   sg_settings-agents · sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_settings-skills · sg_settings-skill ·
  *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
  *   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview · sg_app-record-history ·
@@ -173,31 +173,31 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
- *   sg_thread-results · sg_plan-page · sg_needs-you · sg_results-tab ·
+ *   sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558)
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
- * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
+ * Chats tab `sg_chats` and the agent channel `sg_agent-channel`;
  * `sg_pr-row` = the capture-only PR row specimen (EXP-1553). S-3 retired `sg_guide`
  * and `sg_guide-section` with the Guide tab (the Results tab replaced it).
  *
- * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
+ * EXP-1296 split the suite in two tests. [captureStyleguideScreenshots]
  * walks the live app against the seeded backend; [captureOnlyScreens] needs NO
  * server and NO sign-in: the specimens with no seed counterpart (web and
  * desktop photograph styleguide islands for them) are drawn by their real
  * composables over fixture data (ui/styleguide) and set as the activity's
- * content — the feedback states and the thread cards. A scoped run (`shots:`) naming only capture
+ * content — the feedback states and the chat cards. A scoped run (`shots:`) naming only capture
  * shots skips the live walk.
  *
- * EXP-1309: every Threads v2 surface WITH a seed counterpart is walked live,
+ * EXP-1309: every session-tree surface WITH a seed counterpart is walked live,
  * so it reads the same seed web, desktop and iOS photograph and cannot drift:
  * sg_agent-home (the landing, the bottom bar over it), sg_composer-menu +
- * sg_chat-issues (the home composer's "+" and Implement issue), sg_threads
- * (the Threads tab), sg_agent-channel (Triage), sg_thread (the cold-start
- * thread), sg_session ("Profile the launch path", its pending question in
+ * sg_chat-issues (the home composer's "+" and Implement issue), sg_chats
+ * (the Chats tab), sg_agent-channel (Triage), sg_chat-screen (the cold-start
+ * chat), sg_session ("Profile the launch path", its pending question in
  * place of the composer) and sg_settings-team-agent (Settings → Agents →
  * Triage). The suite pins the process time zone to the seed's
  * ([ScreenshotFlow.DEMO_TIME_ZONE]) so message clocks read like web and iOS.
@@ -252,15 +252,13 @@ class StyleguideScreenshotsTest {
             "sg_record-form-field-states",
             // EXP-1635: the share flow's two steps + the + menu's sub-choice.
             "sg_share-targets", "sg_share-composer", "sg_composer-add-file",
-            // S-3: THE inter-session link line.
-            "sg_session-xref",
             // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
             "sg_pr-row",
-            // Thread 20b7fdc2: THE session row (web's `session-row` island).
+            // Session 20b7fdc2: THE session row (web's `session-row` island).
             "sg_session-row",
             // #EXP-1611: the Merge pill's check states + the Checks submenu.
             "sg_pr-checks",
-            // Thread 58cb32df: the Chats pieces + the minutes schedule.
+            // Session 58cb32df: the Chats pieces + the minutes schedule.
             // #EXP-1645: the team mark and the General row.
             "sg_team-avatar",
             // #EXP-1643: the device cards' attention badge + THE account panel.
@@ -270,7 +268,7 @@ class StyleguideScreenshotsTest {
             "sg_chat-selection",
             // EXP-1459: the locked state for sealed content.
             "sg_sealed-locked",
-            // Thread e4a04d22: the member pill in a chat.
+            // Session e4a04d22: the member pill in a chat.
             "sg_mention-pill",
             // VAPP-120: the consent card with a typed action's words.
             "sg_app-consent",
@@ -314,12 +312,12 @@ class StyleguideScreenshotsTest {
         private const val APP_IMPORT_CAPTURE_TEXT = """{"format":"exponential-app/1","app":{"name":"Todos"}}"""
         private const val APP_IMPORT_CAPTURE_ISSUE = "/package: is required"
 
-        // APP-5 — the only seeded issue with a comment thread.
+        // APP-5 — the only seeded issue with a comment list.
         private const val SHOWCASE_ISSUE_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
 
         // A fragment of APP-5's third comment (the demo user's own). Scrolling
         // to it lands the newest comments on screen; matching it also proves
-        // the thread actually synced instead of photographing a bare header.
+        // the chat actually synced instead of photographing a bare header.
         private const val SHOWCASE_COMMENT_FRAGMENT = "Deferral PR is merged"
 
         // EXP-642: the same query the web and desktop `search` recipes type, so
@@ -336,7 +334,7 @@ class StyleguideScreenshotsTest {
         // row tag so the lazy board list can scroll to it.
         private const val GUIDE_ISSUE_ROW = "issue-row-APP-14"
 
-        // APP-15: its thread carries the seeded quick replies.
+        // APP-15: its chat carries the seeded quick replies.
         private const val BATCH_GUIDE_ISSUE_ROW = "issue-row-APP-15"
 
         private const val TEAM_NAME = "Acme"
@@ -365,14 +363,14 @@ class StyleguideScreenshotsTest {
 
         // EXP-1309: the seed's session tree (seedSessionTree in
         // apps/web/scripts/seed-screenshots.ts). The private running root
-        // (the home's Running band and the Threads tab), the ended one
-        // (Threads' Recent), the cold-start thread and its child session.
-        // EXP-1341: a thread with linked issues is titled `#<first> <title>`
+        // (the home's Running band and the Chats tab), the ended one
+        // (Chats' Recent), the cold-start chat and its child session.
+        // EXP-1341: a chat with linked issues is titled `#<first> <title>`
         // (` + <n-1>` with more, session-title.json `titles`), matched on the
         // issue title; the issue-less private spike keeps its stored title.
-        private const val PRIVATE_THREAD_TITLE = "Spike: offline queue"
-        private const val RECENT_THREAD_TITLE = "Fix flaky scroll restore on the issue list"
-        private const val COLD_START_THREAD_TITLE = "Reduce cold start below 800 ms"
+        private const val PRIVATE_CHAT_TITLE = "Spike: offline queue"
+        private const val RECENT_CHAT_TITLE = "Fix flaky scroll restore on the issue list"
+        private const val COLD_START_CHAT_TITLE = "Reduce cold start below 800 ms"
         private const val COLD_START_REPLY_FRAGMENT = "Board snapshot cache"
         private const val CHILD_SESSION_TITLE = "Profile the launch path"
 
@@ -380,6 +378,9 @@ class StyleguideScreenshotsTest {
         // DEMO_AGENT_CHANNEL_TIMES.reply = 07:14Z, 09:14 in DEMO_TIME_ZONE)
         // and its settings page (seeded instructions).
         private const val AGENT_NAME = "Triage"
+
+        /** #EXP-1735: the seeded lead Assistant's member (the demo user). */
+        private const val LEAD_NAME = "Alex Carter"
         private const val AGENT_REQUEST_FRAGMENT = "Label the Android ones too"
         private const val AGENT_REPLY_CLOCK = "09:14"
         private const val AGENT_INSTRUCTIONS_FRAGMENT = "Look after the boards"
@@ -520,7 +521,7 @@ class StyleguideScreenshotsTest {
         // from a tab: a step that fails is retried once, then recorded, and
         // the walk carries on, so one flaky screen no longer costs every shot
         // after it (the lane keeps the shots taken; the test still fails).
-        // (Thread 20b7fdc2: sg_session-row is a capture-only specimen now.)
+        // (Session 20b7fdc2: sg_session-row is a capture-only specimen now.)
 
         // The app lands on the Agent tab; the board shots start on Issues.
         // --- Board: wait out session fetch + first Electric sync, then let the
@@ -537,7 +538,7 @@ class StyleguideScreenshotsTest {
         step("board") {
             flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
             // DISPLAYED, not merely composed: the walk arrives here from the
-            // Threads tab, where the board's chips can still sit in the tree.
+            // Chats tab, where the board's chips can still sit in the tree.
             val onBoardRoot = runCatching {
                 composeRule.onAllNodes(hasTestTag(BOARD_ROOT_TAG)).onFirst().assertIsDisplayed()
             }.isSuccess
@@ -597,19 +598,19 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
 
-        // --- Issue comments: APP-5 is the only seeded thread. The detail body
+        // --- Issue comments: APP-5 is the only seeded chat. The detail body
         // is a plain verticalScroll Column (not lazy), so every timeline row is
-        // composed and performScrollTo reaches it. `comment-thread-header` is
+        // composed and performScrollTo reaches it. `comment-replies-header` is
         // the "Activity" label, the deliberate hook mirroring the iOS
         // accessibility id.
         step("issue-comments") {
             openBoardRoot()
             composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
             flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
-            // EXP-1302: Threads v2 dropped the Work screen's face strip (the
-            // issue names its threads instead), so the page has no Run tab to
+            // EXP-1302: the session-tree redesign dropped the Work screen's face strip (the
+            // issue names its chats instead), so the page has no Run tab to
             // wait for.
-            flow.waitFor(hasTestTag("comment-thread-header"), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag("comment-replies-header"), SYNC_TIMEOUT)
             flow.waitFor(hasText(SHOWCASE_COMMENT_FRAGMENT, substring = true), SYNC_TIMEOUT)
             // --- Issue properties (EXP-1676: BEFORE the comments scroll: the page at
             // its top behind the sheet, as web-mobile): still on APP-5. The bottom bar's leading circle
@@ -625,7 +626,7 @@ class StyleguideScreenshotsTest {
             flow.waitForGone(hasText("Priority"), NAV_TIMEOUT)
             flow.settle(longer = true)
 
-            composeRule.onNode(hasTestTag("comment-thread-header")).performScrollTo()
+            composeRule.onNode(hasTestTag("comment-replies-header")).performScrollTo()
             composeRule.onAllNodes(hasText(SHOWCASE_COMMENT_FRAGMENT, substring = true))
                 .onFirst()
                 .performScrollTo()
@@ -703,38 +704,38 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
 
-        // --- APP-14's issue page (its thread opened the seed's real PR), the way into
-        // its thread's Results tab below. EXP-1553: `sg_pr-row` is the
-        // capture-only PR row specimen now (with the thread cards).
-        step("thread-results") {
+        // --- APP-14's issue page (its chat opened the seed's real PR), the way into
+        // its chat's Results tab below. EXP-1553: `sg_pr-row` is the
+        // capture-only PR row specimen now (with the chat cards).
+        step("chat-results") {
             openBoardRoot()
             composeRule.onNode(hasTestTag("issue-list"))
                 .performScrollToNode(hasTestTag(GUIDE_ISSUE_ROW))
             composeRule.onNode(hasTestTag(GUIDE_ISSUE_ROW)).performClick()
             // EXP-1647: the issue page draws no PR row (web EXP-1293); its
-            // thread chip is the gate.
-            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+            // chat chip is the gate.
+            flow.waitFor(hasTestTag("issue-chat-chip"), SYNC_TIMEOUT)
             flow.settle()
 
-            // --- sg_thread-results (results-tab.json): APP-14's thread (web's `$diffThreadId`) on its Results
+            // --- sg_chat-results (results-tab.json): APP-14's chat (web's `$diffChatId`) on its Results
             // tab, the strip's last, icon-only: the Stack band + rail, the Changes
             // row over the real PR's GitHub diff, then the seeded results. The
             // Changes row is the gate (the diff is the walk's one network dependency).
-            if (ScreenshotFlow.isShotWanted("sg_thread-results")) {
-                flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
-                composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
-                composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+            if (ScreenshotFlow.isShotWanted("sg_chat-results")) {
+                flow.waitFor(hasTestTag("issue-chat-chip"), SYNC_TIMEOUT)
+                composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performScrollTo()
+                composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performClick()
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.TAB), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag(ResultsTab.Tab.TestIds.TAB)).performClick()
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.SECTION), SYNC_TIMEOUT)
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.STACK), SYNC_TIMEOUT)
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.CHANGES), NETWORK_TIMEOUT)
                 flow.settle(longer = true)
-                flow.screenshot("sg_thread-results")
-                // Thread → the issue page.
+                flow.screenshot("sg_chat-results")
+                // Chat → the issue page.
                 Espresso.pressBack()
-                flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
-                flow.waitFor(hasTestTag("issue-thread-chip"), NAV_TIMEOUT)
+                flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag("issue-chat-chip"), NAV_TIMEOUT)
                 flow.settle()
             }
 
@@ -744,27 +745,27 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
 
-        // --- sg_thread-replies: the quick replies (EXP-1211). APP-15's
-        // thread again, left on its Conversation: the seeded `replies`
+        // --- sg_chat-replies: the quick replies (EXP-1211). APP-15's
+        // chat again, left on its Conversation: the seeded `replies`
         // card's row over the composer capsule.
         // EXP-1558: then sg_session-slash-menu, web's `typeSlashInSessionComposer`
-        // on the same thread (DEMO_GUIDE_THREAD_ID): `/` in its composer = the
+        // on the same chat (DEMO_GUIDE_CHAT_ID): `/` in its composer = the
         // builtins, then the team's prompts.
-        step("thread-replies") {
+        step("chat-replies") {
             openBoardRoot()
-            if (ScreenshotFlow.anyRequested("sg_thread-replies", "sg_session-slash-menu")) {
+            if (ScreenshotFlow.anyRequested("sg_chat-replies", "sg_session-slash-menu")) {
                 composeRule.onNode(hasTestTag("issue-list"))
                     .performScrollToNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW))
                 composeRule.onNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW)).performClick()
-                flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
-                composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
-                composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+                flow.waitFor(hasTestTag("issue-chat-chip"), SYNC_TIMEOUT)
+                composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performScrollTo()
+                composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performClick()
                 flow.waitFor(hasTestTag(SessionTree.RepliesCopy.TEST_ID), SYNC_TIMEOUT)
                 flow.settle()
-                flow.screenshot("sg_thread-replies")
+                flow.screenshot("sg_chat-replies")
                 if (ScreenshotFlow.anyRequested("sg_session-slash-menu")) {
-                    val composer = hasTestTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER)
-                    composeRule.onAllNodes(hasTestTag("thread-composer-capsule")).onFirst().performClick()
+                    val composer = hasTestTag(SessionTree.ChatCopy.TEST_ID_COMPOSER)
+                    composeRule.onAllNodes(hasTestTag("chat-composer-capsule")).onFirst().performClick()
                     val field = hasSetTextAction() and (composer or hasAnyAncestor(composer))
                     flow.waitFor(field, NAV_TIMEOUT)
                     composeRule.onAllNodes(field).onFirst().performTextInput("/")
@@ -781,21 +782,21 @@ class StyleguideScreenshotsTest {
                     Espresso.closeSoftKeyboard()
                     flow.settle()
                 }
-                // Thread → issue → board.
+                // Chat → issue → board.
                 repeat(3) {
-                    if (flow.exists(hasTestTag("thread-tabs"))) {
+                    if (flow.exists(hasTestTag("chat-tabs"))) {
                         Espresso.pressBack()
                         flow.settle()
                     }
                 }
-                flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+                flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
                 composeRule.onNode(hasContentDescription("Back")).performClick()
                 flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
                 flow.settle()
             }
         }
 
-        // --- My Issues: thread 58cb32df — the board's My issues chip
+        // --- My Issues: session 58cb32df — the board's My issues chip
         // (chats.json `shell.boardChips`), the active team's assigned issues
         // grouped by status; back to All issues after.
         // Gated like the other self-contained steps: a scoped run that does
@@ -1019,24 +1020,24 @@ class StyleguideScreenshotsTest {
             flow.settle(longer = true)
         }
 
-        // --- sg_threads: the Threads tab (EXP-1291) over the seed's tree —
+        // --- sg_chats: the Chats tab (EXP-1291) over the seed's tree —
         // the Agents band, then Needs you · Running · Recent, each row ending
         // on its quiet word (EXP-1309). Gated on the private root's row (no
         // lock on list rows since EXP-1339) and on APP-14's open stack word,
         // so neither a half-synced tree nor PR-less rows are photographed
         // (`merged` has no text, EXP-1339: its lead alone turns violet).
-        // Thread 58cb32df: the CHATS tab (chats.json): the headline, the
+        // Session 58cb32df: the CHATS tab (chats.json): the headline, the
         // agent bubbles, the chips and one flat row per root chat.
-        step("threads") {
-            composeRule.onNode(hasTestTag("tab-threads")).performClick()
+        step("chats") {
+            composeRule.onNode(hasTestTag("tab-chats")).performClick()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             // S-3: the pinned Agents section (the Assistant first) pushes the
             // chats below the fold of the lazy list, so scroll to each gated row
             // (an off-screen lazy row has no node), then back to the top.
-            val threadRow = hasTestTag(Chats.TestIds.CHAT_ROW)
+            val chatRow = hasTestTag(Chats.TestIds.CHAT_ROW)
             for ((title, row) in listOf(
-                RECENT_THREAD_TITLE to hasText(RECENT_THREAD_TITLE, substring = true),
-                PRIVATE_THREAD_TITLE to (threadRow and hasText(PRIVATE_THREAD_TITLE, substring = true)),
+                RECENT_CHAT_TITLE to hasText(RECENT_CHAT_TITLE, substring = true),
+                PRIVATE_CHAT_TITLE to (chatRow and hasText(PRIVATE_CHAT_TITLE, substring = true)),
             )) {
                 val deadline = System.currentTimeMillis() + SYNC_TIMEOUT
                 while (runCatching {
@@ -1052,7 +1053,7 @@ class StyleguideScreenshotsTest {
             val agentRow = hasTestTag("chat-agent-row") and hasText(AGENT_NAME)
             flow.waitFor(agentRow, SYNC_TIMEOUT)
             flow.settle()
-            flow.screenshot("sg_threads")
+            flow.screenshot("sg_chats")
         }
 
         // --- sg_apps / sg_app-run / sg_app (VAPP-116, VAPP-242): #EXP-1384
@@ -1160,9 +1161,12 @@ class StyleguideScreenshotsTest {
             // so the starters show, as on iOS).
             if (ScreenshotFlow.anyRequested("sg_app-draft")) {
                 // VAPP-242: a draft's editor = its row's `…` › Edit app.
+                // The `…` sits inside the clickable row, which merges its
+                // descendants' semantics (and keeps its own tag): look the
+                // menu up in the unmerged tree.
                 val draftMenu = hasTestTag("${Apps.TestIds.ROW}-menu-$DEMO_DRAFT_APP_SLUG")
-                flow.waitFor(draftMenu, SYNC_TIMEOUT)
-                composeRule.onNode(draftMenu).performClick()
+                flow.waitFor(draftMenu, SYNC_TIMEOUT, useUnmergedTree = true)
+                composeRule.onNode(draftMenu, useUnmergedTree = true).performClick()
                 flow.waitFor(hasTestTag("apps-row-edit"), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag("apps-row-edit")).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
@@ -1198,7 +1202,7 @@ class StyleguideScreenshotsTest {
                 flow.waitForGone(hasTestTag("app-import-dialog"), NAV_TIMEOUT)
                 flow.settle()
             }
-            composeRule.onNode(hasTestTag("tab-threads")).performClick()
+            composeRule.onNode(hasTestTag("tab-chats")).performClick()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             flow.settle(longer = true)
         }
@@ -1319,7 +1323,7 @@ class StyleguideScreenshotsTest {
                 Espresso.pressBack()
                 flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
                 leaveAppRun()
-                composeRule.onNode(hasTestTag("tab-threads")).performClick()
+                composeRule.onNode(hasTestTag("tab-chats")).performClick()
                 flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
                 flow.settle(longer = true)
             }
@@ -1327,12 +1331,12 @@ class StyleguideScreenshotsTest {
 
         // --- sg_agent-channel: an agent row opens its channel (the same
         // conversation screen): Triage's report (its bare FB-n chipped as
-        // issue pills, EXP-760), the thread it started, the person's request
+        // issue pills, EXP-760), the chat it started, the person's request
         // and the reply. The reply's clock proves the pinned zone.
         // VAPP-122: a scoped run that does not ask for this shot skips the
         // walk (the apps views alone must not wait on the channel).
         step("agent-channel") {
-            composeRule.onNode(hasTestTag("tab-threads")).performClick()
+            composeRule.onNode(hasTestTag("tab-chats")).performClick()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
                 // S-3: the pinned agent row.
@@ -1347,41 +1351,41 @@ class StyleguideScreenshotsTest {
             }
         }
 
-        // --- sg_thread: the cold-start thread (APP-5): the strip, the
+        // --- sg_chat-screen: the cold-start chat (APP-5): the strip, the
         // Conversation with its session cards, the agent's reply and the
         // pending question card, the reply box. #EXP-1433: the strip never
         // scrolls — + and Conversation pinned left, Results right, the
         // issues + sessions between them behind ONE group tab.
-        step("thread") {
-            composeRule.onNode(hasTestTag("tab-threads")).performClick()
+        step("chat-screen") {
+            composeRule.onNode(hasTestTag("tab-chats")).performClick()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             flow.settle(longer = true)
             val coldStartRow = hasTestTag(Chats.TestIds.CHAT_ROW) and
-                hasText(COLD_START_THREAD_TITLE, substring = true)
+                hasText(COLD_START_CHAT_TITLE, substring = true)
             // S-3: the pinned Agents section pushes the row down the lazy list
             // (and under the floating bar): scroll it in, tap it clear of the bar.
             composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToNode(coldStartRow)
             flow.settle()
             tapClearOfBar(coldStartRow)
-            flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
             // #EXP-1561: the reply sits above the waiting question + plan cards
             // (taller now that each carries its ×): swipe it in to prove the sync.
             flow.waitForInList(
-                hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
+                hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION),
                 hasText(COLD_START_REPLY_FRAGMENT, substring = true),
                 SYNC_TIMEOUT,
             )
             // ...and back to its end (the waiting cards) for the shot.
-            flow.scrollListToEnd(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
+            flow.scrollListToEnd(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION))
             // S-3: the seeded question stays inline (the Dock takes no asks and
             // the Guide tab is gone; results carry them).
             flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
-            flow.waitFor(hasTestTag("thread-strip-zone"), SYNC_TIMEOUT)
-            flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag("chat-strip-zone"), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag("chat-tab-add"), SYNC_TIMEOUT)
             // #EXP-1433: the seed's issues + child session = ONE group tab.
-            flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GROUP), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_GROUP), SYNC_TIMEOUT)
             flow.settle()
-            flow.screenshot("sg_thread")
+            flow.screenshot("sg_chat-screen")
 
             // --- sg_session: its "Profile the launch path" card opens the raw
             // session view (EXP-1291), the stub relay's feed for the seed's child
@@ -1396,7 +1400,7 @@ class StyleguideScreenshotsTest {
             repeat(6) {
                 val shown = runCatching { composeRule.onAllNodes(childCard).onFirst().assertIsDisplayed() }.isSuccess
                 if (!shown) {
-                    composeRule.onNode(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
+                    composeRule.onNode(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION))
                         .performTouchInput { swipeDown(startY = centerY, endY = bottom - 200f) }
                     flow.settle()
                 }
@@ -1444,14 +1448,14 @@ class StyleguideScreenshotsTest {
                 revealFeedCard("work-card")
                 flow.screenshot("sg_work-card")
             }
-            // Session → Threads: the session page is a page OF the thread (its
-            // strip stays on screen), so one Back leaves the thread.
+            // Session → Chats: the session page is a page OF the chat (its
+            // strip stays on screen), so one Back leaves the chat.
             Espresso.pressBack()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             flow.settle(longer = true)
         }
 
-        // --- Settings root: thread 58cb32df — the TEAM tab (chats.json
+        // --- Settings root: session 58cb32df — the TEAM tab (chats.json
         // `shell`): the team, the team switch, its settings rows, then the
         // old root (Servers, General). Header matches keep ignoreCase so they
         // hold whichever case SectionHeader renders (sentence case since EXP-698).
@@ -1526,6 +1530,19 @@ class StyleguideScreenshotsTest {
             tapClearOfBar(teamSettingsRow("Agents"))
             val settingsAgentRow = hasTestTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW) and hasText(AGENT_NAME)
             flow.waitFor(settingsAgentRow, SYNC_TIMEOUT)
+            // #EXP-1735: sg_settings-agents = the Agents page's top: the Lead
+            // Assistant row naming the seeded lead (the demo user, read
+            // through `agents.lead`) over the agents list.
+            if (ScreenshotFlow.anyRequested("sg_settings-agents")) {
+                val leadRow = hasTestTag(AgentSettings.Lead.TEST_ID_ROW)
+                flow.waitFor(
+                    (leadRow and hasText(LEAD_NAME, substring = true)) or
+                        (hasAnyAncestor(leadRow) and hasText(LEAD_NAME, substring = true)),
+                    NETWORK_TIMEOUT,
+                )
+                flow.settle()
+                flow.screenshot("sg_settings-agents")
+            }
             tapClearOfBar(settingsAgentRow)
             flow.waitFor(hasTestTag(AgentSettings.TEST_ID_PAGE), NAV_TIMEOUT)
             flow.waitFor(hasTestTag("agent-settings-trigger"), SYNC_TIMEOUT)
@@ -1851,14 +1868,14 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_feedback-states")
 
         // --- sg_work-card · sg_script-card · sg_comment-call-card: the run
-        // thread's cards (EXP-1240 / EXP-1279 / EXP-1241), each drawn by its
+        // chat's cards (EXP-1240 / EXP-1279 / EXP-1241), each drawn by its
         // real composable on a capture-only screen.
-        fun showThreadCards(kind: ThreadCardsKind) {
-            show(kind.testId) { ThreadCardsScreen(kind) }
+        fun showChatCards(kind: ChatCardsKind) {
+            show(kind.testId) { ChatCardsScreen(kind) }
         }
         // EXP-1654: sg_work-card + sg_script-card are the live session
-        // walk's (step "thread"); only the comment card stays capture-only.
-        showThreadCards(ThreadCardsKind.Comment)
+        // walk's (step "chat-screen"); only the comment card stays capture-only.
+        showChatCards(ChatCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
 
         // --- sg_trace · sg_code-block: THE Trace (+ the Queue) and THE
@@ -1888,36 +1905,31 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_record-form-field-states")
 
         // --- sg_plan-card: THE rich plan / question card (EXP-1280,
-        // plan-card.json): session-thread.json's rich case — the pending plan
+        // plan-card.json): session-chat.json's rich case — the pending plan
         // (pictures, a tile question, a list question, the inline eUI
-        // surface) and the answered multi question — by the real ThreadAskCard.
-        showThreadCards(ThreadCardsKind.PlanCard)
+        // surface) and the answered multi question — by the real ChatAskCard.
+        showChatCards(ChatCardsKind.PlanCard)
         flow.screenshot("sg_plan-card")
-
-        // --- sg_session-xref: THE inter-session link (S-3) in its four
-        // kinds, by the real SessionXref.
-        showThreadCards(ThreadCardsKind.SessionXref)
-        flow.screenshot("sg_session-xref")
 
         // --- sg_pr-row (EXP-1553): THE PR row in its two shapes (a tree with
         // guides, a stack on its rail to master) + an unlinked PR — web's
         // `pr-row` entry, by the real PrList / StackRail.
-        showThreadCards(ThreadCardsKind.PrRow)
+        showChatCards(ChatCardsKind.PrRow)
         flow.screenshot("sg_pr-row")
 
-        // --- sg_session-row (thread 20b7fdc2): THE session row under the
+        // --- sg_session-row (session 20b7fdc2): THE session row under the
         // Running caption — web's `session-row` island, by the real SessionRow.
-        showThreadCards(ThreadCardsKind.SessionRow)
+        showChatCards(ChatCardsKind.SessionRow)
         flow.screenshot("sg_session-row")
 
         // --- sg_pr-checks (#EXP-1611, #EXP-1710): THE header merge STATUS
         // pill in its states (merge-train.json `statusPill`) + the `…`'s
         // Checks submenu pushed open over pr-checks.json `specimen`, by the
         // real MergeStatusPill / ChatMenuPanel.
-        showThreadCards(ThreadCardsKind.PrChecks)
+        showChatCards(ChatCardsKind.PrChecks)
         flow.screenshot("sg_pr-checks")
 
-        // --- Thread 58cb32df (fixtures/chats.json): the Chats screen over
+        // --- Session 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as
         // phone bubbles (a superseded plan, an agent's surface card, the
         // /compact and /new dividers), the chat + agent menus with the
@@ -1962,7 +1974,7 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_sealed-locked")
         show(SchedulePickerSpecimenTestId) { SchedulePickerSpecimenScreen() }
         flow.screenshot("sg_schedule-picker")
-        // Thread e4a04d22: `@email` as the member's pill in a chat, an
+        // Session e4a04d22: `@email` as the member's pill in a chat, an
         // unknown address as plain text (styleguide entry mention-pill).
         show(MentionPillSpecimenTestId) { MentionPillSpecimenScreen() }
         flow.screenshot("sg_mention-pill")

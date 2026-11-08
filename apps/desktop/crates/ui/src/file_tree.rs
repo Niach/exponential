@@ -33,7 +33,8 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, Action, App, AppContext as _, ClickEvent, Entity, FontWeight, Global, IntoElement,
     InteractiveElement as _, MouseButton,
-    ParentElement, Render, SharedString, Styled, Subscription, Window, WindowId,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -954,6 +955,10 @@ fn render_tree_item(
     let is_active_file = !node.is_dir && active_file == Some(id.as_ref());
 
     let mut row = ListItem::new(ix)
+        .role(gpui::Role::ListItem)
+        .aria_label(entry.item().label.clone())
+        .aria_selected(is_active_file)
+        .when(node.is_dir, |row| row.aria_expanded(entry.is_expanded()))
         .pl(indent(entry.depth()))
         .py_0()
         .when(is_active_file, |row| row.bg(theme.list_active))

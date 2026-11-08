@@ -448,7 +448,7 @@ pub(crate) fn session_card(
     session_card_framed(card, true, Some(registry::UI_CHEVRON_RIGHT), Some(Box::new(on_click)), cx)
 }
 
-/// #EXP-1464 (thread-row-action.json): THE session card as a conversation
+/// #EXP-1464 (chat-row-action.json): THE session card as a conversation
 /// row — `chevron` = the trailing glyph (right = opens, down = expanded),
 /// `None` with no `on_click` = a row that does nothing (no chevron, no
 /// hover, no press).
@@ -499,6 +499,7 @@ fn session_card_framed(
             "{}-{}",
             card.test_id, card.session_id
         ))))
+        .when(interactive, |this| this.role(gpui::Role::Button).aria_label(SharedString::from(card.name.clone())))
         .w_full()
         .min_w_0()
         .overflow_hidden()

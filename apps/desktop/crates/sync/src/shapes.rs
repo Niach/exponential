@@ -116,6 +116,8 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "estimation_type",
             // VAPP-201: the team time zone (app hosts read dates in it).
             "time_zone",
+            // #EXP-1735: the team's lead Assistant (Settings → Agents row).
+            "lead_assistant_id",
             "created_at",
             "updated_at",
         ],
@@ -407,7 +409,7 @@ pub const SHAPES: [ShapeSpec; 34] = [
     ShapeSpec {
         name: "sessions",
         path: "/api/shapes/sessions",
-        // EXP-1294 (Threads v2): THE session tree (roots `thread` | `agent`,
+        // EXP-1294: THE session tree (roots `thread` | `agent`,
         // children under a root). Byte-matches the proxy's allowlist; the
         // server-only `host_user_id`, `mcp_server_ids` and `instructions`
         // never sync (NEW-2: agent instructions come from `agents.get`).
@@ -794,7 +796,7 @@ pub const SHAPES: [ShapeSpec; 34] = [
         name: "session_reads",
         path: "/api/shapes/session-reads",
         // EXP-1323: the caller's read marks of sessions (`sessions.markRead`),
-        // the Threads list's bold rows + nav dot. Static per user like
+        // the Chats list's bold rows + nav dot. Static per user like
         // `pins`. Byte-matches the proxy's allowlist (apps/web
         // routes/api/shapes/session-reads.ts).
         // #EXP-1388: `archived_at` = the viewer's per-chat archive.
@@ -1382,6 +1384,7 @@ mod tests {
         assert!(!pulls.columns.contains(&"merge_ready_at"));
         assert!(!pulls.columns.contains(&"merge_approved_at"));
         assert!(shape_by_name("teams").unwrap().columns.contains(&"merge_mode"));
+        assert!(shape_by_name("teams").unwrap().columns.contains(&"lead_assistant_id"));
         let checks = shape_by_name("pull_request_checks").unwrap();
         assert_eq!(checks.path, "/api/shapes/pull-request-checks");
         assert_eq!(checks.pk, PkKind::Id);
@@ -1430,10 +1433,10 @@ mod tests {
         assert!(!shape_by_name("agents").unwrap().columns.contains(&"instructions"));
     }
 
-    /// EXP-1294: the old run/thread shapes are gone, and PR state left
+    /// EXP-1294: the old run and legacy-table shapes are gone, and PR state left
     /// `issues`.
     #[test]
-    fn no_coding_session_or_thread_shapes() {
+    fn no_coding_session_or_chat_shapes() {
         for gone in ["coding_sessions", "threads", "thread_items"] {
             assert!(shape_by_name(gone).is_none(), "{gone} is gone");
         }

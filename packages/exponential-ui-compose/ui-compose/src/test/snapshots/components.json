@@ -4737,6 +4737,142 @@
       }
     ]
   },
+  "Card\/pressable=false" : {
+    "height" : 120,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          120
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          52
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          83,
+          356,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
+  "Card\/pressable=true" : {
+    "height" : 120,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          120
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          52
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          83,
+          356,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
   "Carousel\/counter=false" : {
     "height" : 20,
     "nodes" : [
@@ -5109,6 +5245,21 @@
       }
     ]
   },
+  "Chart\/rows+valueFormat=compact" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
   "Chart\/showAxes=false" : {
     "height" : 200,
     "nodes" : [
@@ -5215,6 +5366,21 @@
     ]
   },
   "Chart\/showValues=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/valueFormat=currency" : {
     "height" : 200,
     "nodes" : [
       {
@@ -15276,6 +15442,200 @@
     ]
   },
   "MessageBubble\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/href" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          13,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          141,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          141,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      }
+    ]
+  },
+  "MessageBubble\/pressable=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/pressable=true" : {
     "height" : 60,
     "nodes" : [
       {
@@ -32037,6 +32397,182 @@
       }
     ]
   },
+  "StatTile\/pressable=false" : {
+    "height" : 138,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          136
+        ],
+        "id" : "stat-tile.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          20
+        ],
+        "id" : "stat-tile.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          308,
+          20
+        ],
+        "id" : "stat-tile.card.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          333,
+          17,
+          40,
+          20
+        ],
+        "id" : "stat-tile.card.header.delta"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          49,
+          356,
+          28
+        ],
+        "id" : "stat-tile.card.value"
+      },
+      {
+        "component" : "Chart",
+        "frame" : [
+          17,
+          89,
+          356,
+          32
+        ],
+        "id" : "stat-tile.card.trend"
+      }
+    ]
+  },
+  "StatTile\/pressable=true" : {
+    "height" : 138,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          136
+        ],
+        "id" : "stat-tile.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          20
+        ],
+        "id" : "stat-tile.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          308,
+          20
+        ],
+        "id" : "stat-tile.card.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          333,
+          17,
+          40,
+          20
+        ],
+        "id" : "stat-tile.card.header.delta"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          49,
+          356,
+          28
+        ],
+        "id" : "stat-tile.card.value"
+      },
+      {
+        "component" : "Chart",
+        "frame" : [
+          17,
+          89,
+          356,
+          32
+        ],
+        "id" : "stat-tile.card.trend"
+      }
+    ]
+  },
   "StatTile\/tone=danger" : {
     "height" : 138,
     "nodes" : [
@@ -33548,19 +34084,19 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
         "part" : "label"
       },
       {
-        "bg" : "#ffffff26",
+        "bg" : "#ffffff1c",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -33587,7 +34123,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -33597,9 +34133,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -33629,7 +34165,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -33639,9 +34175,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -33671,7 +34207,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -33681,9 +34217,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -33714,7 +34250,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -33724,9 +34260,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -33798,7 +34334,7 @@
         "frame" : [
           0,
           0,
-          350,
+          346,
           20
         ],
         "id" : "switch.label",
@@ -33808,9 +34344,9 @@
         "bg" : "#e5e5e5",
         "component" : "Switch",
         "frame" : [
-          358,
+          354,
           0,
-          32,
+          36,
           20
         ],
         "id" : "switch.track",
@@ -36863,6 +37399,178 @@
           20
         ],
         "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/swipeable=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/swipeable=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.thumb",
+        "part" : "thumb",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
       }
     ]
   },

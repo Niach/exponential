@@ -39,6 +39,6 @@ struct AppConsentSpecimens: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-cards-screen")
+        .accessibilityIdentifier("chat-cards-screen")
     }
 }

@@ -23,15 +23,15 @@ object MainTabs {
     const val ISSUES = "home"
     /** The Apps tab: the team's apps list (`Routes.APPS`). */
     const val APPS = "apps"
-    /** The Chats tab (EXP-1291's Threads tab, renamed). */
-    const val THREADS = "threads"
+    /** The Chats tab (EXP-1291's Chats tab, renamed). */
+    const val CHATS = "chats"
     /** The Team tab: the active team, the team switch, the settings rows. */
     const val TEAM = "team"
-    /** Thread 58cb32df: the inbox is a PAGE now (the Chats header's inbox
+    /** Session 58cb32df: the inbox is a PAGE now (the Chats header's inbox
      *  circle pushes it), no longer a tab root. */
     const val INBOX = "personal"
 
-    val routes: Set<String> = setOf(AGENT, ISSUES, THREADS, APPS, TEAM)
+    val routes: Set<String> = setOf(AGENT, ISSUES, CHATS, APPS, TEAM)
 
     /**
      * The tab whose stack is up, given which tab roots are [onStack]: the

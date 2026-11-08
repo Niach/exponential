@@ -4276,6 +4276,33 @@
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
               }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "title": [
@@ -11315,7 +11342,8 @@
             },
             {
               "style": {
-                "backgroundColor": "$color.input"
+                "width": 36,
+                "backgroundColor": "$color.accent"
               }
             }
           ],
@@ -11354,6 +11382,7 @@
             },
             {
               "style": {
+                "backgroundColor": "$color.foreground",
                 "boxShadow": "$shadow.none"
               }
             }
@@ -12486,6 +12515,33 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
               }
             },
             {
@@ -20706,6 +20762,33 @@
               }
             },
             {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
               "style": {
                 "borderWidth": "$border.none",
                 "borderRadius": "$radius.xl2",
@@ -28043,7 +28126,8 @@
             },
             {
               "style": {
-                "backgroundColor": "$color.input"
+                "width": 36,
+                "backgroundColor": "$color.accent"
               }
             }
           ],
@@ -28082,6 +28166,7 @@
             },
             {
               "style": {
+                "backgroundColor": "$color.foreground",
                 "boxShadow": "$shadow.none"
               }
             }
@@ -29214,6 +29299,33 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
               }
             },
             {

@@ -147,8 +147,8 @@ import {
   DEMO_GROUPED_SESSION_ID,
   DEMO_SESSION_ID,
   DEMO_START_FAILED_SESSION_ID,
-  DEMO_THREAD_ID,
-  DEMO_THREAD_IDS,
+  DEMO_CHAT_ID,
+  DEMO_CHAT_IDS,
   DEMO_TIMEZONE,
   DEMO_USER_ID,
   DEMO_BLOCKS,
@@ -188,7 +188,7 @@ const TEAMMATES = [
 // (`exp/APP-14`), the state capsule, the file counts and the patches
 // (ChangesView.swift / ChangesScreen.kt) — so the demo fiction survives intact.
 //
-// EXP-1293: it is the `pull_requests` row of the APP-14 thread (stacked on
+// EXP-1293: it is the `pull_requests` row of the APP-14 chat (stacked on
 // APP-15's), filed under the team's acme/mobile-app repo like its siblings;
 // the files fetch goes by its URL.
 // Pinned to a repo the Exponential GitHub App is NOT installed on: prFiles then
@@ -465,9 +465,9 @@ type IssueRow = typeof issues.$inferSelect
 /**
  * The Product Feedback board's issues, FB-1..FB-9 in insert order (the
  * identifier trigger numbers them). The session tree names three of them:
- * FB-3 (the cold-start thread FILED it), FB-8 (a widget report the Triage
+ * FB-3 (the cold-start chat FILED it), FB-8 (a widget report the Triage
  * agent closed as a duplicate of FB-3) and FB-9 (the widget report it started
- * a thread for). Product Feedback is the live board no view photographs, so
+ * a chat for). Product Feedback is the live board no view photographs, so
  * its rows cost no board shot. None of their titles says "cold start"; FB-3
  * is Alex's, so the `search` view (`by:alex`) lists it.
  */
@@ -590,8 +590,8 @@ async function seedFeedbackIssues(ctx: {
 }
 
 /**
- * EXP-1293 (Threads v2): the session tree — six thread roots (one per
- * Threads-list state, see DEMO_THREAD_IDS), the cold-start thread's child
+ * EXP-1293: the session tree — six chat roots (one per
+ * Chats-list state, see DEMO_CHAT_IDS), the cold-start chat's child
  * session (DEMO_SESSION_ID), three team agents, the roots' issues, their
  * conversations and their pull requests.
  *
@@ -612,7 +612,7 @@ async function seedSessionTree(ctx: {
 }) {
   const { teamId, demoId, repoId, issue } = ctx
   const minutesAgo = (m: number) => new Date(now - m * 60_000)
-  const ids = DEMO_THREAD_IDS
+  const ids = DEMO_CHAT_IDS
   const live = new Map(DEMO_LIVE_SESSIONS.map((spec) => [spec.id, spec]))
   const liveState = (id: string) => {
     const spec = live.get(id)
@@ -627,7 +627,7 @@ async function seedSessionTree(ctx: {
       updatedAt: new Date(now),
     }
   }
-  /** A root: a thread on the demo user's desktop unless told otherwise. */
+  /** A root: a chat on the demo user's desktop unless told otherwise. */
   const root = (
     id: string,
     extra: Partial<typeof sessions.$inferInsert>
@@ -654,7 +654,7 @@ async function seedSessionTree(ctx: {
       name: `Triage`,
       icon: `bug`,
       color: `#a855f7`,
-      instructions: `Look after the boards: merge duplicates, add labels and priorities, start a thread for anything that needs code.`,
+      instructions: `Look after the boards: merge duplicates, add labels and priorities, start a chat for anything that needs code.`,
       sortOrder: 1,
       triggers: [
         {
@@ -730,6 +730,9 @@ async function seedSessionTree(ctx: {
     createdAt: daysAgo(20),
     updatedAt: daysAgo(20),
   })
+  // #EXP-1735: the demo user's Assistant leads the team (agent-settings.json
+  // `lead`), so Settings › Agents' Lead Assistant row names a member.
+  await db.update(teams).set({ leadAssistantId: DEMO_ASSISTANT_ID }).where(eq(teams.id, teamId))
   await db.insert(sessions).values(
     agentSpecs.map((spec) =>
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
@@ -773,7 +776,7 @@ async function seedSessionTree(ctx: {
   const appPackage = (version: `1.0.0` | `1.1.0` | `1.2.0`) => {
     const components: Record<string, unknown>[] = [
       { id: `root`, component: `Stack`, gap: `md`, children: [`band`, `stats`, ...(version !== `1.0.0` ? [`chart`] : []), ...(version === `1.2.0` ? [`issues`] : [])] },
-      { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-threads` },
+      { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-chats` },
       { id: `stats`, component: `Grid`, columns: 2, gap: `sm`, children: [`open`, `rollout`] },
       { id: `open`, component: `Card`, title: `Open issues`, children: [`openValue`] },
       { id: `openValue`, component: `Text`, text: { path: `/issues/count` }, variant: `title` },
@@ -829,7 +832,7 @@ async function seedSessionTree(ctx: {
                 bindings: [{ path: `/issues`, source: `exp:issues?board=${feedbackBoardId}&limit=6` }],
                 components: [
                   { id: `root`, component: `Stack`, gap: `md`, children: [`band`, `issues`] },
-                  { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-threads` },
+                  { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-chats` },
                   { id: `issues`, component: `List`, divided: true, children: { componentId: `issueRow`, path: `/issues/rows` } },
                   {
                     id: `issueRow`,
@@ -1079,7 +1082,7 @@ async function seedSessionTree(ctx: {
     .limit(1)
   await db.insert(appAccess).values({ appId: readApp!.id, teamId, userId: MEMBER_ID, level: `read` })
 
-  // ── the thread roots ───────────────────────────────────────────────────
+  // ── the chat roots ───────────────────────────────────────────────────
   const batchGuide = [
     guideText(
       `Summary`,
@@ -1167,7 +1170,7 @@ async function seedSessionTree(ctx: {
       updatedAt: hoursAgo(DEMO_CLOCK_ANCHOR.endedHoursAgo),
     }),
   ])
-  // The cold-start thread's child: the session the agent started to profile
+  // The cold-start chat's child: the session the agent started to profile
   // the launch path, waiting on the question at the end of the conversation.
   await db.insert(sessions).values({
     ...root(DEMO_SESSION_ID, liveState(DEMO_SESSION_ID)),
@@ -1178,7 +1181,7 @@ async function seedSessionTree(ctx: {
     branch: `exp/APP-5`,
   })
   // EXP-1323: a second child, started from the suggested tasks card and
-  // ended: its end landed on the thread as a `Report from …` line.
+  // ended: its end landed on the chat as a `Report from …` line.
   await db.insert(sessions).values({
     ...root(DEMO_REPORT_SESSION_ID, {
       status: `ended`,
@@ -1317,7 +1320,7 @@ async function seedSessionTree(ctx: {
     card?: MessageCard
     at: Date
     shared?: boolean
-    /** A child session's message: its thread's root. */
+    /** A child session's message: its chat's root. */
     rootId?: string
     /** S-3: the session that posted it (its own card = a result). */
     authorSessionId?: string
@@ -1339,7 +1342,7 @@ async function seedSessionTree(ctx: {
     updatedAt: spec.at,
   })
   const fb3 = issue(`FB-3`).identifier
-  const DEMO_THREAD_PLAN = [
+  const DEMO_CHAT_PLAN = [
     `## Plan: lazy-load the markdown editor`,
     ``,
     `1. Split the TipTap bundle out of the board route's entry chunk.`,
@@ -1348,7 +1351,7 @@ async function seedSessionTree(ctx: {
     `4. Re-measure cold start on the Pixel 6a and the CI device.`,
     `5. Open the PR with the before/after numbers.`,
   ].join(`\n`)
-  // RESULTS TAB (results-tab.json, the `thread-results` view): APP-14's thread
+  // RESULTS TAB (results-tab.json, the `chat-results` view): APP-14's chat
   // keeps a settled history beside its waiting draft: a result with two
   // real pictures (the board's committed web + iOS shots) and an approved
   // plan.
@@ -1387,7 +1390,7 @@ async function seedSessionTree(ctx: {
   )
   await db.insert(messages).values(
     [
-      // The cold-start thread (the `thread` view).
+      // The cold-start chat (the `chat-screen` view).
       {
         sessionId: ids.coldStart,
         author: `user`,
@@ -1424,16 +1427,16 @@ async function seedSessionTree(ctx: {
         at: minutesAgo(2),
       },
       // The ask dock (ask-dock.json): the child's plan waits too, so the
-      // thread stacks two cards in the composer's slot.
+      // chat stacks two cards in the composer's slot.
       {
         sessionId: DEMO_SESSION_ID,
         rootId: ids.coldStart,
         author: `agent`,
         authorSessionId: DEMO_SESSION_ID,
-        card: { kind: `plan`, plan: DEMO_THREAD_PLAN, decision: null },
+        card: { kind: `plan`, plan: DEMO_CHAT_PLAN, decision: null },
         at: minutesAgo(1),
       },
-      // The other threads open on their request.
+      // The other chats open on their request.
       {
         sessionId: ids.groupByAssignee,
         author: `user`,
@@ -1494,14 +1497,14 @@ async function seedSessionTree(ctx: {
       },
       // EXP-1536: the child the agent started next, whose device could not
       // start it: its session card reads `Couldn't start` (the
-      // `thread-replies` view).
+      // `chat-replies` view).
       {
         sessionId: ids.batchLabels,
         author: `agent`,
         card: { kind: `session`, sessionId: DEMO_START_FAILED_SESSION_ID },
         at: minutesAgo(97),
       },
-      // EXP-1211: its quick replies above the composer (the `thread-replies`
+      // EXP-1211: its quick replies above the composer (the `chat-replies`
       // view); never a Conversation row.
       {
         sessionId: ids.batchLabels,
@@ -1527,14 +1530,14 @@ async function seedSessionTree(ctx: {
       {
         sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `agent`,
-        body: `Two new widget reports on Product Feedback. ${issue(`FB-8`).identifier} is a duplicate of ${fb3}, merged it. ${issue(`FB-9`).identifier} needs code, so I started a thread:`,
+        body: `Two new widget reports on Product Feedback. ${issue(`FB-8`).identifier} is a duplicate of ${fb3}, merged it. ${issue(`FB-9`).identifier} needs code, so I started a chat:`,
         at: DEMO_AGENT_CHANNEL_TIMES.report,
       },
       {
         sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `agent`,
         card: { kind: `thread_started`, sessionId: ids.sortReports },
-        at: DEMO_AGENT_CHANNEL_TIMES.threadStarted,
+        at: DEMO_AGENT_CHANNEL_TIMES.chatStarted,
       },
       {
         sessionId: DEMO_AGENT_CONVERSATION_ID,
@@ -1652,7 +1655,7 @@ async function seedSessionTree(ctx: {
   )
 
   // NEW-2: the team's event stream (Settings → Agents lists it): two server
-  // builtins and a custom one a thread emitted over MCP `events_emit`.
+  // builtins and a custom one a chat emitted over MCP `events_emit`.
   await db.insert(events).values([
     {
       teamId,
@@ -1686,9 +1689,9 @@ async function seedSessionTree(ctx: {
     },
   ])
 
-  // EXP-1323: the cold-start thread's suggested tasks card (one started, two
+  // EXP-1323: the cold-start chat's suggested tasks card (one started, two
   // open) and the started child's report, posted by that child.
-  const thread = (spec: Partial<typeof messages.$inferInsert> & { at: Date }) => ({
+  const chat = (spec: Partial<typeof messages.$inferInsert> & { at: Date }) => ({
     conversationId: conversationOf(ids.coldStart),
     rootId: ids.coldStart,
     teamId,
@@ -1703,7 +1706,7 @@ async function seedSessionTree(ctx: {
     ...spec,
   })
   await db.insert(messages).values([
-    thread({
+    chat({
       at: minutesAgo(48),
       card: {
         kind: `suggestions`,
@@ -1729,12 +1732,12 @@ async function seedSessionTree(ctx: {
     }),
     // S-3: the profiling child's relayed turn (`Message from Profile the
     // launch path ›` over its bubble).
-    thread({
+    chat({
       at: minutesAgo(30),
       authorSessionId: DEMO_SESSION_ID,
       body: `The sync bootstrap blocks the first frame for 410 ms; deferring the shape subscribe now.`,
     }),
-    thread({
+    chat({
       at: minutesAgo(20),
       authorSessionId: DEMO_REPORT_SESSION_ID,
       body: `740 ms cold start on the Galaxy A54, under the 800 ms target. The snapshot cache paints in 210 ms.`,
@@ -1745,9 +1748,9 @@ async function seedSessionTree(ctx: {
       },
     }),
     // S-3 / Chats `surfaceCard`: the agent's inline show card.
-    thread({
+    chat({
       at: minutesAgo(9),
-      // A result of the thread.
+      // A result of the chat.
       authorSessionId: ids.coldStart,
       card: {
         kind: `surface`,
@@ -1769,11 +1772,11 @@ async function seedSessionTree(ctx: {
       },
     }),
   ])
-  // EXP-1323: the demo user's read marks: every thread read now but FB-9
+  // EXP-1323: the demo user's read marks: every chat read now but FB-9
   // (read before the agent's request landed: a bold row). FB-9 because no
-  // capture opens it; opening a thread marks it read. EXP-1654: plus the
+  // capture opens it; opening a chat marks it read. EXP-1654: plus the
   // Triage conversation, which `agent-channel` opens: without the mark its
-  // unread count hung on whether that capture ran before `threads` (web
+  // unread count hung on whether that capture ran before `chats` (web
   // photographed "4", the other platforms none). The Assistant's question
   // stays unread on purpose (#EXP-1456, the inbox row's target).
   await db.insert(sessionReads).values(
@@ -1838,7 +1841,7 @@ async function seedSessionTree(ctx: {
       createdAt: hoursAgo(DEMO_CLOCK_ANCHOR.endedHoursAgo + 1),
       updatedAt: hoursAgo(DEMO_CLOCK_ANCHOR.endedHoursAgo + 0.25),
     },
-    // Two thread-less PRs: the merged HEIC fix and the open thumbnail one.
+    // Two chat-less PRs: the merged HEIC fix and the open thumbnail one.
     {
       id: prs.heicFix,
       teamId,
@@ -1853,14 +1856,14 @@ async function seedSessionTree(ctx: {
       createdAt: daysAgo(2),
       updatedAt: daysAgo(1),
     },
-    // EXP-1558: the `thread` view's cold-start thread holds an open PR (its
-    // child's first cut), so the thread header's Merge pill is in every
+    // EXP-1558: the `chat-screen` view's cold-start chat holds an open PR (its
+    // child's first cut), so the chat header's Merge pill is in every
     // platform's shot (#1596: the iOS toolbar order and the Android pill were
     // never pictured).
     {
       id: prs.coldStart,
       teamId,
-      rootSessionId: DEMO_THREAD_ID,
+      rootSessionId: DEMO_CHAT_ID,
       sessionId: DEMO_SESSION_ID,
       repositoryId: repoId,
       number: 57,
@@ -2091,7 +2094,7 @@ async function main() {
   // glyphs side by side. Issue-less on purpose — only the switcher sheet
   // captures them; sortOrder keeps Mobile App the default board (the loader
   // picks the first board by sortOrder). EXP-1284: Product Feedback holds the
-  // demo threads' NEW issues (see the threads block below) — it is the one
+  // demo chats' NEW issues (see the chats block below) — it is the one
   // live board no view photographs, so they cost no board shot.
   const [, feedbackBoard] = await db.insert(boards).values([
     {
@@ -2343,7 +2346,7 @@ async function main() {
       stackedOn: 15,
     },
     // Three more PRs (APP-15..17; EXP-1293: APP-16's merged) for the demo
-    // threads' pull requests (seedSessionTree). Appended AFTER
+    // chats' pull requests (seedSessionTree). Appended AFTER
     // the original 14: the identifiers APP-1..APP-14 are load-bearing for the
     // UI tests and the hand-written notification titles above.
     {
@@ -2356,7 +2359,7 @@ async function main() {
       createdDaysAgo: 1,
       pr: `open`,
     },
-    // EXP-1293: its thread ended with the PR merged (the list's Recent row).
+    // EXP-1293: its chat ended with the PR merged (the list's Recent row).
     {
       title: `Fix flaky scroll restore on the issue list`,
       status: `done`,
@@ -2477,11 +2480,11 @@ async function main() {
   // Showcase issue APP-5: comments + activity + subscribers for the
   // issue-detail and comments screenshots. The offsets are pinned rather than
   // written inline because a comment's relative label is the only thing in
-  // this thread that moves between runs (EXP-669) —
+  // this chat that moves between runs (EXP-669) —
   // `DEMO_SHOWCASE_COMMENT_HOURS_AGO` explains which offsets survive the gap
   // between the seed and the shutter, and on which clients.
   const showcase = inserted[4]
-  // EXP-741: Mira's profiling comment opens the thread and Jonas answers IN
+  // EXP-741: Mira's profiling comment opens the chat and Jonas answers IN
   // it (parent_id), so every issue-comments shot shows a reply under its
   // card; the offsets are unchanged.
   const [miraComment] = await db
@@ -2587,7 +2590,7 @@ async function main() {
   // EXP-1259: the comment the steered session's scripted
   // `exponential_comments_create` call posted (screenshot-desktop.ts names it
   // in the settle's preview), so `comment-call-card` renders the real row.
-  // On the image-cache issue, never APP-5 (its thread is a photographed view).
+  // On the image-cache issue, never APP-5 (its chat is a photographed view).
   await db.insert(comments).values({
     id: DEMO_AGENT_COMMENT_ID,
     issueId: cacheIssue.id,
@@ -2933,7 +2936,7 @@ async function main() {
     createdAt: hoursAgo(0.5),
   })
 
-  // EXP-1293: the session tree (threads, a child session, agents, their
+  // EXP-1293: the session tree (chats, a child session, agents, their
   // conversations and pull requests), then the TEMP steer-ticket row.
   const feedback = await seedFeedbackIssues({
     teamId: ws.id,
@@ -3222,7 +3225,7 @@ Seeded screenshot demo data:
   invite      /invite/${DEMO_INVITE_TOKEN} (+ 2 more pending invites)
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
   inbox       7 notifications (5 unread)
-  threads     6 (${DEMO_THREAD_ID} = cold start, needs input via its child ${DEMO_SESSION_ID}; 3 more running, 1 idle with an open PR + Guide, 1 ended with a merged PR)
+  chats     6 (${DEMO_CHAT_ID} = cold start, needs input via its child ${DEMO_SESSION_ID}; 3 more running, 1 idle with an open PR + Guide, 1 ended with a merged PR)
   agents      Triage (${DEMO_AGENT_ID}), Designer, Release
   machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)
   pull reqs   5 (APP-14 stacked on APP-15; APP-14 → ${REVIEW_PR_URL}, a real diff)

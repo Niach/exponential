@@ -15,7 +15,7 @@
 //! `CubicBezierEasing`. [`ease`] below solves `x(t) = progress` first, which is
 //! what keeps the desktop's feel identical to the other three clients.
 //!
-//! REDUCE MOTION (thread 58cb32df; the `Reduce motion: opacity only` rule
+//! REDUCE MOTION (session 58cb32df; the `Reduce motion: opacity only` rule
 //! below, like iOS `accessibilityReduceMotion`, Android
 //! `ANIMATOR_DURATION_SCALE` and web `prefers-reduced-motion`): gpui exposes
 //! no OS signal, so the host installs a probe ([`set_reduce_motion_probe`];

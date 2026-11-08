@@ -63,7 +63,7 @@ describe(`recipe specificity`, () => {
     const exponential = builtinTheme(`exponential`)!
     const track = (states: string[], checked: boolean) => resolveRecipe(exponential, { component: `Switch`, part: `track`, props: { checked, disabled: false }, states }, `dark`)
     expect(track([`checked`], true).backgroundColor).toBe(exponential.modes.dark.color.primary)
-    expect(track([], false).backgroundColor).toBe(exponential.modes.dark.color.input)
+    expect(track([], false).backgroundColor).toBe(exponential.modes.dark.color.accent)
     const field = resolveRecipe(exponential, { component: `Input`, part: `field`, props: { type: `text`, disabled: false }, states: [`focus`] }, `dark`)
     expect(field.borderColor).toBe(exponential.modes.dark.color.ring)
   })

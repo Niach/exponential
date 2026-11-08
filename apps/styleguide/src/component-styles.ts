@@ -462,7 +462,7 @@ export const componentStyles = `
   background: var(--section);
 }
 .cmp-comment .cmp-pill { margin-top: 8px; }
-/* EXP-741: the card is the thread — replies under the body behind one
+/* EXP-741: the card is the conversation — replies under the body behind one
    hairline, then the muted reply row that closes every top-level card. */
 .cmp-comment .replies { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--stroke); }
 .cmp-comment .reply { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }

@@ -1,7 +1,7 @@
 //! EXP-1255 → EXP-1294: `work-tabs-strip` (Special components): the IDE's
 //! top tab strip, drawn with the strip's own pieces, case for case with the
 //! web entry: `surface::rich_tab` chips (EXP-1334: THE strip chip box,
-//! `surface::strip_chip_frame`, the thread header's too) in the strip's
+//! `surface::strip_chip_frame`, the chat header's too) in the strip's
 //! hover group, every chip's × shown on hover only
 //! ([`crate::screens::hover_close`], the active one too; Cmd+W unchanged;
 //! the second chip is drawn HOVERED, its × out), an issue chip's lead = its
@@ -21,7 +21,7 @@ use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::screens::{home_button, hover_close, TAB_GROUP};
 use crate::surface::{rich_tab, strip_overflow_button, RichTab, RichTabStatus};
-use crate::thread_screen::issue_glyph;
+use crate::session_chat::issue_glyph;
 
 pub(crate) const ID: &str = "work-tabs-strip";
 pub(crate) const OWNER: &str = "EXP-1255";
@@ -57,7 +57,7 @@ fn chip(
 ) -> gpui::AnyElement {
     rich_tab(tab(ix, selected, status, identifier, title), cx)
         .group(TAB_GROUP)
-        .child(hover_close(Button::new(("sg-work-tab-close", ix))))
+        .child(hover_close(Button::new(("sg-work-tab-close", ix)).accessibility_label("Close tab")))
         .into_any_element()
 }
 
@@ -74,6 +74,7 @@ fn hovered_chip(
         .text_color(cx.theme().foreground)
         .child(
             Button::new(("sg-work-tab-close", ix))
+                .accessibility_label("Close tab")
                 .ghost()
                 .web_icon_xs()
                 .icon(registry::UI_CLOSE),

@@ -300,7 +300,7 @@ pub mod overlay_copy {
 
 /// The graph for one subject: an `issue` (its pull request = the newest open
 /// one linked to it, [`PrSet::issue_pull_request`]) and/or a `pull` request
-/// directly (a thread Guide's PR; wins over the issue's).
+/// directly (a chat Guide's PR; wins over the issue's).
 pub fn pr_graph(issue: Option<&Issue>, pull: Option<&PullRequestRow>, set: &PrSet<'_>) -> PrGraph {
     let pull = pull
         .map(|pull| set.pull(&pull.id).unwrap_or(pull))
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn a_pull_request_subject_needs_no_issue() {
-        // A thread Guide's PR: issue-less, stacked on an issue's PR.
+        // A chat Guide's PR: issue-less, stacked on an issue's PR.
         let mut world = World::build(&[
             spec("EXP-11", Some("exp/EXP-11"), Some("master")),
             Spec { id: "none", identifier: "none", url: Some("chore"), number: Some(7), ..spec("none", Some("chore"), Some("exp/EXP-11")) },

@@ -336,7 +336,7 @@ async function recipeOpenOnboardingDevices(page: Page, ctx: RecipeCtx): Promise<
 // ----------------------------------------------------------------- issues
 
 /**
- * Bring the issue's comment thread into frame. The composer is the last thing
+ * Bring the issue's comment chat into frame. The composer is the last thing
  * in the timeline, so scrolling it into view puts the whole conversation on
  * screen; the phone layout keeps its composer in a floating bottom bar
  * instead, so there the Activity header is the target.
@@ -353,7 +353,7 @@ async function recipeOpenOnboardingDevices(page: Page, ctx: RecipeCtx): Promise<
 async function recipeScrollToComments(page: Page): Promise<void> {
   const width = page.viewportSize()?.width ?? 0
   const hasComposer = width >= 768
-  // The LAST placeholder is the thread's bottom composer; the threaded reply
+  // The LAST placeholder is the chat's bottom composer; the chated reply
   // boxes above it carry the same placeholder since EXP-1245 and `.first()`
   // landed the frame on the first comment instead (2026-10-10).
   const target = hasComposer
@@ -371,7 +371,7 @@ async function recipeScrollToComments(page: Page): Promise<void> {
   // offset rewrote all three of its shots with nothing behind it.
   // Scrolling the CONTAINER to its end is absolute rather than relative: the
   // composer is the last thing in the timeline, so its scroller's bottom is
-  // both the frame this view wants (whole thread, composer and its toolbar)
+  // both the frame this view wants (whole chat, composer and its toolbar)
   // and a fixed point every run lands on identically. Which ancestor actually
   // scrolls is not knowable from the styles alone — the walk tries each
   // candidate and only accepts one whose `scrollTop` actually moved.
@@ -379,10 +379,10 @@ async function recipeScrollToComments(page: Page): Promise<void> {
   // The phone path too (EXP-1259): its Activity header already peeks out
   // under the floating bottom bar on the first frame, so
   // `scrollIntoViewIfNeeded` counted it visible and never moved, and the shot
-  // came back identical to `issue-detail`. The thread is the end of the
+  // came back identical to `issue-detail`. The chat is the end of the
   // phone's scroller as well, so its end is the frame there too (the natives'
   // `sg_issue-comments` lands on the last comments the same way).
-  // Twice: the thread below the fold can still be laying out after the first
+  // Twice: the chat below the fold can still be laying out after the first
   // scroll (EXP-1245 renders the activity feed progressively), which left the
   // first pass short of the composer.
   for (let pass = 0; pass < 2; pass += 1) {
@@ -750,17 +750,17 @@ async function recipeTypeSlashInComposer(page: Page): Promise<void> {
 /** NEW-2: a live session's `/` menu — the builtins, then the prompts. */
 async function recipeTypeSlashInSessionComposer(page: Page): Promise<void> {
   // Phones reply through the floating capsule (`floating-composer-capsule`):
-  // tap it open first. md+ keeps the in-flow composer (`thread-composer`)
+  // tap it open first. md+ keeps the in-flow composer (`chat-composer`)
   // under a long conversation: bring it into the frame, then focus (never
   // click: the composer's decorations can sit over the field).
   const capsule = page.getByTestId(`floating-composer-capsule`).first()
   const phone = await capsule.waitFor({ timeout: 5_000 }).then(() => true, () => false)
   if (phone) await capsule.click()
-  // NEW-6: a thread with ONE session shows that session's view in place, so
-  // its box is the session composer (`session-composer`), the thread's own
-  // (`thread-composer`) only once a second session exists.
+  // NEW-6: a chat with ONE session shows that session's view in place, so
+  // its box is the session composer (`session-composer`), the chat's own
+  // (`chat-composer`) only once a second session exists.
   const field = page
-    .getByTestId(/^(thread|session)-composer$/)
+    .getByTestId(/^(chat|session)-composer$/)
     .locator(`textarea`)
     .first()
   await field.waitFor({ timeout: 30_000 })

@@ -1,4 +1,4 @@
-// EXP-1291 Threads v2: the server-composed FIRST prompt of every new session
+// EXP-1291: the server-composed FIRST prompt of every new session
 // (`sessions.brief`). Pure and byte-locked by `fixtures/session-brief.json`.
 // The server is the only caller; the device reads the result.
 

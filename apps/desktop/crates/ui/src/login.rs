@@ -768,6 +768,8 @@ impl LoginView {
         h_flex().justify_center().child(
             div()
                 .id("login-instance-toggle")
+                .role(gpui::Role::Button)
+                .aria_label(label)
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .cursor_pointer()
@@ -823,8 +825,10 @@ impl LoginView {
         }
         if config.google_login_enabled {
             let pending = self.pending_provider.as_deref() == Some("google");
+            let google_label = if pending { LABEL_WAITING_BROWSER } else { LABEL_CONTINUE_GOOGLE };
             section = section.child(
                 Button::new("login-google")
+                    .accessibility_label(google_label)
                     .outline().web_md()
                     .w_full()
                     // The official multi-color "G" (EXP-9). `Button::icon`/
@@ -837,11 +841,7 @@ impl LoginView {
                         div()
                             .flex_none()
                             .line_height(gpui::relative(1.))
-                            .child(if pending {
-                                LABEL_WAITING_BROWSER
-                            } else {
-                                LABEL_CONTINUE_GOOGLE
-                            }),
+                            .child(google_label),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_google(cx))),
             );
@@ -1062,6 +1062,8 @@ impl LoginView {
                             .child(
                                 div()
                                     .id("login-register")
+                                    .role(gpui::Role::Button)
+                                    .aria_label("Register")
                                     .text_color(cx.theme().primary)
                                     .cursor_pointer()
                                     .hover(|style| style.text_decoration_1())
@@ -1083,13 +1085,16 @@ impl LoginView {
         cx: &mut gpui::Context<Self>,
         handler: impl Fn(&mut Self, &mut Window, &mut gpui::Context<Self>) + 'static,
     ) -> impl IntoElement {
+        let label: SharedString = label.into();
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(label.clone())
             .text_sm()
             .text_color(cx.theme().muted_foreground)
             .cursor_pointer()
             .hover(|style| style.text_decoration_1())
-            .child(label.into())
+            .child(label)
             .on_click(cx.listener(move |this, _, window, cx| handler(this, window, cx)))
     }
 
@@ -1288,6 +1293,8 @@ pub(crate) fn legal_footer(cx: &App) -> impl IntoElement {
     let link = move |id: &'static str, label: &'static str, url: &'static str| {
         div()
             .id(id)
+            .role(gpui::Role::Link)
+            .aria_label(label)
             .cursor_pointer()
             .hover(move |style| style.text_color(foreground).text_decoration_1())
             .child(label)

@@ -122,7 +122,7 @@ pub(crate) struct NeedsYouRows {
     pub stuck: HashMap<String, StuckPr>,
 }
 
-/// The team's stuck PRs (merge-train `stuckRow`): a live PR of a thread
+/// The team's stuck PRs (merge-train `stuckRow`): a live PR of a chat
 /// whose opener (`pull_requests.session_id`, else the root) is held by the
 /// limits, or waits on a fix while its device is offline (that devices row's
 /// `last_seen_at`).
@@ -300,8 +300,8 @@ pub(crate) fn open_row(row: &NeedsYouRow, window: &mut Window, cx: &mut App) {
             crate::plan_page::open(&row.session_id, &row.message_id, window, cx);
             return;
         }
-        NeedsYouOpens::Card => crate::thread_screen::request_thread_card(&row.root_id, &row.message_id, cx),
-        NeedsYouOpens::Results => crate::thread_screen::request_thread_results(&row.root_id, cx),
+        NeedsYouOpens::Card => crate::session_chat::request_chat_card(&row.root_id, &row.message_id, cx),
+        NeedsYouOpens::Results => crate::session_chat::request_chat_results(&row.root_id, cx),
         NeedsYouOpens::Chat => {}
     }
     let screen = crate::navigation::session_screen_for(&row.root_id, cx);

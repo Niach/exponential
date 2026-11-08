@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { pickPrIssues, prDefaultIssueIds, subtreeOf } from "@/lib/sessions/pr-issues"
 
-// EXP-1334/NEW-1: a PR closes its SESSION's share of the thread: the rows
+// EXP-1334/NEW-1: a PR closes its SESSION's share of the chat: the rows
 // its subtree HOLDS (a row sits on the session holding the issue) plus the
 // tree's issues its start message names; a child with nothing of its own
 // links nothing (#EXP-1402, FEED-166).
@@ -23,7 +23,7 @@ const links = [
 ]
 
 describe(`pickPrIssues`, () => {
-  it(`the root's own PR (or no session) takes the root's rows nobody else holds, never the thread (EXP-1706)`, () => {
+  it(`the root's own PR (or no session) takes the root's rows nobody else holds, never the chat (EXP-1706)`, () => {
     for (const sessionId of [`root`, null]) {
       expect(pickPrIssues({ rootId: `root`, sessionId, links, tree, startText: null })).toEqual([`i-1`, `i-4`])
     }
@@ -46,16 +46,16 @@ describe(`pickPrIssues`, () => {
     expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links, tree, startText: `` })).toEqual([`i-2`])
   })
 
-  it(`FEED-166: a child with no share links nothing, never the thread's issues`, () => {
-    // The thread holds EXP-1416, NEW-64, NEW-65 on the root; child d19dcb89
+  it(`FEED-166: a child with no share links nothing, never the chat's issues`, () => {
+    // The chat holds EXP-1416, NEW-64, NEW-65 on the root; child d19dcb89
     // holds none and names none: its PR links none of them.
-    const thread = [link(`i-1416`, `EXP-1416`, `root`), link(`i-n64`, `NEW-64`, `root`), link(`i-n65`, `NEW-65`, `b`)]
-    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: thread, tree, startText: `Write the summary` })).toEqual([])
+    const chat = [link(`i-1416`, `EXP-1416`, `root`), link(`i-n64`, `NEW-64`, `root`), link(`i-n65`, `NEW-65`, `b`)]
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: chat, tree, startText: `Write the summary` })).toEqual([])
     // Ended siblings free nothing either.
     const ended = [node(`root`, null), node(`a`, `root`), node(`b`, `root`, `ended`)]
-    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: thread, tree: ended, startText: `` })).toEqual([])
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: chat, tree: ended, startText: `` })).toEqual([])
     // Naming one takes exactly that one.
-    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: thread, tree, startText: `Fix #NEW-64` })).toEqual([
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: chat, tree, startText: `Fix #NEW-64` })).toEqual([
       `i-n64`,
     ])
   })
@@ -78,7 +78,7 @@ describe(`#EXP-1402: a continuation's share is its lineage's`, () => {
     link(`i-8`, `EXP-8`, `a-kid`),
   ]
 
-  it(`takes what the predecessor named and its subtree held, never the whole thread`, () => {
+  it(`takes what the predecessor named and its subtree held, never the whole chat`, () => {
     expect(
       pickPrIssues({
         rootId: `root`,

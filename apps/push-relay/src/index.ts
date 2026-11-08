@@ -9,12 +9,11 @@ import { RelayStore } from "./store"
 // store, the port. The HTTP surface itself lives in `app.ts`
 // (`createRelayApp`), where the tests drive it with fakes.
 
-// ── Operator secret (compat shim + operator routes) ──────────────────────────
+// ── Operator secret (operator routes) ────────────────────────────────────────
 
-// PUSH_RELAY_SECRET gates the deprecated /send compat shim (compat-send.ts),
-// /stats and /healthz?deep=1. /send hands raw device tokens to whoever holds
-// it, so without the secret those routes do not exist at all (404). The push
-// API itself never needs it.
+// PUSH_RELAY_SECRET gates only the operator routes, /stats and
+// /healthz?deep=1; without it they do not exist at all (404). The push API
+// itself never needs it.
 const RELAY_SECRET = process.env.PUSH_RELAY_SECRET || null
 
 // ── Push API store (EXP-1428) ─────────────────────────────────────────────────
@@ -51,7 +50,7 @@ const apnsTopics = (process.env.APNS_TOPICS ?? ``)
   .map((topic) => topic.trim())
   .filter(Boolean)
 
-if (!RELAY_SECRET) log.info(`PUSH_RELAY_SECRET not set — /send compat shim, /stats and /healthz?deep=1 answer 404`)
+if (!RELAY_SECRET) log.info(`PUSH_RELAY_SECRET not set — /stats and /healthz?deep=1 answer 404`)
 if (!apns) log.warn(`APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID not set — APNs installs disabled`)
 if (apns && apnsTopics.length === 0) log.warn(`APNS_TOPICS is empty — no APNs install can register`)
 
@@ -107,7 +106,7 @@ const { app } = createRelayApp({
 
 const port = parseInt(process.env.PORT ?? `4001`, 10)
 log.info(
-  `listening on :${port} (push API store ${DB_PATH}, fcm ${getFirebaseApp() ? `on` : `off`}, apns ${apns ? `on` : `off`}, /send compat shim ${RELAY_SECRET ? `on` : `off`})`
+  `listening on :${port} (push API store ${DB_PATH}, fcm ${getFirebaseApp() ? `on` : `off`}, apns ${apns ? `on` : `off`}, operator routes ${RELAY_SECRET ? `on` : `off`})`
 )
 
 export default {

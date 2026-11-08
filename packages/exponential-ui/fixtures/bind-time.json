@@ -8996,7 +8996,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -9434,7 +9436,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -9447,7 +9451,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -9486,7 +9492,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -9922,7 +9930,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -9938,7 +9948,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -9973,7 +9985,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -10409,7 +10423,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -10425,7 +10441,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -10458,7 +10476,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -10893,7 +10913,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -10909,7 +10931,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -10967,7 +10991,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -11415,7 +11441,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -11428,7 +11456,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -11465,7 +11495,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -11901,7 +11933,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -11917,7 +11951,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -11952,7 +11988,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -12372,7 +12410,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -12388,7 +12428,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -12421,7 +12463,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -12841,7 +12885,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -12857,7 +12903,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -12917,7 +12965,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -13502,7 +13552,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -13515,7 +13567,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -13554,7 +13608,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -13935,7 +13991,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -13951,7 +14009,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -13986,7 +14046,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -14367,7 +14429,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -14383,7 +14447,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -14416,7 +14482,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -14842,7 +14910,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -14858,7 +14928,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -14916,7 +14988,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -15352,7 +15426,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -15365,7 +15441,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -15402,7 +15480,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -15838,7 +15918,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -15854,7 +15936,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -15889,7 +15973,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -16325,7 +16411,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -16341,7 +16429,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -16374,7 +16464,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -16810,7 +16902,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -16826,7 +16920,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45176,7 +45272,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -45299,7 +45397,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45312,7 +45412,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -45349,7 +45451,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -45470,7 +45574,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -45486,7 +45592,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45519,7 +45627,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -45640,7 +45750,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -45656,7 +45768,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45687,7 +45801,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -45807,7 +45923,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -45823,7 +45941,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45875,7 +45995,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -45998,7 +46120,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46011,7 +46135,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -46046,7 +46172,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46167,7 +46295,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46183,7 +46313,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46216,7 +46348,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46337,7 +46471,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46353,7 +46489,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46384,7 +46522,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46504,7 +46644,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46520,7 +46662,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46573,7 +46717,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -46706,7 +46852,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46719,7 +46867,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -46754,7 +46904,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46875,7 +47027,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46891,7 +47045,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46924,7 +47080,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47030,7 +47188,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47046,7 +47206,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47077,7 +47239,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47183,7 +47347,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47199,7 +47365,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47252,7 +47420,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -47375,7 +47545,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47388,7 +47560,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -47423,7 +47597,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47544,7 +47720,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47560,7 +47738,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47593,7 +47773,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47714,7 +47896,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47730,7 +47914,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47761,7 +47947,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47881,7 +48069,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47897,7 +48087,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47943,7 +48135,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -48069,7 +48263,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -48082,7 +48278,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -48124,7 +48322,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -48245,7 +48445,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -48261,7 +48463,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -48294,7 +48498,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -48408,7 +48614,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -48424,7 +48632,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -48455,7 +48665,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -48540,7 +48752,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -48556,7 +48770,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -60894,7 +61110,9 @@
       "expanded": {
         "id": "message-bubble",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "message-bubble.bubble",
@@ -61007,8 +61225,10 @@
         ],
         "style": {
           "display": "flex",
-          "flexDirection": "column",
-          "alignItems": "flex-end",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
           "width": "100%",
           "minWidth": 0
         },
@@ -61033,7 +61253,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -61144,8 +61366,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -61171,7 +61395,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -61282,8 +61508,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -61307,7 +61535,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -61416,8 +61646,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -61455,7 +61687,9 @@
       "expanded": {
         "id": "message-bubble",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "message-bubble.bubble",
@@ -61578,8 +61812,10 @@
         ],
         "style": {
           "display": "flex",
-          "flexDirection": "column",
-          "alignItems": "flex-end",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
           "width": "100%",
           "minWidth": 0
         },
@@ -61606,7 +61842,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -61717,8 +61955,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -61744,7 +61984,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -61837,8 +62079,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -61862,7 +62106,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -61955,8 +62201,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -61993,7 +62241,9 @@
       "expanded": {
         "id": "message-bubble",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "message-bubble.bubble",
@@ -62150,8 +62400,10 @@
         ],
         "style": {
           "display": "flex",
-          "flexDirection": "column",
-          "alignItems": "flex-end",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
           "width": "100%",
           "minWidth": 0
         },
@@ -62178,7 +62430,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -62289,8 +62543,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -62316,7 +62572,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -62404,8 +62662,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -62429,7 +62689,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -62513,8 +62775,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -62552,7 +62816,9 @@
       "expanded": {
         "id": "message-bubble",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "message-bubble.bubble",
@@ -62663,8 +62929,10 @@
         ],
         "style": {
           "display": "flex",
-          "flexDirection": "column",
-          "alignItems": "flex-end",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
           "width": "100%",
           "minWidth": 0
         },
@@ -62699,7 +62967,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -62810,8 +63080,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -62837,7 +63109,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -62948,8 +63222,10 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
@@ -62973,7 +63249,9 @@
           "bound": {
             "id": "message-bubble",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "message-bubble.bubble",
@@ -63084,13 +63362,598 @@
             ],
             "style": {
               "display": "flex",
-              "flexDirection": "column",
-              "alignItems": "flex-end",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
               "width": "100%",
               "minWidth": 0
             },
             "accessibility": {
               "role": "group",
+              "label": "18:00"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "MessageBubble/bound:href",
+      "input": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "href": {
+            "@path": "/href"
+          }
+        }
+      },
+      "expanded": {
+        "id": "message-bubble",
+        "component": "Box",
+        "props": {
+          "pressable": true,
+          "href": {
+            "@path": "/href"
+          }
+        },
+        "children": [
+          {
+            "id": "message-bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message-bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              },
+              {
+                "id": "message-bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message-bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message-bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-read",
+                      "size": "sm",
+                      "label": "$string.read"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "read"
+          }
+        },
+        "accessibility": {
+          "role": "button",
+          "label": "18:00"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "href": "Bound"
+          },
+          "bound": {
+            "id": "message-bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true,
+              "href": "Bound"
+            },
+            "children": [
+              {
+                "id": "message-bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message-bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Is the printer fixed?"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message-bubble.bubble.footer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "message-bubble.bubble.footer.time",
+                        "component": "Text",
+                        "props": {
+                          "text": "18:00",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "time",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      },
+                      {
+                        "id": "message-bubble.bubble.footer.status",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-read",
+                          "size": "sm",
+                          "label": "Read"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 14,
+                          "height": 14,
+                          "flexShrink": 0
+                        },
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "status",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "justifyContent": "flex-end",
+                      "alignSelf": "flex-end",
+                      "gap": "$spacing.xs"
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "footer",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": "$radius.xl"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "18:00"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "href": ""
+          },
+          "bound": {
+            "id": "message-bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true,
+              "href": ""
+            },
+            "children": [
+              {
+                "id": "message-bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message-bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Is the printer fixed?"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message-bubble.bubble.footer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "message-bubble.bubble.footer.time",
+                        "component": "Text",
+                        "props": {
+                          "text": "18:00",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "time",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      },
+                      {
+                        "id": "message-bubble.bubble.footer.status",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-read",
+                          "size": "sm",
+                          "label": "Read"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 14,
+                          "height": 14,
+                          "flexShrink": 0
+                        },
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "status",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "justifyContent": "flex-end",
+                      "alignSelf": "flex-end",
+                      "gap": "$spacing.xs"
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "footer",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": "$radius.xl"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "18:00"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "message-bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "message-bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message-bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Is the printer fixed?"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message-bubble.bubble.footer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "message-bubble.bubble.footer.time",
+                        "component": "Text",
+                        "props": {
+                          "text": "18:00",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "time",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      },
+                      {
+                        "id": "message-bubble.bubble.footer.status",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-read",
+                          "size": "sm",
+                          "label": "Read"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 14,
+                          "height": 14,
+                          "flexShrink": 0
+                        },
+                        "recipe": {
+                          "macro": "MessageBubble",
+                          "part": "status",
+                          "props": {
+                            "side": "out",
+                            "status": "read"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "justifyContent": "flex-end",
+                      "alignSelf": "flex-end",
+                      "gap": "$spacing.xs"
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "footer",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": "$radius.xl"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "button",
               "label": "18:00"
             },
             "recipe": {

@@ -73,7 +73,7 @@ services:
 
   electric:
     # Pinned like the dev stack — bump deliberately, never track latest.
-    image: electricsql/electric:1.4.11
+    image: electricsql/electric:1.8.1
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/exponential?sslmode=disable

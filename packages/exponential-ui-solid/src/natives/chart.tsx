@@ -13,18 +13,12 @@
 // only drives attribute bindings, the band and the tooltip.
 
 import { createMemo, createSignal, createUniqueId, For, Index, Show, type Component, type JSX } from "solid-js"
-import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential_app/eui"
+import { chartData, chartExtent, chartSummaryParams, formatChartValue, niceTicks, seriesColor, DONUT_HOLE, type ChartSeries, type ChartValueFormat } from "@exponential_app/eui"
 import { tokenVar, visualScale } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { mergeStyle, type NativeProps } from "../node-view"
 import { createElementSize } from "../platform"
-import { arr, bool, css, num, objects, parts, str } from "./shared"
-
-interface Series {
-  name: string
-  values: number[]
-  tone?: string
-}
+import { bool, css, num, parts, str } from "./shared"
 
 const colorVar = (i: number, tone?: string) => tokenVar(seriesColor(i, tone)) ?? `currentColor`
 const AXIS_FONT = 11
@@ -40,8 +34,10 @@ export function ChartNative(props: NativeProps): JSX.Element {
   const kind = () => str(props.props.kind, `bar`)
   const sparkline = () => kind() === `sparkline`
   const round = () => kind() === `pie` || kind() === `donut`
-  const series = createMemo((): Series[] => objects<Series>(props.props.series).map((s) => ({ name: str(s?.name), tone: s?.tone, values: arr<unknown>(s?.values).map((v) => num(v, NaN)) })))
-  const categories = createMemo(() => arr<unknown>(props.props.categories).map(String))
+  // FEED-205: `rows` + `categoryField` + series `field`s, else the props.
+  const data = createMemo(() => chartData(props.props))
+  const series = (): ChartSeries[] => data().series
+  const categories = () => data().categories
   const n = () => Math.max(categories().length, Math.max(0, ...series().map((s) => s.values.length)))
   // Round 2 §7: `height` = the WHOLE chart box (title, legend and axes
   // inside); the plot takes what is left of it.
@@ -51,9 +47,20 @@ export function ChartNative(props: NativeProps): JSX.Element {
   const showValues = () => bool(props.props.showValues)
   const [box, setBox] = createSignal<HTMLDivElement | null>(null)
   const size = createElementSize(box, 320)
-  const fmt = (v: number) => ctx.formatter.number(v)
+  // FEED-205: every value in the chart's `valueFormat`.
+  const fmt = (v: number) => formatChartValue(ctx.formatter, v, props.props.valueFormat as ChartValueFormat | undefined)
   const [active, setActive] = createSignal<number | null>(null)
   let plotRef: SVGSVGElement | undefined
+  // VAPP-289: a pointerleave clears the highlight only after a real
+  // pointermove. A pointer that never moved sits at 0,0 (on the plot); a
+  // re-render's hover update then sends a pointerleave at no fixed moment,
+  // which wiped the keyboard highlight.
+  let pointerInside = false
+  const onLeave = () => {
+    if (!pointerInside) return
+    pointerInside = false
+    setActive(null)
+  }
 
   const geo = createMemo(() => {
     const k = kind()
@@ -181,6 +188,7 @@ export function ChartNative(props: NativeProps): JSX.Element {
     else if (e.key === `Escape`) setActive(null)
   }
   const onMove = (e: PointerEvent) => {
+    pointerInside = true
     const nn = n()
     if (round() || nn === 0) return
     const r = plotRef?.getBoundingClientRect()
@@ -287,7 +295,7 @@ export function ChartNative(props: NativeProps): JSX.Element {
           tabindex={sparkline() ? undefined : 0}
           onKeyDown={(e) => (sparkline() ? undefined : onKey(e))}
           onPointerMove={(e) => (sparkline() ? undefined : onMove(e))}
-          onPointerLeave={() => setActive(null)}
+          onPointerLeave={onLeave}
           onBlur={() => setActive(null)}
           class="xui-chart-svg"
         >

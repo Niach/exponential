@@ -1662,7 +1662,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
-    // v68 (EXP-1291 Threads v2): a store migrated through v67 drops
+    // v68 (EXP-1291): a store migrated through v67 drops
     // `coding_sessions` / `threads` / `thread_items` with their cursors (hard
     // break, no data carried over), drops the issue PR + action trigger
     // columns in place keeping the rows and their cursors, and gains the five
@@ -3507,7 +3507,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
-    // Thread e4a04d22: v81 adds `conversations.digest`, resetting ONLY the
+    // Session e4a04d22: v81 adds `conversations.digest`, resetting ONLY the
     // conversations cursor; a synced row decodes the jsonb (object or text)
     // and saves it as JSON text.
     func testConversationDigestColumnAdded() throws {

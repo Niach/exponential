@@ -125,6 +125,17 @@ final class AgentSessionModel {
     /// already holds, or a page only the device has. What the transcript's
     /// "Load earlier" affordance is gated on.
     private(set) var canLoadEarlier = false
+    /// #EXP-1736 (transcript-grouping.json `fromStart`): the rendered
+    /// window begins at the session's very first row — nothing above it in
+    /// the feed, no older page on the device, no row trimmed off the front.
+    /// The ONE origin rule reads the first prompt as the origin's only then.
+    private(set) var transcriptFromStart = false
+    /// The feed's byte cap dropped rows off its front (`trimFeed`): the
+    /// start is gone for this viewer, so the origin never draws.
+    @ObservationIgnored private var feedHeadTrimmed = false
+    /// The device answered an older-page ask with nothing: the feed holds
+    /// the journal's first row (unlike a publisher that cannot page at all).
+    @ObservationIgnored private var historyReachedStart = false
     /// EXP-783: the id of the oldest RENDERED feed row — nil means the newest
     /// `AgentFeed.feedWindow` rows, `windowFromStart` the feed's own first row
     /// whatever it is. An id rather than an index, so an eviction or a replay
@@ -285,7 +296,7 @@ final class AgentSessionModel {
     /// The synced `sessions` row — flips to ended via Electric.
     private(set) var session: SessionEntity?
     /// EXP-1295: the session's ROOT row (the row itself on a root) — the
-    /// thread's Guide lives there, and a `sessions_show` picture resolves
+    /// chat's Guide lives there, and a `sessions_show` picture resolves
     /// against it.
     private(set) var root: SessionEntity?
     /// #EXP-1541: a session runs under this row (the device move's
@@ -294,9 +305,9 @@ final class AgentSessionModel {
     /// The session's display title (EXP-1341 `SessionTitle`, the same name
     /// its card, chip and row read) — the screen's title.
     private(set) var title: String?
-    /// EXP-1310: the thread's title (the ROOT's `SessionTitle`) — the header's
-    /// back row, ×4 (web `session-back`, Android `session-open-thread`).
-    private(set) var threadTitle: String?
+    /// EXP-1310: the chat's title (the ROOT's `SessionTitle`) — the header's
+    /// back row, ×4 (web `session-back`, Android `session-open-chat`).
+    private(set) var chatTitle: String?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
     /// `devices` row's label and whether that machine stopped heartbeating.
     private(set) var hostDevice = SessionHostDevice(label: nil, online: nil)
@@ -400,8 +411,8 @@ final class AgentSessionModel {
 
     /// The composer's model pill: the live steer model, else the synced
     /// row's pick, else the host's default, else the contract defaults — so a
-    /// thread with no live feed still names its model.
-    /// `row` overrides `session` (a thread's root row arrives first).
+    /// chat with no live feed still names its model.
+    /// `row` overrides `session` (a chat's root row arrives first).
     func composerModelValue(row: SessionEntity? = nil) -> String {
         let row = row ?? session
         return LaunchVocabulary.composerModel(
@@ -685,7 +696,10 @@ final class AgentSessionModel {
         guard historyRequest == nil, !historyExhausted, historyTruncated else { return false }
         guard let before = oldestSeq, before > 0 else {
             historyExhausted = true
+            // Seq 0 on screen = the journal's first row is held.
+            if oldestSeq == 0 { historyReachedStart = true }
             canLoadEarlier = false
+            if !applyingBatch { reproject() }
             return false
         }
         historyRequests += 1
@@ -746,7 +760,9 @@ final class AgentSessionModel {
         seqById = savedSeqs
         guard !page.isEmpty else {
             historyExhausted = true
+            historyReachedStart = true
             canLoadEarlier = false
+            if !applyingBatch { reproject() }
             return
         }
         // The prepended rows take ids BELOW every id on screen, so ordering by
@@ -776,6 +792,8 @@ final class AgentSessionModel {
             historyExhausted: historyExhausted, connected: connected
         )
         if canLoad != canLoadEarlier { canLoadEarlier = canLoad }
+        let fromStart = start == 0 && (!historyTruncated || historyReachedStart) && !feedHeadTrimmed
+        if fromStart != transcriptFromStart { transcriptFromStart = fromStart }
         let workflowIds = Set(workflows.map(\.id))
         let key = ProjectionKey(feedVersion: feedVersion, windowStart: start, workflowIds: workflowIds)
         guard key != projectedKey else { return }
@@ -911,7 +929,7 @@ final class AgentSessionModel {
 
     /// EXP-1323: the newest agent prose in the MAIN lane (its wire message
     /// id, else the row id) — the session view re-marks the session read
-    /// whenever this moves while it is open (Android `ThreadScreen` keys its
+    /// whenever this moves while it is open (Android `ChatScreen` keys its
     /// read mark the same way).
     /// #EXP-1623: stored, re-derived by `reproject`; the session view's
     /// read mark watches it, and a computed walk read there re-rendered the
@@ -1022,7 +1040,7 @@ final class AgentSessionModel {
     /// older-page request is addressed relative to.
     private var seqById: [Int: Int] = [:]
     /// The wire sequence of the event being folded in right now, so `append`
-    /// can stamp it without threading it through every branch.
+    /// can stamp it without passing it through every branch.
     @ObservationIgnored private var currentSeq: Int?
     /// EXP-783: the `history_page` request in flight — a chunk for any other
     /// id is not ours; whether the device said its log is a TAIL (so there IS
@@ -1547,10 +1565,10 @@ final class AgentSessionModel {
             guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil, nil, false) }
             let root = row.isRoot ? row : try SessionQueries.session(db: db, id: row.rootId)
             let title = try SessionTree.sessionTitle(db: db, session: row)
-            let threadTitle = try root.map { try SessionTree.sessionTitle(db: db, session: $0) }
+            let chatTitle = try root.map { try SessionTree.sessionTitle(db: db, session: $0) }
             let hasSubSessions = try row.isRoot
                 && SessionQueries.tree(db: db, rootId: row.id).contains { $0.id != row.id }
-            return (row, root, title, threadTitle, hasSubSessions)
+            return (row, root, title, chatTitle, hasSubSessions)
         }
         sessionObservationTask = Task { [weak self] in
             // The GRDB stream is one-shot: any error (a busy database, a
@@ -1561,7 +1579,7 @@ final class AgentSessionModel {
             // (EXP-410; Android's Room flow re-subscribes on its own).
             while !Task.isCancelled {
                 do {
-                    for try await (row, root, title, threadTitle, hasSubSessions) in observation.values(in: pool) {
+                    for try await (row, root, title, chatTitle, hasSubSessions) in observation.values(in: pool) {
                         guard let self else { return }
                         // A nil row is published (not swallowed): the row is
                         // gone, which `sessionEnded` reads as ended. Holding
@@ -1574,7 +1592,7 @@ final class AgentSessionModel {
                         if root != self.root { self.root = root }
                         if hasSubSessions != self.hasSubSessions { self.hasSubSessions = hasSubSessions }
                         if let title, title != self.title { self.title = title }
-                        if let threadTitle, threadTitle != self.threadTitle { self.threadTitle = threadTitle }
+                        if let chatTitle, chatTitle != self.chatTitle { self.chatTitle = chatTitle }
                         // EXP-724: the run is over (or gone) — no `ended`
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }
@@ -2877,6 +2895,7 @@ final class AgentSessionModel {
         let before = feed.count
         let trimmed = AgentFeed.trim(feed: feed, bytes: feedBytes)
         guard trimmed.feed.count != before else { return }
+        feedHeadTrimmed = true
         for dropped in feed.prefix(before - trimmed.feed.count) {
             seqById.removeValue(forKey: dropped.id)
             if case let .tool(_, _, _, _, callId?, _, _, _, _, _, _, _, _) = dropped {
@@ -2889,7 +2908,7 @@ final class AgentSessionModel {
 
     /// Re-derive the byte accumulator — used after the bulk in-place edits
     /// (a resolved question, a replaced card) whose per-item deltas are not
-    /// worth threading through.
+    /// worth passing through.
     private func recountFeedBytes() {
         feedBytes = feed.reduce(0) { $0 + AgentFeed.itemBytes($1) }
         trimFeed()

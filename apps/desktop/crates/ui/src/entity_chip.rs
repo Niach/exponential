@@ -143,6 +143,15 @@ impl RenderOnce for EntityChip {
         let mono_font = theme.mono_font_family.clone();
         let clickable = self.on_click.is_some();
         let parts = chip_parts(&self.r#ref, cx);
+        let open_label = SharedString::from(format!(
+            "Open {}",
+            parts
+                .mono
+                .as_deref()
+                .filter(|mono| !mono.is_empty())
+                .or(parts.title.as_deref())
+                .unwrap_or_default()
+        ));
 
         let mut chip = h_flex()
             .id(self.id)
@@ -206,7 +215,7 @@ impl RenderOnce for EntityChip {
                 });
         }
         if let Some(handler) = self.on_click {
-            chip = chip.on_click(move |event, window, cx| {
+            chip = chip.role(gpui::Role::Button).aria_label(open_label).on_click(move |event, window, cx| {
                 // The card must not outlive the surface the click leaves.
                 let host = crate::issue_preview::host_for_window(window, cx);
                 host.update(cx, |host, cx| host.dismiss(cx));

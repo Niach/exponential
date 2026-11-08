@@ -532,12 +532,34 @@
           "type": "array",
           "items": {
             "type": "number"
-          },
-          "required": true
+          }
+        },
+        "field": {
+          "type": "string"
         },
         "tone": {
           "type": "enum",
           "enum": "tone"
+        }
+      }
+    },
+    "valueFormat": {
+      "properties": {
+        "type": {
+          "type": "enum",
+          "values": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "default": "number"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "decimals": {
+          "type": "number"
         }
       }
     },
@@ -1327,8 +1349,15 @@
         },
         "style": {
           "type": "style"
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
         }
-      }
+      },
+      "events": [
+        "press"
+      ]
     },
     "Window": {
       "kind": "macro",
@@ -2150,6 +2179,10 @@
           "default": "none"
         },
         "addable": {
+          "type": "boolean",
+          "default": false
+        },
+        "swipeable": {
           "type": "boolean",
           "default": false
         }
@@ -3225,6 +3258,16 @@
           "required": true,
           "bindable": true
         },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true
+        },
+        "categoryField": {
+          "type": "string"
+        },
         "title": {
           "type": "string"
         },
@@ -3243,6 +3286,10 @@
         },
         "max": {
           "type": "number"
+        },
+        "valueFormat": {
+          "type": "object",
+          "shape": "valueFormat"
         },
         "showAxes": {
           "type": "boolean",
@@ -3319,8 +3366,15 @@
             "type": "number"
           },
           "bindable": true
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
         }
-      }
+      },
+      "events": [
+        "press"
+      ]
     },
     "Button": {
       "kind": "native",
@@ -4460,7 +4514,8 @@
       "lite": true,
       "children": "none",
       "slots": [
-        "attachment"
+        "attachment",
+        "avatar"
       ],
       "props": {
         "text": {
@@ -4485,8 +4540,19 @@
         "author": {
           "type": "string",
           "bindable": true
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
+        },
+        "href": {
+          "type": "url",
+          "bindable": true
         }
-      }
+      },
+      "events": [
+        "press"
+      ]
     },
     "TreeGuides": {
       "kind": "native",

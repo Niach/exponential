@@ -5,7 +5,7 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// EXP-1291/NEW-1/NEW-2 — the session tree (threads, agent conversations
+// EXP-1291/NEW-1/NEW-2 — the session tree (chats, agent conversations
 // and their sub-sessions). ONE visibility rule: `shared OR user_id = me`
 // inside the member's teams. A device picks up its `queued` rows from this
 // shape (the DB is the bus). SERVER-ONLY, behind the allowlist:
@@ -52,6 +52,8 @@ export const SESSION_COLUMNS = [
   // #FEED-177: a private turn's rotation flag (the holders rotate).
   `seal_rotate_epoch`,
   `sealed_title`,
+  // #EXP-1730 phase A: the list digest (mirrored from conversations).
+  `digest`,
   // #EXP-1720: the Assistant conversation root's Teams pick (null = all).
   `scope_team_ids`,
   // VAPP-229: the app that started it ("via <app>", via-app.json; NOT

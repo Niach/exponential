@@ -609,6 +609,7 @@ impl McpPane {
         }
         let id = SharedString::from(format!("mcp-access-{app_slug}-{}", row.user_id));
         let trigger = Button::new(SharedString::from(format!("{id}-trigger")))
+            .accessibility_label(level_label(&level).to_string())
             .ghost()
             .cursor_pointer()
             .h_auto()

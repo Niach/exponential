@@ -19,6 +19,7 @@ mod motion_leaf;
 mod canvas_leaf;
 mod paint;
 mod pinned;
+mod swipe;
 pub(crate) mod state;
 mod zoom;
 
@@ -87,6 +88,13 @@ pub struct SurfaceViewOptions {
     /// scrim over all of it, like the web's fixed overlay. Off (the default)
     /// = it paints against the surface's own box.
     pub lift_layers: bool,
+    /// EXP-1629: snap positions and sizes to whole device pixels the way
+    /// gpui's own layout does (on by default, so an eUI document and the
+    /// gpui view it replaces paint the same pixels). Off = the core's
+    /// fractional frames, which the web conformance gate compares; a view
+    /// under a measure override (`fixed_measure`, `set_measure`) never
+    /// snaps (golden geometry).
+    pub pixel_snap: bool,
 }
 
 impl Default for SurfaceViewOptions {
@@ -105,6 +113,7 @@ impl Default for SurfaceViewOptions {
             fixed_measure: None,
             formatter: None,
             lift_layers: false,
+            pixel_snap: true,
         }
     }
 }
@@ -314,6 +323,8 @@ pub struct SurfaceView {
     /// #VAPP-252: [`SurfaceViewOptions::lift_layers`], the window they hang
     /// from and whether the last pass laid out against it.
     lift_layers: bool,
+    /// [`SurfaceViewOptions::pixel_snap`] (never under a measure override).
+    pixel_snap: bool,
     window_size: (f32, f32),
     pass_lifted: bool,
     nodes_dirty: bool,
@@ -377,6 +388,13 @@ pub struct SurfaceView {
     sheet_drag: Option<SheetDrag>,
     resize_drag: Option<ResizeDrag>,
     tab_drag: Option<TabDrag>,
+    /// FEED-200: the swipeable Tabs' trackpad gesture (`swipe.rs`), the
+    /// blockers under the pointer for the wheel event being dispatched,
+    /// momentum after a horizontal swipe, the phase-less end's watchdog.
+    wheel_swipe: Option<swipe::WheelSwipe>,
+    swipe_hits: Rc<RefCell<Vec<u32>>>,
+    wheel_momentum: Option<Instant>,
+    wheel_watchdog: Option<Task<()>>,
     /// Round 2: the core's sticky offsets of the last pass (node → dx, dy).
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
@@ -573,6 +591,7 @@ impl SurfaceView {
             visible: VisibleRegion { left: 0.0, top: 0.0, height: window_size.1 },
             origin: gpui::Point::default(),
             lift_layers: options.lift_layers,
+            pixel_snap: options.pixel_snap,
             window_size,
             pass_lifted: false,
             nodes_dirty: true,
@@ -621,6 +640,10 @@ impl SurfaceView {
             sheet_drag: None,
             resize_drag: None,
             tab_drag: None,
+            wheel_swipe: None,
+            swipe_hits: Rc::new(RefCell::new(Vec::new())),
+            wheel_momentum: None,
+            wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
             held_images: RefCell::new(HashMap::new()),
@@ -1073,6 +1096,8 @@ impl SurfaceView {
         };
         let max_h = (visible_h > 0.0).then_some(visible_h);
         self.sync_appearance(window);
+        let snap = self.pixel_snap && self.measure_override.is_none();
+        self.surface.set_pixel_snap(snap.then(|| window.scale_factor()));
         let fill = if self.fill_height && self.viewport_height > 0.0 { self.viewport_height } else { 0.0 };
         self.surface.set_viewport(self.width, fill, if fill > 0.0 { None } else { max_h });
         // #VAPP-253: a lifted top or bottom sheet spans the window.
@@ -1109,7 +1134,7 @@ impl SurfaceView {
             let (out, unknown) = if let Some(m) = self.measure_override.as_mut() {
                 (self.surface.layout(m.as_mut()), Vec::new())
             } else {
-                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live);
+                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live).ceil_text(snap);
                 let out = self.surface.layout(&mut m);
                 calls += m.calls();
                 (out, std::mem::take(&mut m.unknown_extensions))
@@ -1841,6 +1866,14 @@ impl Element for SurfaceElement {
     }
 
     fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), prepaint: &mut Option<AnyElement>, window: &mut Window, cx: &mut App) {
+        // FEED-200 (`swipe.rs`): registered before the nodes, so a wheel
+        // event's capture pass starts with no blocker under the pointer.
+        let hits = self.view.read(cx).swipe_hits.clone();
+        window.on_mouse_event(move |_: &gpui::ScrollWheelEvent, phase, _, _| {
+            if phase == gpui::DispatchPhase::Capture {
+                hits.borrow_mut().clear();
+            }
+        });
         if let Some(el) = prepaint {
             el.paint(window, cx);
         }

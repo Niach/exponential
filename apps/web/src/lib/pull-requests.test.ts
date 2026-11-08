@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server"
 
 // EXP-1291: the pull-request API over the PR model. GitHub, the pr-sync state
 // writers and the stack walks are mocked; the direct reads this module makes
-// (root session, team slug, issues, thread links) drain a FIFO select queue.
+// (root session, team slug, issues, chat links) drain a FIFO select queue.
 
 const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
@@ -191,8 +191,8 @@ beforeEach(() => {
 })
 
 describe(`openPullRequest`, () => {
-  it(`defaults repo, head and issues from the caller's thread; the body = the summary + pictures`, async () => {
-    // EXP-1334: the session's share of the thread (pr-issues.ts).
+  it(`defaults repo, head and issues from the caller's chat; the body = the summary + pictures`, async () => {
+    // EXP-1334: the session's share of the chat (pr-issues.ts).
     vi.mocked(prDefaultIssueIds).mockResolvedValueOnce([`i-1`, `i-2`])
     h.selectQueue.push(
       [{ id: `root-1`, teamId: `team-1` }], // the root
@@ -201,7 +201,7 @@ describe(`openPullRequest`, () => {
         // Another repository's issue: narrowed out of this PR, never refused.
         { id: `i-2`, identifier: `EXP-2`, title: `Other`, teamId: `team-1`, boardRepositoryId: `repo-9`, boardDefaultBranch: null },
       ],
-      [{ slug: `acme` }] // the thread link
+      [{ slug: `acme` }] // the chat link
     )
     vi.mocked(loadPrPictures).mockResolvedValueOnce([
       { label: `web nav`, attachmentId: `a1`, url: `https://exp.example/api/attachments/a1` },
@@ -283,13 +283,13 @@ describe(`openPullRequest`, () => {
     attachmentId: `att-${label}`,
     url: `https://exp.example/api/attachments/att-${label}`,
   })
-  const threadOf = (pictures: ReturnType<typeof picture>[]) => {
+  const chatOf = (pictures: ReturnType<typeof picture>[]) => {
     h.selectQueue.push([{ id: `root-1`, teamId: `team-1` }], [{ slug: `acme` }])
     vi.mocked(loadPrPictures).mockResolvedValueOnce(pictures)
   }
 
   it(`refuses a UI diff without a labelled picture, before any GitHub write`, async () => {
-    threadOf([picture(`web-mobile nav`)])
+    chatOf([picture(`web-mobile nav`)])
     vi.mocked(compareChangedPaths).mockResolvedValueOnce([
       `apps/web/src/components/nav.tsx`,
       `apps/ios/Sources/Nav.swift`,
@@ -309,7 +309,7 @@ describe(`openPullRequest`, () => {
   })
 
   it(`notRun is kept on the PR row, covers its platform and closes the body`, async () => {
-    threadOf([picture(`web nav`)])
+    chatOf([picture(`web nav`)])
     vi.mocked(compareChangedPaths).mockResolvedValueOnce([
       `apps/web/src/components/nav.tsx`,
       `apps/android/app/src/main/Nav.kt`,
@@ -329,7 +329,7 @@ describe(`openPullRequest`, () => {
   })
 
   it(`a live PR's notRun covers a later pr_open without notRun`, async () => {
-    threadOf([picture(`web nav`)])
+    chatOf([picture(`web nav`)])
     vi.mocked(sync.loadLivePullRequestByHead).mockResolvedValueOnce(
       pr({ head: `exp/chat-abcd1234`, notRun: `android: the nav drawer` }) as never
     )
@@ -340,7 +340,7 @@ describe(`openPullRequest`, () => {
   })
 
   it(`a failed compare never blocks the PR`, async () => {
-    threadOf([])
+    chatOf([])
     vi.mocked(compareChangedPaths).mockRejectedValueOnce(new Error(`GitHub returned 502`))
     const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
     await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
@@ -350,16 +350,16 @@ describe(`openPullRequest`, () => {
 
   // EXP-1468: a sealed show card (device gateway) feeds the gate through
   // its clear part: uploaded pictures count, result:false and pending don't.
-  const sealedThread = async (cards: Record<string, unknown>[]) => {
+  const sealedChat = async (cards: Record<string, unknown>[]) => {
     const { prPicturesOfCard } = await vi.importActual<typeof import("@/lib/pr-pictures")>(`@/lib/pr-pictures`)
-    threadOf(
+    chatOf(
       cards.flatMap((card) => prPicturesOfCard(card)).map((p) => ({ ...p, url: `https://exp.example/api/attachments/${p.attachmentId}` }))
     )
   }
   const sealedSurface = (extra: Record<string, unknown>) => ({ kind: `surface`, sealed: `v1:1:${`A`.repeat(80)}`, ...extra })
 
   it(`a sealed card's clear pictures pass the UI gate and land in the body by label`, async () => {
-    await sealedThread([sealedSurface({ pictures: [{ label: `web nav`, attachmentId: `att-sealed` }] })])
+    await sealedChat([sealedSurface({ pictures: [{ label: `web nav`, attachmentId: `att-sealed` }] })])
     vi.mocked(compareChangedPaths).mockResolvedValueOnce([`apps/web/src/components/nav.tsx`])
     await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
     expect(gh.createPullRequest).toHaveBeenCalledWith(
@@ -368,7 +368,7 @@ describe(`openPullRequest`, () => {
   })
 
   it(`a sealed result:false card or a picture still to upload never passes the UI gate`, async () => {
-    await sealedThread([
+    await sealedChat([
       sealedSurface({ result: false, pictures: [{ label: `web nav`, attachmentId: `att-chat` }] }),
       sealedSurface({ result: true, pictures: [{ label: `web nav` }] }),
     ])
@@ -418,7 +418,7 @@ describe(`openPullRequest`, () => {
     expect(patchPullDescription).toHaveBeenCalledTimes(1)
   })
 
-  it(`#NEW-20: a named head on another thread's PR updates it, but its body stays that thread's`, async () => {
+  it(`#NEW-20: a named head on another chat's PR updates it, but its body stays that chat's`, async () => {
     h.selectQueue.push([{ id: `root-1`, teamId: `team-1` }], [{ slug: `acme` }])
     vi.mocked(sync.loadLivePullRequestByHead).mockResolvedValueOnce(
       pr({ head: `exp/other`, sessionId: `sess-9`, rootSessionId: `root-9` }) as never
@@ -482,14 +482,14 @@ describe(`resolvePullRequest`, () => {
     await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).resolves.toMatchObject({ id: `pr-1` })
   })
 
-  // FEED-111: EXP-1327's own PR #1092 lost to the newer thread-level #1096,
+  // FEED-111: EXP-1327's own PR #1092 lost to the newer chat-level #1096,
   // which links every root issue, so `pr_merge({issueId})` aimed at #1096.
-  const THREAD_PR = { pr: pr({ id: `pr-1096`, number: 1096 }) as never, linkedIssues: 8, assigned: false }
+  const CHAT_PR = { pr: pr({ id: `pr-1096`, number: 1096 }) as never, linkedIssues: 8, assigned: false }
   const OWN_PR = { pr: pr({ id: `pr-1092`, number: 1092 }) as never, linkedIssues: 1, assigned: false }
 
   it(`an issue with several live PRs resolves to the one focused on it, not the newest`, async () => {
     h.selectQueue.push([{ teamId: `team-1` }])
-    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([THREAD_PR, OWN_PR])
+    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([CHAT_PR, OWN_PR])
     await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).resolves.toMatchObject({
       id: `pr-1092`,
     })
@@ -498,7 +498,7 @@ describe(`resolvePullRequest`, () => {
   it(`the PR the issue's assigned session opened wins`, async () => {
     h.selectQueue.push([{ teamId: `team-1` }])
     vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([
-      { ...THREAD_PR, assigned: true },
+      { ...CHAT_PR, assigned: true },
       OWN_PR,
     ])
     await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).resolves.toMatchObject({
@@ -508,7 +508,7 @@ describe(`resolvePullRequest`, () => {
 
   it(`a tie refuses and names the candidates`, async () => {
     h.selectQueue.push([{ teamId: `team-1` }])
-    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([{ ...THREAD_PR, linkedIssues: 1 }, OWN_PR])
+    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([{ ...CHAT_PR, linkedIssues: 1 }, OWN_PR])
     await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
       message: expect.stringMatching(/#1096.*#1092/),

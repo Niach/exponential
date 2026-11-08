@@ -579,13 +579,40 @@
           "items": {
             "type": "number"
           },
-          "required": true,
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "type": "string",
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "type": "enum",
           "enum": "tone",
           "description": "The series' colour tone; charts default to the chart hues in order."
+        }
+      }
+    },
+    "valueFormat": {
+      "description": "How a chart prints values.",
+      "properties": {
+        "type": {
+          "type": "enum",
+          "values": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "default": "number",
+          "description": "The format."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "Fixed fraction digits."
         }
       }
     },
@@ -1505,7 +1532,16 @@
           "type": "style",
           "description": "Extra Box styles merged over the card's own."
         }
+,
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "A press target firing `press` (an `on.press` implies it)."
+        }
       },
+      "events": [
+        "press"
+      ],
       "example": {
         "title": "Overview",
         "description": "Your account summary"
@@ -2616,6 +2652,11 @@
           "type": "boolean",
           "default": false,
           "description": "A + button firing `new`."
+        },
+        "swipeable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Touch: swipe pages the panels."
         }
       },
       "events": [
@@ -4003,7 +4044,7 @@
         "*"
       ],
       "slotScope": "row",
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "props": {
         "columns": {
           "type": "array",
@@ -4076,7 +4117,7 @@
         "totals": {
           "type": "boolean",
           "default": false,
-          "description": "Sum row."
+          "description": "Totals."
         }
       },
       "events": [
@@ -4149,6 +4190,18 @@
           "bindable": true,
           "description": "One per line, bar group or pie ring."
         },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true,
+          "description": "A query's `groups`; series read their `field`."
+        },
+        "categoryField": {
+          "type": "string",
+          "description": "The rows' category field."
+        },
         "title": {
           "type": "string",
           "description": "A title above the chart."
@@ -4173,6 +4226,11 @@
         "max": {
           "type": "number",
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        "valueFormat": {
+          "type": "object",
+          "shape": "valueFormat",
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         "showAxes": {
           "type": "boolean",
@@ -4289,7 +4347,16 @@
           "bindable": true,
           "description": "Recent values (sparkline)."
         }
+,
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "A press target firing `press` (an `on.press` implies it)."
+        }
       },
+      "events": [
+        "press"
+      ],
       "example": {
         "label": "Active users",
         "value": "1,284",
@@ -5857,9 +5924,10 @@
       "lite": true,
       "children": "none",
       "slots": [
-        "attachment"
+        "attachment",
+        "avatar"
       ],
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "props": {
         "text": {
           "type": "markdown",
@@ -5888,8 +5956,21 @@
           "type": "string",
           "bindable": true,
           "description": "Caption above, in only."
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "A press target firing `press` (`on.press` or `href` imply it)."
+        },
+        "href": {
+          "type": "url",
+          "bindable": true,
+          "description": "The URL a press opens; implies `pressable`."
         }
       },
+      "events": [
+        "press"
+      ],
       "example": {
         "text": "Is the printer fixed?",
         "side": "out",
@@ -6541,7 +6622,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "props": {
         "kind": {
           "type": "string",
@@ -6554,21 +6635,21 @@
         },
         "columns": {
           "type": "array",
-          "description": "Field names or columns; default all."
+          "description": "Fields/columns."
         },
         "search": {
           "type": "boolean",
           "default": false,
-          "description": "Search field."
+          "description": "Search."
         },
         "filter": {
           "type": "string",
-          "description": "Enum field to filter by."
+          "description": "Enum filter."
         },
         "totals": {
           "type": "boolean",
           "default": false,
-          "description": "Sum row."
+          "description": "Totals."
         },
         "add": {
           "type": "boolean",

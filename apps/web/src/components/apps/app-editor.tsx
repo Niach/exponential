@@ -20,6 +20,7 @@ import {
   type AppEditorSheet,
   type AppEditorTab,
   editorDevice,
+  editorHeader,
   rollbackBody,
   rollbackTitle,
   rollbackWarns,
@@ -36,6 +37,7 @@ import {
   ListRow,
   Menu,
   type MenuEntry,
+  PhoneHeaderTitle,
   Pill,
   Prompt,
   SegmentedControl,
@@ -49,10 +51,10 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  ThreadConversation,
+  ChatConversation,
   toast,
   useIsMobile,
-  userMessageCaption,
+  userMessageTime,
   type DevicePickerDevice,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
@@ -64,11 +66,13 @@ import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
 import { requestDeviceMove } from "@/components/session-device-move"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { CHAT_HEADER_TONE_CLASS } from "@/components/chat/chat-header"
+import { useEditorRunner } from "@/components/apps/editor-runner"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { renderChatText } from "@/components/chat/chat-markdown"
 import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
@@ -90,7 +94,7 @@ import { cn } from "@/lib/utils"
 //
 // VAPP-177 (`editorTabs`): on md+ the header (glyph + name + the version
 // pill) ends in the Preview | Versions | Settings segmented control and the
-// body = two panes, the chat (the member's editor session: THE thread
+// body = two panes, the chat (the member's editor session: THE chat
 // conversation rows + THE session composer, no header strip) beside the
 // selected tab. Phones: Chat | Preview under the header, one pane, and the
 // header's `…` menu: Versions and Settings open THE SAME bodies as a bottom
@@ -375,6 +379,22 @@ export function AppEditor({
     const current = devices.devices?.find((d) => d.deviceId === deviceId)
     return [current ? row(current) : { id: deviceId, name: deviceId }, ...rows]
   }, [candidates, deviceId, devices.devices])
+  // #EXP-1729 (apps.json `editorHeader`): the header's `status · device`,
+  // the device = the one the composer shows, named as its Device row names it.
+  const shownDevice = deviceId ? devices.devices?.find((d) => d.deviceId === deviceId) : undefined
+  const header = editorHeader(
+    root ? { status: root.status, busy: root.busy, needsInput: root.needsInput } : null,
+    deviceId
+      ? {
+          name: deviceRows.find((r) => r.id === deviceId)?.name ?? deviceId,
+          online: shownDevice ? deviceIsOnline(shownDevice) : false,
+        }
+      : null
+  )
+  const subtitleClass = CHAT_HEADER_TONE_CLASS[header.tone]
+  // #EXP-1729: Account › and Model › (composer-menu.json, an app editor's
+  // composer, always): held picks ride the next send until the root is live.
+  const heldRunner = useEditorRunner(root, shownDevice)
   const pickDevice = (next: string) => {
     saveEditorDevice(app.id, next)
     setPickedDevice({ appId: app.id, deviceId: next })
@@ -482,7 +502,7 @@ export function AppEditor({
 
   const openSession = (session: SessionRow) =>
     void (session.parentId === null
-      ? navigate({ to: `/t/$teamSlug/threads/$threadId`, params: { teamSlug, threadId: session.id } })
+      ? navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } })
       : navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } }))
 
   const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
@@ -516,7 +536,7 @@ export function AppEditor({
     if (starting || !deviceId) return
     setStarting(true)
     try {
-      const result = await sendSessionMessage({ teamId, appId: app.id, deviceId, text })
+      const result = await sendSessionMessage({ teamId, appId: app.id, deviceId, text, ...heldRunner?.send })
       await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch {
       toast.error(`Couldn't send the message`)
@@ -533,16 +553,17 @@ export function AppEditor({
   }
   const channel =
     root && messages.length > 0 ? (
-      <ThreadConversation
+      <ChatConversation
         rows={channelRows}
-        renderText={renderThreadText}
+        renderText={renderChatText}
         attachmentSrc={attachmentSrc}
-        messageCaption={(row) =>
-          userMessageCaption({
-            name: row.authorId ? users.find((user) => user.id === row.authorId)?.name : null,
-            at: messageAt(row.id),
-          })
-        }
+        chat={{ sessionId: root.id, title: app.name, agentId: null }}
+        member={(id) => (users as User[]).find((user) => user.id === id) ?? null}
+        viewerId={me ?? null}
+        messageTime={(row) => {
+          const at = messageAt(row.id)
+          return at ? userMessageTime(at) : null
+        }}
         onOpenSession={(sessionId) => {
           const target = teamSessions.find((row) => row.id === sessionId)
           if (target) openSession(target)
@@ -589,6 +610,7 @@ export function AppEditor({
       deviceId={deviceId ?? undefined}
       deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
       moveDevice={device.move}
+      heldRunner={heldRunner}
       disabled={!root && !deviceId}
       placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
       autoFocus={draft && !root}
@@ -844,13 +866,18 @@ export function AppEditor({
       <div className="flex h-dvh min-h-0 flex-col" data-testid={APPS_TEST_IDS.editor}>
         <MobileDetailHeader
           title={
-            // Centred like every phone header (iOS/Android): the flex row
-            // would otherwise sit left in the header's centred title slot.
-            <span className="flex min-w-0 items-center justify-center gap-2">
-              {glyph}
-              <span className="truncate">{app.name}</span>
-              {versionPill}
-            </span>
+            // #EXP-1729: THE chat header (chats.json `shell.chatHeader`): the
+            // lead disc carrying the app's glyph, the name over `status ·
+            // device` in its tone; no version pill on phones.
+            <PhoneHeaderTitle
+              disc={
+                <span data-slot="chat-lead" className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                  {glyph}
+                </span>
+              }
+              title={app.name}
+              subtitle={<span className={subtitleClass} data-tone={header.tone}>{header.subtitle}</span>}
+            />
           }
           onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
           menu={
@@ -899,7 +926,13 @@ export function AppEditor({
     <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.editor}>
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
         {glyph}
-        <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{app.name}</h1>
+        {/* #EXP-1729: the chat header's title block: the name over `status · device`. */}
+        <div className="flex min-w-0 flex-col">
+          <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{app.name}</h1>
+          <span className={cn(`truncate text-xs`, subtitleClass)} data-tone={header.tone} data-testid="chat-header-subtitle">
+            {header.subtitle}
+          </span>
+        </div>
         {versionPill}
         <div className="flex-1" />
         {showPublish && (

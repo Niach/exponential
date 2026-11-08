@@ -103,7 +103,7 @@ export async function settle(page: Page, extraMs = 1_200): Promise<void> {
  * EXP-1558: park the pointer in the top-left corner (the window chrome above
  * the team switcher, which hovers nothing). Playwright's mouse stays wherever
  * the last click left it, across views on the same page, so a list row under
- * it lit up in the shot (ask-dock, threads) where no other client lights one.
+ * it lit up in the shot (ask-dock, chats) where no other client lights one.
  */
 export async function parkPointer(page: Page): Promise<void> {
   await page.mouse.move(0, 0).catch(() => {})

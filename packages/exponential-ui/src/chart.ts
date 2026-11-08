@@ -4,6 +4,8 @@
 // mirrored by the Rust core and the native painters; geometry (bars, arcs)
 // stays each painter's, fed by these.
 
+import { formatCompact, toNum, type Formatter } from "./format"
+
 export interface ChartSeries {
   name: string
   values: readonly number[]
@@ -111,6 +113,56 @@ export function niceTicks(min: number, max: number, target = 5): { min: number; 
 export function seriesColor(index: number, tone?: string): string {
   if (tone) return tone === `danger` ? `$color.destructive` : tone === `neutral` ? `$color.mutedForeground` : `$color.${tone}`
   return `$color.chart${(index % 8) + 1}`
+}
+
+/** FEED-205: `Chart.valueFormat`, how the value-axis ticks, the tooltip,
+ *  the value labels and the summary print a value. */
+export interface ChartValueFormat {
+  type?: `number` | `currency` | `percent` | `compact`
+  currency?: string
+  decimals?: number
+}
+
+const CURRENCY_CODE = /^[A-Za-z]{3}$/
+
+/** A chart value through the surface Formatter, as a Table cell of the same
+ *  type: `number` (default) = `formatter.number`, `currency` (`currency`,
+ *  default USD; not 3 letters = a number), `percent` (a ratio), `compact`
+ *  (`formatCompact`; with a `currency` = a compact currency); `decimals`
+ *  fixes the fraction digits. */
+export function formatChartValue(formatter: Formatter, value: number, format?: ChartValueFormat | null): string {
+  const raw = format?.decimals
+  const decimals = typeof raw === `number` && Number.isFinite(raw) ? raw : undefined
+  const code = format?.currency === undefined ? `USD` : format.currency
+  const valid = typeof code === `string` && CURRENCY_CODE.test(code)
+  switch (format?.type) {
+    case `currency`:
+      return valid ? formatter.currency(value, code.toUpperCase(), { decimals }) : formatter.number(value, { decimals })
+    case `percent`:
+      return formatter.percent(value, { decimals })
+    case `compact`:
+      return formatCompact(formatter, value, { decimals, ...(typeof format.currency === `string` && valid ? { currency: code.toUpperCase() } : {}) })
+    default:
+      return formatter.number(value, { decimals })
+  }
+}
+
+/** FEED-205: a Chart's categories and series over `rows` (a named query's
+ *  `groups`): with `rows`, the categories are each row's `categoryField`
+ *  and a series with a `field` takes that field of every row (a numeric
+ *  string counts (`toNum`), anything else is NaN = no point); without, the props as
+ *  written. */
+export function chartData(props: { rows?: unknown; categoryField?: unknown; categories?: unknown; series?: unknown }): { categories: string[]; series: ChartSeries[] } {
+  const rows = Array.isArray(props.rows) ? props.rows.map((r) => (r && typeof r === `object` ? (r as Record<string, unknown>) : {})) : null
+  const field = typeof props.categoryField === `string` ? props.categoryField : ``
+  const show = (v: unknown) => (v === undefined || v === null ? `` : typeof v === `object` ? `` : String(v))
+  const categories = rows && field ? rows.map((r) => show(r[field])) : Array.isArray(props.categories) ? props.categories.map(show) : []
+  const series = (Array.isArray(props.series) ? props.series : []).map((s): ChartSeries => {
+    const o = s && typeof s === `object` ? (s as Record<string, unknown>) : {}
+    const values = rows && typeof o.field === `string` ? rows.map((r) => toNum(r[o.field as string])) : Array.isArray(o.values) ? o.values.map(toNum) : []
+    return { name: show(o.name), values, ...(typeof o.tone === `string` ? { tone: o.tone } : {}) }
+  })
+  return { categories, series }
 }
 
 /** The donut's hole as a share of its radius (pie = 0). */

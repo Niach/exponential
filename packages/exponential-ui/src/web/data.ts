@@ -129,6 +129,7 @@ export function memoFormatter(base: Formatter, max = 4096): Formatter {
     number: (value, o) => memo(`n|${value}|${o?.decimals}|${o?.grouping}`, () => base.number(value, o)),
     currency: (value, currency, o) => memo(`c|${currency}|${value}|${o?.decimals}|${o?.grouping}`, () => base.currency(value, currency, o)),
     percent: (value, o) => memo(`p|${value}|${o?.decimals}`, () => base.percent(value, o)),
+    compact: base.compact,
     date: (value, o) => memo(`d|${o?.format}|${o?.style}|${o?.time}|${valueKey(value)}`, () => base.date(value, o)),
     relativeTime: (value, now) => base.relativeTime(value, now),
     plural: (value) => memo(`l|${value}`, () => base.plural(value)) as ReturnType<Formatter[`plural`]>,

@@ -195,7 +195,7 @@ class MarkdownAnnotateTest {
             null,
             mentions("Ada Lovelace" to "dev@example.com"),
         )
-        // Padded by the two pad cells, the name unbreakable (thread e4a04d22).
+        // Padded by the two pad cells, the name unbreakable (session e4a04d22).
         assertEquals("ping \u00A0@Ada\u00A0Lovelace\u00A0 now", result.text)
         // Not a link — nothing to open, so it can never collide with one.
         assertEquals(0, result.getLinkAnnotations(0, result.length).size)
@@ -541,7 +541,7 @@ class MarkdownAnnotateTest {
         assertEquals("/t/acme/sessions/abc", (plain.getLinkAnnotations(0, plain.length).single().item as LinkAnnotation.Url).url)
     }
 
-    // --- Thread e4a04d22: the mention pill is web's `.mention-pill` ×4. ---
+    // --- Session e4a04d22: the mention pill is web's `.mention-pill` ×4. ---
 
     @Test
     fun theMentionPillIsAnAccentCapsuleAtThirteenMedium() {

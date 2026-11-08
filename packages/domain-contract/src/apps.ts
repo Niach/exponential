@@ -272,6 +272,33 @@ export function editorDevice(
   return { deviceId, move: root !== null && deviceId !== root.deviceId }
 }
 
+/** #EXP-1729 (`editorHeaderCases`, the fixture's `editorHeader`): the
+ *  editor header's `status · device` subtitle and its tone. `device` = the
+ *  device the composer shows (`editorDevice`), named, online or not. */
+export type EditorHeaderTone = `attention` | `active` | `muted`
+
+export function editorHeader(
+  root: { status: string; busy: boolean; needsInput: boolean } | null,
+  device: { name: string; online: boolean } | null
+): { subtitle: string; tone: EditorHeaderTone } {
+  const copy = fixture.editorHeader.copy
+  const live = root !== null && root.status !== `ended`
+  const word = !live
+    ? null
+    : root.needsInput
+      ? copy.needsInput
+      : root.busy
+        ? copy.working
+        : root.status === `queued`
+          ? copy.queued
+          : null
+  const offline = !device?.online
+  const subtitle = [word, offline ? copy.noDeviceOnline : device.name].filter(Boolean).join(` · `)
+  const tone: EditorHeaderTone =
+    (live && root.needsInput) || offline ? `attention` : live && (root.busy || root.status === `queued`) ? `active` : `muted`
+  return { subtitle, tone }
+}
+
 /** #VAPP-220 (`automationRowCases`): one row of the Settings tab's
  *  Automations group, from tRPC `appAccess.appTools` `automations`. */
 export interface AutomationRowInput {

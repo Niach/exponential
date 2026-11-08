@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
-import { ChatList, SEALED_LOCKED_TEST_ID, ThreadConversation, TooltipProvider } from "@exp/ui"
+import type { SessionChatRow } from "@exp/domain-contract/session-tree"
+import { ChatList, SEALED_LOCKED_TEST_ID, ChatConversation, TooltipProvider } from "@exp/ui"
 
 // EXP-1459 (sealed-content.json `placeholder`): THE locked state on the web:
 // one transcript pill per locked row (both layouts, no time), the list's
 // preview italic.
 
-const ROWS: ThreadRow[] = [
+const ROWS: SessionChatRow[] = [
   { type: `locked`, id: `k1`, reason: `noKey`, author: `agent` },
   { type: `locked`, id: `k2`, reason: `unreadable`, author: `user` },
 ]
@@ -16,12 +16,11 @@ const ROWS: ThreadRow[] = [
 function transcript(layout: `transcript` | `bubbles`) {
   return render(
     <TooltipProvider>
-      <ThreadConversation
+      <ChatConversation
         rows={ROWS}
         layout={layout}
         renderText={(text) => text}
         attachmentSrc={() => ``}
-        messageCaption={() => `Dana · 21:02`}
         messageTime={() => `21:02`}
         arrived={() => false}
       />

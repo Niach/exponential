@@ -30,7 +30,7 @@ import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
-import { useThreadsNav } from "@/hooks/use-nav-counts"
+import { useChatsNav } from "@/hooks/use-nav-counts"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
@@ -39,7 +39,7 @@ const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 // chats.json `shell.tabIcons` (Team = the active team's mark; Board = the
 // active board's glyph, this one only while the team has no board).
 const BoardTabIcon = conceptIcon(`nav-issues`)
-const ChatsTabIcon = conceptIcon(`nav-threads`)
+const ChatsTabIcon = conceptIcon(`nav-chats`)
 const AppsTabIcon = conceptIcon(`nav-apps`)
 // `shell.boardTab.caret`.
 const BoardCaretIcon = conceptIcon(`nav-team-switcher`)
@@ -78,10 +78,10 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/drafts/$draftId`,
     fuzzy: true,
   })
-  // EXP-1293: a thread (its pager under its own header) and an agent's
+  // EXP-1293: a chat (its pager under its own header) and an agent's
   // channel are details too.
-  const onThreadDetail = matchRoute({
-    to: `/t/$teamSlug/threads/$threadId`,
+  const onChatDetail = matchRoute({
+    to: `/t/$teamSlug/sessions/$sessionId`,
     fuzzy: true,
   })
   const onAgentChannel = matchRoute({
@@ -118,7 +118,7 @@ export function useMobileChromeVisible(): boolean {
     !onIssueDetail &&
     !onSessionDetail &&
     !onDraftPage &&
-    !onThreadDetail &&
+    !onChatDetail &&
     !onAgentChannel &&
     !onAppEditor
   )
@@ -145,7 +145,7 @@ export function resolveBoardTarget(
   return boards[0]
 }
 
-// EXP-1293 → thread 58cb32df: the Chats tab's dot — amber while a chat
+// EXP-1293 → chat 58cb32df: the Chats tab's dot — amber while a chat
 // needs you, green while one runs, else the unread dot while a chat holds
 // an unread reply (green-500/yellow-400 = the natives' semantic tokens,
 // EXP-699). Phones read the ONE active team (chats.json `shell`).
@@ -163,7 +163,7 @@ function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): s
 // so the tab capsule beside it gets the same width as on iOS and Android.
 // EXP-973: it is the SAME capsule on every tab-bar route. EXP-827 drew it
 // only on a board and left a lone chat circle everywhere else, so filing a
-// bug from Devices or Threads meant a trip back to a board first. With no
+// bug from Devices or Chats meant a trip back to a board first. With no
 // board in the team at all there is nothing to file into — the arm then dims
 // (disabled, "New issue (no board)") instead of disappearing, so the control
 // never moves under the thumb. Same shape ×3 (iOS / Android `composeEnabled`).
@@ -182,7 +182,7 @@ interface MobileTabBarProps {
 // Native-parity mobile navigation (EXP-189): a floating glass capsule with
 // the top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
-// Thread 58cb32df → #EXP-1384 (chats.json `shell.tabs`, ×3 with iOS and
+// Chat 58cb32df → #EXP-1384 (chats.json `shell.tabs`, ×3 with iOS and
 // Android): Board · Chats · Apps · Team, each an icon over its label on
 // `PhoneTabBar` (the iOS Liquid Glass look-alike on the FAB chrome recipe,
 // the drag lens included). The Board tab = the active board's glyph + name;
@@ -219,7 +219,7 @@ export function MobileTabBar({
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   // chats.json: ONE active team drives every phone screen, the dot too.
-  const nav = useThreadsNav(team?.id)
+  const nav = useChatsNav(team?.id)
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
@@ -228,7 +228,7 @@ export function MobileTabBar({
   const onTeamIndex = Boolean(matchRoute({ to: `/t/$teamSlug` }))
   const onAgent = Boolean(matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true }))
   const onChats = Boolean(
-    matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
+    matchRoute({ to: `/t/$teamSlug/chats`, fuzzy: true })
   )
   const onApps = Boolean(matchRoute({ to: `/t/$teamSlug/apps`, fuzzy: true }))
   // The Team tab holds the settings rows and Devices (#EXP-1384: pushed from
@@ -353,9 +353,9 @@ export function MobileTabBar({
           icon={<ChatsTabIcon className="size-5" />}
           selected={onChats}
           dot={chatsDot(nav)}
-          data-testid="tab-threads"
+          data-testid="tab-chats"
         >
-          <Link to="/t/$teamSlug/threads" params={{ teamSlug }} />
+          <Link to="/t/$teamSlug/chats" params={{ teamSlug }} />
         </PhoneTab>
         <PhoneTab
           asChild
@@ -395,7 +395,7 @@ export function MobileTabBar({
           with New issue on a board (×3 mobile), and EXP-973 made that one
           capsule the whole story — it rides every top-level surface, with the
           New-issue arm dimmed only when the team has no board. EXP-1327: no
-          dot here; the live dot rides Threads. */}
+          dot here; the live dot rides Chats. */}
       <div className={FAB_GROUP_CLASS} data-testid="fab-group">
         <Link
           to="/t/$teamSlug/agent"

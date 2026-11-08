@@ -9,7 +9,7 @@ import ExponentialUI
 /// What an agent-markdown render needs to fetch the images it embeds: the
 /// instance base URL the relative `/api/attachments/{id}` paths resolve
 /// against, plus the credentials the attachment loader authenticates with
-/// (EXP-440). Built once per screen, exactly like `CommentThreadView` does it.
+/// (EXP-440). Built once per screen, exactly like `CommentChatView` does it.
 struct AgentMarkdownContext {
     let baseURL: URL?
     let accountId: String

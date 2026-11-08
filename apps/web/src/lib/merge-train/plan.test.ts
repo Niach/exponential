@@ -77,7 +77,7 @@ describe(`buildUnits`, () => {
 
 describe(`subtreeIdle`, () => {
   const s = (id: string, parentId: string | null, status = `idle`, busy = false) => ({ id, parentId, status, busy })
-  it(`waits for the opener and its descendants only, never the rest of the thread`, () => {
+  it(`waits for the opener and its descendants only, never the rest of the chat`, () => {
     const tree = [s(`root`, null, `running`, true), s(`opener`, `root`), s(`kid`, `opener`), s(`sibling`, `root`, `queued`)]
     expect(subtreeIdle(`opener`, tree)).toBe(true)
     expect(subtreeIdle(`opener`, [...tree.slice(0, 2), s(`kid`, `opener`, `running`, true), tree[3]!])).toBe(false)

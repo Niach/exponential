@@ -222,6 +222,7 @@ impl ScopePicker {
         key: &str,
         state: CheckState,
         disabled: bool,
+        name: SharedString,
         on_toggle: impl Fn(&mut Self, bool, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
@@ -229,6 +230,8 @@ impl ScopePicker {
         let box_id = self.element_id(&format!("{kind}-box"), key);
         div()
             .id(self.element_id(kind, key))
+            .role(gpui::Role::Button)
+            .aria_label(name.clone())
             .flex()
             .items_center()
             .gap_2()
@@ -237,7 +240,7 @@ impl ScopePicker {
                     on_toggle(this, next, cx);
                 }))
             })
-            .child(checkbox(box_id, state, disabled, cx))
+            .child(checkbox(box_id, state, disabled, cx).aria_label(name))
     }
 
     fn render_team(&self, team: &ScopeTeam, cx: &mut Context<Self>) -> Div {
@@ -250,6 +253,7 @@ impl ScopePicker {
                 &team.id,
                 whole_team.into(),
                 false,
+                SharedString::from(team.name.clone()),
                 move |this, on, cx| this.set_team(&team_id, on, cx),
                 cx,
             )
@@ -271,6 +275,7 @@ impl ScopePicker {
                     &board.id,
                     (whole_team || selected).into(),
                     whole_team,
+                    SharedString::from(board.name.clone()),
                     move |this, on, cx| this.set_board(&board_id, on, cx),
                     cx,
                 )

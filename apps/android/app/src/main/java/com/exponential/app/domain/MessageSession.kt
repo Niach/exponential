@@ -1,7 +1,7 @@
 package com.exponential.app.domain
 
 // #EXP-1730 (one-tree model): a message lives on a SESSION
-// (`messages.session_id`); a session's thread is the messages whose own
+// (`messages.session_id`); a session's chat is the messages whose own
 // session id is that session, never keyed through `conversations`.
 // Hand-ported from `packages/domain-contract/src/message-session.ts`,
 // locked to `fixtures/message-session.json` by MessageSessionTest.

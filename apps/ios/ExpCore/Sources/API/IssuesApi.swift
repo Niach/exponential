@@ -29,9 +29,9 @@ public struct CreateIssueInput: Encodable, Sendable {
     /// team, server-checked); the server writes the `parent` relation in the
     /// create's transaction. Nil is omitted from the wire.
     public var parentId: String?
-    /// EXP-1291: file the issue INTO this session's thread
+    /// EXP-1291: file the issue INTO this session's chat
     /// (`issues.create({sessionId})` links it to the session's ROOT, source
-    /// `user`) — the thread's "New issue". Nil is omitted from the wire.
+    /// `user`) — the chat's "New issue". Nil is omitted from the wire.
     public var sessionId: String?
 
     public init(

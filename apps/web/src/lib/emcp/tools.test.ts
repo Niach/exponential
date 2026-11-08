@@ -447,7 +447,7 @@ const STATUS = `77777777-7777-7777-7777-777777777777`
 // EXP-637: the X-Exp-Session-Id the launcher injects (a `sessions` row since
 // EXP-1291). An identifier, never a credential: ownership is re-checked.
 const SESSION = `66666666-6666-4666-8666-666666666666`
-// EXP-1291 fixtures: a thread root, a child session, a message, a PR row.
+// EXP-1291 fixtures: a chat root, a child session, a message, a PR row.
 const ROOT = `aaaaaaaa-0000-4000-8000-000000000001`
 const CHILD = `aaaaaaaa-0000-4000-8000-000000000002`
 const MSG = `aaaaaaaa-0000-4000-8000-000000000003`
@@ -814,7 +814,8 @@ describe(`exponential_agents_get`, () => {
   it(`reads one agent with its instructions, never its trigger state`, async () => {
     dbRows.current = [agentRow]
     const { triggerState: _state, ...rest } = agentRow
-    expect(parseOk(await tool(`exponential_agents_get`)({ id: UUID }))).toEqual(rest)
+    // #EXP-1730: + its root session and app (the mock answers every read with the row).
+    expect(parseOk(await tool(`exponential_agents_get`)({ id: UUID }))).toEqual({ ...rest, rootSessionId: UUID, appSlug: null })
   })
 
   it(`answers not found for a missing agent`, async () => {
@@ -1143,6 +1144,7 @@ describe(`exponential_teams_get`, () => {
       `estimationType`,
       `iconUrl`,
       `id`,
+      `leadAssistantId`,
       `mergeMode`,
       `name`,
       `prMergedAutomation`,
@@ -1510,7 +1512,7 @@ describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
     const inRun = collectTools(USER, SESSION)
     const result = await inRun.get(`exponential_sessions_compact`)!({
       reason: `long`,
-      keep: `open threads`,
+      keep: `open chats`,
     })
     expect(parseOk(result)).toEqual({
       accepted: false,
@@ -1520,7 +1522,7 @@ describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
       { url: `wss://relay.test`, secret: `s` },
       SESSION,
       { userId: USER.id, deviceId: `dev-1` },
-      `open threads`
+      `open chats`
     )
   })
 })
@@ -2481,7 +2483,7 @@ const teamConfined = (teamIds: string[] = []): McpAccess => ({
 })
 
 describe(`retired tools (EXP-1291)`, () => {
-  it(`registers none of the v1 session, thread and notify tools`, () => {
+  it(`registers none of the v1 session, chat and notify tools`, () => {
     const names = [...collectToolDefs().keys()]
     for (const name of [
       `exponential_sessions_start`,
@@ -2660,7 +2662,7 @@ describe(`exponential_sessions_get / list`, () => {
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
   })
 
-  it(`lists threads by default and one agent's conversations on request`, async () => {
+  it(`lists chats by default and one agent's conversations on request`, async () => {
     sessionsCore.listSessions.mockResolvedValue([{ id: ROOT }])
     await tool(`exponential_sessions_list`)({})
     expect(sessionsCore.listSessions).toHaveBeenCalledWith(USER.id, {
@@ -2837,7 +2839,7 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(none.content[0].text).toContain(`not linked`)
   })
 
-  it(`issues unlink refuses another team's thread or another user's private thread`, async () => {
+  it(`issues unlink refuses another team's chat or another user's private chat`, async () => {
     // Not a member of its team, or private and not the starter: not found.
     sessionsCore.loadSessionForUser.mockRejectedValueOnce(
       new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -2849,9 +2851,9 @@ describe(`exponential_sessions_link / unlink`, () => {
       sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
     )
     sessionsCore.assertCanSteer.mockRejectedValueOnce(forbidden())
-    const privateThread = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
-    expect(privateThread.isError).toBe(true)
-    // A thread of another team than the issue's.
+    const privateChat = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(privateChat.isError).toBe(true)
+    // A chat of another team than the issue's.
     sessionsCore.loadSessionForUser.mockResolvedValue(
       sessionRow({ id: CHILD, rootId: ROOT, teamId: WS })
     )
@@ -2885,7 +2887,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     expect(sessionsCore.linkIssues).not.toHaveBeenCalled()
   })
 
-  it(`link: true files into the caller's own thread, as a filed agent link`, async () => {
+  it(`link: true files into the caller's own chat, as a filed agent link`, async () => {
     dbRows.current = [callerRow({ teamId: `ws-1` })]
     const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
       boardId: PROJ,
@@ -2943,7 +2945,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     expect(caller.issues.create).not.toHaveBeenCalled()
   })
 
-  it(`link: true refuses a team agent's channel, another team's thread or no session, before filing`, async () => {
+  it(`link: true refuses a team agent's channel, another team's chat or no session, before filing`, async () => {
     for (const over of [{ teamId: `ws-1`, rootAgentId: UUID }, { teamId: WS }]) {
       dbRows.current = [callerRow(over)]
       const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
@@ -3014,7 +3016,7 @@ describe(`pull request tools (EXP-1291)`, () => {
       issueIds: [UUID],
     })
     expect(noteAgentIssueActivity).toHaveBeenCalledWith(UUID, USER.id)
-    // EXP-1709: `pr_open` is a merge-train edge of the caller's thread.
+    // EXP-1709: `pr_open` is a merge-train edge of the caller's chat.
     expect(trainEdge).toHaveBeenCalledWith(ROOT)
   })
 
@@ -3782,7 +3784,7 @@ describe(`the reporter's view over MCP (NEW-19)`, () => {
     expect(out).toEqual({ access: `reporter` })
   })
 
-  it(`refuses threads, attachments and team audience for the reporter`, async () => {
+  it(`refuses chats, attachments and team audience for the reporter`, async () => {
     membership.resolveTeamAccess.mockRejectedValue(notMember())
     h.reporter.findIssueForReporter.mockResolvedValue(resolved)
     for (const extra of [

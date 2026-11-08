@@ -647,7 +647,7 @@ function SidebarMenuTrailing({
  *  number), in one of the rail's tones. Inside `SidebarMenuTrailing` on a
  *  row; positioned by the caller on an icon's corner. */
 const SIDEBAR_DOT_TONES = {
-  /** Unread (the Inbox's, a thread's unread reply). */
+  /** Unread (the Inbox's, a chat's unread reply). */
   unread: `bg-primary`,
   /** Waits on you: `semantic.yellow` (#FACC15). */
   needsYou: `bg-yellow-400`,

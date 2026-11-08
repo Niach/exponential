@@ -616,7 +616,9 @@
             {
               "id": "card",
               "component": "Box",
-              "props": {},
+              "props": {
+                "pressable": false
+              },
               "children": [
                 {
                   "id": "card.body",
@@ -663,7 +665,9 @@
                   "recipe": {
                     "macro": "Card",
                     "part": "body",
-                    "props": {}
+                    "props": {
+                      "pressable": false
+                    }
                   }
                 }
               ],
@@ -676,7 +680,9 @@
               "recipe": {
                 "macro": "Card",
                 "part": "root",
-                "props": {}
+                "props": {
+                  "pressable": false
+                }
               },
               "accessibility": {
                 "role": "group"

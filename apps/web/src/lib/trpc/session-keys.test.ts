@@ -35,8 +35,8 @@ const I3D = id(`3d`) // u3 daemon on box-3 (shared into team A)
 const I4 = id(`4a`) // u4, team B only
 const D1 = id(`d1`)
 const D3 = id(`d3`)
-const R1 = id(`f1`) // u1's private thread on mac-1
-const R2 = id(`f2`) // u2's shared thread on u3's box
+const R1 = id(`f1`) // u1's private chat on mac-1
+const R2 = id(`f2`) // u2's shared chat on u3's box
 const C2 = id(`c2`) // its child
 const R3 = id(`f3`) // team B
 const R4 = id(`f4`) // keyless, team A, shared
@@ -168,7 +168,7 @@ describe(`sessionKeys.create`, () => {
     const base = { rootId: R1, epoch: 1, publicKey: PUBLIC }
     await expect(caller(`u1`).create({ ...base, installId: I1R, wraps: wraps(I1R) })).rejects.toMatchObject({ code: `FORBIDDEN` })
     await expect(caller(`u1`).create({ ...base, installId: I2, wraps: wraps(I2) })).rejects.toMatchObject({ code: `FORBIDDEN` })
-    // u2 is a teammate but R1 is u1's private thread.
+    // u2 is a teammate but R1 is u1's private chat.
     await expect(caller(`u2`).create({ ...base, installId: I2, wraps: wraps(I2) })).rejects.toMatchObject({ code: `NOT_FOUND` })
     // Another team's member.
     await expect(caller(`u4`).create({ ...base, installId: I4, wraps: wraps(I4) })).rejects.toMatchObject({ code: `NOT_FOUND` })

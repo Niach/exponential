@@ -21,6 +21,8 @@ export const teamColumns = {
   estimationType: teams.estimationType,
   // VAPP-201: the team time zone (NULL = each device's own).
   timeZone: teams.timeZone,
+  // #EXP-1730: the team's lead Assistant (NULL = none).
+  leadAssistantId: teams.leadAssistantId,
   createdAt: teams.createdAt,
   updatedAt: teams.updatedAt,
 } as const

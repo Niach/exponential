@@ -1,4 +1,4 @@
-//! #EXP-1611 — CI on the thread's PR, the UI ×4 (`packages/domain-contract/
+//! #EXP-1611 — CI on the chat's PR, the UI ×4 (`packages/domain-contract/
 //! fixtures/pr-checks.json` CHECKS LIST, TS reference
 //! `packages/domain-contract/src/pr-checks.ts`): the `…` menu's Checks
 //! submenu ([`checks_summary`] for its entry, [`checks_list`] for its rows;

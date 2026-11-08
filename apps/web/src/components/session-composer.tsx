@@ -81,14 +81,14 @@ import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
-// EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
+// EXP-1293: THE reply box ×4 = the home's composer box (the
 // Composer primitive), never a new box. It posts ONE message to a session
-// (`sessions.send({sessionId})`): a thread root (an ended thread continues
+// (`sessions.send({sessionId})`): a chat root (an ended chat continues
 // server-side in a new child), an agent's channel, or an opened session.
 // Stop = `sessions.stop` while the session works.
 //
 // EXP-1334 (owner: ONE composer, the old session layout): the start, the
-// thread and the session view render the SAME frame (`ComposerFrame`): the
+// chat and the session view render the SAME frame (`ComposerFrame`): the
 // card = the field (the `/` menu over it) and ONE tool row. N-12 (owner
 // 2026-10-22, the iOS row ×4): the row = the "+" = THE options menu
 // (composer-menu.json rows minus the subject rows: Effort ›, Ultracode,
@@ -146,7 +146,7 @@ function useComposerSession(sessionId: string | null) {
   const live = row !== null && row.status !== `ended`
   const store = useMemo(() => (sessionId ? acquireSteerSession(sessionId) : IDLE_STORE), [sessionId])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
-  // The thread and the agent channel render no feed of their own: the
+  // The chat and the agent channel render no feed of their own: the
   // composer is what keeps the root's relay state (model, usage) current.
   useEffect(() => {
     if (row) store.noteSessionStatus(row.status)
@@ -207,6 +207,14 @@ function teamsPickChips(pick: ComposerTeamsBinding | null): boolean {
   return count > 0 && count < pick.teams.length
 }
 
+/** #EXP-1729: an app editor's Account › and Model › before its root runs,
+ *  and what they add to the next send. */
+export interface EditorHeldRunner {
+  account?: ComposerRunnerBinding[`account`]
+  model?: ComposerRunnerBinding[`model`]
+  send: { cli?: string; account?: string; model?: string }
+}
+
 interface PendingFile {
   key: string
   file: File
@@ -237,6 +245,7 @@ export function SessionComposer({
   deviceId,
   deviceMenu,
   moveDevice = false,
+  heldRunner,
   disabled = false,
   surface = `session`,
   onSent,
@@ -269,9 +278,14 @@ export function SessionComposer({
   /** #FEED-204: the ended root's next send goes to `deviceId`: it goes as
    *  `sessions.send({appId, deviceId})`, which revives the root there. */
   moveDevice?: boolean
+  /** #EXP-1729 (apps.json `editorHeader`): an app editor's Account › and
+   *  Model › while its root is not live (none yet, or ENDED): THE launch
+   *  composer's rows, and the picks ride the next send (`send`). A live
+   *  root reads its own and a pick is the session's switch, as anywhere. */
+  heldRunner?: EditorHeldRunner
   /** Nothing can be sent (an app editor with no device). */
   disabled?: boolean
-  /** composer-menu.json: a thread / a session, or an agent chat. */
+  /** composer-menu.json: a chat / a session, or an agent chat. */
   surface?: Exclude<ComposerMenuSurface, `launch`>
   /** The conversation a first message opened. */
   onSent?: (sessionId: string) => void
@@ -471,6 +485,7 @@ export function SessionComposer({
         ...(sessionId && !moveDevice ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
         text: sentText.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+        ...(ended && heldRunner ? heldRunner.send : {}),
         ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
       })
       for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
@@ -577,10 +592,18 @@ export function SessionComposer({
               agent={agent}
               runner={{
                 ...(deviceMenu ? { device: deviceMenu } : {}),
+                // #EXP-1729: an app editor's root not running yet = the held picks.
+                ...(ended && heldRunner
+                  ? {
+                      ...(heldRunner.account ? { account: heldRunner.account } : {}),
+                      ...(heldRunner.model ? { model: heldRunner.model } : {}),
+                    }
+                  : {}),
                 ...(row &&
                 !ended &&
-                accountSwitch.canSteer &&
-                accountSwitch.deviceOnline &&
+                // #EXP-1729: an app editor's composer always carries it (the
+                // switch's own rules disable the rows it refuses).
+                (appId !== undefined || (accountSwitch.canSteer && accountSwitch.deviceOnline)) &&
                 accountSwitch.options.length > 0
                   ? {
                       account: {
@@ -590,7 +613,7 @@ export function SessionComposer({
                       },
                     }
                   : {}),
-                ...(row && MODEL_SWITCHING_AGENTS.has(agent)
+                ...(row && !(ended && heldRunner) && MODEL_SWITCHING_AGENTS.has(agent)
                   ? {
                       model: {
                         value: model,
@@ -610,7 +633,8 @@ export function SessionComposer({
               prompts={{ prompts, onPick: insertPrompt }}
               teams={teamsPick ?? undefined}
               onAttach={(choice) => toolsRef.current?.attach(choice)}
-              rowsDisabled={row !== null && ended}
+              // #EXP-1729: an app editor's ENDED root revives on the next send.
+              rowsDisabled={row !== null && ended && appId === undefined}
               highlighted={files.length > 0}
             />
             <ComposerInlineTools ref={toolsRef} onFiles={addFiles} />

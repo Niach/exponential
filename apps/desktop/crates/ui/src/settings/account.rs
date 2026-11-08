@@ -174,6 +174,7 @@ impl AccountPane {
             _ => None,
         };
         let trigger = Button::new("account-timezone-trigger")
+            .accessibility_label("Timezone")
             .ghost()
             .cursor_pointer()
             .h_auto()

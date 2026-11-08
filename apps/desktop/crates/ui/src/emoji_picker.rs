@@ -190,6 +190,8 @@ impl EmojiPicker {
                             grid = grid.child(
                                 div()
                                     .id(ElementId::from(("emoji-cell", index)))
+                                    .role(gpui::Role::Button)
+                                    .aria_label(record.label.clone())
                                     .size(px(CELL_SIZE))
                                     .flex()
                                     .items_center()

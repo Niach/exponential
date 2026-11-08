@@ -4,7 +4,7 @@
 //! A session this process hosts is an in-process [`engine::EngineSession`]
 //! and renders in the CENTER pane like every other detail screen.
 //! Every opener navigates to [`Screen::Session`]: the session card in a
-//! thread or an agent channel (`thread_screen::open_session_card`), the
+//! chat or an agent channel (`session_chat::open_session_card`), the
 //! rail's Running rows and notifications.
 //!
 //! Three feed sources, one renderer ([`SteerSessionView`]): the in-process
@@ -14,7 +14,7 @@
 //! it is [`resolve_source`].
 //!
 //! EXP-1294: this screen owns the CHROME around the transcript — a
-//! `← <thread title>` back link to the session's thread (its tree root), the
+//! `← <chat title>` back link to the session's chat (its tree root), the
 //! session's own title beside the agent's mark (S-3: no Stop pill; the
 //! composer's stop-turn is the one stop). No face toggle, no issue tray, no
 //! Resume: a message resumes a session (the composer). The transcript view
@@ -122,7 +122,7 @@ pub(crate) fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, Fe
     }
 }
 
-/// THE session composer of a ROOT (the thread screen, the agent channel):
+/// THE session composer of a ROOT (the chat screen, the agent channel):
 /// the session view over the root's own live source, never painted itself —
 /// its host renders [`SteerSessionView::render_session_composer`], so the
 /// composer, its footer (model pin, context ring), the `/` menu, Send⇄Stop
@@ -201,7 +201,7 @@ pub(crate) fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineS
 }
 
 /// Where the back link goes and what it says: the session's tree root — a
-/// thread's screen under its title, or an agent's channel under its name.
+/// chat's screen under its title, or an agent's channel under its name.
 fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
     let root = crate::session_data::root_of(session_id, cx)?;
     if root.is_agent() {
@@ -213,9 +213,9 @@ fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
         return Some((Screen::Agent { agent_id }, name));
     }
     let title = crate::session_data::session_title_of(&root.id, cx)
-        .unwrap_or_else(|| domain::session_tree::THREAD.copy.untitled.clone());
+        .unwrap_or_else(|| domain::session_tree::SESSION_CHAT.copy.untitled.clone());
     Some((
-        Screen::Thread {
+        Screen::Chat {
             session_id: root.id.clone(),
         },
         title,
@@ -230,13 +230,13 @@ fn back_link(screen: Screen, title: String, cx: &App) -> AnyElement {
     }, cx)
 }
 
-/// #FEED-191 (chats.json THE WAY BACK): the Back of a chat or thread a session
+/// #FEED-191 (chats.json THE WAY BACK): the Back of a chat a session
 /// link opened: THE back link row naming the screen it left, popping the
 /// history (web `‹`).
 pub(crate) fn session_link_back(window: &Window, cx: &App) -> Option<AnyElement> {
     let previous = crate::navigation::session_back_screen(window, cx)?;
     let title = crate::navigation::screen_title(&previous, cx).to_string();
-    Some(back_link_row("thread-back-link", title, |window, cx| crate::navigation::go_back(window, cx), cx))
+    Some(back_link_row("chat-back-link", title, |window, cx| crate::navigation::go_back(window, cx), cx))
 }
 
 /// THE back link row's look (#EXP-1388: the Archived page's `← Chats` too); a
@@ -252,6 +252,8 @@ pub(crate) fn back_link_row(
     let title = if title.is_empty() { "Back".to_string() } else { title };
     h_flex()
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(SharedString::from(title.clone()))
         .debug_selector(move || id.to_string())
         .min_w_0()
         .gap_1p5()
@@ -268,7 +270,7 @@ pub(crate) fn back_link_row(
 
 /// #VAPP-229 (via-app.json SESSION VIEW): one muted text-xs `via <app>`
 /// line under the header's title / origin row when an app's tool started
-/// the session and that app still syncs; `None` otherwise (the thread header
+/// the session and that app still syncs; `None` otherwise (the chat header
 /// itself stays caption-free).
 pub(crate) fn via_app_line(row: Option<&domain::rows::SessionRow>, cx: &App) -> Option<AnyElement> {
     let app = crate::comments::synced_app_name(row?.via_app_id.as_deref(), cx);
@@ -343,7 +345,7 @@ impl SessionScreenView {
         }
     }
 
-    /// EXP-1316: the transcript a thread hosts IN PLACE (its own header
+    /// EXP-1316: the transcript a chat hosts IN PLACE (its own header
     /// stays unused there).
     pub(crate) fn inner(&self) -> &Entity<SteerSessionView> {
         &self.inner
@@ -372,7 +374,7 @@ impl SessionScreenView {
         cx.notify();
     }
 
-    /// EXP-1294 — the header: the back link to the thread over the
+    /// EXP-1294 — the header: the back link to the chat over the
     /// session's title (the agent's mark beside it). S-3: no Stop pill (the
     /// composer's stop-turn is the one stop).
     fn render_header(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {

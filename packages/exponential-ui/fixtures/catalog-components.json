@@ -711,6 +711,48 @@
       }
     },
     {
+      "name": "Card/pressable=true",
+      "node": {
+        "id": "card",
+        "component": "Card",
+        "props": {
+          "title": "Overview",
+          "description": "Your account summary",
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Card/pressable=false",
+      "node": {
+        "id": "card",
+        "component": "Card",
+        "props": {
+          "title": "Overview",
+          "description": "Your account summary",
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Window/example",
       "node": {
         "id": "window",
@@ -3826,6 +3868,66 @@
           ],
           "value": "issue",
           "addable": false
+        },
+        "children": [
+          {
+            "id": "tabs-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tabs/swipeable=true",
+      "node": {
+        "id": "tabs",
+        "component": "Tabs",
+        "props": {
+          "tabs": [
+            {
+              "label": "Issue",
+              "value": "issue"
+            },
+            {
+              "label": "Session",
+              "value": "session"
+            }
+          ],
+          "value": "issue",
+          "swipeable": true
+        },
+        "children": [
+          {
+            "id": "tabs-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tabs/swipeable=false",
+      "node": {
+        "id": "tabs",
+        "component": "Tabs",
+        "props": {
+          "tabs": [
+            {
+              "label": "Issue",
+              "value": "issue"
+            },
+            {
+              "label": "Session",
+              "value": "session"
+            }
+          ],
+          "value": "issue",
+          "swipeable": false
         },
         "children": [
           {
@@ -8604,6 +8706,100 @@
       }
     },
     {
+      "name": "Chart/valueFormat=currency",
+      "node": {
+        "id": "chart",
+        "component": "Chart",
+        "props": {
+          "kind": "bar",
+          "categories": [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr"
+          ],
+          "series": [
+            {
+              "name": "Income",
+              "values": [
+                4200,
+                3900,
+                4600,
+                5100
+              ],
+              "tone": "success"
+            },
+            {
+              "name": "Expenses",
+              "values": [
+                3100,
+                3400,
+                2900,
+                3800
+              ],
+              "tone": "danger"
+            }
+          ],
+          "title": "Income vs expenses",
+          "showValues": true,
+          "valueFormat": {
+            "type": "currency",
+            "currency": "EUR",
+            "decimals": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Chart/rows+valueFormat=compact",
+      "node": {
+        "id": "chart",
+        "component": "Chart",
+        "props": {
+          "kind": "bar",
+          "series": [
+            {
+              "name": "Income",
+              "field": "income",
+              "tone": "success"
+            },
+            {
+              "name": "Expenses",
+              "field": "expenses",
+              "tone": "danger"
+            }
+          ],
+          "rows": [
+            {
+              "month": "Jan",
+              "income": 4200,
+              "expenses": 3100
+            },
+            {
+              "month": "Feb",
+              "income": 3900,
+              "expenses": 3400
+            },
+            {
+              "month": "Mar",
+              "income": 4600,
+              "expenses": 2900
+            },
+            {
+              "month": "Apr",
+              "income": 5100,
+              "expenses": 3800
+            }
+          ],
+          "categoryField": "month",
+          "valueFormat": {
+            "type": "compact",
+            "currency": "EUR"
+          }
+        }
+      }
+    },
+    {
       "name": "Sparkline/example",
       "node": {
         "id": "sparkline",
@@ -8865,6 +9061,50 @@
             6,
             8
           ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/pressable=true",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ],
+          "pressable": true
+        }
+      }
+    },
+    {
+      "name": "StatTile/pressable=false",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ],
+          "pressable": false
         }
       }
     },
@@ -11565,6 +11805,48 @@
           "side": "out",
           "time": "18:00",
           "status": "read"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/pressable=true",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "pressable": true
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/pressable=false",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "pressable": false
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/href",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "in",
+          "time": "18:00",
+          "status": "read",
+          "href": "https://ui.exponential.at"
         }
       }
     },

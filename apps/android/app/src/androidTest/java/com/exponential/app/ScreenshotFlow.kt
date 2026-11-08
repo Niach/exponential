@@ -75,7 +75,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         const val STARTER_EMAIL = "starter@exponential.at"
         const val STARTER_PASSWORD = "screenshots-starter"
 
-        /** APP-5 — the seeded showcase issue (description + the only comment thread). */
+        /** APP-5 — the seeded showcase issue (description + the only comment list). */
         const val SHOWCASE_ISSUE_TITLE = "Reduce cold start below 800 ms"
 
         /**
@@ -350,9 +350,9 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
     }
 
     /** Poll (pumping frames, never requiring idleness) until [matcher] matches a node. */
-    fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
+    fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long, useUnmergedTree: Boolean = false) {
         pollUntil(timeoutMillis, "no node matching ${matcher.description}") {
-            composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(matcher, useUnmergedTree).fetchSemanticsNodes().isNotEmpty()
         }
     }
 

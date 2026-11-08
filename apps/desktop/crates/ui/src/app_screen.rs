@@ -322,6 +322,10 @@ pub struct AppScreenView {
     versions: Vec<AppVersionRow>,
     /// The chat pane, built once the app resolves.
     chat: Option<Entity<crate::agent_screen::AgentScreenView>>,
+    /// #EXP-1729 (apps.json `editorHeader`): the header's `status · device`
+    /// subtitle off the chat (its root and the composer's device),
+    /// repainted only when it changes.
+    editor_header: Option<domain::apps::EditorHeader>,
     preview: Option<Preview>,
     /// The version being previewed (`None` = the head) and its package.
     viewing: Option<i64>,
@@ -427,6 +431,7 @@ impl AppScreenView {
             app: None,
             versions: Vec::new(),
             chat: None,
+            editor_header: None,
             preview: None,
             viewing: None,
             viewing_package: None,
@@ -617,7 +622,16 @@ impl AppScreenView {
                 self.data = Some(data);
                 // VAPP-242: the run view is the host alone (no chat, no tabs).
                 if !self.run {
-                    self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx)));
+                    let chat = cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx));
+                    self.editor_header = chat.read(cx).editor_header();
+                    self._subscriptions.push(cx.observe(&chat, |this, chat, cx| {
+                        let header = chat.read(cx).editor_header();
+                        if header != this.editor_header {
+                            this.editor_header = header;
+                            cx.notify();
+                        }
+                    }));
+                    self.chat = Some(chat);
                     self.settings =
                         Some(cx.new(|cx| crate::settings::app_detail::AppDetailPane::new(app_id, window, cx)));
                 }
@@ -966,14 +980,36 @@ impl AppScreenView {
             .border_b_1()
             .border_color(theme.border)
             .child(app.icon().with_size(px(HEADER_GLYPH_PX)))
+            // #EXP-1729: the chat header's title block, the name over the
+            // `status · device` subtitle in its tone.
             .child(
-                div()
+                v_flex()
                     .min_w_0()
-                    .truncate()
-                    .text_lg()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(app.name.clone())),
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.foreground)
+                            .child(SharedString::from(app.name.clone())),
+                    )
+                    .when_some(self.editor_header.clone(), |block, header| {
+                        let tone = match header.tone {
+                            domain::apps::EditorHeaderTone::Attention => theme::tokens::YELLOW.to_hsla(),
+                            domain::apps::EditorHeaderTone::Active => theme.foreground,
+                            domain::apps::EditorHeaderTone::Muted => theme.muted_foreground,
+                        };
+                        block.child(
+                            div()
+                                .id("app-editor-subtitle")
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(domain::chats::CHATS.shell.chat_header.subtitle))
+                                .text_color(tone)
+                                .child(SharedString::from(header.subtitle)),
+                        )
+                    }),
             )
             .child(version_pill("app-editor-version", app, cx))
             // VAPP-235 (app-records.json `outbox`): while the running app has
@@ -1043,6 +1079,7 @@ impl AppScreenView {
             let current = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
             let view = cx.entity().downgrade();
             Button::new(SharedString::from(APPS.test_ids.preview_template.clone()))
+                .accessibility_label(current.clone())
                 .outline()
                 .web_sm()
                 .cursor_pointer()
@@ -1071,6 +1108,7 @@ impl AppScreenView {
             let label = choices.iter().find(|o| o.value == current).map(|o| o.label.clone()).unwrap_or_default();
             let view = cx.entity().downgrade();
             Button::new(SharedString::from(APPS.test_ids.preview_run_as.clone()))
+                .accessibility_label(label.clone())
                 .outline()
                 .web_sm()
                 .cursor_pointer()

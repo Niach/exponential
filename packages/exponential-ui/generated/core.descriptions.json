@@ -77,6 +77,9 @@
         },
         "style": {
           "description": "Extra Box styles merged over the card's own."
+        },
+        "pressable": {
+          "description": "A press target firing `press` (an `on.press` implies it)."
         }
       },
       "description": "A bordered card with an optional title and description, for grouped content, not page headers.",
@@ -730,6 +733,9 @@
         },
         "addable": {
           "description": "A + button firing `new`."
+        },
+        "swipeable": {
+          "description": "Touch: swipe pages the panels."
         }
       },
       "description": "Tab navigation; the child at index i is the panel of tab i.",
@@ -1580,10 +1586,10 @@
           "description": "Pins the header while rows scroll."
         },
         "totals": {
-          "description": "Sum row."
+          "description": "Totals."
         }
       },
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "example": {
         "columns": [
           {
@@ -1629,6 +1635,12 @@
         "series": {
           "description": "One per line, bar group or pie ring."
         },
+        "rows": {
+          "description": "A query's `groups`; series read their `field`."
+        },
+        "categoryField": {
+          "description": "The rows' category field."
+        },
         "title": {
           "description": "A title above the chart."
         },
@@ -1646,6 +1658,9 @@
         },
         "max": {
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        "valueFormat": {
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         "showAxes": {
           "description": "Draws the axes with tick labels."
@@ -1717,6 +1732,9 @@
         },
         "trend": {
           "description": "Recent values (sparkline)."
+        },
+        "pressable": {
+          "description": "A press target firing `press` (an `on.press` implies it)."
         }
       },
       "description": "A dashboard tile: label, big value, toned change, trend sparkline.",
@@ -2647,9 +2665,15 @@
         },
         "author": {
           "description": "Caption above, in only."
+        },
+        "pressable": {
+          "description": "A press target firing `press` (`on.press` or `href` imply it)."
+        },
+        "href": {
+          "description": "The URL a press opens; implies `pressable`."
         }
       },
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "example": {
         "text": "Is the printer fixed?",
         "side": "out",
@@ -3124,16 +3148,16 @@
           "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         "columns": {
-          "description": "Field names or columns; default all."
+          "description": "Fields/columns."
         },
         "search": {
-          "description": "Search field."
+          "description": "Search."
         },
         "filter": {
-          "description": "Enum field to filter by."
+          "description": "Enum filter."
         },
         "totals": {
-          "description": "Sum row."
+          "description": "Totals."
         },
         "add": {
           "description": "Shows the Add button."
@@ -3196,7 +3220,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
@@ -3458,13 +3482,30 @@
           "description": "The legend label."
         },
         "values": {
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "description": "The series' colour tone; charts default to the chart hues in order."
         }
       },
       "description": "One chart series."
+    },
+    "valueFormat": {
+      "properties": {
+        "type": {
+          "description": "The format."
+        },
+        "currency": {
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "description": "Fixed fraction digits."
+        }
+      },
+      "description": "How a chart prints values."
     },
     "pageItem": {
       "properties": {

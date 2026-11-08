@@ -3,9 +3,9 @@ package com.exponential.app.ui.agent
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ComposerDraftSync
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.threads.ThreadsViewModel
-import com.exponential.app.ui.threads.ThreadListRow
-import com.exponential.app.ui.threads.ThreadRowMeta
+import com.exponential.app.ui.chats.ChatsViewModel
+import com.exponential.app.ui.chats.ChatListRow
+import com.exponential.app.ui.chats.ChatRowMeta
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -182,11 +182,11 @@ fun AgentScreen(
     /** A raw session view (`session/{id}`). */
     onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    /** A thread (`thread/{id}`). */
-    onOpenThread: (threadId: String) -> Unit = {},
-    /** EXP-1291: an accepted send LANDS on its thread (the new root IS the
-     *  thread), replacing this page when it was pushed; default = [onOpenThread]. */
-    onLandInThread: (threadId: String) -> Unit = onOpenThread,
+    /** A chat (`chat/{id}`). */
+    onOpenChat: (chatId: String) -> Unit = {},
+    /** EXP-1291: an accepted send LANDS on its chat (the new root IS the
+     *  chat), replacing this page when it was pushed; default = [onOpenChat]. */
+    onLandInChat: (chatId: String) -> Unit = onOpenChat,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
 ) {
@@ -254,12 +254,12 @@ fun AgentScreen(
     LaunchedEffect(teamId) { viewModel.ensureAssistant() }
 
     // EXP-1291: an accepted send answers with its session — a NEW ROOT, i.e.
-    // the thread itself — and the page lands there ONCE.
+    // the chat itself — and the page lands there ONCE.
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
     LaunchedEffect(startedSessionId) {
         val sessionId = startedSessionId ?: return@LaunchedEffect
         viewModel.consumeStartedSession()
-        onLandInThread(sessionId)
+        onLandInChat(sessionId)
     }
     // ── Subject resolution ──────────────────────────────────────────────────
     val actionSubject = subject as? ComposerSubject.Prompt

@@ -1202,8 +1202,12 @@ impl SettingsNavPanel {
         selected: bool,
         cx: &App,
     ) -> gpui::Stateful<gpui::Div> {
+        let label: SharedString = label.into();
         h_flex()
             .id(id.into())
+            .role(gpui::Role::ListItem)
+            .aria_selected(selected)
+            .aria_label(label.clone())
             .w_full()
             .px_2()
             .py_1()
@@ -1224,7 +1228,7 @@ impl SettingsNavPanel {
                     .whitespace_nowrap()
                     .overflow_hidden()
                     .text_ellipsis()
-                    .child(label.into()),
+                    .child(label),
             )
     }
 
@@ -1366,6 +1370,9 @@ impl Render for SettingsNavPanel {
                 list = list.child(
                     div()
                         .id("settings-agents-index")
+                        .role(gpui::Role::ListItem)
+                        .aria_selected(lit)
+                        .aria_label(group.label)
                         .cursor_pointer()
                         .px_2()
                         .pt_2()
@@ -1507,6 +1514,9 @@ impl Render for SettingsNavPanel {
                     row = row.child(
                         div()
                             .id(SharedString::from(format!("settings-nav-fold-{label}")))
+                            .role(gpui::Role::Button)
+                            .aria_expanded(open)
+                            .aria_label(if open { format!("Collapse {label}") } else { format!("Expand {label}") })
                             .flex_shrink_0()
                             .cursor_pointer()
                             .text_color(cx.theme().muted_foreground)
@@ -1624,8 +1634,8 @@ pub(crate) fn my_membership(cx: &App, team_id: &str) -> Option<(String, String)>
 
 /// Web `isMember` gate (`useTeamPermissions`: the signed-in user has a
 /// `team_members` row of the team — v7's one capability gate, every
-/// mutation affordance rides it). The thread strip's `+` and the Guide
-/// menu read it (web thread route `permissions.isMember`).
+/// mutation affordance rides it). The chat strip's `+` and the Guide
+/// menu read it (web chat route `permissions.isMember`).
 pub(crate) fn is_member(cx: &App, team_id: &str) -> bool {
     my_membership(cx, team_id).is_some()
 }

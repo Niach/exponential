@@ -91,7 +91,7 @@ class MyIssuesViewModel @Inject constructor(
     selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
 
-    /** Thread 58cb32df (chats.json): ONE active team drives every phone
+    /** Session 58cb32df (chats.json): ONE active team drives every phone
      *  screen — My issues = the viewer's assigned issues of the ACTIVE team
      *  across its boards (null = every team, before one resolves). */
     private val activeTeam = selection.selectedId

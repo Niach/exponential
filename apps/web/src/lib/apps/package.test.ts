@@ -177,6 +177,13 @@ describe(`validateAppPackage: automations (#VAPP-220)`, () => {
   })
 })
 
+// #FEED-201: how a screen is declared and drawn, in the text agents read.
+it(`documents the screen manifest in the catalog`, () => {
+  const text = appCatalogText()
+  expect(text).toContain(`# Screens`)
+  for (const word of [`screens: [{template, title`, `nav?: false`, `exposed?:`, `widget?:`, `Array order`, `≤ 5`, `sidebar rows`, `bottom tab bar`]) expect(text).toContain(word)
+})
+
 // #EXP-1674: `apps get`'s link list and the reserved query keys.
 describe(`linkableScreens`, () => {
   const screens = [

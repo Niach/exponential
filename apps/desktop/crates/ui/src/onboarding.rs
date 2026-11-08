@@ -980,6 +980,8 @@ fn signed_in_footer(cx: &App) -> Option<gpui::AnyElement> {
             .child(
                 div()
                     .id("onboarding-sign-out")
+                    .role(gpui::Role::Button)
+                    .aria_label(SIGN_OUT)
                     .flex_shrink_0()
                     .cursor_pointer()
                     .hover(move |style| style.text_color(foreground))

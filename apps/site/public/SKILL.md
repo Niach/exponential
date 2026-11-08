@@ -108,7 +108,7 @@ notifications).
   components, bindings and functions a package may use; read it before
   writing one).
 - **sessions_send**: THE session verb, no op. `{teamId, deviceId, issueIds?,
-  text}` starts a thread on an ONLINE device (`exponential_devices
+  text}` starts a new root session on an ONLINE device (`exponential_devices
   {op: "list"}` first); `{sessionId, text}` messages a running or idle one;
   `{sessionId, stop: true}` interrupts a turn; `{agentId, text}` messages a
   team agent (the caller's own conversation with it); `{parentId, text}`

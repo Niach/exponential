@@ -1926,6 +1926,7 @@ impl DeviceSettingsView {
             .child(
                 surface::glass_group().child(
                     gpui_component::button::Button::new("device-remove")
+                        .accessibility_label("Remove device")
                         .ghost()
                         .cursor_pointer()
                         .w_full()

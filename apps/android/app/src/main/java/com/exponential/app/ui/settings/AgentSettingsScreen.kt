@@ -86,7 +86,7 @@ import androidx.compose.foundation.background
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
-// EXP-1296 (Threads v2, `agent-settings.json`): Team settings → Agents,
+// EXP-1296 (`agent-settings.json`): Team settings → Agents,
 // managed EXACTLY like boards. The list = icon-in-colour + name rows under the
 // "Agents" band, whose header carries the `New agent` pill (owner-only,
 // NEW-40: the Prompts band's pattern ×4). An agent's
@@ -124,16 +124,17 @@ fun AgentsSettingsList(
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val events by viewModel.events.collectAsStateWithLifecycle()
-    val coordinator by viewModel.coordinator.collectAsStateWithLifecycle()
+    val lead by viewModel.lead.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
-    // FEED-79: a refused coordinator pick = the failed-action toast.
+    // FEED-79: a refused lead pick = the failed-action toast.
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     // NEW-2 (web Settings → Agents): the agents band over the team's Events.
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        // #EXP-1717: the Coordinator row heads the group (owners pick it).
-        CoordinatorRow(coordinator, enabled = isOwner && !busy, onPick = viewModel::setCoordinator)
+        // #EXP-1735: the Lead Assistant row heads the group where the
+        // Coordinator row was (owners pick it).
+        LeadAssistantRow(lead, enabled = isOwner && !busy, onPick = viewModel::setLeadAssistant)
         AgentsSettingsListContent(
             agents = agents,
             canCreate = isOwner,
@@ -145,18 +146,19 @@ fun AgentsSettingsList(
 }
 
 /**
- * #EXP-1717 (agent-settings.json `coordinator`, web `CoordinatorRow`): THE
- * settings Picker row (single-select, the merge-mode row's look): value =
- * the coordinator's name or `None`; owners pick, members read it disabled.
+ * #EXP-1735 (agent-settings.json `lead`, web `LeadAssistantRow`): THE
+ * settings Picker row where the Coordinator row was (single-select, the
+ * merge-mode row's look): value = the lead member's display name or `None`;
+ * owners pick, members read it disabled.
  */
 @Composable
-internal fun CoordinatorRow(
-    state: AgentSettingsViewModel.CoordinatorState,
+internal fun LeadAssistantRow(
+    state: AgentSettingsViewModel.LeadState,
     enabled: Boolean,
-    onPick: (agentId: String?) -> Unit,
+    onPick: (userId: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val none = AgentSettings.Coordinator.NONE
+    val none = AgentSettings.Lead.NONE
     val items = state.options.map { (id, name) ->
         com.exponential.app.ui.components.picker.PickerItem(id ?: none, name)
     }
@@ -169,15 +171,15 @@ internal fun CoordinatorRow(
             onChange = { picked ->
                 picked.firstOrNull()?.takeIf { it != current }?.let { id -> onPick(id.takeIf { it != none }) }
             },
-            title = AgentSettings.Coordinator.LABEL,
+            title = AgentSettings.Lead.LABEL,
             enabled = enabled,
         ) { open ->
             PickerValueRow(
-                label = AgentSettings.Coordinator.LABEL,
-                value = items.firstOrNull { it.value == current }?.label ?: AgentSettings.Coordinator.NONE_LABEL,
+                label = AgentSettings.Lead.LABEL,
+                value = items.firstOrNull { it.value == current }?.label ?: AgentSettings.Lead.NONE_LABEL,
                 onClick = open,
                 enabled = enabled,
-                modifier = Modifier.testTag(AgentSettings.Coordinator.TEST_ID_ROW),
+                modifier = Modifier.testTag(AgentSettings.Lead.TEST_ID_ROW),
             )
         }
     }

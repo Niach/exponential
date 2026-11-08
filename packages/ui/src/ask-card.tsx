@@ -12,7 +12,7 @@ import { Pill } from "./pill"
 import { Textarea } from "./textarea"
 
 // EXP-1316 (1m): THE question / plan card ×web. The session view (the raw
-// work, `agent-session.tsx`) and the thread conversation (`ThreadConversation`)
+// work, `agent-session.tsx`) and the chat conversation (`ChatConversation`)
 // render these same parts: the ask chrome (EXP-698/820: neutral glass, only the
 // header line tinted, primary for a plan, yellow for a question), the option
 // rows with their number chips (EXP-788), the inline free-text field a
@@ -39,7 +39,7 @@ export const ASK_CARD_COPY = {
   dismissed: `Dismissed`,
   submit: `Submit`,
   submitAnswers: `Submit answers`,
-  /** The free-text row a thread question offers (claude's synthetic row). */
+  /** The free-text row a chat question offers (claude's synthetic row). */
   freeTextRow: `Type something.`,
   freeTextPlaceholder: `Type your answer…`,
 } as const

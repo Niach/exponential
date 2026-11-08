@@ -58,12 +58,38 @@ pub fn tree_agent_id(root: &HubSession) -> Option<String> {
     root.agent_id.clone().or_else(|| root.started_by_agent_id.clone())
 }
 
+/// #EXP-1735: the team LEAD Assistant `row` reports to, or None. `row` works in a team whose lead is another
+/// member's Assistant than the one acting for its tree (the Assistant's children and the root sessions it started);
+/// never the Assistant's own conversation root, never a team agent's tree, never the lead's own work.
+pub fn lead_of(state: &HubState, row: &HubSession) -> Option<String> {
+    let lead_id = state.leads.get(&row.team_id)?;
+    if state.agents.get(lead_id).map(|a| a.role) != Some(AgentRole::Assistant) {
+        return None;
+    }
+    let root = state.sessions.get(&row.root_id)?;
+    let acting = tree_agent_id(root)?;
+    if &acting == lead_id || state.agents.get(&acting).map(|a| a.role) != Some(AgentRole::Assistant) {
+        return None;
+    }
+    if row.id == root.id && root.agent_id.as_ref() == Some(&acting) {
+        return None;
+    }
+    Some(lead_id.clone())
+}
+
+/// #EXP-1735: the lead's conversation (its root session) a transition of `child` also reaches.
+fn lead_listener(state: &HubState, child: &HubSession) -> Option<HubSession> {
+    let lead_id = lead_of(state, child)?;
+    let conversation = state.sessions.get(&state.agents.get(&lead_id)?.root_session_id)?;
+    (is_live(conversation) && conversation.id != child.id).then(|| conversation.clone())
+}
+
 /// A reader of `listener` may not see `origin`.
 pub fn ask_hidden(listener: &HubSession, origin: &HubSession) -> bool {
     !origin.shared && (listener.shared || listener.user_id != origin.user_id)
 }
 
-/// The fields of a root thread `reuse_refusal` reads.
+/// The fields of a root session `reuse_refusal` reads.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReuseRoot {
@@ -88,7 +114,7 @@ impl From<&HubSession> for ReuseRoot {
     }
 }
 
-/// Whether an AGENT's message may reuse this root thread: None = reuse, else the reason.
+/// Whether an AGENT's message may reuse this root session: None = reuse, else the reason.
 pub fn reuse_refusal(root: &ReuseRoot, children: usize, now: i64, awaits_caller: bool) -> Option<String> {
     if root.needs_input || awaits_caller {
         return None;
@@ -266,11 +292,13 @@ struct Deliver<'a> {
     fallback_to_self: bool,
     skip: Option<&'a dyn Fn(&HubState, &HubSession) -> bool>,
     sealed: Option<Sealed>,
+    /// #EXP-1735: the team lead's conversation hears it too (after the others, once).
+    lead: bool,
 }
 
 impl Deliver<'_> {
     fn new(author_kind: AuthorKind, body: String, card: Option<Card>, waking: bool) -> Self {
-        Self { author_kind, body, card, hidden: None, waking, fallback_to_self: false, skip: None, sealed: None }
+        Self { author_kind, body, card, hidden: None, waking, fallback_to_self: false, skip: None, sealed: None, lead: false }
     }
 }
 
@@ -278,10 +306,18 @@ fn deliver(ctx: &mut Ctx, child: &HubSession, message: Deliver) {
     // #EXP-1731: a subagent's parent is the CLI process that ran it and has every line in-band: the bus never posts
     // into it (no wake-up per subagent turn, not even its end report). Its watchers still hear it.
     let subagent = is_subagent(child);
-    let all: Vec<HubSession> = bus_listeners(&ctx.state, child)
+    let mut all: Vec<HubSession> = bus_listeners(&ctx.state, child)
         .into_iter()
         .filter(|listener| !(subagent && child.parent_id.as_ref() == Some(&listener.id)))
         .collect();
+    // #EXP-1735: the team lead hears it too (once); a subagent's lines stay inside its parent's tree.
+    if message.lead && !subagent {
+        if let Some(lead) = lead_listener(&ctx.state, child) {
+            if !all.iter().any(|listener| listener.id == lead.id) {
+                all.push(lead);
+            }
+        }
+    }
     let listeners: Vec<&HubSession> = all.iter().filter(|l| !message.skip.is_some_and(|skip| skip(&ctx.state, l))).collect();
     for listener in listeners {
         let plain = Line::new(message.body.clone(), message.card.clone());
@@ -347,7 +383,7 @@ fn bus_relay_turn(ctx: &mut Ctx, child: &HubSession, body: &str, sealed: bool, c
         return;
     }
     // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
-    // #FEED-194: unless it is the agent that started the thread.
+    // #FEED-194: unless it is the agent that started the root session.
     let skip = |_: &HubState, listener: &HubSession| {
         listener.agent_id.is_some() && Some(&listener.id) != child.parent_id.as_ref() && listener.agent_id != child.started_by_agent_id
     };
@@ -364,6 +400,7 @@ fn bus_ask(ctx: &mut Ctx, child: &HubSession, message_id: &str, card: &Card) {
     let mirror = Card::Ask { session_id: child.id.clone(), message_id: message_id.to_string() };
     let mut message = Deliver::new(AuthorKind::Agent, copy::ask_text(&child.id, card), Some(mirror.clone()), true);
     message.hidden = Some(Line::new(copy::ask_hidden_text(&child.id, card), Some(mirror)));
+    message.lead = true;
     deliver(ctx, child, message);
 }
 
@@ -394,6 +431,7 @@ fn bus_report(ctx: &mut Ctx, child: &HubSession, summary: Option<&str>, summary_
         copy::private_text(&child.id, lead),
         Some(Card::Report { session_id: child.id.clone(), summary: lead.to_string(), is_final: true }),
     ));
+    message.lead = true;
     deliver(ctx, child, message);
     for row in ctx.state.sessions.values_mut() {
         row.wake_on.retain(|id| *id != child.id);
@@ -564,11 +602,11 @@ struct SendData {
     shared: Option<bool>,
     text: Option<String>,
     sealed: Option<bool>,
-    /// #FEED-173: what a new thread works on when it has no text: issues, a prompt, attachments.
+    /// #FEED-173: what a new root session works on when it has no text: issues, a prompt, attachments.
     issue_ids: Option<Vec<String>>,
     prompt_id: Option<String>,
     attachment_ids: Option<Vec<String>>,
-    /// The id a fresh thread or a continuation takes.
+    /// The id a fresh root session or a continuation takes.
     fresh_id: Option<String>,
     /// #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams).
     team_id: Option<String>,
@@ -599,7 +637,7 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
         caller_root.as_ref().filter(|root| tree_agent_id(root).is_some()).map(|root| root.device_id.clone())
     });
     let Some(device_id) = device_id else { return refuse(ErrorCode::Invalid, "Pick a device for the new session") };
-    // #FEED-173: a start with nothing to work on (no text, issues, prompt or attachments) is refused, never an empty thread.
+    // #FEED-173: a start with nothing to work on (no text, issues, prompt or attachments) is refused, never an empty root session.
     if js::trim(data.text.as_deref().unwrap_or("")).is_empty()
         && data.sealed != Some(true)
         && data.issue_ids.as_ref().is_none_or(Vec::is_empty)
@@ -691,7 +729,7 @@ pub fn awaits_caller(state: &HubState, caller: &HubSession, target: &HubSession)
     }
 }
 
-fn agent_fresh_thread(ctx: &mut Ctx, data: &SendData, caller: &HubSession, target: &HubSession) -> Step<Option<StepResult>> {
+fn agent_fresh_session(ctx: &mut Ctx, data: &SendData, caller: &HubSession, target: &HubSession) -> Step<Option<StepResult>> {
     if caller.root_id == target.root_id || target.parent_id.is_some() || target.agent_id.is_some() {
         return Ok(None);
     }
@@ -711,7 +749,7 @@ fn agent_fresh_thread(ctx: &mut Ctx, data: &SendData, caller: &HubSession, targe
         ..data.clone()
     };
     let outcome = start_root(ctx, &fresh, Some(caller))?;
-    Ok(Some(StepResult { warning: Some(fill(text(&["freshThread"]), &[("id", &target.id), ("reason", &reason)])), ..outcome }))
+    Ok(Some(StepResult { warning: Some(fill(text(&["freshSession"]), &[("id", &target.id), ("reason", &reason)])), ..outcome }))
 }
 
 fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> Step<StepResult> {
@@ -747,7 +785,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         target = row.clone();
     }
     if let Some(caller) = caller {
-        if let Some(fresh) = agent_fresh_thread(ctx, data, caller, &target)? {
+        if let Some(fresh) = agent_fresh_session(ctx, data, caller, &target)? {
             return Ok(fresh);
         }
     }
@@ -761,7 +799,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         return refuse(ErrorCode::Invalid, text(&["endedNeedsMessage"]));
     }
     let Some(parent_id) = target.parent_id.clone() else {
-        // An ended thread ROOT revives in place: the same row idles with the message pending.
+        // An ended chat ROOT revives in place: the same row idles with the message pending.
         let now = ctx.now;
         let row = ctx.row_mut(&target.id);
         row.status = Status::Idle;
@@ -1117,7 +1155,7 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
         let swept = sweep_subagents(ctx, &id);
         return Ok(if swept.is_empty() { StepResult::session(&id) } else { StepResult { ended_ids: Some(swept), ..StepResult::session(&id) } });
     }
-    // A thread ROOT that finished a turn and an agent's conversation survive their process (idle);
+    // A chat ROOT that finished a turn and an agent's conversation survive their process (idle);
     // a child, or a root that never finished a turn (a refused launch), ends.
     let status = match data.status {
         Some(Status::Ended) if row.agent_id.is_some() || (row.parent_id.is_none() && row.last_turn_at.is_some()) => Some(Status::Idle),
@@ -1486,7 +1524,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
 
 fn trees_moved(ctx: &Ctx, agent: &HubAgent, since: i64) -> bool {
     // #EXP-1720: an Assistant's chats span its conversation's teams.
-    let teams = match ctx.state.sessions.get(&agent.conversation_id) {
+    let teams = match ctx.state.sessions.get(&agent.root_session_id) {
         Some(conversation) if agent.role == AgentRole::Assistant => tree_teams(&ctx.state, conversation),
         _ => vec![agent.team_id.clone()],
     };
@@ -1494,9 +1532,10 @@ fn trees_moved(ctx: &Ctx, agent: &HubAgent, since: i64) -> bool {
     let moved = |row: &&HubSession| row.last_activity_at.is_some_and(|at| at > since);
     if agent.role == AgentRole::Assistant {
         // An Assistant watches all its member's chats; its own conversation's turns are not news, its children are.
+        // #EXP-1735: a team's lead also watches the work that reports to it.
         return rows.iter().any(|row| {
             row.user_id == agent.owner_id && (row.agent_id.as_ref() != Some(&agent.id) || row.id != row.root_id) && moved(row)
-        });
+        }) || ctx.state.sessions.values().any(|row| moved(&row) && lead_of(&ctx.state, row).as_ref() == Some(&agent.id));
     }
     let started_by = |row: &HubSession| row.started_by_agent_id.as_ref() == Some(&agent.id);
     let roots: HashSet<&str> = rows
@@ -1543,7 +1582,7 @@ fn schedule(ctx: &mut Ctx, data: ScheduleData) -> Step<StepResult> {
     }
     let caught_up = rules().trigger.caught_up_after_minutes * MIN;
     let body = due.iter().map(|d| copy::schedule_text(&d.cron, d.tz.as_deref(), ctx.now - d.at > caught_up)).collect::<Vec<_>>().join("\n");
-    let conversation = session(&ctx.state, Some(&agent.conversation_id))?;
+    let conversation = session(&ctx.state, Some(&agent.root_session_id))?;
     // Never stacks: an unread tick takes the newer text; a read one nobody answered is re-armed; else a new card.
     let tick = ctx.state.messages.iter().rposition(|m| m.session_id == conversation.id && is_tick(&m.card));
     let answered = tick.is_some_and(|i| {
@@ -1614,7 +1653,7 @@ fn emitted(ctx: &mut Ctx, data: EmittedData, event_id: &str) -> Step<StepResult>
             if trigger.kind != TriggerKind::Event || trigger.enabled == Some(false) || trigger.name.as_ref() != Some(&name) {
                 continue;
             }
-            let conversation = session(&ctx.state, Some(&agent.conversation_id))?;
+            let conversation = session(&ctx.state, Some(&agent.root_session_id))?;
             let card = EventCard {
                 event: "trigger_fired".into(),
                 session_id: None,
@@ -1780,6 +1819,12 @@ pub fn hydrate(given: &Value) -> Result<HubState, String> {
     for device in list(given, "devices") {
         let device: HubDevice = serde_json::from_value(merged(&[&d["device"], device])).map_err(|e| format!("given device: {e}"))?;
         state.devices.insert(device.id.clone(), device);
+    }
+    if let Some(leads) = given.get("leads").and_then(Value::as_object) {
+        for (team, lead) in leads {
+            let lead = lead.as_str().ok_or(format!("given lead of {team}: not an id"))?;
+            state.leads.insert(team.clone(), lead.to_string());
+        }
     }
     for agent in list(given, "agents") {
         let team = serde_json::json!({ "teamId": d["session"]["teamId"] });

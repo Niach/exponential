@@ -72,13 +72,24 @@
       }
     },
     "Card": {
-      "recipeProps": [],
+      "recipeProps": [
+        "pressable"
+      ],
       "root": {
         "part": "root",
         "component": "Box",
         "$a11y": {
-          "role": "group",
+          "role": {
+            "$cond": [
+              "props.pressable",
+              "button",
+              "group"
+            ]
+          },
           "label": "{props.title}"
+        },
+        "props": {
+          "pressable": "{props.pressable|false}"
         },
         "style": {
           "display": "flex",
@@ -4683,6 +4694,20 @@
           {
             "part": "card",
             "component": "Card",
+            "$a11y": {
+              "label": {
+                "$cond": [
+                  "props.pressable",
+                  "{props.label}"
+                ]
+              }
+            },
+            "props": {
+              "pressable": "{props.pressable|false}"
+            },
+            "$on": {
+              "press": "press"
+            },
             "children": [
               {
                 "part": "header",
@@ -5165,7 +5190,13 @@
         "part": "root",
         "component": "Box",
         "$a11y": {
-          "role": "group",
+          "role": {
+            "$cond": [
+              "props.pressable",
+              "button",
+              "group"
+            ]
+          },
           "label": {
             "$coalesce": [
               "{props.author}",
@@ -5173,10 +5204,15 @@
             ]
           }
         },
+        "props": {
+          "pressable": "{props.pressable|false}",
+          "href": "{props.href}"
+        },
         "style": {
           "display": "flex",
-          "flexDirection": "column",
-          "alignItems": {
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": {
             "$map": {
               "from": "props.side",
               "cases": {
@@ -5185,10 +5221,22 @@
               "default": "flex-start"
             }
           },
+          "gap": "$spacing.sm",
           "width": "100%",
           "minWidth": 0
         },
         "children": [
+          {
+            "$slot": "avatar",
+            "$if": {
+              "$not": {
+                "$eq": [
+                  "{props.side|in}",
+                  "out"
+                ]
+              }
+            }
+          },
           {
             "part": "bubble",
             "component": "Box",

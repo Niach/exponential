@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { UserMessageBubble } from "./user-message-bubble"
 
-// Wave D: a message's files render as the comment thread's file chips.
+// Wave D: a message's files render as a comment's file chips.
 describe(`UserMessageBubble files`, () => {
   it(`links each file by name`, () => {
     render(

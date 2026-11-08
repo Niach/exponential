@@ -29,7 +29,7 @@ import com.exponential.app.ui.inbox.InboxListContent
 import com.exponential.app.ui.inbox.InboxViewModel
 
 /**
- * Thread 58cb32df (chats.json `shell`): the INBOX page — pushed from the
+ * Session 58cb32df (chats.json `shell`): the INBOX page — pushed from the
  * Chats header's inbox circle, no longer a tab and no segments (My issues
  * and Drafts moved to the board's chips). Back · `copy.inbox` · Mark all
  * read over the active team's inbox ([InboxListContent]).

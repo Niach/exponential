@@ -6,7 +6,7 @@
 //! thing Source Control renders, so every diff reads identically.
 //!
 //! EXP-1294: keyed on a `pull_requests` row (PR state left the issue). The
-//! host is the thread's Results tab (results-tab.json, THE review
+//! host is the chat's Results tab (results-tab.json, THE review
 //! pane): the complete diff; the host draws the `‹ Results` back row above
 //! it ([`crate::results_tab`]).
 //!

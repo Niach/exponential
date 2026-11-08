@@ -18,6 +18,10 @@ import at.exponential.ui.ffi.resizableJson
 import at.exponential.ui.ffi.resolveConditionsJson
 import at.exponential.ui.ffi.resolveDynamicJson
 import at.exponential.ui.ffi.runActionJson
+import at.exponential.ui.ffi.swipeBlocks
+import at.exponential.ui.ffi.swipeLock
+import at.exponential.ui.ffi.swipeOffset
+import at.exponential.ui.ffi.swipeSettle
 import at.exponential.ui.ffi.textShimmerJson
 import at.exponential.ui.ffi.tokenizeCodeJson
 import at.exponential.ui.format.IcuFormatter
@@ -234,6 +238,38 @@ object Round2Suites {
         }
     }
 
+    /**
+     * FEED-200: the `fixtures/swipe.json` groups the facade exposes (lock,
+     * offset, settle, blocks), case by case, through `swipeLock`,
+     * `swipeOffset`, `swipeSettle` and `swipeBlocks` (the painter's pager
+     * gesture asks the core for the lock and the blocking nodes; the core
+     * draws and settles). Numbers within 1e-6. Each case = "group name".
+     */
+    fun swipe(): List<Pair<String, String?>> {
+        val f = json("swipe.json")
+        fun d(c: JsonValue, k: String) = c[k]?.number ?: Double.NaN
+        fun u(c: JsonValue, k: String) = (c[k]?.number ?: 0.0).toInt().toUInt()
+        fun b(c: JsonValue, k: String) = c[k]?.bool ?: false
+        val out = ArrayList<Pair<String, String?>>()
+        for (c in list(f, "lock")) out += case("lock ${s(c, "name")}") {
+            val got = swipeLock(d(c, "dx"), d(c, "dy"))
+            if (got == s(c, "lock")) null else "got $got / expected ${s(c, "lock")}"
+        }
+        for (c in list(f, "offset")) out += case("offset ${s(c, "name")}") {
+            val got = swipeOffset(u(c, "index"), u(c, "count"), d(c, "offset"), d(c, "width"), b(c, "rtl"))
+            if (abs(got - d(c, "drawn")) <= 1e-6) null else "got $got / expected ${d(c, "drawn")}"
+        }
+        for (c in list(f, "settle")) out += case("settle ${s(c, "name")}") {
+            val got = swipeSettle(u(c, "index"), u(c, "count"), d(c, "offset"), d(c, "velocity"), d(c, "width"), b(c, "rtl"))
+            if (got == u(c, "settle")) null else "got $got / expected ${u(c, "settle")}"
+        }
+        for (c in list(f, "blocks")) out += case("blocks ${s(c, "name")}") {
+            val got = swipeBlocks(s(c, "component"), c["direction"]?.string, c["overflowX"]?.string)
+            if (got == b(c, "blocks")) null else "got $got / expected ${b(c, "blocks")}"
+        }
+        return out
+    }
+
     /** null when [got] matches [want] (numbers within 1e-6), else where it differs. */
     private fun zoomSame(got: JsonValue, want: JsonValue, at: String): String? = when (want) {
         is JsonValue.Num -> if (got is JsonValue.Num && abs(got.v - want.v) <= 1e-6) null else "$at: got ${got.json} / expected ${want.json}"
@@ -300,6 +336,35 @@ object Round2Suites {
             }
         } + list(f, "display").map { d ->
             case("display ${s(d, "name")}") { same(JsonValue.Str(displayStringJson(d["value"]!!.json)).json, d["expected"]!!) }
+        } + chartValues(f, formatter)
+    }
+
+    /** FEED-205: a Chart value in its `valueFormat`, as the core hands it to this painter (`props.chart.valueLabels`) through ICU. */
+    private fun chartValues(f: JsonValue, formatter: IcuFormatter?): List<Pair<String, String?>> {
+        val charts = list(f, "chartValues")
+        val spaced = { t: String -> t.replace('\u202F', ' ').replace('\u00A0', ' ') }
+        val labels = mutableMapOf<String, String?>()
+        if (charts.isNotEmpty()) {
+            val children = charts.mapIndexed { i, c ->
+                val props = buildMap {
+                    put("kind", JsonValue.Str("bar"))
+                    put("series", JsonValue.Arr(listOf(JsonValue.Obj(mapOf("name" to JsonValue.Str("s"), "values" to JsonValue.Arr(listOf(c["value"]!!)))))))
+                    c["valueFormat"]?.let { put("valueFormat", it) }
+                }
+                JsonValue.Obj(mapOf("id" to JsonValue.Str("c$i"), "component" to JsonValue.Str("Chart"), "props" to JsonValue.Obj(props)))
+            }
+            val surface = Surface("chart-values", coreCatalogId(), "", "light")
+            surface.setFormatter(formatter)
+            surface.setNested(JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Stack"), "children" to JsonValue.Arr(children))).json)
+            surface.setViewport(390f, 800f, null)
+            surface.layoutFixed(null, true)
+            for (n in surface.nodes()) if (n.component == "Chart") labels[n.id] = JsonValue.parse(n.propsJson)["chart"]?.get("valueLabels")?.array?.firstOrNull()?.array?.firstOrNull()?.string
+        }
+        return charts.mapIndexed { i, c ->
+            case("chart ${s(c, "name")}") {
+                val got = labels["c$i"] ?: return@case "no value label"
+                same(JsonValue.Str(spaced(got)).json, JsonValue.Str(spaced(c["expected"]!!.string ?: "")))
+            }
         }
     }
 

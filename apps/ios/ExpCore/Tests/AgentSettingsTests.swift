@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-1291 Threads v2: Team settings → Agents, locked ×4 (TS
+// EXP-1291: Team settings → Agents, locked ×4 (TS
 // `agent-settings.test.ts`, desktop `domain::agent_settings`, Android
 // `AgentSettingsTest`) against fixtures/agent-settings.json: the fields, the
 // copy, `summaryCases`, `validationCases` and (EXP-1306) `accountValueCases`
@@ -454,6 +454,37 @@ final class AgentSettingsTests: XCTestCase {
                 testCase["expected"] as? String,
                 name
             )
+        }
+    }
+
+    /// #EXP-1735: the `lead` block (copy, test id, option cases).
+    private func leadBlock() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["lead"] as? [String: Any])
+    }
+
+    func testLeadCopyAndTestId() throws {
+        let block = try leadBlock()
+        let copy = try XCTUnwrap(block["copy"] as? [String: String])
+        XCTAssertEqual(AgentSettings.LeadCopy.label, copy["label"])
+        XCTAssertEqual(AgentSettings.LeadCopy.none, copy["none"])
+        XCTAssertEqual(AgentSettings.LeadCopy.refusedOwner, copy["refusedOwner"])
+        XCTAssertEqual(AgentSettings.LeadCopy.refusedMember, copy["refusedMember"])
+        XCTAssertEqual(AgentSettings.LeadCopy.noAssistant, copy["noAssistant"])
+        XCTAssertEqual(AgentSettings.leadRowTestId, (block["testIds"] as? [String: String])?["row"])
+    }
+
+    func testLeadOptionsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try leadBlock()["optionCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let members = try XCTUnwrap(testCase["members"] as? [[String: Any]]).map { row in
+                AgentSettings.LeadMember(
+                    userId: try XCTUnwrap(row["userId"] as? String),
+                    name: try XCTUnwrap(row["name"] as? String)
+                )
+            }
+            XCTAssertEqual(AgentSettings.leadOptions(members), testCase["expected"] as? [String], name)
         }
     }
 

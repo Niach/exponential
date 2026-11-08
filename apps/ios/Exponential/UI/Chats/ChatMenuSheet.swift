@@ -2,16 +2,16 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// Thread 58cb32df (chats.json MENUS, ×4): a chat's menu on a phone — THE
+/// Session 58cb32df (chats.json MENUS, ×4): a chat's menu on a phone — THE
 /// Menu in its SHEET look titled with the chat's title (a row's or a
 /// bubble's long press, the chat header's `…`). The rows are
-/// `threadMenuEntries` (S-3: Delete) or `agentMenuEntries` (Compact
+/// `chatMenuEntries` (S-3: Delete) or `agentMenuEntries` (Compact
 /// conversation · New conversation · Agent settings). A pick hands the entry back; the host runs it once the
 /// sheet has dismissed (a confirm or a push from under a dismissing sheet is
 /// dropped).
 struct ChatMenuSheet: View {
     enum Entry: Hashable {
-        case thread(Chats.ThreadMenuEntry)
+        case chat(Chats.ChatMenuEntry)
         case agent(Chats.AgentMenuEntry)
         /// #EXP-1611: the Guide PR's Checks submenu (pr-checks.json CHECKS
         /// LIST), a page pushed in this sheet.
@@ -21,13 +21,13 @@ struct ChatMenuSheet: View {
         /// #EXP-1710: a member's Hold auto-merge / Resume auto-merge.
         case hold
         case resume
-        /// EXP-1307: the Guide's Close PR (the thread header's `…` keeps it).
+        /// EXP-1307: the Guide's Close PR (the chat header's `…` keeps it).
         case closePr
 
-        /// The thread PR's entries (`mergeMenuEntries`), apart from the chat's.
+        /// The chat PR's entries (`mergeMenuEntries`), apart from the chat's.
         var isPullRequest: Bool {
             switch self {
-            case .thread, .agent: false
+            case .chat, .agent: false
             case .checks, .mergeNow, .hold, .resume, .closePr: true
             }
         }
@@ -126,7 +126,7 @@ struct ChatMenuSheet: View {
     static func separates(_ previous: Entry, _ next: Entry) -> Bool {
         switch (previous, next) {
         case (.agent(.newConversation), .agent): true
-        // #EXP-1611/#EXP-1710: the thread PR's entries (Checks, Merge now,
+        // #EXP-1611/#EXP-1710: the chat PR's entries (Checks, Merge now,
         // Hold | Resume, Close PR) sit apart from the chat's own.
         default: previous.isPullRequest != next.isPullRequest
         }
@@ -134,7 +134,7 @@ struct ChatMenuSheet: View {
 
     static func label(_ entry: Entry) -> String {
         switch entry {
-        case let .thread(e): e.label
+        case let .chat(e): e.label
         case let .agent(e): e.label
         case .checks: PrChecks.Copy.checks
         case .mergeNow: MergeTrain.Copy.Menu.mergeNow
@@ -146,7 +146,7 @@ struct ChatMenuSheet: View {
 
     static func icon(_ entry: Entry) -> String {
         switch entry {
-        case let .thread(e): AppIcons.conceptOrName(e.icon) ?? e.icon
+        case let .chat(e): AppIcons.conceptOrName(e.icon) ?? e.icon
         case let .agent(e): AppIcons.conceptOrName(e.icon) ?? e.icon
         case .checks: AppIcons.ciPassed
         case .mergeNow: AppIcons.prMerged
@@ -158,7 +158,7 @@ struct ChatMenuSheet: View {
 
     static func destructive(_ entry: Entry) -> Bool {
         switch entry {
-        case let .thread(e): e.destructive
+        case let .chat(e): e.destructive
         case .agent, .checks, .mergeNow, .hold, .resume: false
         case .closePr: true
         }
@@ -166,7 +166,7 @@ struct ChatMenuSheet: View {
 
     static func testId(_ entry: Entry) -> String {
         switch entry {
-        case let .thread(e): e.rawValue
+        case let .chat(e): e.rawValue
         case let .agent(e): e.rawValue
         case .checks: "checks"
         case .mergeNow: "merge-now"

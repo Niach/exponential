@@ -61,7 +61,7 @@ type Tx = Parameters<
 >[0]
 
 /**
- * EXP-741: resolve the comment a reply hangs off. Threads are ONE level deep:
+ * EXP-741: resolve the comment a reply hangs off. Replies are ONE level deep:
  * the parent must be a comment on the same issue, and a reply to a reply is
  * re-parented onto that reply's own parent, so every reply renders under a
  * top-level card on every client (the natives only offer the reply row on
@@ -363,7 +363,7 @@ export const commentsRouter = router({
         })
 
         // Resolve @email mentions to team members and auto-subscribe them
-        // (source='mention') so they keep following the thread.
+        // (source='mention') so they keep following the issue.
         const mentionedUserIds = await resolveMentions(
           tx,
           getCommentBodyText(input.body),
@@ -602,7 +602,7 @@ export const commentsRouter = router({
         // EXP-741 + EXP-398: a delete destroys the NAMED ROW AND NOTHING ELSE.
         // Replies survive their root — `comments.parent_id` is ON DELETE SET
         // NULL, so a teammate's reply flattens to a top-level card (every
-        // client's thread helper already renders a reply with a missing parent
+        // client's nesting helper already renders a reply with a missing parent
         // that way) instead of being deleted by someone else's delete. Their
         // attachments and their `#IDENT` references stay with them, so
         // everything below runs over this one comment only.

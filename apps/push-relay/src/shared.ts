@@ -1,6 +1,6 @@
 import type { BatchResponse, MulticastMessage } from "firebase-admin/messaging"
 
-// Pieces the push API and the /send compat shim share: the FCM client slice,
+// Pieces the push API and the operator routes share: the FCM client slice,
 // the dead-token codes, the provider deadline, the capped body read and the
 // per-IP buckets. `app.ts` re-exports what it always exported.
 

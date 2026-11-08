@@ -57,7 +57,7 @@ describe(`requestSessionCompaction (EXP-936)`, () => {
     const d = deps()
     await expect(
       requestSessionCompaction(
-        { sessionId: `sess-1`, userId: `owner`, reason: `long`, keep: `open threads` },
+        { sessionId: `sess-1`, userId: `owner`, reason: `long`, keep: `open chats` },
         d
       )
     ).resolves.toEqual({ accepted: true })
@@ -65,7 +65,7 @@ describe(`requestSessionCompaction (EXP-936)`, () => {
     expect(d.relay).toHaveBeenCalledWith(
       `sess-1`,
       { userId: `owner`, deviceId: `dev-1` },
-      `open threads`
+      `open chats`
     )
     // The reason is logged on the server; the feed shows it as the tool
     // card's subject.

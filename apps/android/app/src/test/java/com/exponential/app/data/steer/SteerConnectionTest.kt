@@ -225,7 +225,7 @@ class SteerConnectionTest {
             }
             // The redial opening a second socket IS the loop surviving. Its join
             // goes out on the dial's own thread right after `open` hands the
-            // socket over (here the timer thread the backoff resumed on), so
+            // socket over (here the timer chat the backoff resumed on), so
             // wait for it instead of racing it.
             val redial = transport.awaitOpen()
             waitUntil("the redial's join") { redial.sent.isNotEmpty() }
@@ -560,7 +560,7 @@ class SteerConnectionTest {
             val watcher = launch(Dispatchers.Unconfined) {
                 connection.activity.collect { sizes += it.feed.size }
             }
-            // Hold the fold thread: the commit's fold queues behind this.
+            // Hold the fold chat: the commit's fold queues behind this.
             val gate = CountDownLatch(1)
             foldThread.execute { gate.await() }
             socket.emit("""{"t":"activity_reset"}""")
@@ -1082,7 +1082,7 @@ class SteerConnectionTest {
     }
 
     // EXP-1342 ("one message on Stop" ×4): a `sessions.stop` that bypasses
-    // the feed (the thread header's Stop, the composer's Stop while
+    // the feed (the chat header's Stop, the composer's Stop while
     // disconnected) hands the queue back to the draft FIRST, exactly as the
     // interrupt frame does — and puts the draft back the way it was when the
     // stop itself is refused (web `stopSessionTurn`). No connection = no

@@ -1,9 +1,9 @@
 //! `exponential sessions …` (EXP-1110) — the sessions of your teams, on any
-//! device (EXP-1292: the `sessions` tree — threads, team agents and their
+//! device (EXP-1292: the `sessions` tree — chats, team agents and their
 //! sub-sessions):
 //!
 //! - `sessions [list] [--device <label|id>] [--status s] [--agents] [--limit n]`
-//! - `sessions show <id>`: one session, its device, branch and its thread's issues
+//! - `sessions show <id>`: one session, its device, branch and its chat's issues
 //! - `sessions log <id> [--follow]`: the transcript, over eNet from its device
 //! - `sessions message <id> <text…>` / `sessions stop <id>` / `sessions end <id>`
 //!
@@ -37,14 +37,14 @@ const USAGE: &str = "\
 Usage: exponential sessions [<command>]
 
   [list] [--device <label|id>] [--status queued|running|idle|ended] [--agents] [--limit n]
-                         Threads you can see, newest first (--agents: your agent conversations)
-  show <id>              One session: status, device, branch, its thread's issues
+                         Chats you can see, newest first (--agents: your agent conversations)
+  show <id>              One session: status, device, branch, its chat's issues
   log <id> [--follow]    Print the transcript (--follow keeps streaming a live session)
   message <id> <text…>   Message a session; an idle one wakes up (`-` reads stdin)
   stop <id>              Interrupt the session's current turn (it stays, idle)
   end <id>               End the session (and its sub-sessions)
 
-<id> = the session UUID, or a unique prefix of a thread's or agent's.
+<id> = the session UUID, or a unique prefix of a chat's or agent's.
 ";
 
 const STATUSES: &[&str] = domain::contract::SESSION_STATUS_VALUES;
@@ -248,7 +248,7 @@ fn render_sessions(rows: &[RemoteSession]) -> String {
 }
 
 /// Resolve `<id>`: a full UUID as-is, else a unique prefix among the roots
-/// the caller can see (the newest 200 threads and the team agents).
+/// the caller can see (the newest 200 chats and the team agents).
 fn resolve_session_id(ctx: &Ctx, raw: &str) -> anyhow::Result<String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -264,7 +264,7 @@ fn resolve_session_id(ctx: &Ctx, raw: &str) -> anyhow::Result<String> {
     let mut rows = mcp_tools::sessions_list(&ctx.trpc, &query)
         .map_err(super::devices::tool_error)
         .context("list sessions")?;
-    // The agent conversations only when the threads hold no match: they
+    // The agent conversations only when the chats hold no match: they
     // cost a read per team and per agent.
     if !rows.iter().any(|row| row.id.starts_with(raw)) {
         rows.extend(agent_sessions(ctx, &query)?);
@@ -339,7 +339,7 @@ fn show(args: &[String]) -> CommandResult {
 
 /// The `show` block, also the header `log` prints (pure, unit-tested):
 /// the tree member `id` names (the root when it is not in the tree) and
-/// its thread's issues.
+/// its chat's issues.
 fn render_detail(tree: &RemoteSessionTree, id: &str) -> String {
     let row = tree.session(id).unwrap_or(&tree.root);
     let mut out = String::new();
@@ -716,11 +716,11 @@ mod tests {
 
     #[test]
     fn subjects_and_status_cells() {
-        let mut thread = row("s1");
-        thread.title = Some("Fix login".into());
-        thread.needs_input = true;
-        assert_eq!(subject(&thread), "Fix login");
-        assert_eq!(status_cell(&thread), "running (needs input)");
+        let mut chat = row("s1");
+        chat.title = Some("Fix login".into());
+        chat.needs_input = true;
+        assert_eq!(subject(&chat), "Fix login");
+        assert_eq!(status_cell(&chat), "running (needs input)");
 
         let mut tree_root = row("s2");
         tree_root.display_title = Some("Cleanup".into());
@@ -774,7 +774,7 @@ mod tests {
     }
 
     #[test]
-    fn the_detail_block_names_the_runner_and_the_threads_issues() {
+    fn the_detail_block_names_the_runner_and_the_chats_issues() {
         let mut root = row("r1");
         root.display_title = Some("Fix login".into());
         let mut child = row("s1");

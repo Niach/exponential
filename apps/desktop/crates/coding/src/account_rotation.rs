@@ -1088,7 +1088,7 @@ pub fn switch_prompt(from: Option<&str>, to: Option<&str>, window: &str, resets_
 /// EXP-1532 (#FEED-181) — the device-local wall of a run whose LOGIN broke:
 /// its turn failed "Not logged in" (the engine's `signed_out` flag). The
 /// rotation beat moves it exactly like a usage wall — the same tracker,
-/// cooldown, cap and switch — so a signed-out profile never stops a thread
+/// cooldown, cap and switch — so a signed-out profile never stops a session
 /// while another login can take it. Never on the wire: the contract's
 /// `codingSessionBlocked.kinds` stay as they are.
 pub const SIGNED_OUT_KIND: &str = "signed_out";
@@ -1348,7 +1348,7 @@ mod tests {
         );
     }
 
-    /// EXP-1532 (#FEED-181): a RUNNING thread whose login signed out (its
+    /// EXP-1532 (#FEED-181): a RUNNING session whose login signed out (its
     /// turn failed "Not logged in") moves to the next healthy login with
     /// headroom through the same tracker, and says so.
     #[test]

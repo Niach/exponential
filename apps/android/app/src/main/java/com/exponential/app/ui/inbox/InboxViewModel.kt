@@ -183,7 +183,7 @@ internal fun buildInboxState(
     return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread }, loaded = true)
 }
 
-/** Thread 58cb32df: the notifications of [teamId] (null = all): an issue
+/** Session 58cb32df: the notifications of [teamId] (null = all): an issue
  *  row's team = its board's, an issue-less row's its own `team_id`. A
  *  team-less row (#EXP-1534 `agent_signed_out`) lists in every team. */
 internal fun activeTeamNotifications(
@@ -224,7 +224,7 @@ class InboxViewModel @Inject constructor(
     selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
 
-    /** Thread 58cb32df (chats.json): the inbox page lists the ACTIVE team's
+    /** Session 58cb32df (chats.json): the inbox page lists the ACTIVE team's
      *  rows only (an issue's team = its board's; an issue-less row carries
      *  its own); null = every team, before one resolves. */
     private val activeTeam = selection.selectedId
@@ -272,7 +272,7 @@ class InboxViewModel @Inject constructor(
         }
     }
 
-    /** Mark all read = the ACTIVE team's rows (thread 58cb32df:
+    /** Mark all read = the ACTIVE team's rows (session 58cb32df:
      *  `notifications.markAllRead({ teamId })`; no team yet = every team). */
     fun markAllRead() {
         viewModelScope.launch {

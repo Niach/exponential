@@ -70,6 +70,9 @@ internal fun ComposerPlusMenuSheet(
     /** EXP-1334: an ended session's option rows (Effort, Ultracode, MCP
      *  servers, Computer use) read, never change (web `rowsDisabled`). */
     rowsReadOnly: Boolean = false,
+    /** #EXP-1729: rows shown but refused (an app editor's live root's
+     *  Account ›): drawn disabled, a tap floats the reason (EXP-1051). */
+    refusedRows: Map<ComposerMenuRowId, String> = emptyMap(),
     onRow: (ComposerMenuRowId) -> Unit,
     onUltracodeChange: (Boolean) -> Unit,
     onComputerUseChange: (Boolean) -> Unit,
@@ -84,6 +87,7 @@ internal fun ComposerPlusMenuSheet(
     values: Map<ComposerMenuRowId, String?> = emptyMap(),
 ) {
     var page by remember { mutableStateOf<ComposerMenuRowId?>(null) }
+    val refusalToaster = com.exponential.app.ui.components.LocalToaster.current
     GlassSheet(
         title = null,
         onDismiss = onDismiss,
@@ -153,15 +157,21 @@ internal fun ComposerPlusMenuSheet(
                                     ComposerMenuRowId.AddFile -> canAttach
                                     else -> true
                                 }
+                                val refusal = refusedRows[entry.id]
                                 Box(modifier = Modifier.testTag(tag)) {
                                     GlassSheetRow(
                                         label = label,
                                         enabled = enabled,
+                                        labelColor = androidx.compose.ui.graphics.Color.White.copy(alpha = if (enabled && refusal == null) 0.9f else TextEmphasis.Quaternary),
                                         onClick = {
-                                            when (entry.id) {
-                                                ComposerMenuRowId.ImplementIssue -> page = entry.id
-                                                in pages -> page = entry.id
-                                                else -> onRow(entry.id)
+                                            if (refusal != null) {
+                                                refusalToaster.info(refusal)
+                                            } else {
+                                                when (entry.id) {
+                                                    ComposerMenuRowId.ImplementIssue -> page = entry.id
+                                                    in pages -> page = entry.id
+                                                    else -> onRow(entry.id)
+                                                }
                                             }
                                         },
                                         leading = { RowGlyph(composerMenuGlyph(entry.id)) },

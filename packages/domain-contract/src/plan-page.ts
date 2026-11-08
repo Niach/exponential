@@ -64,9 +64,9 @@ const plainTitle = (raw: string) =>
     .replaceAll("`", ``)
     .trim()
 
-/** #EXP-1662 / #FEED-191: the plan a thread's tab shows (`tabCases`): the
+/** #EXP-1662 / #FEED-191: the plan a chat's tab shows (`tabCases`): the
  *  newest waiting card, else `kept` while it is an approved or rejected plan
- *  of the thread (the plan the tab showed during THIS visit of the chat; the
+ *  of the chat (the plan the tab showed during THIS visit of the chat; the
  *  host clears it when the person leaves), else none: a decided plan leaves
  *  the strip. `plans` = oldest first. */
 export function planTabTarget(

@@ -21,7 +21,7 @@
     {
       "id": "coding",
       "label": "Coding",
-      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every session, the Threads list and one thread, the raw session view a session card opens, a team agent's channel and the session feed's cards.",
+      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every session, the Chats list and one chat, the raw session view a session card opens, a team agent's channel and the session feed's cards.",
       "order": 4
     },
     {
@@ -476,7 +476,7 @@
         }
       },
       "notes": {
-        "web-mobile": "Thread 58cb32df / #EXP-1384 (chats.json `shell`): the page header (the board's name as the large title, the search + inbox circles), the board chips under it, and the glass tab capsule Board · Chats · Apps · Team beside the new chat / new issue capsule (the Board tab's caret opens the board menu)."
+        "web-mobile": "Session 58cb32df / #EXP-1384 (chats.json `shell`): the page header (the board's name as the large title, the search + inbox circles), the board chips under it, and the glass tab capsule Board · Chats · Apps · Team beside the new chat / new issue capsule (the Board tab's caret opens the board menu)."
       }
     },
     {
@@ -527,7 +527,7 @@
       "id": "issue-comments",
       "group": "issues",
       "title": "Issue comments",
-      "blurb": "The same issue scrolled to its activity feed: threaded comments, mentions and the composer.",
+      "blurb": "The same issue scrolled to its activity feed: nested comments, mentions and the composer.",
       "diffTolerance": 0.001,
       "order": 4,
       "web": {
@@ -566,7 +566,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1558: the issue-detail screen with `EXP_DEV_SCROLL_TO=end`: the body parks at its end (the threaded comments, the mention pills and the composer), web's `scrollToComments` frame."
+        "desktop": "EXP-1558: the issue-detail screen with `EXP_DEV_SCROLL_TO=end`: the body parks at its end (the nested comments, the mention pills and the composer), web's `scrollToComments` frame."
       }
     },
     {
@@ -824,7 +824,7 @@
       "notes": {
         "web": "#FEED-191: the sidebar header's Inbox icon opens a menu-surface popover; `/inbox` redirects home with the popover open.",
         "desktop": "#FEED-191: the rail header's Inbox icon opens a menu-surface popover under it: `EXP_DEV_TOOL=inbox` lands on Home with it open.",
-        "web-mobile": "Thread 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
+        "web-mobile": "Session 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
       }
     },
     {
@@ -893,7 +893,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web-mobile": "Thread 58cb32df: below md the list is the board's Drafts chip, present only while the caller has a draft; an old `/inbox?tab=drafts` link forwards to it.",
+        "web-mobile": "Session 58cb32df: below md the list is the board's Drafts chip, present only while the caller has a draft; an old `/inbox?tab=drafts` link forwards to it.",
         "ios": "EXP-1558: the live walk taps the board's Drafts chip (as web-mobile), gated on the seed's Untitled draft row.",
         "android": "EXP-1558: the live walk taps the board's Drafts chip (as web-mobile), gated on the seed's Untitled draft row.",
         "desktop": "EXP-1558: the Drafts screen (`EXP_DEV_SCREEN=drafts`), the sidebar entry's page."
@@ -937,7 +937,7 @@
       "notes": {
         "web": "The sidebar's Needs you entry, right after Agent, while a row exists. EXP-1676: every platform shoots the SAME specimen (`cases[1]` + the entry row): the DEV-ONLY `?dev=needs-you` on the Agent route.",
         "web-mobile": "Inherits web: pushed from the Chats list's first row, the page header with the back control.",
-        "ios": "The capture-only specimen (`-uiTestingStyleguide needs-you`, ThreadCardsScreen), shot sg_needs-you.",
+        "ios": "The capture-only specimen (`-uiTestingStyleguide needs-you`, ChatCardsScreen), shot sg_needs-you.",
         "android": "The capture-only specimen (ResultsNeedsYouSpecimens), shot sg_needs-you.",
         "desktop": "The rail's Needs you entry, right after Agent, while a row exists. EXP-1676: the shot = the twin `EXP_DEV_SCREEN=styleguide:needs-you`, the phones' and web's specimen."
       }
@@ -1110,7 +1110,7 @@
       "id": "steering",
       "group": "coding",
       "title": "Steering a session",
-      "blurb": "One coding session on its own page (EXP-1293: the raw session view a session card opens): the back link to its thread, the session title over the relay-fed feed, which always shows the work, the agent's open question still in place and the composer that answers it.",
+      "blurb": "One coding session on its own page (EXP-1293: the raw session view a session card opens): the back link to its chat, the session title over the relay-fed feed, which always shows the work, the agent's open question still in place and the composer that answers it.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -1131,7 +1131,7 @@
       },
       "notes": {
         "ipad": "No tablet capture yet: the iPad steering feed needs the eNet full-node xcframework and a live relay-fed transcript (`bun run screenshots:desktop` + steer-relay), which the iPad store walk does not set up; the 13-inch store slide keeps its earlier raw.",
-        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child session \"Profile the launch path\". Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. Same route as `session`, which anchors on the header instead of the feed's tail.",
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start chat's child session \"Profile the launch path\". Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. Same route as `session`, which anchors on the header instead of the feed's tail.",
         "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase session in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {
@@ -1143,74 +1143,74 @@
       }
     },
     {
-      "id": "thread",
+      "id": "chat-screen",
       "group": "coding",
-      "title": "Thread",
-      "blurb": "A thread (EXP-1293, Threads v2): a ROOT session. The title over ONE tab strip (Conversation · one chip per linked issue · +; S-3: no Guide tab), the conversation's rows (the person's request, ONE session card per child session, the agent's reply, a question answered in its card) and the composer at the bottom. The demo thread waits on a person through its child session.",
+      "title": "Chat",
+      "blurb": "A chat (EXP-1293): a ROOT session. The title over ONE tab strip (Conversation · one chip per linked issue · +; S-3: no Guide tab), the conversation's rows (the person's request, ONE session card per child session, the agent's reply, a question answered in its card) and the composer at the bottom. The demo chat waits on a person through its child session.",
       "order": 17,
       "web": {
-        "route": "/t/$teamSlug/threads/$threadId",
+        "route": "/t/$teamSlug/sessions/$chatId",
         "anchor": {
-          "testId": "thread-tabs",
+          "testId": "chat-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 1200
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "sg_thread",
+        "shot": "sg_chat-screen",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_thread",
+        "shot": "sg_chat-screen",
         "lane": "styleguide"
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "thread:$thread"
+          "value": "chat:$chat"
         }
       },
       "notes": {
-        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): \"Reduce cold start below 800 ms\" with APP-5, APP-10 and FB-3, its child session \"Profile the launch path\" needing input and the question card it asked. Seeded rows only, no relay.",
-        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the cold-start thread (DEMO_THREAD_ID), EXP-1558: at its newest rows (the pending question and the plan card in view).",
+        "web": "`$chatId` resolves to DEMO_CHAT_ID (apps/web/scripts/screenshot-demo.ts): \"Reduce cold start below 800 ms\" with APP-5, APP-10 and FB-3, its child session \"Profile the launch path\" needing input and the question card it asked. Seeded rows only, no relay.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Chats → the cold-start chat (DEMO_CHAT_ID), EXP-1558: at its newest rows (the pending question and the plan card in view).",
         "android": "See ios."
       }
     },
     {
-      "id": "thread-replies",
+      "id": "chat-replies",
       "group": "coding",
       "title": "Quick replies",
-      "blurb": "EXP-1211: the agent's quick replies (a `replies` card, MCP `sessions_suggest` `replies`) as ONE row of action pills directly above THE session composer, with a trailing dismiss. Never a Conversation row; hidden while the ask dock holds the composer's place. APP-15's thread is idle with its PR open and offers three replies.",
+      "blurb": "EXP-1211: the agent's quick replies (a `replies` card, MCP `sessions_suggest` `replies`) as ONE row of action pills directly above THE session composer, with a trailing dismiss. Never a Conversation row; hidden while the ask dock holds the composer's place. APP-15's chat is idle with its PR open and offers three replies.",
       "order": 24,
       "web": {
-        "route": "/t/$teamSlug/threads/$guideThreadId",
+        "route": "/t/$teamSlug/sessions/$guideChatId",
         "anchor": {
-          "testId": "thread-replies",
+          "testId": "chat-replies",
           "timeoutMs": 30000
         },
         "settleMs": 4000
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "sg_thread-replies",
+        "shot": "sg_chat-replies",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_thread-replies",
+        "shot": "sg_chat-replies",
         "lane": "styleguide"
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "thread:$guideThread"
+          "value": "chat:$guideChat"
         }
       },
       "notes": {
-        "web": "`$guideThreadId` resolves to DEMO_GUIDE_THREAD_ID (apps/web/scripts/screenshot-demo.ts): APP-15's thread on its Conversation tab, its seeded `replies` card (Merge it · Add a test for the undo step · Show me the diff) above the composer.",
-        "ios": "The LIVE walk: APP-15's thread from its Threads chip, left on the Conversation tab; the row floats over the composer capsule.",
+        "web": "`$guideChatId` resolves to DEMO_GUIDE_CHAT_ID (apps/web/scripts/screenshot-demo.ts): APP-15's chat on its Conversation tab, its seeded `replies` card (Merge it · Add a test for the undo step · Show me the diff) above the composer.",
+        "ios": "The LIVE walk: APP-15's chat from its Chats chip, left on the Conversation tab; the row floats over the composer capsule.",
         "android": "See ios.",
-        "desktop": "APP-15's thread (`thread:$guideThread`) on its Conversation tab."
+        "desktop": "APP-15's chat (`chat:$guideChat`) on its Conversation tab."
       }
     },
     {
@@ -1317,10 +1317,10 @@
       "id": "review-diff",
       "group": "reviews",
       "title": "Complete diff",
-      "blurb": "A PR's whole diff as the thread Guide's Show complete diff page (`?tab=guide&section=all`): the file TREE beside the file cards, every card open.",
+      "blurb": "A PR's whole diff as the chat Guide's Show complete diff page (`?tab=guide&section=all`): the file TREE beside the file cards, every card open.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/threads/$diffThreadId?tab=guide&section=all",
+        "route": "/t/$teamSlug/sessions/$diffChatId?tab=guide&section=all",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1807,7 +1807,7 @@
       },
       "notes": {
         "web": "Web has no settings root on md+: the sidebar links straight into a section, and bare /settings redirects to the first one the viewer may see.",
-        "web-mobile": "Thread 58cb32df (chats.json): the phone's Team tab (`/t/$teamSlug/team`): the team avatar, name and meta, the viewer's teams (a tap switches), the settings rows, then the account row and the old avatar menu's entries.",
+        "web-mobile": "Session 58cb32df (chats.json): the phone's Team tab (`/t/$teamSlug/team`): the team avatar, name and meta, the viewer's teams (a tap switches), the settings rows, then the account row and the old avatar menu's entries.",
         "desktop": "Desktop follows the web split, one nav item per section."
       },
       "webMobile": {
@@ -1856,6 +1856,14 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-agents",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-agents",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1864,8 +1872,8 @@
       },
       "notes": {
         "web": "The demo team's three agents (Triage, Designer, Release) over the events the seed emitted (issue.created, pr.opened, …). Members see the same page without New agent.",
-        "ios": "NEW-7: the team settings page lists the agents and, under them, the team's Events band (`TeamEventsSection`: the trigger-event glyph, name, emitter, age; newest first, 50 at most); not captured on its own (`sg_settings-team` shows the page's top).",
-        "android": "NEW-7: the team settings page lists the agents (`sg_settings-team`); the Events band is web + desktop only in step 1."
+        "ios": "#EXP-1735: the Team tab's Agents page from its top: the Lead Assistant row (the seeded lead, the demo user) over the agents list and the Events band.",
+        "android": "#EXP-1735: the Team tab's Agents page from its top: the Lead Assistant row (the seeded lead, the demo user) over the agents list and the Events band."
       }
     },
     {
@@ -2431,8 +2439,8 @@
         "lane": "styleguide"
       },
       "notes": {
-        "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
-        "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
+        "ios": "VAPP-112: the LIVE walk: the Chats tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
+        "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Chats → the header's Apps entry. The phone reaches Apps from the Chats tab (no sidebar).",
         "desktop": "VAPP-242: no Apps page in the IDE; the sidebar's Apps group lists the apps.",
         "web": "VAPP-242: no Apps page on web ≥ md (the route forwards to the team); the sidebar's Apps group lists the apps."
       },
@@ -5997,7 +6005,7 @@
       "id": "session-row",
       "group": "coding",
       "title": "Session rows",
-      "blurb": "ONE SessionRow in two sizes (EXP-1248): the small one-line row and the big two-line row, the session mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes. Since EXP-1284 the Running and Recent lists show THREADS, so the specimen draws the rows on their own.",
+      "blurb": "ONE SessionRow in two sizes (EXP-1248): the small one-line row and the big two-line row, the session mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes. Since EXP-1284 the Running and Recent lists show CHATS, so the specimen draws the rows on their own.",
       "order": 11,
       "ios": {
         "shot": "sg_session-row",
@@ -6010,9 +6018,9 @@
       "notes": {
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
-        "desktop": "EXP-1654: the desktop styleguide entry `session_row.rs` (`EXP_DEV_SCREEN=styleguide:session-row`, full-window) draws the web island's board line for line on the real `run_rows::run_row`: the Running caption over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit. It used to draw the session CARDS (`thread`'s), not the row; the live instance is the rail's Active band.",
-        "android": "See ios: the same specimen (`ThreadCardsKind.SessionRow`, `captureOnlyScreens`) on the real `SessionRow` composable (ui/components/SessionRow.kt), the run mark = `AgentRunMark`.",
-        "ios": "Thread 20b7fdc2: a capture-only specimen (`-uiTestingStyleguide session-row`, ThreadCardsScreen `SessionRowSpecimens`) draws the island's board row for row on the real ExpUI `SessionRow`: the Running band over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit; the lead = `ThreadSessionChipMark`. It used to photograph the live Chats tab (`threads`' subject)."
+        "desktop": "EXP-1654: the desktop styleguide entry `session_row.rs` (`EXP_DEV_SCREEN=styleguide:session-row`, full-window) draws the web island's board line for line on the real `run_rows::run_row`: the Running caption over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit. It used to draw the session CARDS (`chat`'s), not the row; the live instance is the rail's Active band.",
+        "android": "See ios: the same specimen (`ChatCardsKind.SessionRow`, `captureOnlyScreens`) on the real `SessionRow` composable (ui/components/SessionRow.kt), the run mark = `AgentRunMark`.",
+        "ios": "Session 20b7fdc2: a capture-only specimen (`-uiTestingStyleguide session-row`, ChatCardsScreen `SessionRowSpecimens`) draws the island's board row for row on the real ExpUI `SessionRow`: the Running band over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit; the lead = `ChatSessionChipMark`. It used to photograph the live Chats tab (`chats`' subject)."
       },
       "desktop": {
         "drive": {
@@ -6062,7 +6070,7 @@
       "id": "pr-checks",
       "group": "reviews",
       "title": "PR checks",
-      "blurb": "Merge status and CI on the thread's PR ×4 (#EXP-1710 merge-train.json, #EXP-1611 pr-checks.json): THE header merge STATUS pill in every `statusPill` case (Draft, Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, On hold, Auto-merge stuck, the primary Needs approval) and the `…` menu's Checks submenu: one row per check, its status glyph, name and duration, a tap opens the logs.",
+      "blurb": "Merge status and CI on the chat's PR ×4 (#EXP-1710 merge-train.json, #EXP-1611 pr-checks.json): THE header merge STATUS pill in every `statusPill` case (Draft, Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, On hold, Auto-merge stuck, the primary Needs approval) and the `…` menu's Checks submenu: one row per check, its status glyph, name and duration, a tap opens the logs.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/agent?dev=pr-checks",
@@ -6273,7 +6281,7 @@
       "blurb": "A live session's `/` menu (NEW-2): the contract builtins /compact, /model and /effort, then the team's prompts. Commands the agent CLI injects (skills, plugins) never show. A picked prompt's body lands in the draft.",
       "order": 27,
       "web": {
-        "route": "/t/$teamSlug/threads/$guideThreadId",
+        "route": "/t/$teamSlug/sessions/$guideChatId",
         "anchor": {
           "testId": "slash-menu",
           "timeoutMs": 30000
@@ -6291,15 +6299,15 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "`$guideThreadId` = DEMO_GUIDE_THREAD_ID (APP-15's thread: no open question or plan card, so the composer is there, not the ask dock); `typeSlashInSessionComposer` scrolls to the thread's composer and types `/`.",
-        "ios": "NEW-7: the session composer's `/` menu (THE `SlashCommandMenu`: /compact, /model, /effort, then the team's prompts; a prompt's body lands in the draft, `prompts.get`). EXP-1558: the live walk opens APP-15's thread (after sg_thread-replies), taps the composer capsule and types `/`; nothing is sent.",
-        "android": "EXP-1558: `/` typed into APP-15's thread composer (web's `$guideThreadId`): the builtins (/compact …), then the team's prompts; keyboard down when the menu survives it.",
-        "desktop": "EXP-1558: APP-15's thread (`EXP_DEV_SCREEN=thread:$guideThread`, its one session in place) with `EXP_DEV_COMPOSER_TEXT=/` typed into the session composer once the row synced: the builtins, then the team's prompts."
+        "web": "`$guideChatId` = DEMO_GUIDE_CHAT_ID (APP-15's chat: no open question or plan card, so the composer is there, not the ask dock); `typeSlashInSessionComposer` scrolls to the chat's composer and types `/`.",
+        "ios": "NEW-7: the session composer's `/` menu (THE `SlashCommandMenu`: /compact, /model, /effort, then the team's prompts; a prompt's body lands in the draft, `prompts.get`). EXP-1558: the live walk opens APP-15's chat (after sg_chat-replies), taps the composer capsule and types `/`; nothing is sent.",
+        "android": "EXP-1558: `/` typed into APP-15's chat composer (web's `$guideChatId`): the builtins (/compact …), then the team's prompts; keyboard down when the menu survives it.",
+        "desktop": "EXP-1558: APP-15's chat (`EXP_DEV_SCREEN=chat:$guideChat`, its one session in place) with `EXP_DEV_COMPOSER_TEXT=/` typed into the session composer once the row synced: the builtins, then the team's prompts."
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "thread:$guideThread"
+          "value": "chat:$guideChat"
         },
         "anchorDelayMs": 2500,
         "env": {
@@ -6809,7 +6817,7 @@
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
         "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=work-card`: the transcript parks on the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts) instead of the tail. Needs `bun run screenshots:desktop` and the steer relay, like `steering`.",
         "ios": "EXP-1654: the LIVE walk, in the session like web and desktop (never the isolated capture-only card): after sg_session (\"Profile the launch path\", the relay stub's feed) the walk drags the transcript up from its tail to the `cold-start-review` workflow's Work card, below the floating strip. Needs `bun run screenshots:desktop`, like `session`.",
-        "android": "See ios: the same drag in StyleguideScreenshotsTest step \"thread\" (`agent-feed`), no longer in CAPTURE_SHOTS."
+        "android": "See ios: the same drag in StyleguideScreenshotsTest step \"chat\" (`agent-feed`), no longer in CAPTURE_SHOTS."
       }
     },
     {
@@ -6852,7 +6860,7 @@
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
         "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=script-card`: the transcript parks with the demo feed's code-mode `exec` call (apps/web/scripts/screenshot-desktop.ts) near the top of the viewport instead of on the tail, its calls grouped by tool off the settle's `script` log. Needs `bun run screenshots:desktop` and the steer relay, like `steering`.",
         "ios": "EXP-1654: the LIVE walk, in the session like web and desktop (never the isolated capture-only card): after sg_session (\"Profile the launch path\", the relay stub's feed) the walk drags the transcript up from its tail to the code-mode call's Script card, below the floating strip. Needs `bun run screenshots:desktop`, like `session`.",
-        "android": "See ios: the same drag in StyleguideScreenshotsTest step \"thread\" (`agent-feed`), no longer in CAPTURE_SHOTS."
+        "android": "See ios: the same drag in StyleguideScreenshotsTest step \"chat\" (`agent-feed`), no longer in CAPTURE_SHOTS."
       }
     },
     {
@@ -6929,7 +6937,7 @@
       "notes": {
         "web": "The DEV-ONLY `?dev=trace` on the Agent route (never parsed in a production build, like `feedback-states`): `@exp/ui` `TraceSpecimen`, the styleguide entry's board inside the app chrome, line for line the natives' specimen (iOS/Android `sg_trace`, the IDE's `styleguide:trace`). The `session` view shows the same lines in a live transcript.",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
-        "ios": "The ExpUI Trace specimen (ThreadCardsScreen, the web island line for line), shot sg_trace.",
+        "ios": "The ExpUI Trace specimen (ChatCardsScreen, the web island line for line), shot sg_trace.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:trace`: the IDE styleguide entry `trace.rs` drawn full-window on the real `crate::trace` primitive, the web island line for line."
       }
@@ -6938,7 +6946,7 @@
       "id": "ask-dock",
       "group": "coding",
       "title": "Ask dock",
-      "blurb": "THE ask dock ×4 (ask-dock.json): the question/plan cards waiting on you take the composer's slot in a session and a thread alike. One card = THE big card; several = compact cards stacked oldest first (icon, label, the asking session, the plan's first line), a tap grows one into the big card with a back arrow. THE plan options: Yes · Yes, and start with a fresh context · No, keep planning.",
+      "blurb": "THE ask dock ×4 (ask-dock.json): the question/plan cards waiting on you take the composer's slot in a session and a chat alike. One card = THE big card; several = compact cards stacked oldest first (icon, label, the asking session, the plan's first line), a tap grows one into the big card with a back arrow. THE plan options: Yes · Yes, and start with a fresh context · No, keep planning.",
       "order": 23,
       "web": {
         "route": "/t/$teamSlug/agent?dev=ask-dock",
@@ -6965,7 +6973,7 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=ask-dock` on the Agent route (never parsed in a production build, like `trace`): `@exp/ui` `AskDockSpecimen`, the styleguide entry's board (one plan, the stack, a focused card) line for line the natives' specimen. The `thread` view shows the live dock over the seeded cold-start thread (a question + the child's plan).",
+        "web": "The DEV-ONLY `?dev=ask-dock` on the Agent route (never parsed in a production build, like `trace`): `@exp/ui` `AskDockSpecimen`, the styleguide entry's board (one plan, the stack, a focused card) line for line the natives' specimen. The `chat` view shows the live dock over the seeded cold-start chat (a question + the child's plan).",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
         "ios": "The ExpUI ask dock specimen, the web island line for line, shot sg_ask-dock.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
@@ -7041,7 +7049,7 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=plan-card` on the Agent route (never parsed in a production build, like `ask-dock`): `@exp/ui` `PlanCardSpecimen`, session-thread.json's rich case through the real ThreadConversation (the pending plan with a picture, the surface and two questions; the answered multi-pick question; the approved plan), stand-in pictures.",
+        "web": "The DEV-ONLY `?dev=plan-card` on the Agent route (never parsed in a production build, like `ask-dock`): `@exp/ui` `PlanCardSpecimen`, session-chat.json's rich case through the real ChatConversation (the pending plan with a picture, the surface and two questions; the answered multi-pick question; the approved plan), stand-in pictures.",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width (tiles stay two per row).",
         "ios": "The ExpUI plan card specimen (`PlanCardSpecimens`), the web island line for line, shot sg_plan-card.",
         "android": "See ios: the same specimen (`PlanCardSpecimens.kt`) in StyleguideScreenshotsTest.",
@@ -7052,7 +7060,7 @@
       "id": "plan-page",
       "group": "coding",
       "title": "Plan page",
-      "blurb": "THE plan tab ×4 (#EXP-1662, plan-page.json): the thread's header and strip stay, the plan replaces the content. Wide: THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
+      "blurb": "THE plan tab ×4 (#EXP-1662, plan-page.json): the chat's header and strip stay, the plan replaces the content. Wide: THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
       "order": 6,
       "web": {
         "route": "/t/$teamSlug/agent?dev=plan-page",
@@ -7119,7 +7127,7 @@
       "notes": {
         "web": "The DEV-ONLY `?dev=code-block` on the Agent route (never parsed in a production build, like `feedback-states`): `@exp/ui` `CodeBlockSpecimen`, the styleguide entry's three sm blocks (a titled plain block, an `ansi` Output, the destructive Output), identical to the natives' specimen.",
         "web-mobile": "Inherits web: the phone frame draws the same blocks at full width.",
-        "ios": "The ExpUI CodeBlock specimen (ThreadCardsScreen: the web island's three sm blocks), shot sg_code-block.",
+        "ios": "The ExpUI CodeBlock specimen (ChatCardsScreen: the web island's three sm blocks), shot sg_code-block.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:code-block`: the IDE styleguide entry `code_block.rs` drawn full-window on the real `crate::code_block` primitive, the web island's three blocks."
       }
@@ -7161,13 +7169,13 @@
       }
     },
     {
-      "id": "threads",
+      "id": "chats",
       "group": "coding",
       "title": "Chats",
       "blurb": "Every chat of the team (chats.json, EXP-1373): the agents, then the chats under their section headers: one row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
       "order": 18,
       "web": {
-        "route": "/t/$teamSlug/threads",
+        "route": "/t/$teamSlug/chats",
         "anchor": {
           "testId": "chat-list",
           "timeoutMs": 30000
@@ -7175,7 +7183,7 @@
         "settleMs": 1200
       },
       "webMobile": {
-        "route": "/t/$teamSlug/threads",
+        "route": "/t/$teamSlug/chats",
         "anchor": {
           "testId": "chat-list",
           "timeoutMs": 30000
@@ -7183,31 +7191,31 @@
         "settleMs": 1200
       },
       "ios": {
-        "shot": "sg_threads",
+        "shot": "sg_chats",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_threads",
+        "shot": "sg_chats",
         "lane": "styleguide"
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "threads"
+          "value": "chats"
         }
       },
       "notes": {
         "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top.",
-        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Threads tab, gated on the seeded rows' quiet words (`question`, `stack`).",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Chats tab, gated on the seeded rows' quiet words (`question`, `stack`).",
         "android": "See ios.",
-        "web-mobile": "Thread 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agents, then the chats under their section headers: one row per root chat of the ACTIVE team (52 lead disc, title + time, two-line preview, word, unread badge)."
+        "web-mobile": "Session 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agents, then the chats under their section headers: one row per root chat of the ACTIVE team (52 lead disc, title + time, two-line preview, word, unread badge)."
       }
     },
     {
       "id": "session",
       "group": "coding",
       "title": "Session",
-      "blurb": "The raw session view a session card opens (EXP-1293): the back link to its thread (the root's title), the session title, the relay-fed feed with the work always shown and the composer that posts to that session. No faces, no issue header.",
+      "blurb": "The raw session view a session card opens (EXP-1293): the back link to its chat (the root's title), the session title, the relay-fed feed with the work always shown and the composer that posts to that session. No faces, no issue header.",
       "order": 19,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -7221,7 +7229,7 @@
       "webMobile": {
         "route": "/t/$teamSlug/sessions/$sessionId",
         "anchor": {
-          "testId": "thread-tabs",
+          "testId": "chat-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 2500,
@@ -7243,16 +7251,16 @@
       },
       "notes": {
         "web-mobile": "The phone session view, the same `scrollToLatestTurn` frame (the question card inline above the Queue and the floating composer).",
-        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: a session card of the cold-start thread opens DEMO_SESSION_ID (\"Profile the launch path\"), its feed from `screenshots:desktop`, the pending question card in the composer's place.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: a session card of the cold-start chat opens DEMO_SESSION_ID (\"Profile the launch path\"), its feed from `screenshots:desktop`, the pending question card in the composer's place.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id. EXP-1558: `scrollToLatestTurn` waits for the feed's waiting question card and pins the transcript to its end, the frame every client photographs: the settled Trace lines, the agent's last message with its table, the question card inline, the Queue over the composer."
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start chat's child. Its feed is published by `bun run screenshots:desktop` under the same id. EXP-1558: `scrollToLatestTurn` waits for the feed's waiting question card and pins the transcript to its end, the frame every client photographs: the settled Trace lines, the agent's last message with its table, the question card inline, the Queue over the composer."
       }
     },
     {
       "id": "agent-channel",
       "group": "coding",
       "title": "Team agent",
-      "blurb": "A team agent's page (EXP-1293 / NEW-2): the caller's own conversation session with the agent (a root with `agent_id`) that never ends. Slack-like comment rows (the agent's reports, a person's request, the agent's reply), a thread it started as ONE session card opening that thread, and the composer `Message <name>`.",
+      "blurb": "A team agent's page (EXP-1293 / NEW-2): the caller's own conversation session with the agent (a root with `agent_id`) that never ends. Slack-like comment rows (the agent's reports, a person's request, the agent's reply), a chat it started as ONE session card opening that chat, and the composer `Message <name>`.",
       "order": 20,
       "web": {
         "route": "/t/$teamSlug/agents/$agentId",
@@ -7279,7 +7287,7 @@
       },
       "notes": {
         "web": "`$agentId` resolves to DEMO_AGENT_ID (apps/web/scripts/screenshot-demo.ts), the Triage agent; its messages live on the demo user's conversation session (DEMO_AGENT_CONVERSATION_ID). The four messages sit at pinned instants (DEMO_AGENT_CHANNEL_TIMES) because the rows print a time of day; the anchor is DEMO_AGENT_REQUEST.",
-        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the Agents band's Triage; the rows print DEMO_AGENT_CHANNEL_TIMES in the seed's zone (Android pins it in the test), bare FB-8/FB-3/FB-9 chipped like web.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Chats → the Agents band's Triage; the rows print DEMO_AGENT_CHANNEL_TIMES in the seed's zone (Android pins it in the test), bare FB-8/FB-3/FB-9 chipped like web.",
         "android": "See ios."
       }
     },
@@ -7504,49 +7512,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=chat-transcript` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatTranscriptSpecimen`, the real ThreadConversation in both layouts (phone bubbles, web-wide transcript: the superseded plan, the inline SurfaceCard, the /compact and /new divider pills) plus the standalone SurfaceCard.",
+        "web": "The DEV-ONLY `?dev=chat-transcript` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatTranscriptSpecimen`, the real ChatConversation in both layouts (phone bubbles, web-wide transcript: the superseded plan, the inline SurfaceCard, the /compact and /new divider pills) plus the standalone SurfaceCard.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-transcript.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-transcript`: the IDE styleguide entry drawn full-window.",
         "web-mobile": "Inherits web: the three columns stack in the phone frame."
-      }
-    },
-    {
-      "id": "session-xref",
-      "group": "coding",
-      "title": "Session link",
-      "blurb": "THE inter-session link ×4 (S-3, session-thread.json copy.xref): one compact line naming another session (Message from · Report from · Started by · Reported to), the agent's avatar or the session glyph, the name, a chevron; a tap pushes that session on the back stack.",
-      "order": 46,
-      "web": {
-        "route": "/t/$teamSlug/agent?dev=session-xref",
-        "anchor": {
-          "testId": "session-xref-specimen",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_session-xref",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_session-xref",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "styleguide:session-xref"
-        },
-        "anchorDelayMs": 1500
-      },
-      "notes": {
-        "web": "The DEV-ONLY `?dev=session-xref` on the Agent route: `@exp/ui` `SessionXrefSpecimen`, the four kinds.",
-        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_session-xref.",
-        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:session-xref`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "Inherits web."
       }
     },
     {
@@ -7703,7 +7673,7 @@
       "id": "mention-pill",
       "group": "coding",
       "title": "Mention pill",
-      "blurb": "THE round @member pill ×4 in every chat's text (thread e4a04d22): a team member's @email paints as the comments' pill with the member's name, an unresolved @x@y.com stays the written text.",
+      "blurb": "THE round @member pill ×4 in every chat's text (session e4a04d22): a team member's @email paints as the comments' pill with the member's name, an unresolved @x@y.com stays the written text.",
       "order": 40,
       "web": {
         "route": "/t/$teamSlug/agent?dev=mention-pill",
@@ -8014,42 +7984,42 @@
       }
     },
     {
-      "id": "thread-results",
+      "id": "chat-results",
       "group": "coding",
-      "title": "Thread · Results",
-      "blurb": "A thread on its Results tab (results-tab.json): the Stack band + THE StackRail and ONE Changes row over its pull request, then every result the thread posted INLINE: title + age, description, then a row of thumbnails or the surface card.",
+      "title": "Chat · Results",
+      "blurb": "A chat on its Results tab (results-tab.json): the Stack band + THE StackRail and ONE Changes row over its pull request, then every result the chat posted INLINE: title + age, description, then a row of thumbnails or the surface card.",
       "order": 52,
       "web": {
-        "route": "/t/$teamSlug/threads/$diffThreadId?tab=results",
+        "route": "/t/$teamSlug/sessions/$diffChatId?tab=results",
         "anchor": {
-          "testId": "thread-results-changes",
+          "testId": "chat-results-changes",
           "timeoutMs": 60000
         },
         "settleMs": 2500
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "sg_thread-results",
+        "shot": "sg_chat-results",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_thread-results",
+        "shot": "sg_chat-results",
         "lane": "styleguide"
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "thread:$diffThread"
+          "value": "chat:$diffChat"
         },
         "env": {
-          "EXP_DEV_THREAD_CHILD": "results"
+          "EXP_DEV_CHAT_CHILD": "results"
         }
       },
       "notes": {
-        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it results with the board's web + iOS shots.",
-        "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab.",
+        "web": "`$diffChatId` resolves to DEMO_DIFF_CHAT_ID: APP-14's chat (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it results with the board's web + iOS shots.",
+        "ios": "The LIVE walk: APP-14's chat from Chats, then its last strip tab.",
         "android": "See ios.",
-        "desktop": "APP-14's thread opened on its last strip tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=results`.",
+        "desktop": "APP-14's chat opened on its last strip tab: `chat:$diffChat` + `EXP_DEV_CHAT_CHILD=results`.",
         "web-mobile": "Inherits web: the phone pager's last page (the icon-only Results tab)."
       }
     },
@@ -8086,7 +8056,7 @@
       "notes": {
         "web": "The DEV-ONLY `?dev=results-tab` on the Agent route: `@exp/ui` `ResultsTabSpecimen` = results-tab.json `tab.specimen`.",
         "web-mobile": "Inherits web.",
-        "ios": "The capture-only specimen (`-uiTestingStyleguide results-tab`, ThreadCardsScreen), shot sg_results-tab.",
+        "ios": "The capture-only specimen (`-uiTestingStyleguide results-tab`, ChatCardsScreen), shot sg_results-tab.",
         "android": "The capture-only specimen (ResultsNeedsYouSpecimens), shot sg_results-tab.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:results-tab`: the IDE styleguide entry drawn full-window."
       }
@@ -8731,7 +8701,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "ios": "The record-form specimen in ThreadCardsScreen (capture only, -uiTestingStyleguide record-form-field-states), the KitchenSink's field states.",
+        "ios": "The record-form specimen in ChatCardsScreen (capture only, -uiTestingStyleguide record-form-field-states), the KitchenSink's field states.",
         "android": "See ios: RecordFormFieldStatesSpecimenScreen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "web": "No capture of its own: the styleguide's record-form entry draws ExponentialUiFieldStates, the same three Inputs.",
         "web-mobile": "No capture of its own: see web.",

@@ -1288,6 +1288,9 @@ fn surface_body<T: Clone + PartialEq + 'static>(
                         under_pointer,
                         cx,
                     )
+                    .role(gpui::Role::ListItem)
+                    .aria_label(item.label.clone())
+                    .aria_selected(selected)
                     // A border on EVERY row, transparent unless the row is
                     // picked: the mark must not move the rows it marks. An
                     // edge shared with another picked row loses its stroke

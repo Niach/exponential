@@ -8,7 +8,7 @@
 //! `work_header::WorkHeader` (EXP-877): [`IssueHeader::right_cluster`]
 //! (EXP-1294: related-work badge · Start · pin · `…`) and
 //! [`IssueHeader::chip_row`] (Status · Priority · Assignee · Labels · Due
-//! date · Estimate · Board · Origin · Threads). The host observes this
+//! date · Estimate · Board · Origin · Chats). The host observes this
 //! entity so a builder's `cx.notify()` reaches it.
 //!
 //! Every control mutates immediately through tRPC (`issues.update` /
@@ -100,7 +100,7 @@ impl IssueHeader {
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
-            // EXP-1294: the tray's Threads row (roots linked through
+            // EXP-1294: the tray's Chats row (roots linked through
             // `session_issues`) and the Close PR / related-work reads.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
             cx.observe(&collections.session_issues, |_, _, cx| cx.notify()),
@@ -260,6 +260,7 @@ impl IssueHeader {
         let team_id = self.team_id_of(issue, cx);
         let issue_id = issue.id.clone();
         let trigger = chip_button("prop-status", cx)
+            .accessibility_label(format!("Change status (current: {})", resolved.name))
             .icon(crate::icons::resolved_status_icon(&resolved, cx))
             .child(crate::pickers::chip_label(resolved.name.clone(), false, cx))
             .into_any_element();
@@ -316,6 +317,7 @@ impl IssueHeader {
         let current = issue.priority;
         let issue_id = issue.id.clone();
         let trigger = chip_button("prop-priority", cx)
+            .accessibility_label(format!("Change priority (current: {})", config.label))
             .icon(option_icon(config, cx))
             .child(crate::pickers::chip_label(config.label, false, cx))
             .into_any_element();
@@ -362,6 +364,7 @@ impl IssueHeader {
 
         let trigger = match (selected_agent, issue.assignee_id.as_deref()) {
             (Some(agent), _) => chip_button("prop-assignee", cx)
+                .accessibility_label(agent.name.clone())
                 .child(crate::user_avatar::agent_avatar(
                     agent.icon.as_deref(),
                     agent.color.as_deref(),
@@ -372,6 +375,7 @@ impl IssueHeader {
             // Assigned — render the member's name, falling back to `Member
             // <LAST4>` when the co-member's user row didn't sync.
             (None, Some(id)) => chip_button("prop-assignee", cx)
+                .accessibility_label(crate::comments::user_label(id, selected.as_ref()))
                 .icon(
                     Icon::new(registry::UI_ASSIGNEE)
                         .xsmall()
@@ -383,6 +387,7 @@ impl IssueHeader {
                     cx,
                 )),
             (None, None) => chip_button("prop-assignee", cx)
+                .accessibility_label("Assignee")
                 .icon(
                     Icon::new(registry::UI_UNASSIGNED)
                         .xsmall()
@@ -440,6 +445,7 @@ impl IssueHeader {
             names.join(", ")
         };
         let trigger = chip_button("prop-labels", cx)
+            .accessibility_label(trigger_label.clone())
             .icon(
                 Icon::from(ExpIcon::Tag)
                     .xsmall()
@@ -487,6 +493,7 @@ impl IssueHeader {
         };
         let has_due = due.is_some();
         let trigger = chip_button("prop-due", cx)
+            .accessibility_label(label.clone())
             .icon(
                 Icon::from(ExpIcon::CalendarDays)
                     .xsmall()
@@ -554,6 +561,7 @@ impl IssueHeader {
             None => "Estimate".into(),
         };
         let trigger = chip_button("prop-estimate", cx)
+            .accessibility_label(label.clone())
             .icon(
                 Icon::new(registry::UI_ESTIMATE)
                     .xsmall()
@@ -815,6 +823,7 @@ impl IssueHeader {
         let boards = crate::issue_list::move_target_boards(cx, &issue.board_id);
         let current_board_id = issue.board_id.clone();
         let trigger = chip_button("prop-board", cx)
+            .accessibility_label(name.clone())
             .icon(icon.xsmall())
             .child(crate::pickers::chip_label(name, false, cx))
             .into_any_element();

@@ -15,7 +15,7 @@ import { CommentComposer } from "@/components/comment-composer"
 import { issueMemoryOwner } from "@/lib/work-tab-memory"
 
 // EXP-568 — the phone issue-detail bottom bar: the three things a reader
-// actually reaches for, floating over the thread instead of buried at the
+// actually reaches for, floating over the chat instead of buried at the
 // bottom of a long scroll. Properties (a sheet), Comment (expands into the
 // composer in place), and the trailing circle (passed in — EXP-1293: the
 // Start circle). EXP-893: a composition over the ONE `MobileWorkBar`.

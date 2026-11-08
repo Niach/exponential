@@ -295,6 +295,76 @@ describe(`SessionComposer app editor device (#FEED-204)`, () => {
   })
 })
 
+// #EXP-1729 (apps.json `editorHeader`, composer-menu.json "an app editor's
+// composer, always"): Device, Account and Model; with no root or an ENDED
+// one the held picks ride the send, a LIVE root never carries them.
+describe(`SessionComposer app editor runner (#EXP-1729)`, () => {
+  const held = {
+    account: {
+      value: `claude:a`,
+      options: [
+        { key: `claude:a`, agent: `claude` as const, email: `a@example.com` },
+        { key: `claude:b`, agent: `claude` as const, email: `b@example.com` },
+      ],
+      onChange: vi.fn(),
+    },
+    model: { value: `opus`, models: [{ value: `opus`, label: `Opus` }], onChange: vi.fn() },
+    send: { cli: `claude`, account: `a`, model: `opus` },
+  }
+  const editor = (sessionId: string | null) =>
+    render(
+      <SessionComposer
+        teamId="t1"
+        sessionId={sessionId}
+        appId="a1"
+        deviceId="mac"
+        deviceMenu={{ value: `mac`, devices: [{ id: `mac`, name: `Mac` }], onChange: vi.fn() }}
+        heldRunner={held}
+        placeholder="Reply…"
+      />
+    )
+  const sendFrom = async (sessionId: string | null) => {
+    mocks.send.mockResolvedValue({ txid: 1, sessionId: `s1` })
+    editor(sessionId)
+    const field = screen.getByPlaceholderText(`Reply…`) as HTMLTextAreaElement
+    type(field, `Ship it`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    return mocks.send.mock.calls[0]![0]
+  }
+
+  it(`the "+" carries Device, Account and Model`, () => {
+    mocks.row = null
+    editor(null)
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+    const ids = [...screen.getByTestId(`agent-composer-menu`).querySelectorAll(`[data-testid^="agent-composer-menu-"]`)].map(
+      (row) => row.getAttribute(`data-testid`)!.replace(`agent-composer-menu-`, ``)
+    )
+    expect(ids).toEqual([`add-file`, `implement-issue`, `device`, `account`, `model`])
+    expect(screen.getByTestId(`agent-composer-menu-account`).textContent).toContain(`a@example.com`)
+  })
+
+  it(`no root: the first send carries the picks`, async () => {
+    mocks.row = null
+    const input = await sendFrom(null)
+    expect(input).toMatchObject({ appId: `a1`, deviceId: `mac`, cli: `claude`, account: `a`, model: `opus` })
+  })
+
+  it(`an ended root: the revive carries them`, async () => {
+    mocks.row = sessionRow({ status: `ended` })
+    const input = await sendFrom(`s1`)
+    expect(input).toMatchObject({ sessionId: `s1`, account: `a`, model: `opus` })
+  })
+
+  it(`a live root: a plain message`, async () => {
+    mocks.row = sessionRow({ status: `idle` })
+    const input = await sendFrom(`s1`)
+    expect(input).toMatchObject({ sessionId: `s1`, text: `Ship it` })
+    expect(input).not.toHaveProperty(`account`)
+    expect(input).not.toHaveProperty(`model`)
+  })
+})
+
 // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
 // chat carries its Teams pick on every send (null = every team), seeded from
 // the conversation root; any other chat never sends one.
@@ -581,7 +651,7 @@ describe(`SessionComposer quick replies (EXP-1211)`, () => {
     ]
     mocks.sendReply.mockResolvedValue({ sessionId: `s1`, txid: 1 })
     renderComposer()
-    const pills = screen.getAllByTestId(`thread-reply`)
+    const pills = screen.getAllByTestId(`chat-reply`)
     expect(pills.map((pill) => pill.textContent)).toEqual([`Raise the version numbers`])
     fireEvent.click(pills[0]!)
     await waitFor(() =>
@@ -601,6 +671,6 @@ describe(`SessionComposer quick replies (EXP-1211)`, () => {
     unmount()
     mocks.messages = []
     renderComposer()
-    expect(screen.queryByTestId(`thread-replies`)).toBeNull()
+    expect(screen.queryByTestId(`chat-replies`)).toBeNull()
   })
 })

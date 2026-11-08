@@ -170,7 +170,7 @@ final class FeedbackMarkTests: XCTestCase {
 
         let errors = try block("errors")
         XCTAssertEqual(FeedbackStates.Errors.retry, errors["retry"] as? String)
-        // EXP-1391: a refused merge is handed to the thread.
+        // EXP-1391: a refused merge is handed to the chat.
         let refusal = try XCTUnwrap(errors["mergeRefusal"] as? [String: Any])
         XCTAssertEqual(FeedbackStates.Errors.MergeRefusal.handoff, refusal["handoff"] as? String)
         let cases = try XCTUnwrap(errors["cases"] as? [[String: Any]])

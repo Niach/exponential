@@ -8,7 +8,7 @@ import { getMemberTeamIds } from "@/lib/auth/membership"
 // `assistantScope`): the teams a session tree works in. Every tree = its
 // root's own team, except the Assistant's conversation: its own (personal)
 // team, then the member's Teams pick ∩ the teams they belong to NOW (NULL =
-// all). Its children and threads start in one of these; the gate clamps an
+// all). Its children and chats start in one of these; the gate clamps an
 // acting-agent request to them; a watcher watches only these.
 
 type Exec = Pick<typeof db, `select`>

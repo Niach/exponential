@@ -103,7 +103,7 @@ import {
   notifySessionLeftover,
 } from "@/lib/integrations/notifications"
 
-// EXP-1291/NEW-1: THE session router. A thread IS a root session that
+// EXP-1291/NEW-1: THE session router. A chat IS a root session that
 // WORKS; a team agent is a root of kind `agent`; children are sub-sessions.
 // ONE entrypoint starts and messages them all: `sessions.send` (the
 // composer, Start on an issue, an action, a trigger firing, an agent spawn,
@@ -214,7 +214,7 @@ export const sessionsRouter = router({
       })
     ),
 
-  /** EXP-1332: the caller read this session (a thread = its root's row).
+  /** EXP-1332: the caller read this session (a chat = its root's row).
    *  Any session the caller may see; upserts `read_at = now`. */
   markRead: authedProcedure
     .input(z.object({ sessionId: uuid }))
@@ -359,7 +359,7 @@ export const sessionsRouter = router({
     .input(suggestionRef)
     .mutation(({ ctx, input }) => dismissSuggestion(ctx.session.user.id, input)),
 
-  /** File as issue: on the thread's board, linked to the thread. */
+  /** File as issue: on the chat's board, linked to the chat. */
   fileSuggestion: authedProcedure
     .input(suggestionRef)
     .mutation(({ ctx, input }) =>
@@ -419,7 +419,7 @@ export const sessionsRouter = router({
     ),
 
   /** Link issues to a session (NEW-1: the rows sit on the session that
-   *  holds them; the thread header's "+" names the root). */
+   *  holds them; the chat header's "+" names the root). */
   linkIssues: authedProcedure
     .input(z.object({ sessionId: uuid, issueIds: z.array(uuid).min(1).max(30) }))
     .mutation(async ({ ctx, input }) => {
@@ -493,7 +493,7 @@ export const sessionsRouter = router({
     }),
 
   /** EXP-1316: the DEVICE's write-back when a question/plan card was
-   *  answered in the session view (over the relay), so the thread card
+   *  answered in the session view (over the relay), so the chat card
    *  closes too. Same card shape and auth as `answer`; idempotent (an
    *  answered card = ok, never CONFLICT). Enqueues nothing: the engine
    *  already resolved the question, so it left the engine's open cards and
@@ -836,8 +836,8 @@ export const sessionsRouter = router({
         return { txid }
       }
       // A session that SURVIVES its process: an agent's conversation never
-      // ends, and neither does a thread's ROOT (FEED-134: the conversation
-      // IS the thread, so an app quit, a daemon stop or a crash leaves it
+      // ends, and neither does a chat's ROOT (FEED-134: the conversation
+      // IS the chat, so an app quit, a daemon stop or a crash leaves it
       // idle; only a person's End or the agent's own `sessions end` ends
       // it). A child's process going away still ends it: a worker, whose
       // report reaches its parent.
@@ -1097,7 +1097,7 @@ export const sessionsRouter = router({
             .where(eq(messages.id, messageId))
         }
         // EXP-1374: a message is a sign of life (the stuck rule). #EXP-1406:
-        // and it moves the thread in the lists, so it bumps `updated_at` itself.
+        // and it moves the chat in the lists, so it bumps `updated_at` itself.
         const replied = new Date()
         await tx.update(sessions).set({ lastActivityAt: replied, updatedAt: replied }).where(eq(sessions.id, session.id))
         if (asks) {

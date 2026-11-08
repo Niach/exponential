@@ -18,7 +18,7 @@ import {
   SidebarMenuItem,
   SidebarMenuTrailing,
 } from "@exp/ui"
-import { THREADS_LIST_COPY, type AgentRow } from "@/lib/session-tree"
+import { CHATS_LIST_COPY, type AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 
 // EXP-1293: the rail's AGENTS section, ABOVE Boards and drawn like them —
@@ -96,7 +96,7 @@ export function SidebarAgentsSection({
 }) {
   return (
     <SidebarGroup data-testid="sidebar-agents">
-      <SidebarGroupLabel>{THREADS_LIST_COPY.agents}</SidebarGroupLabel>
+      <SidebarGroupLabel>{CHATS_LIST_COPY.agents}</SidebarGroupLabel>
       {isOwner && (
         <SidebarGroupAction asChild title="New agent">
           <Link
@@ -121,7 +121,7 @@ export function SidebarAgentsSection({
                   to="/t/$teamSlug/agents/$agentId"
                   params={{ teamSlug, agentId: agent.agentId }}
                   data-testid="agents-row"
-                  // Thread 58cb32df: THE agent menu on right-click / long-press.
+                  // Chat 58cb32df: THE agent menu on right-click / long-press.
                   {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
                 >
                   <AgentIcon agent={agent} />

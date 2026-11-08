@@ -84,7 +84,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-// Thread 58cb32df → #EXP-1379/#EXP-1384 (chats.json `shell`): the phone's
+// Session 58cb32df → #EXP-1379/#EXP-1384 (chats.json `shell`): the phone's
 // bottom STRIP = the glass tab capsule — the look-alike of iOS's Liquid Glass
 // tab bar on the FAB chrome recipe (the shared OPAQUE glass fill + the strong
 // hairline, EXP-698) — with `shell.tabs` in order, Board · Chats · Apps ·
@@ -251,8 +251,8 @@ fun BottomNavBar(
             "chats" -> PhoneTab(
                 key = key,
                 label = Chats.Copy.TABS.getValue(key),
-                testTag = "tab-threads",
-                glyph = { TabIcon(ExpIcons.navThreads) },
+                testTag = "tab-chats",
+                glyph = { TabIcon(ExpIcons.navChats) },
                 // Amber, then green, then the unread dot (EXP-1323).
                 dotColor = when {
                     chatsNeedYou -> ChatsNeedYouAmber
@@ -928,7 +928,7 @@ private fun LauncherArm(
  * be re-typed by the issue detail's twin bar; both read it here now.
  */
 object BottomNavDefaults {
-    /** Thread 58cb32df: the tab capsule's (and the launcher's) height — a
+    /** Session 58cb32df: the tab capsule's (and the launcher's) height — a
      *  glyph over its label. */
     val BarHeight: Dp = 52.dp
 

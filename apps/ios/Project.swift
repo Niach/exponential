@@ -2,7 +2,7 @@ import Foundation
 import ProjectDescription
 
 // EXP-1635: the share pages also compile into the app for their capture-only
-// specimens (`ThreadCardsScreen`, `-uiTestingStyleguide share-to`): the
+// specimens (`ChatCardsScreen`, `-uiTestingStyleguide share-to`): the
 // extension cannot be driven by a test.
 let sharedSources: SourceFilesList = [
     "Exponential/**",
@@ -252,8 +252,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.118"
-let appBuildVersion = "314"
+let appMarketingVersion = "0.14.119"
+let appBuildVersion = "316"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.

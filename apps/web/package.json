@@ -1,7 +1,7 @@
 {
   "name": "@exp/web",
   "private": true,
-  "version": "0.20.53",
+  "version": "0.20.54",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
@@ -37,7 +37,7 @@
     "@noble/ciphers": "^2.2.0",
     "@better-auth/passkey": "1.6.34",
     "@creem_io/better-auth": "^1.1.1",
-    "@electric-sql/client": "^1.2.0",
+    "@electric-sql/client": "^1.5.28",
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
     "@exp/etalk": "workspace:*",

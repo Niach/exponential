@@ -26,11 +26,11 @@ vi.mock(`@/lib/collections`, () => ({
   issueCollection: {},
   sessionCollection: { get: () => ({ cli: `claude` }) },
 }))
-const threadGroups = vi.hoisted(() => ({ value: [] as unknown[] }))
+const chatGroups = vi.hoisted(() => ({ value: [] as unknown[] }))
 const agents = vi.hoisted(() => ({ value: [] as unknown[] }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
-  useThreadsList: () => ({
-    groups: threadGroups.value,
+  useChatsList: () => ({
+    groups: chatGroups.value,
     isReady: true,
   }),
   useAgents: () => ({ agents: agents.value, isReady: true }),
@@ -109,17 +109,17 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
     expect(updateWorkTabs).not.toHaveBeenCalled()
   })
 
-  it(`closes a running thread's tab like every other`, () => {
-    threadGroups.value = [
+  it(`closes a running chat's tab like every other`, () => {
+    chatGroups.value = [
       {
         key: `running`,
         title: `Running`,
         rows: [{ sessionId: `t1`, teamId: `t1`, title: `Reduce cold start`, private: false, busy: true, needsYou: false, activityAt: `` }],
       },
     ]
-    tabs.value = [{ kind: `thread`, threadId: `t1`, from: null }]
+    tabs.value = [{ kind: `chat`, chatId: `t1`, from: null }]
     renderStrip()
-    const tab = screen.getByTestId(`work-tab-thread:t1`)
+    const tab = screen.getByTestId(`work-tab-chat:t1`)
     expect(screen.getAllByLabelText(`Close tab`).length).toBeGreaterThan(0)
     auxClick(tab, 1)
     expect(updateWorkTabs).toHaveBeenCalledTimes(1)
@@ -174,12 +174,12 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
   })
 })
 
-// EXP-1293: thread chips read the Threads list (title + the agent mark),
+// EXP-1293: chat chips read the Chats list (title + the agent mark),
 // agent chips the agent's name; each is active on its own route.
 describe(`WorkTabsStrip session-tree chips (EXP-1293)`, () => {
   beforeEach(() => {
     issues.value = []
-    threadGroups.value = [
+    chatGroups.value = [
       {
         key: `needs_you`,
         title: `Needs you`,
@@ -191,11 +191,11 @@ describe(`WorkTabsStrip session-tree chips (EXP-1293)`, () => {
     ]
   })
 
-  it(`titles a thread chip and marks it as needing you`, () => {
-    tabs.value = [{ kind: `thread`, threadId: `th1`, from: null }]
-    pathname.value = `/t/acme/threads/th1`
+  it(`titles a chat chip and marks it as needing you`, () => {
+    tabs.value = [{ kind: `chat`, chatId: `th1`, from: null }]
+    pathname.value = `/t/acme/sessions/th1`
     renderStrip()
-    const chip = screen.getByTestId(`work-tab-thread:th1`)
+    const chip = screen.getByTestId(`work-tab-chat:th1`)
     expect(chip.textContent).toContain(`Reduce cold start`)
     expect(chip.getAttribute(`data-active`)).toBe(`true`)
     expect(chip.querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(

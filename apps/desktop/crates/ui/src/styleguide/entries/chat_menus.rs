@@ -1,8 +1,8 @@
-//! Thread 58cb32df (#EXP-1373): `chat-menus` (Special components): THE chat
+//! Session 58cb32df (#EXP-1373): `chat-menus` (Special components): THE chat
 //! menu and THE agent menu ×4 (`fixtures/chats.json` `menuCases` +
 //! `agentMenuCases`), the twin of web `chat-menus.tsx`. The demo IS the
 //! builders every way in calls ([`crate::chat_actions::chat_entry_items`]
-//! behind a chat row's right-click and the thread header's `…`,
+//! behind a chat row's right-click and the chat header's `…`,
 //! [`crate::chat_actions::agent_entry_items`] behind the rail's agent row
 //! and the agent chat's `…`) over the fixture's entries, drawn open in
 //! place, plus THE delete confirm ([`crate::chat_actions::delete_alert`]).
@@ -11,14 +11,14 @@ use gpui::{div, px, App, Context, Div, Entity, IntoElement, ParentElement as _, 
 use gpui_component::menu::PopupMenu;
 use gpui_component::ActiveTheme as _;
 
-use domain::chats::{agent_menu_entries, thread_menu_entries, AgentMenuEntry, ThreadMenuEntry};
+use domain::chats::{agent_menu_entries, chat_menu_entries, AgentMenuEntry, ChatMenuEntry};
 
 pub(crate) const ID: &str = "chat-menus";
 pub(crate) const OWNER: &str = "EXP-1373";
 
 /// The specimens: (caption, the menu).
 enum Specimen {
-    Chat(Vec<ThreadMenuEntry>),
+    Chat(Vec<ChatMenuEntry>),
     Agent(Vec<AgentMenuEntry>),
 }
 
@@ -26,8 +26,8 @@ fn specimens() -> Vec<(&'static str, Specimen)> {
     // #EXP-1553: web's `ChatMenusSpecimen` set and captions, one for one
     // (S-3: Delete only, live or ended; no Stop anywhere).
     vec![
-        ("A live chat", Specimen::Chat(thread_menu_entries("running", true, true))),
-        ("An ended chat", Specimen::Chat(thread_menu_entries("ended", true, true))),
+        ("A live chat", Specimen::Chat(chat_menu_entries("running", true, true))),
+        ("An ended chat", Specimen::Chat(chat_menu_entries("ended", true, true))),
         ("The agent menu (busy, owner)", Specimen::Agent(agent_menu_entries(true, true))),
         ("The agent menu (idle, member)", Specimen::Agent(agent_menu_entries(false, false))),
     ]
@@ -94,8 +94,8 @@ mod tests {
     #[test]
     fn the_specimens_are_the_fixture_entries() {
         let specimens = specimens();
-        assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Delete]));
-        assert!(matches!(&specimens[1].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Delete]));
+        assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ChatMenuEntry::Delete]));
+        assert!(matches!(&specimens[1].1, Specimen::Chat(entries) if entries == &[ChatMenuEntry::Delete]));
         assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 3));
     }
 }

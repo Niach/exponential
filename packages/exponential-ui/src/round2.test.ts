@@ -16,7 +16,8 @@ import knownFixture from "../fixtures/conformance-known.json" with { type: "json
 import manifest from "../conformance/manifest.json" with { type: "json" }
 import { CORE_CATALOG_ID, coreCatalog } from "./catalog"
 import { bindSectionHeader, bindTree, readPointer, resolveDynamic, writePointer } from "./dynamic"
-import { displayString, englishFormatter, fixedOffset, formatFunctions, intlFormatter, intlZoneOffset, type Formatter } from "./format"
+import { displayString, englishFormatter, fixedOffset, formatCompact, formatFunctions, intlFormatter, intlZoneOffset, type Formatter } from "./format"
+import { chartData, formatChartValue, type ChartValueFormat } from "./chart"
 import { itemExtents, itemOffsets, listSections, scrollOffsetForIndex, scrollOffsetForItem, sectionRows, stickyHeader, tableRowKeys, templateInstances, templateItemKeys, virtualWindow, type ScrollAlign } from "./list"
 import { dragDelta, keyboardResize, normalizeSizes, panelExtents, resizePanels, type PanelLimits } from "./resizable"
 import { nodeDirections, nodeTextAlign, physicalTextAlign, type Direction } from "./direction"
@@ -77,6 +78,30 @@ describe(`format.json (§3)`, () => {
     expect(resolveDynamic({ "@call": `formatRelativeTime`, args: { value: 1000 } }, {}, { now: () => 61_000 })).toBe(`1 minute ago`)
     const loud: Formatter = { ...englishFormatter(), number: (v) => `#${v}` }
     expect(resolveDynamic({ "@call": `formatNumber`, args: { value: 3 } }, {}, { formatter: loud })).toBe(`#3`)
+  })
+
+  test(`chart values (FEED-205): the fallback, Intl en-US and a composed compact agree`, () => {
+    const spaced = (t: string) => t.replace(/[\u00a0\u202f]/g, ` `)
+    const intl = intlFormatter(`en-US`)
+    const { compact: _, ...composed } = intl
+    for (const c of formatFixture.chartValues) {
+      const vf = (c as { valueFormat?: ChartValueFormat }).valueFormat
+      expect(formatChartValue(englishFormatter(), c.value, vf), c.name).toBe(c.expected)
+      expect(spaced(formatChartValue(intl, c.value, vf)), `${c.name} (Intl)`).toBe(spaced(c.expected))
+      expect(spaced(formatChartValue(composed, c.value, vf)), `${c.name} (composed)`).toBe(spaced(c.expected))
+    }
+    // Decided by hand: the suffix follows the last digit; Intl's own compact is the locale's.
+    expect(formatCompact({ ...englishFormatter(), currency: (v) => `${v} €` }, 12000, { currency: `EUR` })).toBe(`12K €`)
+    expect(spaced(formatChartValue(intlFormatter(`de-DE`), 1234567, { type: `compact` }))).toBe(`1,2 Mio.`)
+  })
+
+  test(`chart rows (FEED-205): categoryField + series fields over rows, else the props`, () => {
+    const rows = [{ month: `Jan`, income: 4200, expenses: `3100` }, { month: `Feb`, income: 3900, expenses: null }]
+    expect(chartData({ rows, categoryField: `month`, series: [{ name: `Income`, field: `income`, tone: `success` }, { name: `Expenses`, field: `expenses` }] })).toEqual({
+      categories: [`Jan`, `Feb`],
+      series: [{ name: `Income`, values: [4200, 3900], tone: `success` }, { name: `Expenses`, values: [3100, NaN] }],
+    })
+    expect(chartData({ categories: [`a`], series: [{ name: `s`, values: [1] }] })).toEqual({ categories: [`a`], series: [{ name: `s`, values: [1] }] })
   })
 
   test(`display strings: ECMAScript Number→String, booleans, nothing else`, () => {

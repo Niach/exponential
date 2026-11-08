@@ -29,6 +29,10 @@ re-apply the change below (or drop the patch once upstream carries it).
   dismiss), the managed tooltip's outer div carries the `tooltip` debug
   selector, and a `test-support` feature skips `Root`'s macOS hit-test
   forwarder so dependents' headless tests can mount `Root`.
+- #EXP-1488, every button has an accessible name: `src/button/button.rs`
+  `Button` gains `accessibility_label()`, and the AccessKit name is that,
+  else the label, else the tooltip text (upstream named only labelled
+  buttons, so every icon button was an unnamed `Button` node).
 - Packaging only: `Cargo.toml` resolves the upstream workspace's inherited
   keys (`*.workspace = true`, edition, lints) to the values of the upstream
   workspace manifest at that rev; `tests/` dropped. No other source is

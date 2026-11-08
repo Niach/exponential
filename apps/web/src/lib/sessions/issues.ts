@@ -23,7 +23,7 @@ import type { Tx } from "@/lib/sessions/tx"
 
 type Holder = Pick<Session, `id` | `rootId` | `teamId` | `shared` | `userId` | `repositoryId` | `agentId`>
 
-export const AGENT_CONVERSATION_LINK_MESSAGE = `An agent's conversation links no issues: send them to it with exponential_sessions_send {agentId, issueIds}, or link them to a thread`
+export const AGENT_CONVERSATION_LINK_MESSAGE = `An agent's conversation links no issues: send them to it with exponential_sessions_send {agentId, issueIds}, or link them to a root session`
 
 const HOLDER = {
   id: sessions.id,
@@ -277,7 +277,7 @@ export async function issueIdentifiers(tx: Tx, issueIds: string[]): Promise<stri
 }
 
 /** Drop `issueId` from `sessionId` (else from whichever session of its
- *  tree holds it: the thread header's "−"). The lifecycle's `unlinked`. */
+ *  tree holds it: the chat header's "−"). The lifecycle's `unlinked`. */
 export async function unlinkIssue(
   tx: Tx,
   args: {

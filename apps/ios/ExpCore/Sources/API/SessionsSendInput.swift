@@ -70,10 +70,10 @@ public enum TeamsScope: Sendable, Equatable {
 /// The forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
 /// the current board's team).
 public enum SessionsSendInput: Sendable, Equatable {
-    /// A new THREAD root: the composer, Start on an issue (`issueIds`), a
+    /// A new CHAT root: the composer, Start on an issue (`issueIds`), a
     /// saved prompt run (NEW-2 `promptId`: its body plus `text` = the first
     /// message). Needs `text`, `issueIds` or a `promptId`.
-    case newThread(
+    case newChat(
         teamId: String,
         deviceId: String,
         options: SessionLaunchOptions = SessionLaunchOptions(),
@@ -94,8 +94,15 @@ public enum SessionsSendInput: Sendable, Equatable {
     )
     /// VAPP-110: a message to an APP — into the caller's own EDITOR session
     /// with it (created on first use on `deviceId`, else the caller's default
-    /// device; an ended one continues). Needs text or files.
-    case app(appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil)
+    /// device; an ended one continues). Needs text or files. #EXP-1729:
+    /// `account` / `model` = the editor composer's picks, riding the send
+    /// that opens or revives the root, with the agent the login belongs to
+    /// (`cli`, so the server reads the model in that agent's list; nil =
+    /// omitted).
+    case app(
+        appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil,
+        cli: String? = nil, account: String? = nil, model: String? = nil
+    )
     /// A CHILD session of `parentId` on any device.
     case child(
         parentId: String,
@@ -104,7 +111,7 @@ public enum SessionsSendInput: Sendable, Equatable {
         text: String? = nil
     )
     /// A message into an existing session (resumes it when idle; an ended
-    /// thread revives server-side, the same row). Needs text or files.
+    /// chat revives server-side, the same row). Needs text or files.
     /// #EXP-1715: `scope` = the Assistant's Teams pick, into its
     /// conversation root only (nil = not sent).
     case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil, scope: TeamsScope? = nil)
@@ -151,7 +158,7 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.skillIds.flatMap { $0.isEmpty ? nil : $0 }, forKey: .skillIds)
         }
         switch self {
-        case let .newThread(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):
+        case let .newChat(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):
             try c.encode(teamId, forKey: .teamId)
             try c.encode(deviceId, forKey: .deviceId)
             try encodeOptions(options)
@@ -166,11 +173,14 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try encodeScope(scope)
-        case let .app(appId, deviceId, text, attachmentIds):
+        case let .app(appId, deviceId, text, attachmentIds, cli, account, model):
             try c.encode(appId, forKey: .appId)
             try c.encodeIfPresent(deviceId, forKey: .deviceId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+            try c.encodeIfPresent(cli, forKey: .cli)
+            try c.encodeIfPresent(account, forKey: .account)
+            try c.encodeIfPresent(model.flatMap { $0.isEmpty ? nil : $0 }, forKey: .model)
         case let .child(parentId, deviceId, options, text):
             try c.encode(parentId, forKey: .parentId)
             try c.encode(deviceId, forKey: .deviceId)

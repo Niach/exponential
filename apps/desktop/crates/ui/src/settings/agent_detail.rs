@@ -805,9 +805,10 @@ impl AgentDetailPane {
             let trigger_id = trigger_editor::trigger_id(trigger)?.to_string();
             let enabled = trigger_editor::trigger_enabled(trigger);
             let (edit_agent, edit_trigger) = (agent_id.to_string(), trigger_id.clone());
+            let sentence = domain::agent_settings::trigger_summary(trigger);
             let summary = trigger_editor::picker_trigger_bare(
                 format!("agent-detail-trigger-{index}").into(),
-                domain::agent_settings::trigger_summary(trigger),
+                sentence.clone(),
                 cx,
             )
             .text_color(cx.theme().foreground)
@@ -824,7 +825,7 @@ impl AgentDetailPane {
                     this.set_trigger_enabled(toggle_agent.clone(), toggle_trigger.clone(), *on, cx);
                 }));
             // Web `AgentTriggerRow`: owners get a ⋯ with Edit / Delete.
-            let menu = owner.then(|| self.trigger_menu(index, agent_id, &trigger_id, cx));
+            let menu = owner.then(|| self.trigger_menu(index, agent_id, &trigger_id, &sentence, cx));
             Some(
                 crate::surface::glass_row_shell()
                     .text_sm()
@@ -837,7 +838,7 @@ impl AgentDetailPane {
 
     /// A trigger row's ⋯ (web `AgentTriggerRow`): Edit opens the editor,
     /// Delete runs THE prompts fixture's `delete-trigger` confirm.
-    fn trigger_menu(&self, index: usize, agent_id: &str, trigger_id: &str, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn trigger_menu(&self, index: usize, agent_id: &str, trigger_id: &str, sentence: &str, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let (agent_id, trigger_id) = (agent_id.to_string(), trigger_id.to_string());
         let view = cx.entity().downgrade();
         crate::controls::ghost_icon_button(
@@ -845,6 +846,7 @@ impl AgentDetailPane {
             gpui_component::Icon::new(registry::UI_MORE),
             cx,
         )
+        .accessibility_label(format!("Trigger menu for {sentence}"))
         .disabled(self.trigger_writing)
         .pointer_menu(move |menu, _window, cx| {
             let (edit_agent, edit_trigger) = (agent_id.clone(), trigger_id.clone());
@@ -1104,7 +1106,7 @@ impl Render for AgentDetailPane {
 
         // The board form's ONE identity row: icon, colour, name — icon and
         // colour save at once, the name on blur/Enter.
-        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let agent_id = agent.id.clone();
         let icon_picker = crate::board_form::icon_picker(
             "agent-detail",

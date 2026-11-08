@@ -384,7 +384,7 @@ struct IssueDetailBottomBar: View {
         replyTarget = nil
     }
 
-    // MARK: - Composer plumbing (ported from the old CommentThreadView composer)
+    // MARK: - Composer plumbing (ported from the old CommentChatView composer)
 
     private func configureComposer() {
         composerEditor.onEdit = {

@@ -1,8 +1,8 @@
 //! EXP-1248 — THE pull-request row, ×4 (web `@exp/ui` `pr-row.tsx`, fixture
 //! `list-item.json`): ONE line, [ring lead · mono identifier · title · quiet
 //! word]. No branch line, no PR number, no counts, no age, no inline Merge.
-//! The Threads page, PR trees and the Guide's stack card all draw it (EXP-1294:
-//! a Threads row swaps the ring for its own `lead`). Two shapes: a
+//! The Chats page, PR trees and the Guide's stack card all draw it (EXP-1294:
+//! a Chats row swaps the ring for its own `lead`). Two shapes: a
 //! TREE nests with tree guides ([`pr_list`]), a linear STACK never nests, it
 //! hangs off one rail down to its base branch ([`stack_rail`]).
 
@@ -80,7 +80,7 @@ pub(crate) struct PrRail {
 pub(crate) struct PrRowSpec {
     pub(crate) id: SharedString,
     pub(crate) node: PrNodeState,
-    /// EXP-1294: a lead drawn INSTEAD of the ring (a Threads row's PR glyph
+    /// EXP-1294: a lead drawn INSTEAD of the ring (a Chats row's PR glyph
     /// or agent mark), in the same [`MARK`]-wide box.
     pub(crate) lead: Option<AnyElement>,
     pub(crate) identifier: Option<SharedString>,
@@ -99,10 +99,10 @@ pub(crate) struct PrRowSpec {
     pub(crate) on_hover: Option<PrRowHover>,
     /// After the word: an external-link glyph, the ghost merge-through.
     pub(crate) trailing: Option<AnyElement>,
-    /// EXP-1323: a Threads row with news the viewer has not read — the
+    /// EXP-1323: a Chats row with news the viewer has not read — the
     /// title goes semibold.
     pub(crate) strong: bool,
-    /// EXP-1323: a Threads row's live caption, the muted line under the
+    /// EXP-1323: a Chats row's live caption, the muted line under the
     /// title (the row grows to [`CAPTION_ROW`]).
     pub(crate) caption: Option<SharedString>,
 }
@@ -166,7 +166,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
     let base = node == PrNodeState::Base;
     let interactive = on_click.is_some();
 
-    let title_el = div().flex_1().min_w_0().truncate().child(title);
+    let title_el = div().flex_1().min_w_0().truncate().child(title.clone());
     let title_el = if base {
         title_el
             .text_xs()
@@ -261,7 +261,11 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
         }))
         .children(trailing);
     if let Some(on_click) = on_click {
-        row = row.on_click(move |event, window, cx| on_click(event, window, cx));
+        row = row
+            .role(gpui::Role::ListItem)
+            .aria_label(title.clone())
+            .aria_selected(active)
+            .on_click(move |event, window, cx| on_click(event, window, cx));
     }
     if let Some(on_hover) = on_hover {
         row = row.on_hover(move |hovered, window, cx| on_hover(hovered, window, cx));

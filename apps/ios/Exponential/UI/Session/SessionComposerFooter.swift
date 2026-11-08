@@ -9,7 +9,7 @@ import SwiftUI
 /// (surface session | agent), and #EXP-1535 the login is the "+" Account
 /// row (THE usage wall's session account switch); a running session never
 /// moves device here. With `controls` the `+` opens THE "+" sheet
-/// (`ThreadComposerPlusMenu`, presented by `SessionComposerCard`); a bare
+/// (`ChatComposerPlusMenu`, presented by `SessionComposerCard`); a bare
 /// box (no controls) opens the Camera | Photos | File sub-choice directly. The ring
 /// hides until context data lands and opens the Usage sheet (EXP-1150).
 /// Rides `GlassComposer`'s `tools:` slot, so the send button stays the
@@ -49,15 +49,19 @@ struct SessionComposerFooter: View {
         var teams: ComposerTeamsBinding?
         /// #FEED-204: an app editor's Device row; nil = every other composer.
         var device: DeviceMenu?
+        /// #EXP-1729: an app editor's composer: Account and Model always
+        /// (an ended root's picks ride the next send).
+        var editor = false
 
         /// composer-menu.json `model`: a session or an agent chat whose
-        /// agent switches models (always for claude and codex), never ended.
-        var canPickModel: Bool { !ended && (agent == "claude" || agent == "codex") }
+        /// agent switches models (always for claude and codex), never ended;
+        /// an app editor's composer always.
+        var canPickModel: Bool { (editor || !ended) && (agent == "claude" || agent == "codex") }
 
         /// The "+" conditions of this composer.
         var menuConditions: ComposerMenu.Conditions {
             ComposerMenu.Conditions(
-                device: device != nil, account: !ended && account != nil, model: canPickModel,
+                device: device != nil, account: (editor || !ended) && account != nil, model: canPickModel,
                 prompts: !prompts.isEmpty,
                 assistant: teams != nil, teams: (teams?.teams.count ?? 0) > 1
             )

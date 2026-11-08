@@ -14,7 +14,7 @@ export function useOpenNewDraft(teamSlug: string) {
   const router = useRouter()
   return useCallback(
     (
-      options: { boardId?: string; status?: StatusRowOption; threadId?: string } = {}
+      options: { boardId?: string; status?: StatusRowOption; chatId?: string } = {}
     ) => {
       const location = router.state.location
       const fromParam = (location.search as { from?: unknown }).from

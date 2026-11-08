@@ -1,4 +1,4 @@
-//! Thread e4a04d22: `mention-pill` — THE round `@member` pill the comments
+//! Session e4a04d22: `mention-pill` — THE round `@member` pill the comments
 //! paint, now in every chat text too (the twin of web `mention-pill.tsx`).
 //! A chat line through the REAL [`MarkdownView`] at the chat rhythm: a team
 //! member's `@email` paints as the pill with the member's name, beside an

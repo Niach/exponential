@@ -49,7 +49,7 @@ final class AppDependencies: @unchecked Sendable {
     // EXP-878: issue drafts — rows sync (22nd shape), the three writes
     // (upsert / delete / listAttachments) are tRPC.
     let issueDraftsApi: IssueDraftsApi
-    // EXP-1291: the session tree — thread roots, team agents and their
+    // EXP-1291: the session tree — chat roots, team agents and their
     // children sync (`sessions`, `session-issues`, `messages`); every start
     // and every message is ONE `sessions.send`, plus the stop/end/title/
     // link/answer/agent writes.
