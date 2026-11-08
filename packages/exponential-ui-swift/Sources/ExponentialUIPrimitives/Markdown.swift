@@ -5,8 +5,10 @@ import Foundation
 // model): paragraphs, ATX headings, bullet / ordered / task lists (nested
 // by marker indentation), quotes, fenced code, rules, pipe tables, images
 // alone on a line; inline bold, italic, strike, code, links (destinations
-// balance parentheses like CommonMark, no whitespace). An image inside a
-// line paints its alt text.
+// balance parentheses like CommonMark, no whitespace). #FEED-208: an image
+// directly in a top-level paragraph's text splits the paragraph around a
+// block image; anywhere else (a heading, list item, cell, quote, or inside
+// emphasis or a link label) it paints its alt text.
 // No dependency: the parser is ours so the measurer and the painter share
 // ONE block model, and the layout rule below is what both use.
 
@@ -75,7 +77,8 @@ public enum MarkdownBlockKind: Equatable, Sendable {
     case codeBlock
     case table(header: [[MarkdownInline]], rows: [[[MarkdownInline]]])
     case rule
-    /// `![alt](src)` alone on a line: painted through the host's media
+    /// `![alt](src)` alone on a line, or (#FEED-208) split out of a
+    /// top-level paragraph's text: painted through the host's media
     /// request (a denied src becomes a paragraph of its alt text, see
     /// `resolveImages`; a failed load paints the alt text in the box).
     case image(src: String, alt: String)
@@ -303,7 +306,17 @@ public enum Markdown {
         return (inner, delim.count * 2 + inner.count)
     }
 
-    private static func parseInline(_ s: Substring, _ f: Flags, _ link: String?, _ out: inout [MarkdownInline], scan: InlineScan, depth: Int = 0) {
+    /// #FEED-208: the images directly in a top-level paragraph's text, each
+    /// at the index of the empty code run that stands in for it in the
+    /// paragraph's runs (it keeps the text before and after from merging).
+    private final class ImageMarks {
+        var marks: [(at: Int, src: String, alt: String)] = []
+    }
+
+    /// `images` (only the top-level call of a top-level paragraph passes
+    /// it, so emphasis and link labels never do) collects the images
+    /// directly in the text instead of painting their alt text.
+    private static func parseInline(_ s: Substring, _ f: Flags, _ link: String?, _ out: inout [MarkdownInline], scan: InlineScan, depth: Int = 0, images: ImageMarks? = nil) {
         let nest = depth < maxNesting
         var plainStart = s.startIndex
         var i = s.startIndex
@@ -324,10 +337,17 @@ public enum Markdown {
                     handled = body.distance(from: body.startIndex, to: end) + 2
                 }
             } else if c == "!", rest.dropFirst().hasPrefix("[") {
-                if let (alt, _, n) = linkAt(rest.dropFirst(), emptyLabel: true, scan: scan) {
-                    // An image inside a line paints its alt text.
+                if let (alt, src, n) = linkAt(rest.dropFirst(), emptyLabel: true, scan: scan) {
+                    // #FEED-208: an image directly in a top-level paragraph's
+                    // text splits it (`images`); anywhere else it paints its
+                    // alt text.
                     push(&out, s[plainStart..<i], f, link)
-                    push(&out, alt, f, link)
+                    if let images {
+                        images.marks.append((at: out.count, src: src, alt: plain(parseInline(String(alt)))))
+                        out.append(MarkdownInline(text: "", code: true))
+                    } else {
+                        push(&out, alt, f, link)
+                    }
                     handled = n + 1
                 }
             } else if c == "[", nest {
@@ -380,6 +400,44 @@ public enum Markdown {
         var out: [MarkdownInline] = []
         parseInline(Substring(s), Flags(), nil, &out, scan: InlineScan(s))
         return out
+    }
+
+    /// #FEED-208 (markdown-render.json `image_split_*`): a top-level
+    /// paragraph with images directly in its text = the text before each
+    /// image (a paragraph), the image (a block image), the text after it.
+    /// ASCII spaces, tabs and line breaks at a split edge trim (plain runs
+    /// only); an empty side drops.
+    private static func paragraphBlocks(_ text: String) -> [MarkdownBlock] {
+        var runs: [MarkdownInline] = []
+        let images = ImageMarks()
+        parseInline(Substring(text), Flags(), nil, &runs, scan: InlineScan(text), images: images)
+        guard !images.marks.isEmpty else { return [MarkdownBlock(kind: .paragraph, inlines: runs)] }
+        func plainRun(_ r: MarkdownInline) -> Bool { !r.bold && !r.italic && !r.code && !r.strike && r.link == nil }
+        func edge(_ c: Character) -> Bool { c == " " || c == "\t" || c == "\n" }
+        var blocks: [MarkdownBlock] = []
+        func side(_ slice: ArraySlice<MarkdownInline>) {
+            var part = Array(slice)
+            while let first = part.first, plainRun(first) {
+                let t = String(first.text.drop(while: edge))
+                if !t.isEmpty { part[0].text = t; break }
+                part.removeFirst()
+            }
+            while let last = part.last, plainRun(last) {
+                var t = Substring(last.text)
+                while let c = t.last, edge(c) { t = t.dropLast() }
+                if !t.isEmpty { part[part.count - 1].text = String(t); break }
+                part.removeLast()
+            }
+            if !part.isEmpty { blocks.append(MarkdownBlock(kind: .paragraph, inlines: part)) }
+        }
+        var from = 0
+        for mark in images.marks {
+            side(runs[from..<mark.at])
+            blocks.append(MarkdownBlock(kind: .image(src: mark.src, alt: mark.alt), inlines: mark.alt.isEmpty ? [] : [MarkdownInline(text: mark.alt)]))
+            from = mark.at + 1
+        }
+        side(runs[from...])
+        return blocks
     }
 
     private static func isTableRow(_ line: String) -> Bool {
@@ -662,7 +720,8 @@ public enum Markdown {
                     text += line
                 }
                 while text.hasSuffix(" ") { text.removeLast() }
-                blocks.append(MarkdownBlock(kind: .paragraph, inlines: parseInline(text)))
+                // #FEED-208: images directly in its text split it.
+                blocks.append(contentsOf: paragraphBlocks(text))
                 para.removeAll()
             }
         }

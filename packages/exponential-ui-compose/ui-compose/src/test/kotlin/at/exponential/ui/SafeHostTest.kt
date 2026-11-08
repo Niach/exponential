@@ -407,9 +407,12 @@ class SafeHostTest {
         assertEquals(MarkdownBlockKind.Image("https://cdn.example/c.png", "A chart"), blocks[1].kind)
         assertEquals("A chart", Markdown.plain(blocks[1].inlines))
         assertEquals("an empty alt", MarkdownBlockKind.Image("https://cdn.example/d.png", ""), blocks[2].kind)
-        // An inline image inside text stays its alt text.
-        assertEquals(MarkdownBlockKind.Paragraph, blocks[3].kind)
-        assertEquals("text inline here", Markdown.plain(blocks[3].inlines))
+        // #FEED-208: an image directly in a paragraph's text splits it (edges trimmed).
+        assertEquals(listOf(MarkdownBlockKind.Paragraph, MarkdownBlockKind.Image("https://x/y.png", "inline"), MarkdownBlockKind.Paragraph), blocks.drop(3).map { it.kind })
+        assertEquals(listOf("text", "here"), listOf(blocks[3], blocks[5]).map { Markdown.plain(it.inlines) })
+        // Inside a span or a list item it stays its alt text.
+        assertEquals("bold x", Markdown.plain(Markdown.parse("**bold ![x](1.png)**").single().inlines))
+        assertEquals("item x", Markdown.plain(Markdown.parse("- item ![x](1.png)").single().inlines))
     }
 
     @Test

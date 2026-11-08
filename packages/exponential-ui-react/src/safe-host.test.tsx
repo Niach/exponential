@@ -145,14 +145,14 @@ describe(`markdown`, () => {
     expect(linkAt(`[a](x y)`, 0)).toBeNull()
     expect(linkAt(`[a](x(`, 0)).toBeNull()
   })
-  it(`a denied link is its label as text; an inline image its alt (×4)`, () => {
+  it(`a denied link is its label as text; an image in the text splits it (×5, #FEED-208)`, () => {
     const { container } = render(<div>{renderMarkdown(`see [docs](https://en.wikipedia.org/wiki/A_(b)) and [bad](javascript:alert(1)) ![pic](https://exponential.at/p.png) end`)}</div>)
     const hrefs = [...container.querySelectorAll(`a`)].map((a) => a.getAttribute(`href`))
     expect(hrefs).toEqual([`https://en.wikipedia.org/wiki/A_(b)`])
-    expect(container.querySelector(`img`)).toBeNull()
-    expect(container.textContent).toContain(`pic end`)
+    expect(container.querySelector(`.xui-Markdown-image img`)!.getAttribute(`src`)).toBe(`https://exponential.at/p.png`)
+    expect([...container.querySelectorAll(`p`)].map((p) => p.textContent?.trim())).toEqual([expect.stringMatching(/and bad$/), `end`])
     expect(container.textContent).toContain(`bad`)
-    expect(container.textContent).toContain(` end`)
+    expect(container.textContent).toContain(`end`)
     expect(container.innerHTML).not.toContain(`javascript`)
   })
   it(`a paragraph that is one image is a block image through the media policy`, () => {

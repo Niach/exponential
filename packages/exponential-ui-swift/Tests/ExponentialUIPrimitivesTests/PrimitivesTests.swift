@@ -71,8 +71,15 @@ final class MarkdownParseTests: XCTestCase {
         XCTAssertEqual(Markdown.parseInline("[a [b] c](u)").first?.text, "a [b] c")
         let blocks = Markdown.parse("![i](javascript:alert(3))")
         XCTAssertEqual(blocks.map(\.kind), [.image(src: "javascript:alert(3)", alt: "i")])
-        // Inside a line an image paints its alt text.
+        // The inline parser paints an image as its alt text.
         XCTAssertEqual(Markdown.plain(Markdown.parseInline("x ![pic](https://a/(b)) y")), "x pic y")
+        // #FEED-208: an image directly in a paragraph's text splits it (edges trimmed).
+        let split = Markdown.parse("x ![pic](https://a/(b)) y")
+        XCTAssertEqual(split.map(\.kind), [.paragraph, .image(src: "https://a/(b)", alt: "pic"), .paragraph])
+        XCTAssertEqual([split[0], split[2]].map { Markdown.plain($0.inlines) }, ["x", "y"])
+        // Inside a span or a list item it stays its alt text.
+        XCTAssertEqual(Markdown.parse("**bold ![x](1.png)**").map { Markdown.plain($0.inlines) }, ["bold x"])
+        XCTAssertEqual(Markdown.parse("- item ![x](1.png)").map { Markdown.plain($0.inlines) }, ["item x"])
     }
 
     func testNestedListsAndTasks() {

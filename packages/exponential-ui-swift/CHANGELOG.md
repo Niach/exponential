@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Markdown: an image directly in a top-level paragraph's text splits the paragraph into the text before it, a block image and the text after it (edges trimmed, an empty side dropped); in a heading, list item, cell, quote or inside a span it stays its alt text (#FEED-208, `fixtures/markdown-render.json` `image_split_*`).
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
 - An anchored overlay closes once its anchor scrolls, moves or leaves the tree (#EXP-1739, through the core).
 - `Window` (VAPP-290): the macro paints through the Box / Text paths (no painter of their own): the 34-tall chrome bar with its three dots and the centred title, hidden from VoiceOver, over the body the one child fills; the root is a group named by `title`. `WindowTests`.

@@ -86,7 +86,7 @@ describe(`VAPP-107: a private host is denied unless the host opts it in`, () => 
     expect(c.querySelector(`a`)).toBeNull()
     expect(c.querySelector(`img`)).toBeNull()
     expect(c.textContent).toContain(`router`)
-    expect(c.textContent).toContain(`cam end`)
+    expect([...c.querySelectorAll(`p`)].map((p) => p.textContent)).toEqual([`see router`, `cam`, `end`])
     expect(c.innerHTML).not.toContain(`192.168`)
     expect(c.innerHTML).not.toContain(`10.0.0.9`)
   })
@@ -166,11 +166,11 @@ describe(`media: every src passes the media policy`, () => {
 })
 
 describe(`markdown images go through the media policy`, () => {
-  it(`a denied inline image is its alt; a denied link its label`, () => {
+  it(`a denied image in the text is a paragraph of its alt (#FEED-208); a denied link its label`, () => {
     const c = markdown(`see [bad](javascript:alert(1)) ![pic](javascript:alert(2)) end`)
     expect(c.querySelector(`img`)).toBeNull()
     expect(c.querySelector(`a`)).toBeNull()
-    expect(c.textContent).toContain(`pic end`)
+    expect([...c.querySelectorAll(`p`)].map((p) => p.textContent)).toEqual([`see bad`, `pic`, `end`])
     expect(c.innerHTML).not.toContain(`javascript`)
   })
   it(`a paragraph that is one image is a block image through the media policy`, () => {

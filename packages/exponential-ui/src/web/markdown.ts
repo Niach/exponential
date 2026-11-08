@@ -7,8 +7,9 @@
 // balanced parentheses (CommonMark); the tree carries RAW destinations, the
 // renderer passes every href through the URL policy (`linkHref`, denied =
 // the label as text) and every image through the media policy. A paragraph
-// that is one image is a BLOCK image; an image inside running text is its
-// alt text, as on every renderer. Every pass is linear in its input.
+// that is one image is a BLOCK image; #FEED-208: an image directly in a
+// top-level paragraph's text splits it around a block image, anywhere else
+// it is its alt text, as on every renderer. Every pass is linear in its input.
 
 // From the root package (external to this entry, which `urls.ts` imports
 // anyway): the tokenizer is never bundled twice.
@@ -126,8 +127,8 @@ export function linkAt(s: string, at: number): { label: string; dest: string; en
 }
 
 /** A paragraph that is exactly one `![alt](src)` → its alt + src (a BLOCK
- *  image, as every renderer paints it; an image inside running text is its
- *  alt text). */
+ *  image, as every renderer paints it; an image inside a top-level
+ *  paragraph's text splits it, `splitImages`). */
 export function wholeImage(text: string): { alt: string; src: string } | null {
   if (text[0] !== `!`) return null
   const l = linkAt(text, 1)
@@ -181,6 +182,41 @@ export function parseInline(text: string, depth = 0): MarkdownInline[] {
   return inlineRun(escapePunctuation(text), depth)
 }
 
+/** #FEED-208 (fixtures/markdown-render.json `image_split_*`): a top-level
+ *  paragraph with images directly in its text = the text before each image
+ *  (a paragraph), the image (a block image), the text after it. ASCII
+ *  spaces, tabs and line breaks at a split edge trim; an empty side drops. */
+function splitImages(text: string): MarkdownBlock[] {
+  const marked: (MarkdownInline | ImageMark)[] = []
+  inlineRun(escapePunctuation(text), 0, marked)
+  if (!marked.some((n) => typeof n !== `string` && n.type === `image`)) return [{ type: `paragraph`, children: marked as MarkdownInline[] }]
+  const out: MarkdownBlock[] = []
+  let run: MarkdownInline[] = []
+  const edge = (trimEnd: boolean) => {
+    // Trim the run's leading edge (always) and its trailing one (before an image or at the end).
+    while (run.length && typeof run[0] === `string`) {
+      const t = (run[0] as string).replace(/^[ \t\n]+/, ``)
+      if (t) { run[0] = t; break }
+      run.shift()
+    }
+    while (trimEnd && run.length && typeof run[run.length - 1] === `string`) {
+      const t = (run[run.length - 1] as string).replace(/[ \t\n]+$/, ``)
+      if (t) { run[run.length - 1] = t; break }
+      run.pop()
+    }
+    if (run.length) out.push({ type: `paragraph`, children: run })
+    run = []
+  }
+  for (const n of marked) {
+    if (typeof n !== `string` && n.type === `image`) {
+      edge(true)
+      out.push({ type: `image`, alt: n.alt, src: n.src })
+    } else run.push(n as MarkdownInline)
+  }
+  edge(true)
+  return out
+}
+
 // #VAPP-258: a backslash-escaped ASCII punctuation character is literal: it
 // rides the parse as a private-use code point (so it never opens a span or
 // a link) and decodes back to itself in text, or to `\x` inside code.
@@ -206,8 +242,12 @@ function decodeText(text: string): string {
   })
 }
 
-function inlineRun(text: string, depth: number): MarkdownInline[] {
-  const out: MarkdownInline[] = []
+/** #FEED-208: a top-level paragraph's run marks each image directly in its
+ *  text (`images`) so the paragraph splits around it (`splitImages`). */
+type ImageMark = { type: `image`; alt: string; src: string }
+
+function inlineRun(text: string, depth: number, images?: (MarkdownInline | ImageMark)[]): MarkdownInline[] {
+  const out: MarkdownInline[] = images as MarkdownInline[] | undefined ?? []
   const scan = depth < MAX_LINK_NESTING && text.includes(`[`) ? new LinkScanner(text) : null
   const simple = new RegExp(SIMPLE.source, `g`)
   let pos = 0
@@ -235,8 +275,11 @@ function inlineRun(text: string, depth: number): MarkdownInline[] {
     }
     if (link) {
       if (link.at > pos) out.push(decodeText(text.slice(pos, link.at)))
-      // An image inside running text paints its alt text (×4).
-      if (link.image) out.push(decodeText(link.label))
+      // #FEED-208: an image directly in a top-level paragraph's text splits
+      // it (`images`); anywhere else (emphasis, a link label, a heading, a
+      // list item, a cell, a quote) it paints its alt text (×5).
+      if (link.image && images) images.push({ type: `image`, alt: decodeText(link.label), src: decodeText(link.dest) })
+      else if (link.image) out.push(decodeText(link.label))
       else out.push({ type: `link`, dest: decodeText(link.dest), children: inlineRun(link.label, depth + 1) })
       pos = link.end
       continue
@@ -506,6 +549,7 @@ function parseBlocks(text: string, depth: number, hard = false): MarkdownBlock[]
     }, ``).replace(/ +$/, ``)
     const image = wholeImage(text)
     if (image) blocks.push({ type: `image`, alt: image.alt, src: image.src })
+    else if (depth === 0) blocks.push(...splitImages(text))
     else blocks.push({ type: `paragraph`, children: parseInline(text) })
     para.length = 0
   }
