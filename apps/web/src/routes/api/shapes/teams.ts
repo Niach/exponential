@@ -28,6 +28,8 @@ const TEAM_COLUMNS = [
   `estimation_type`,
   // VAPP-201 — the team time zone app hosts read dates in (NULL = the device's).
   `time_zone`,
+  // #EXP-1730 phase A: the team's lead Assistant.
+  `lead_assistant_id`,
   `created_at`,
   `updated_at`,
 ]

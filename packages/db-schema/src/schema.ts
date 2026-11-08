@@ -25,6 +25,7 @@ import {
   type CodingSessionBlocked,
   type AgentTrigger,
   type AgentTriggerState,
+  type AgentDefaults,
   type EventEmitter,
   eventEmitterValues,
   type GuideEntry,
@@ -272,6 +273,11 @@ export const teams = pgTable(`teams`, {
   // SERVER-ONLY, behind the teams shape allowlist.
   kind: varchar({ length: 16 }).notNull().default(`team`),
   ownerId: text(`owner_id`).references(() => users.id, { onDelete: `cascade` }),
+  // #EXP-1730 (one-tree model): the team's LEAD Assistant, the one every
+  // member's Assistant reports to. NULL = none picked. Synced; owners write it.
+  leadAssistantId: uuid(`lead_assistant_id`).references((): AnyPgColumn => agents.id, {
+    onDelete: `set null`,
+  }),
   ...timestamps,
 }, (table) => [
   uniqueIndex(`uniq_teams_personal_owner`).on(table.ownerId).where(sql`kind = 'personal'`),
@@ -950,9 +956,18 @@ export const attachments = pgTable(
     appId: uuid(`app_id`).references((): AnyPgColumn => apps.id, {
       onDelete: `set null`,
     }),
+    // #EXP-1730 (one-tree model): a RESULT, the session that filed it
+    // (a Guide picture). Not an owner (`attachments_owner_check`): a result
+    // also names its issue. SYNCED.
+    sessionId: uuid(`session_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
+    index(`idx_attachments_session`)
+      .on(table.sessionId)
+      .where(sql`session_id IS NOT NULL`),
     index(`idx_attachments_app`)
       .on(table.appId)
       .where(sql`app_id IS NOT NULL`),
@@ -2206,6 +2221,12 @@ export const sessions = pgTable(
     // The title as a body envelope (`exp-sealed:v1:…`); `title` stays a
     // neutral fallback. SYNCED.
     sealedTitle: text(`sealed_title`),
+    // #EXP-1730 (one-tree model): the list digest of this session's messages
+    // (domain-contract `conversationDigest`), mirrored from its kind-session
+    // conversation by trigger `mirror_conversation_digest` until phase B
+    // drops `conversations`. A digest-only write never bumps `updated_at`.
+    // SYNCED.
+    digest: jsonb().$type<ConversationDigestJson>(),
     // #EXP-1720 (emcp access.json `assistantScope`): the Assistant's
     // conversation ROOT only = the teams its member picked for the latest
     // turn (the composer's Teams row); NULL = every team they belong to. The
@@ -2316,6 +2337,14 @@ export const agents = pgTable(
     cli: varchar({ length: 16 }),
     account: varchar({ length: 64 }),
     model: varchar({ length: 64 }),
+    // #EXP-1730 (one-tree model): the runner defaults as one object. Phase
+    // A: trigger `sync_agent_defaults` keeps it and the four columns above
+    // in step (a write of either side fills the other); phase B drops the
+    // columns. SYNCED.
+    defaults: jsonb()
+      .$type<AgentDefaults>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     // #EXP-1656: the team skills every run of this agent starts with (its
     // conversation and trigger sessions; children inherit). SYNCED.
     skillIds: jsonb(`skill_ids`)
@@ -2485,6 +2514,12 @@ export const apps = pgTable(
     // off: the broker (`/api/mcp/apps`) never lists or runs them. SERVER-ONLY
     // (behind the apps shape's column allowlist; tRPC `apps.mcp`).
     mcpDisabledTools: jsonb(`mcp_disabled_tools`).$type<string[]>().notNull().default([]),
+    // #EXP-1730 (one-tree model): the app's agent (its editor = the agent's
+    // root session, its automations = the agent's triggers); creating an app
+    // creates it. NULL = a standalone app (an exported one). SYNCED.
+    agentId: uuid(`agent_id`).references((): AnyPgColumn => agents.id, {
+      onDelete: `set null`,
+    }),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     ...timestamps,
   },
@@ -2494,6 +2529,7 @@ export const apps = pgTable(
       .on(table.teamId, table.slug)
       .where(sql`deleted_at IS NULL`),
     index(`idx_apps_team`).on(table.teamId),
+    uniqueIndex(`uniq_apps_agent`).on(table.agentId).where(sql`agent_id IS NOT NULL`),
   ]
 )
 
@@ -2781,6 +2817,13 @@ export const messages = pgTable(
     conversationId: uuid(`conversation_id`)
       .notNull()
       .references(() => conversations.id, { onDelete: `cascade` }),
+    // #EXP-1730 (one-tree model): the session the row lives in. Phase A:
+    // trigger `populate_message_session_id` keeps it and `conversation_id`
+    // in step (either one written fills the other); NULL only on a dm/channel
+    // row (phase B deletes those and drops `conversation_id`). SYNCED.
+    sessionId: uuid(`session_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `cascade`,
+    }),
     // Mirrors of the conversation's session (app-written at insert,
     // immutable; `populate_message_session_mirrors` derives them).
     rootId: uuid(`root_id`)
@@ -2857,6 +2900,7 @@ export const messages = pgTable(
     // #NEW-57: the watchdog's prune.
     index(`idx_messages_expires`).on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
     index(`idx_messages_conversation_created`).on(table.conversationId, table.createdAt),
+    index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
     index(`idx_messages_root`).on(table.rootId),
     index(`idx_messages_team`).on(table.teamId),
     // The device's pickup of a PERSON's queued messages. EXP-1323 widened

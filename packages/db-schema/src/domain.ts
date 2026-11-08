@@ -874,6 +874,17 @@ export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
  *  `firedAt` = its last firing. */
 export type AgentTriggerState = Record<string, { checkedAt?: string; firedAt?: string }>
 
+/** #EXP-1730 (one-tree model): an agent's runner defaults, the picks every
+ *  run of it starts with. Phase A keeps them in step with the legacy
+ *  `agents.device_id`/`cli`/`account`/`model` columns (trigger
+ *  `sync_agent_defaults`); phase B drops those columns. */
+export interface AgentDefaults {
+  deviceId: string | null
+  cli: string | null
+  account: string | null
+  model: string | null
+}
+
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // EXP-630: story points — a non-negative integer (issues.estimate). The

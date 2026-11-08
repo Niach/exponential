@@ -708,6 +708,82 @@ BEGIN
   END IF;
 END $$;
 
+-- #EXP-1730 phase A (one-tree model; migration 0264 creates the same): the new columns stay in step with the
+-- legacy ones whichever side a writer names, so shipped clients and old
+-- server paths keep working while new code reads the new model. Phase B
+-- drops these with the legacy columns. Distinct names from the older
+-- functions, so an older build's boot SQL never replaces them.
+
+-- messages.session_id <-> messages.conversation_id (fires before
+-- populate_message_session_mirrors: trigger names run in order).
+CREATE OR REPLACE FUNCTION populate_message_session_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.conversation_id IS NULL AND NEW.session_id IS NOT NULL THEN
+    SELECT c.id INTO NEW.conversation_id FROM conversations c WHERE c.session_id = NEW.session_id;
+  ELSIF NEW.conversation_id IS NOT NULL THEN
+    SELECT c.session_id INTO NEW.session_id FROM conversations c WHERE c.id = NEW.conversation_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_message_session_id
+  BEFORE INSERT ON messages
+  FOR EACH ROW EXECUTE FUNCTION populate_message_session_id();
+
+-- sessions.digest = its conversation's digest. A digest-only write is no
+-- edit of the session (updated_at stays: the watchdog and the lists read it).
+CREATE OR REPLACE FUNCTION mirror_conversation_digest()
+RETURNS TRIGGER AS $$
+DECLARE
+  prev text := current_setting('exponential.preserve_timestamps', true);
+BEGIN
+  PERFORM set_config('exponential.preserve_timestamps', 'on', true);
+  UPDATE sessions SET digest = NEW.digest
+    WHERE id = NEW.session_id AND digest IS DISTINCT FROM NEW.digest;
+  PERFORM set_config('exponential.preserve_timestamps', coalesce(prev, ''), true);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER mirror_conversation_digest
+  AFTER INSERT OR UPDATE OF digest ON conversations
+  FOR EACH ROW
+  WHEN (NEW.session_id IS NOT NULL AND NEW.digest IS NOT NULL)
+  EXECUTE FUNCTION mirror_conversation_digest();
+
+-- agents.defaults <-> agents.device_id/cli/account/model: a write that
+-- changes only `defaults` (or an insert without a device) leads with the
+-- object; otherwise the columns lead. Either way both end up equal.
+CREATE OR REPLACE FUNCTION sync_agent_defaults()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (TG_OP = 'INSERT' AND (NEW.device_id IS NULL OR NEW.defaults <> '{}'::jsonb))
+    OR (TG_OP = 'UPDATE' AND NEW.defaults IS DISTINCT FROM OLD.defaults
+      AND NEW.device_id IS NOT DISTINCT FROM OLD.device_id
+      AND NEW.cli IS NOT DISTINCT FROM OLD.cli
+      AND NEW.account IS NOT DISTINCT FROM OLD.account
+      AND NEW.model IS NOT DISTINCT FROM OLD.model) THEN
+    IF NEW.defaults ? 'deviceId' THEN NEW.device_id := coalesce(NEW.defaults->>'deviceId', ''); END IF;
+    IF NEW.defaults ? 'cli' THEN NEW.cli := NEW.defaults->>'cli'; END IF;
+    IF NEW.defaults ? 'account' THEN NEW.account := NEW.defaults->>'account'; END IF;
+    IF NEW.defaults ? 'model' THEN NEW.model := NEW.defaults->>'model'; END IF;
+    NEW.device_id := coalesce(NEW.device_id, '');
+  END IF;
+  NEW.defaults := jsonb_build_object(
+    'deviceId', nullif(NEW.device_id, ''),
+    'cli', NEW.cli,
+    'account', NEW.account,
+    'model', NEW.model);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER sync_agent_defaults
+  BEFORE INSERT OR UPDATE ON agents
+  FOR EACH ROW EXECUTE FUNCTION sync_agent_defaults();
+
 -- The pre-EXP-1291 run/thread functions (their tables are gone, so are
 -- their triggers): dropped so no stale body lingers.
 DROP FUNCTION IF EXISTS populate_thread_item_board_id();

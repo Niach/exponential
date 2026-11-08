@@ -12,6 +12,8 @@ export const MESSAGE_COLUMNS = [
   `id`,
   // NEW-3: the conversation the row lives in (NEW-8: its only key).
   `conversation_id`,
+  // #EXP-1730 phase A: the row's session (trigger-kept beside conversation_id).
+  `session_id`,
   `root_id`,
   `team_id`,
   `author_kind`,
