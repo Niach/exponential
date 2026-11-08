@@ -708,7 +708,7 @@ BEGIN
   END IF;
 END $$;
 
--- #EXP-1730 phase A (one-tree model; migration 0264 creates the same): the new columns stay in step with the
+-- #EXP-1730 phase A (one-tree model; migration 0266 creates the same): the new columns stay in step with the
 -- legacy ones whichever side a writer names, so shipped clients and old
 -- server paths keep working while new code reads the new model. Phase B
 -- drops these with the legacy columns. Distinct names from the older
