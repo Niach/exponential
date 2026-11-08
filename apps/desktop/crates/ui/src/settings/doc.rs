@@ -236,18 +236,18 @@ impl Ink {
     /// `glass_pill_button` at `PillSize::Sm` (gpui-component's `XSmall`
     /// button under `web_xs`): 24px tall, `px 8`, capsule, a 1px
     /// `stroke_card`; inside, `gap_1` between the `size_3` glyph and the
-    /// `text_xs` label (line height 1). Disabled: the faded fill and the
+    /// `text_xs` label (line height 1); no glyph without `icon`. Disabled: the faded fill and the
     /// half-muted ink. Drawn twice, `disabled` picks.
-    pub(super) fn pill_button(&self, id: &str, icon: &str, label: Value, disabled: Value, event: Value) -> [Value; 2] {
+    pub(super) fn pill_button(&self, id: &str, icon: Option<&str>, label: Value, disabled: Value, event: Value) -> [Value; 2] {
         let draw = |dim: bool| {
             let id = if dim { format!("{id}_dim") } else { id.to_string() };
             let (ink, alpha) = if dim { (&self.muted, 0.5) } else { (&self.foreground, VALUE_ALPHA) };
             let size = self.r(XS);
-            let glyph = json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": self.r(0.75), "height": self.r(0.75), "color": ink, "opacity": alpha, "flexShrink": 0}});
+            let glyph = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": self.r(0.75), "height": self.r(0.75), "color": ink, "opacity": alpha, "flexShrink": 0}}));
             let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": ink, "opacity": alpha, "flexShrink": 0}});
             let mut button = json!({"id": id, "component": "Box", "visible": if dim { disabled.clone() } else { not(disabled.clone()) },
                 "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": self.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": 9999, "borderWidth": 1, "borderColor": self.stroke_card, "backgroundColor": if dim { &self.pill_button_fill_disabled } else { &self.pill_button_fill }},
-                "children": [glyph, text]});
+                "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
             if !dim {
                 button["props"] = json!({"pressable": true});
                 button["on"] = json!({"press": {"event": event.clone()}});

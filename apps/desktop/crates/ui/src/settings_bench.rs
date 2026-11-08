@@ -10,6 +10,7 @@ use gpui_component::ActiveTheme as _;
 use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
+use crate::settings::about::AboutPane;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::shell_bench::headless;
@@ -168,4 +169,10 @@ fn settings_storage_empty() {
 #[ignore]
 fn settings_storage_failed() {
     storage("storage-failed", || StorageLoad::Failed);
+}
+
+#[test]
+#[ignore]
+fn settings_about() {
+    shoot_pane("about", AboutPane::for_shots, |_, _| {});
 }

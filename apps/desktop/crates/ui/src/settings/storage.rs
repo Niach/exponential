@@ -516,7 +516,7 @@ const PATH: &str = "/pane";
 /// — every column but the filename carries a definite width so the columns
 /// line up down the list) or the skeleton / failed / empty states.
 fn document(ink: &Ink, track: &str, list_hover: &str) -> Value {
-    let sweep = ink.pill_button("sweep", "ui-clean", path("/pane/sweepLabel"), path("/pane/sweepDisabled"), json!({"name": "sweep"}));
+    let sweep = ink.pill_button("sweep", Some("ui-clean"), path("/pane/sweepLabel"), path("/pane/sweepDisabled"), json!({"name": "sweep"}));
     let sweep = json!({"id": "sweep_slot", "component": "Box", "style": {"display": "flex", "flexShrink": 0}, "children": sweep});
     let band = ink.band("band", "Storage", Some(sweep));
 

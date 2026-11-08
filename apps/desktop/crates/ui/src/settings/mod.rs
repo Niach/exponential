@@ -34,7 +34,7 @@
 //! snippet, the domain allowlist and the theme editor). SLOP-4: the helpdesk
 //! pane beside it is gone with the helpdesk.
 
-mod about;
+pub(crate) mod about;
 // #EXP-1629: what the panes' eUI documents share.
 mod doc;
 mod account;
@@ -784,7 +784,7 @@ impl SettingsView {
         let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
         let voice = cx.new(VoicePrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
-        let about = cx.new(|_| AboutPane::new());
+        let about = cx.new(|cx| AboutPane::new(window, cx));
 
         // The section nav + header depend on role (owner gating) —
         // re-render when membership/team data moves.
