@@ -2572,9 +2572,9 @@ const DAEMON_SHAPES: &[&str] = &[
     // EXP-1457: the eNet allowlist = the installs of these teams.
     "teams",
     "sessions",
+    // #EXP-1730: a message names its own session (`session_id`); the
+    // daemon no longer syncs `conversations`.
     "messages",
-    // NEW-8: a message's session is its conversation's.
-    "conversations",
     "session_issues",
     "issues",
     "boards",
@@ -2616,9 +2616,8 @@ const SWEEP_SHAPES: &[&str] = &["sessions", "pull_requests"];
 /// The shapes a pickup pass reads. It runs only once BOTH reached
 /// `up-to-date` in this process: `coding::pickup::plan` kills a live session
 /// whose row is missing, so a cold store must never be planned over.
-/// NEW-8: the messages wait on their conversations too (a message whose
-/// conversation has not synced is held back).
-const PICKUP_SHAPES: &[&str] = &["sessions", "messages", "conversations"];
+/// #EXP-1730: a message names its own session, so nothing else gates it.
+const PICKUP_SHAPES: &[&str] = &["sessions", "messages"];
 
 /// The worker's self-tick. Deltas drive the pickup (it acts within a second
 /// of the row landing); this beat is the catch-up pass after a
@@ -2722,7 +2721,7 @@ impl SyncedShapes {
 /// The work a delta wakes, `None` = nothing the worker reads.
 fn delta_work(shape: &str) -> Option<DaemonWork> {
     match shape {
-        "sessions" | "messages" | "conversations" | "session_issues" | "events" => Some(DaemonWork::Pickup),
+        "sessions" | "messages" | "session_issues" | "events" => Some(DaemonWork::Pickup),
         _ => None,
     }
 }
@@ -3432,16 +3431,12 @@ pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// NEW-8: every synced message KEYED through its conversation
-/// (`domain::message_conversation`): `session_id` = the session its
-/// conversation belongs to; a dm/channel message, or one whose conversation
-/// has not synced, is held back. The row's own legacy `session_id` is never
-/// read.
+/// #EXP-1730: every synced message that lives in a session, keyed by its
+/// own `session_id` (`domain::message_conversation::session_messages`); a
+/// session-less dm/channel row is held back.
 pub(crate) fn read_keyed_messages(store: &sync::store::ShapeStore) -> Vec<MessageRow> {
-    let conversations = read_shape_rows::<domain::rows::ConversationRow>(store, "conversations");
-    let sessions = domain::message_conversation::conversation_sessions(&conversations);
     let messages = read_shape_rows::<MessageRow>(store, "messages");
-    domain::message_conversation::key_messages_by_session(&messages, &sessions)
+    domain::message_conversation::session_messages(&messages)
 }
 
 /// One column of one issue, point-read by primary key (§5.8).
@@ -4060,11 +4055,12 @@ mod tests {
     // EXP-1292: the pickup host's pure helpers
     // -----------------------------------------------------------------------
 
-    /// A row on `session_id`'s conversation, already keyed (NEW-8).
+    /// A row of `session_id` (#EXP-1730: its own `session_id`).
     fn message(id: &str, session_id: &str, consumed: bool) -> MessageRow {
         let row: MessageRow = serde_json::from_value(serde_json::json!({
             "id": id,
             "conversation_id": format!("c-{session_id}"),
+            "session_id": session_id,
             "author_kind": "user",
             "body": "hi",
             "consumed_at": consumed.then_some("2026-10-13 10:00:00+00"),
@@ -4130,7 +4126,8 @@ mod tests {
     fn deltas_route_to_the_worker() {
         assert_eq!(delta_work("sessions"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("messages"), Some(DaemonWork::Pickup));
-        assert_eq!(delta_work("conversations"), Some(DaemonWork::Pickup));
+        // #EXP-1730: no longer synced by the daemon.
+        assert_eq!(delta_work("conversations"), None);
         assert_eq!(delta_work("session_issues"), Some(DaemonWork::Pickup));
         // EXP-1542: a move's record re-plans (its source hands off).
         assert_eq!(delta_work("events"), Some(DaemonWork::Pickup));
@@ -4148,8 +4145,7 @@ mod tests {
         assert!(!synced.mark("sessions"), "only the first up-to-date counts");
         assert!(!synced.ready(PICKUP_SHAPES));
         synced.mark("messages");
-        assert!(!synced.ready(PICKUP_SHAPES), "NEW-8: the messages wait on their conversations");
-        synced.mark("conversations");
+        // #EXP-1730: a message names its own session: nothing else gates it.
         assert!(synced.ready(PICKUP_SHAPES));
     }
 

@@ -1,14 +1,29 @@
-//! NEW-8: messages live in CONVERSATIONS; a session's thread is the messages
-//! of its own (kind `session`) conversation. Every message is keyed through
-//! the `conversations` shape, never through a legacy `messages.session_id`.
+//! #EXP-1730 (one-tree model): a message's session is its OWN
+//! `messages.session_id` ([`message_session`], [`session_messages`]); the
+//! desktop, the CLI daemon and eDE no longer sync `conversations`.
 //!
-//! Locked by `fixtures/message-conversation.json`; mirrors: TS
+//! NEW-8 (the legacy model, kept as the reference the fixture replays until
+//! phase B retires it): messages live in CONVERSATIONS; a session's thread
+//! is the messages of its own (kind `session`) conversation. Locked by
+//! `fixtures/message-conversation.json`; mirrors: TS
 //! `src/message-conversation.ts`, iOS `MessageConversation.swift`, Android
 //! `domain/MessageConversation.kt`.
 
 use std::collections::HashMap;
 
 use crate::rows::{ConversationRow, MessageRow};
+
+/// #EXP-1730: the session `message` lives in (`messages.session_id`);
+/// `None` = a dm/channel row, or one from a server older than #EXP-1730.
+pub fn message_session(message: &MessageRow) -> Option<&str> {
+    Some(message.session_id.as_str()).filter(|id| !id.is_empty())
+}
+
+/// #EXP-1730: the messages that live in a session (each already carries its
+/// `session_id`), cloned in input order; a session-less row is left out.
+pub fn session_messages<'a>(messages: impl IntoIterator<Item = &'a MessageRow>) -> Vec<MessageRow> {
+    messages.into_iter().filter(|message| message_session(message).is_some()).cloned().collect()
+}
 
 /// conversation id → session id, for the conversations that belong to a
 /// session (a dm/channel has no session and is left out).
@@ -116,6 +131,21 @@ mod tests {
                 keyed.iter().map(|message| json!({"id": message.id, "sessionId": message.session_id})).collect();
             assert_eq!(Value::Array(actual), case["expected"], "{name}");
         }
+    }
+
+    /// #EXP-1730: the row's own `session_id` keys it; a session-less row
+    /// (dm/channel, or an older server) belongs to no thread.
+    #[test]
+    fn a_message_is_keyed_by_its_own_session() {
+        let rows: Vec<MessageRow> = [json!({"id": "m1", "session_id": "s1"}), json!({"id": "m2", "session_id": null}), json!({"id": "m3"})]
+            .into_iter()
+            .map(|row| serde_json::from_value(row).unwrap())
+            .collect();
+        assert_eq!(message_session(&rows[0]), Some("s1"));
+        assert_eq!(message_session(&rows[1]), None);
+        let keyed = session_messages(&rows);
+        assert_eq!(keyed.len(), 1);
+        assert_eq!(keyed[0].id, "m1");
     }
 
     #[test]

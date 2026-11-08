@@ -1717,7 +1717,7 @@ fn chats_refresh(shell: &SharedShell, cx: &mut App) {
             Some(store) => {
                 let read = |shape: &str| sync::shapes::shape_by_name(shape).and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
                 let sessions = chats::sessions(read("sessions"));
-                let unread = chats::unread_roots(&sessions, &chats::rows(read("conversations")), &chats::rows(read("session_reads")), &current.id);
+                let unread = chats::unread_roots(&sessions, &chats::rows(read("session_reads")), &current.id);
                 chats::chat_inputs(&sessions, &current.id, &unread)
             }
             None => Vec::new(),
@@ -3104,7 +3104,7 @@ fn main() {
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
                             // #EDE-65: the current team's chats.
-                            "sessions" | "conversations" | "session_reads" => chats_changed |= s.borrow().model.switcher.current.account.as_ref() == Some(account_id),
+                            "sessions" | "session_reads" => chats_changed |= s.borrow().model.switcher.current.account.as_ref() == Some(account_id),
                             // #VAPP-273: the connected team's apps and records.
                             "apps" | "app_records" => {
                                 if s.borrow().team_stores.as_ref().is_some_and(|t| &t.account_id == account_id) {
