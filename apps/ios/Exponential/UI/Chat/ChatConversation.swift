@@ -28,26 +28,24 @@ struct ChatLiveTail: View {
 /// EXP-1295: a root's CONVERSATION (fixture `session-chat.json` `rows`) —
 /// a chat's, or a team agent's channel: its messages oldest first (EXP-1334:
 /// the conversation IS the dispatcher, no root card; a child's own question
-/// or plan card surfaces here by time), in the session view's own parts:
-/// a person's message is THE message bubble (`UserMessageBubble`, captioned
-/// with the name and time, or `queued` until the device took it), the
-/// agent's reply bare prose under its mark (`NarrationBubble`); a `session`
+/// or plan card surfaces here by time). #EXP-1736 (transcript-grouping.json):
+/// ONE transcript for every chat, read like a group chat: every card-less
+/// message is THE message bubble (`MessageBubble`), the viewer's own right
+/// (`UserMessageBubble`, its time or `queued` inside), anyone else's left
+/// under its sender's avatar and name (`TranscriptRow`), a run of one
+/// sender's rows grouped (3pt apart, 12pt between groups); a `session`
 /// / `thread_started` card is THE session card (`SessionCardView`): a
 /// session of this tree opens its raw view, a chat another root started
 /// opens that chat; a question answers IN the session view's
 /// `QuestionCard` (`sessions.answer`), #EXP-1662 a plan is ONE row opening the
 /// plan tab; a subagent is one muted row; a
 /// picture is the Guide's inline tile; an event is one muted line.
-/// EXP-1323: a child's `report` is ONE line, S-3: its link header
-/// (`SessionXrefHeader`, `Report from <chip> ›`) pushing that session; a
-/// turn another session posted carries the same header above its bubble,
-/// and the view's `origin` heads the rows; a `suggestions` card is THE suggested tasks card
+/// EXP-1323: a child's `report`, a turn another session posted and the
+/// prompt the view's `origin` started it with are THAT session's bubbles
+/// (its name ` ›`, a press pushes it); a `suggestions` card is THE suggested tasks card
 /// (`ChatSuggestionsCard`; N-12: while an item is open it rides THE Dock
 /// instead); the host's live tail (`tail`) closes the rows.
-/// EXP-1300: an AGENT channel (web `AgentChannel`, Android
-/// `ChatCommentRow`) leaves its own root card out and draws EVERY message
-/// as a comment row (`ChannelMessageRow`: the agent's icon or the person's
-/// avatar, the name, the time, the body); its cards indent under the rows.
+/// EXP-1300: an AGENT channel leaves its own root card out.
 /// Presentational: the screen (and the styleguide) hand it the rows; every
 /// tap goes back out through a closure.
 struct ChatConversationView: View {
@@ -56,8 +54,8 @@ struct ChatConversationView: View {
     /// #EXP-1464: a row naming a session opens it (inbox-route.json
     /// `sessionTarget`; a session of this chat opens in place).
     var onOpenSession: (String) -> Void = { _ in }
-    /// S-3: an inter-session link (`SessionXref`): PUSH that session.
-    var onOpenXref: (SessionXref) -> Void = { _ in }
+    /// #EXP-1736: a cross-session sender's bubble: PUSH that session.
+    var onOpenSender: (String) -> Void = { _ in }
     /// A question or plan card's answer (`sessions.answer`).
     var onSubmit: (ChatCardAnswer) -> Void = { _ in }
     /// EXP-1317: the viewer's own queued message's X (`sessions.unqueue`).
@@ -131,17 +129,15 @@ struct ChatConversationView: View {
         // place (`onLoadEarlier`).
         let all = shownRows
         let _ = handlers.update(
-            onOpenSession: onOpenSession, onOpenXref: onOpenXref,
+            onOpenSession: onOpenSession, onOpenSender: onOpenSender,
             onSubmit: onSubmit, onUnqueue: onUnqueue, onReply: onReply, suggestions: suggestions,
             onAnswered: { [$answeredSessions] sessionId in $answeredSessions.wrappedValue.insert(sessionId) }
         )
         let start = windowStart(all, pinned: pinnedStart)
-        // S-3: web's `gap-2.5` in bubbles, `gap-4` in a transcript.
-        LazyVStack(alignment: .leading, spacing: bubbles ? 10 : 16) {
-            // S-3: who started the viewed session, atop the Conversation.
-            if let origin = view.origin {
-                SessionXrefHeader(xref: origin, agent: rows.xrefMark(origin)) { onOpenXref(origin) }
-            }
+        // #EXP-1736: who sent each row and the gap above it, over EVERY row
+        // (a window's first row keeps its group's gap).
+        let layouts = transcriptLayouts(all)
+        LazyVStack(alignment: .leading, spacing: 0) {
             if start > 0 {
                 TranscriptLoadEarlierButton {
                     let anchor = all[start].id
@@ -156,14 +152,12 @@ struct ChatConversationView: View {
                 // Equatable view over its OWN inputs — a new message, a
                 // clock tick or an answer elsewhere re-renders only the
                 // rows whose inputs moved.
-                rowView(row).equatable()
+                rowView(row, layout: layouts[row.id]).equatable()
                     .waitingHighlight(highlightId == row.id)
-                    // S-3 CHAT MODE `bubbles`: cards sit in the agent's
-                    // column (the agent bubble's ~94%).
-                    .padding(.trailing, bubbles && Self.isCard(row) ? ChatBubbleMetrics.agentTrailingGap : 0)
             }
             if let liveTail {
                 liveTail
+                    .padding(.top, TranscriptGrouping.Layout.gapBetween)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,14 +187,20 @@ struct ChatConversationView: View {
         )
     }
 
-    private var bubbles: Bool { rows.chatMode == .bubbles }
-
-    /// A card (not a bubble, an event line or a divider pill).
-    private static func isCard(_ row: SessionChatRow) -> Bool {
-        switch row {
-        case .message, .event, .divider: false
-        default: true
-        }
+    /// #EXP-1736 (transcript-grouping.json `transcriptLayout`): the rows'
+    /// senders, groups and gaps by row id; the view's `origin` sent the
+    /// first message nobody else claims (the prompt it started this with).
+    private func transcriptLayouts(_ all: [SessionChatRow]) -> [String: TranscriptGrouping.RowLayout] {
+        let input = rows.transcriptInput(
+            items: all.map(ChatRows.transcriptItem),
+            viewerId: viewerId,
+            // The root's own origin (a focused view's names another session).
+            originSessionId: view.focusId == nil ? view.origin?.sessionId : nil
+        )
+        return Dictionary(
+            TranscriptGrouping.transcriptLayout(input).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private static func isSurface(_ row: SessionChatRow) -> Bool {
@@ -224,26 +224,26 @@ struct ChatConversationView: View {
     }
 
     /// One row with its inputs resolved here (indexed lookups, #EXP-1380).
-    private func rowView(_ row: SessionChatRow) -> ChatConversationRow {
+    private func rowView(_ row: SessionChatRow, layout: TranscriptGrouping.RowLayout?) -> ChatConversationRow {
         var item = ChatConversationRow(row: row, teamId: rows.root.teamId, handlers: handlers)
-        item.bubbles = bubbles
+        item.layout = layout
+        if let layout, layout.avatar, let sender = layout.sender {
+            item.avatar = rows.senderAvatar(sender)
+        }
         item.arrived = arrived(row.id) && !Self.isSurface(row)
         item.animateSurface = arrived(row.id)
         item.canAnswer = canAnswer
         item.answeringId = answeringId == row.id ? answeringId : nil
         switch row {
-        case let .message(id, author, authorId, _, queued, _, xref):
-            item.xrefMark = xref.flatMap(rows.xrefMark)
+        case let .message(id, author, authorId, _, queued, _, _):
             let at = rows.createdAt(messageId: id)
-            if author == DomainContract.messageAuthorKindAgent {
+            if author != DomainContract.messageAuthorKindSystem {
+                // EXP-1553 (chats.json CHAT MODE ×4): the bubble has the
+                // time (+ queued) inside it, bottom-right; #EXP-1736: the
+                // sender's name is the group's first bubble's author line.
                 item.time = at.flatMap(clock)
-            } else if author != DomainContract.messageAuthorKindSystem {
-                // EXP-1553 (chats.json CHAT MODE ×4): a chat's bubble has the
-                // time (+ queued) inside it, bottom-right, no name; EXP-1676:
-                // a transcript's caption reads `<name> · <time>` under it.
-                let author = bubbles ? nil : rows.user(id: authorId)
                 item.caption = UserMessageCaption.text(
-                    name: author?.name ?? author?.email,
+                    name: nil,
                     at: at.flatMap { WireTimestamps.parse($0) },
                     queued: queued
                 )
@@ -255,9 +255,8 @@ struct ChatConversationView: View {
                 item.waitingCard = waitingCard(card.sessionId)
                 item.answeringId = item.waitingCard.flatMap { answeringId == $0.id ? answeringId : nil }
             }
-        case let .report(_, sessionId, _, _, xref):
-            item.xrefMark = rows.xrefMark(xref)
-            item.action = action(type: "report", sessionId: sessionId)
+        case let .report(id, _, _, _, _):
+            item.time = rows.createdAt(messageId: id).flatMap(clock)
         case let .suggestions(id, _, _, _, _):
             item.docked = canAnswer && suggestions != nil && Self.isDocked(row)
             item.pending = suggestions?.pending.filter { $0.hasPrefix("\(id):") } ?? []
@@ -307,7 +306,7 @@ struct ChatConversationView: View {
 @MainActor
 final class ChatRowHandlers {
     private(set) var onOpenSession: (String) -> Void = { _ in }
-    private(set) var onOpenXref: (SessionXref) -> Void = { _ in }
+    private(set) var onOpenSender: (String) -> Void = { _ in }
     private(set) var onSubmit: (ChatCardAnswer) -> Void = { _ in }
     private(set) var onUnqueue: (String) -> Void = { _ in }
     private(set) var onReply: (String) -> Void = { _ in }
@@ -318,7 +317,7 @@ final class ChatRowHandlers {
 
     func update(
         onOpenSession: @escaping (String) -> Void,
-        onOpenXref: @escaping (SessionXref) -> Void,
+        onOpenSender: @escaping (String) -> Void,
         onSubmit: @escaping (ChatCardAnswer) -> Void,
         onUnqueue: @escaping (String) -> Void,
         onReply: @escaping (String) -> Void,
@@ -327,7 +326,7 @@ final class ChatRowHandlers {
     ) {
         self.onOpenSession = onOpenSession
         self.onAnswered = onAnswered
-        self.onOpenXref = onOpenXref
+        self.onOpenSender = onOpenSender
         self.onSubmit = onSubmit
         self.onUnqueue = onUnqueue
         self.onReply = onReply
@@ -361,12 +360,13 @@ struct ChatConversationRow: View, Equatable {
     var animateSurface = false
     var canAnswer = true
     var answeringId: String?
-    /// S-3 CHAT MODE: `bubbles` (an agent conversation) or the transcript's
-    /// rows (a chat, EXP-1676).
-    var bubbles = true
-    /// The agent bubble's / divider's `HH:mm`.
+    /// #EXP-1736: the row's sender, group and gap (`transcriptLayout`).
+    var layout: TranscriptGrouping.RowLayout?
+    /// The sender's avatar on a group's first row (nil = none).
+    var avatar: SenderAvatarModel?
+    /// A bubble's / divider's `HH:mm`.
     var time: String?
-    /// A person's bubble caption (`UserMessageCaption`).
+    /// The viewer's own bubble's caption (`UserMessageCaption`).
     var caption = ""
     var removable = false
     /// #EXP-1464: what a tap on the row does (chat-row-action.json).
@@ -380,8 +380,6 @@ struct ChatConversationRow: View, Equatable {
     var suggestable = false
     /// A surface card's reply presses post (a member).
     var replies = false
-    /// S-3: the link header's agent mark (nil = the session glyph).
-    var xrefMark: SessionXrefHeader.AgentMark?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -396,18 +394,18 @@ struct ChatConversationRow: View, Equatable {
     }
 
     private func onOpenSession(_ id: String) { handlers.onOpenSession(id) }
-    private func onOpenXref(_ xref: SessionXref) { handlers.onOpenXref(xref) }
     private func onUnqueue(_ id: String) { handlers.onUnqueue(id) }
     private func onSubmit(_ answer: ChatCardAnswer) { handlers.onSubmit(answer) }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row && lhs.teamId == rhs.teamId && lhs.arrived == rhs.arrived
             && lhs.animateSurface == rhs.animateSurface && lhs.canAnswer == rhs.canAnswer
-            && lhs.answeringId == rhs.answeringId && lhs.bubbles == rhs.bubbles && lhs.time == rhs.time && lhs.caption == rhs.caption
+            && lhs.answeringId == rhs.answeringId && lhs.layout == rhs.layout && lhs.avatar == rhs.avatar
+            && lhs.time == rhs.time && lhs.caption == rhs.caption
             && lhs.removable == rhs.removable && lhs.action == rhs.action && lhs.waitingCard == rhs.waitingCard
             && lhs.docked == rhs.docked
             && lhs.pending == rhs.pending && lhs.eventIssue == rhs.eventIssue
-            && lhs.suggestable == rhs.suggestable && lhs.replies == rhs.replies && lhs.xrefMark == rhs.xrefMark
+            && lhs.suggestable == rhs.suggestable && lhs.replies == rhs.replies
             && lhs.handlers === rhs.handlers
     }
 
@@ -435,17 +433,31 @@ struct ChatConversationRow: View, Equatable {
             .environment(\.cardTeamId, teamId)
     }
 
-    /// S-3: a turn ANOTHER session posted carries its link header right
-    /// above the bubble.
-    @ViewBuilder
+    /// #EXP-1736: the row in its frame: the gap above it, own right, full
+    /// across, anyone else's under its sender's avatar column.
     private var content: some View {
-        if case let .message(_, _, _, _, _, _, xref?) = row {
-            VStack(alignment: .leading, spacing: 4) {
-                SessionXrefHeader(xref: xref, agent: xrefMark) { onOpenXref(xref) }
-                bubble
-            }
-        } else {
+        TranscriptRow(side: layout?.side ?? .full, gap: layout?.gap ?? 0, avatar: avatar) {
             bubble
+        }
+    }
+
+    /// The group's first bubble's name line (a cross-session sender's ends
+    /// in ` ›`); nil = none.
+    private var author: String? {
+        guard let layout, layout.name else { return nil }
+        return layout.sender?.displayName
+    }
+
+    /// A cross-session sender's press: push that session.
+    private var senderPress: (() -> Void)? {
+        guard let link = layout?.sender?.link else { return nil }
+        return { [handlers] in handlers.onOpenSender(link) }
+    }
+
+    /// Anyone else's bubble (a member, an agent, another session).
+    private func otherBubble(_ text: String) -> some View {
+        MessageBubble(side: .other, author: author, time: time, onPress: senderPress) {
+            AgentMarkdownText(text: text, context: markdownContext, hugsWidth: true)
         }
     }
 
@@ -455,42 +467,27 @@ struct ChatConversationRow: View, Equatable {
         case let .message(id, author, _, body, queued, _, _):
             if author == DomainContract.messageAuthorKindSystem {
                 ChatEventLine(text: body)
-            } else if author == DomainContract.messageAuthorKindAgent {
-                // EXP-1373: a chat's agent text on the left in a card-fill
-                // bubble, its time bottom-right; EXP-1676: a transcript's is
-                // the plain text (web `chat-agent`).
-                Group {
-                    if bubbles {
-                        AgentChatBubble(time: time) {
-                            AgentMarkdownText(text: body, context: markdownContext)
-                        }
-                    } else {
-                        AgentMarkdownText(text: body, context: markdownContext)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .accessibilityIdentifier("chat-message")
-            } else {
+            } else if layout?.side == .own {
                 UserMessageBubble(
                     text: body,
                     context: markdownContext,
                     caption: caption,
-                    onRemove: removable ? { onUnqueue(id) } : nil,
-                    leadingGap: bubbles ? ChatBubbleMetrics.personLeadingGap : ChatBubbleMetrics.transcriptLeadingGap,
-                    inBubbleCaption: bubbles
+                    onRemove: removable ? { onUnqueue(id) } : nil
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("chat-message")
+            } else {
+                otherBubble(body)
+                    .opacity(queued ? 0.7 : 1)
+                    .accessibilityIdentifier("chat-message")
             }
         case let .session(_, card):
             sessionCard(card)
-        case let .report(_, sessionId, _, _, xref):
-            // S-3: a report renders AS its link header (`Report from <chip> ›`);
-            // #EXP-1464: tappable (chevron) only while it opens something.
-            SessionXrefHeader(
-                xref: xref, agent: xrefMark,
-                onOpen: action.action == .none ? nil : { onOpenSession(action.sessionId ?? sessionId) }
-            )
+        case let .report(_, _, text, summary, _):
+            // #EXP-1736: a child's report = THAT session's bubble (its name
+            // ` ›`; a press pushes it), the summary its text.
+            otherBubble(summary.isEmpty ? text : summary)
+                .accessibilityIdentifier("chat-report")
         case let .suggestions(id, _, header, startAll, items):
             // N-12: a row with an open item rides THE Dock (`ChatScreen`)
             // for a reader who may act on it; it stays here once none is.
@@ -1419,14 +1416,11 @@ struct SurfaceCardRow: View {
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
-        HStack(spacing: 0) {
-            SurfaceCardFrame(title: title, animate: animate) {
-                PlanCardSurfaceView(
-                    surface: surface, handle: handle, editable: onReply != nil,
-                    onReply: onReply, bare: true, staggerChildren: animate
-                )
-            }
-            Spacer(minLength: ChatBubbleMetrics.agentTrailingGap)
+        SurfaceCardFrame(title: title, animate: animate) {
+            PlanCardSurfaceView(
+                surface: surface, handle: handle, editable: onReply != nil,
+                onReply: onReply, bare: true, staggerChildren: animate
+            )
         }
     }
 }

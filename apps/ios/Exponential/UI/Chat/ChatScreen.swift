@@ -7,10 +7,9 @@ import SwiftUI
 /// `session-chat.json`) — a CHAT, or a team AGENT's conversation. S-3
 /// CHAT MODE (chats.json, `SessionTree.chatMode`): ONE path; an
 /// agent conversation (a root with `agentId`) is `bubbles` — its
-/// Conversation is always the bubbles transcript (person right
-/// `UserMessageBubble` max 80%, agent left `AgentChatBubble` max 94%, cards
-/// in the agent column), never the root's raw work page — and a chat is
-/// `transcript`. Everything else (header + strip, composer with the "+"
+/// Conversation is always THE transcript (#EXP-1736: every chat a group
+/// chat, `MessageBubble` under its sender's avatar, the viewer's own right),
+/// never the root's raw work page — and a chat is `transcript`. Everything else (header + strip, composer with the "+"
 /// incl. Model, selection, the Dock, the jump button) is the same.
 ///
 /// * NEW-6 (N-1): a chat with ONE session (the root alone) IS that
@@ -732,7 +731,7 @@ struct ChatScreen: View {
                             rows: rows,
                             view: view,
                             onOpenSession: { sessionId in openSession(sessionId) },
-                            onOpenXref: { xref in pushRoute(rows.xrefRoute(xref, accountId: accountId)) },
+                            onOpenSender: { sessionId in pushRoute(rows.sessionRoute(sessionId, accountId: accountId)) },
                             onSubmit: submitAnswer,
                             onUnqueue: unqueue,
                             viewerId: deps.auth.userId,

@@ -186,9 +186,11 @@ struct AgentSessionView: View {
     @State private var highlightId: String?
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
-    /// S-3: the view's `origin` link (session-chat.json), its mark and
-    /// the route its tap pushes; nil = a person started it.
-    @State private var origin: (xref: SessionXref, mark: SessionXrefHeader.AgentMark?, route: AppRoute)?
+    /// #EXP-1736: this session's tree snapshot (the senders' names and
+    /// avatars, transcript-grouping.json) and its S-3 `origin` (the session
+    /// that started it; nil = a person did).
+    @State private var transcriptRows: ChatRows?
+    @State private var originSessionId: String?
     /// #VAPP-229 (via-app.json): the synced, live app this session's
     /// `viaAppId` resolves to; nil = no "via <app>" line.
     @State private var viaAppName: String?
@@ -230,33 +232,24 @@ struct AgentSessionView: View {
         }
     }
 
-    /// S-3: who started this session and #VAPP-229 (via-app.json) the app
-    /// whose tool did, pinned over the transcript (web `InPlaceSession`'s
-    /// header, desktop's): they never scroll away.
+    /// #VAPP-229 (via-app.json): the app whose tool started this session,
+    /// pinned over the transcript (web `InPlaceSession`'s header, desktop's):
+    /// it never scrolls away. #EXP-1736: who started it is no header any
+    /// more: its prompt is that session's bubble.
     @ViewBuilder
     private var sessionLinks: some View {
-        let caption = viaAppCaption(viaAppName)
-        if origin != nil || caption != nil {
-            VStack(alignment: .leading, spacing: 4) {
-                if let origin {
-                    SessionXrefHeader(xref: origin.xref, agent: origin.mark) {
-                        pushRoute(origin.route)
-                    }
-                }
-                if let caption {
-                    Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("session-via-app")
-                }
-            }
-            .transcriptColumn()
-            // Web's `pt-3 pb-1`.
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+        if let caption = viaAppCaption(viaAppName) {
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("session-via-app")
+                .transcriptColumn()
+                // Web's `pt-3 pb-1`.
+                .padding(.top, 12)
+                .padding(.bottom, 4)
         }
     }
 
@@ -404,7 +397,7 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
-            .task(id: session.id) { await observeOrigin() }
+            .task(id: session.id) { await observeTranscriptSenders() }
             .task(id: session.viaAppId) { await observeViaApp() }
             .task(id: session.teamId) {
                 slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
@@ -774,6 +767,9 @@ struct AgentSessionView: View {
                                 model.feedCalls, cards: sessionCards
                             )
                             inlineToolCards(toolCardAnchors.unanchored, model: model)
+                            // #EXP-1736 (transcript-grouping.json): who sent
+                            // each row, its group, its avatar.
+                            let grouping = feedGrouping(entries, anchors: toolCardAnchors, model: model)
                             // EXP-787: every row's space above it comes from
                             // the shared gap ladder, keyed on the row BEFORE
                             // it — the rows themselves carry no outer margin
@@ -785,11 +781,19 @@ struct AgentSessionView: View {
                             // re-evaluates it.
                             ForEach(entries) { entry in
                                 let isLast = entry.id == lastId
-                                TranscriptRowSlot(key: rowKey(entry, isLast: isLast, model: model)) {
-                                    feedRow(entry.row, isLast: isLast)
+                                let layout = grouping.layouts[entry.id]
+                                // The EXP-787 ladder between rows; the
+                                // grouping's 3 / 12 between two bubbles.
+                                TranscriptRow(
+                                    side: layout?.side ?? .full,
+                                    gap: grouping.bubbleGaps[entry.id] ?? Self.gapPoints(entry.gap),
+                                    avatar: grouping.avatars[entry.id]
+                                ) {
+                                    TranscriptRowSlot(key: rowKey(entry, isLast: isLast, layout: layout, model: model)) {
+                                        feedRow(entry.row, isLast: isLast, layout: layout)
+                                    }
+                                    .equatable()
                                 }
-                                .equatable()
-                                .padding(.top, Self.gapPoints(entry.gap))
                                 inlineToolCards(
                                     Self.rowItemIds(entry.row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
                                     model: model
@@ -939,7 +943,9 @@ struct AgentSessionView: View {
     /// rows that read live or per-view state beyond it (cards, a running
     /// subagent's clock, a workflow's Work card) are `volatile`: they
     /// re-evaluate with the list, exactly as before.
-    private func rowKey(_ entry: TranscriptEntry, isLast: Bool, model: AgentSessionModel) -> TranscriptRowKey {
+    private func rowKey(
+        _ entry: TranscriptEntry, isLast: Bool, layout: TranscriptGrouping.RowLayout?, model: AgentSessionModel
+    ) -> TranscriptRowKey {
         let ids = Self.rowItemIds(entry.row)
         var volatile = false
         var working = false
@@ -968,6 +974,7 @@ struct AgentSessionView: View {
         let liveTool = live ? model.openToolRowId.flatMap { ids.contains($0) ? $0 : nil } : nil
         return TranscriptRowKey(
             entry: entry,
+            layout: layout,
             liveTail: isLast && live,
             liveTool: liveTool,
             working: working,
@@ -979,7 +986,7 @@ struct AgentSessionView: View {
     }
 
     @ViewBuilder
-    private func feedRow(_ row: AgentFeedRow, isLast: Bool) -> some View {
+    private func feedRow(_ row: AgentFeedRow, isLast: Bool, layout: TranscriptGrouping.RowLayout?) -> some View {
         switch row {
         case let .toolRun(items):
             ToolGroupRow(
@@ -1019,9 +1026,9 @@ struct AgentSessionView: View {
         case let .single(item):
             switch item {
             case let .narration(_, text, _, _):
-                // EXP-1676: the run view's row on every form factor.
-                // #VAPP-258: the live tail is the reply being written.
-                NarrationBubble(text: text, context: markdownContext, streaming: isLast && model?.agentWorking == true)
+                // #EXP-1736: the agent's prose = THE message bubble under its
+                // avatar. #VAPP-258: the live tail is the reply being written.
+                senderBubble(text, layout: layout, streaming: isLast && model?.agentWorking == true)
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
@@ -1049,6 +1056,10 @@ struct AgentSessionView: View {
                     agent: model?.catalogAgent
                 ) {
                     CommandPill(command: command, text: text)
+                } else if let input = TranscriptGrouping.crossSessionInput(text) {
+                    // #EXP-1736: a parent's or child's message reaching this
+                    // session = THAT session's bubble (its name ` ›`).
+                    senderBubble(input.body, layout: layout, streaming: false)
                 } else {
                     UserMessageBubble(text: text, context: markdownContext)
                 }
@@ -1077,6 +1088,139 @@ struct AgentSessionView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// #EXP-1736: anyone-but-the-viewer's bubble in the feed: the group's
+    /// first one names its sender; a cross-session sender's press pushes
+    /// that session.
+    private func senderBubble(_ text: String, layout: TranscriptGrouping.RowLayout?, streaming: Bool) -> some View {
+        let author = layout?.name == true ? layout?.sender?.displayName : nil
+        let link = layout?.sender?.link
+        return MessageBubble(
+            side: .other,
+            author: author,
+            time: nil,
+            onPress: link.map { sessionId -> () -> Void in { openSender(sessionId) } }
+        ) {
+            AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
+        }
+    }
+
+    private func openSender(_ sessionId: String) {
+        pushRoute(
+            transcriptRows?.sessionRoute(sessionId, accountId: accountId)
+                ?? .agentSession(accountId: accountId, sessionId: sessionId)
+        )
+    }
+
+    /// #EXP-1736: the feed's grouping — per entry id its layout, the
+    /// avatar on a group's first row, and the grouping gap where a bubble
+    /// follows a bubble (else the EXP-787 ladder stays).
+    struct FeedGrouping {
+        var layouts: [Int: TranscriptGrouping.RowLayout] = [:]
+        var avatars: [Int: SenderAvatarModel] = [:]
+        var bubbleGaps: [Int: CGFloat] = [:]
+    }
+
+    /// The raw feed as grouping items (the web mapping ×4): narration =
+    /// the agent's message; a person's prompt = the viewer's own, unless
+    /// it parses as a session input (`crossSessionInput`: that session's
+    /// message); tool / thought / subagent / edits runs = `trace`;
+    /// everything else (cards, pills, errors) and the tool-posted cards
+    /// = `full`. The S-3 `origin` claims the first prompt when it LEADS
+    /// the feed (the prompt the starting session sent).
+    private func feedGrouping(
+        _ entries: [TranscriptEntry], anchors: (anchors: [Int: [String]], unanchored: [String]), model: AgentSessionModel
+    ) -> FeedGrouping {
+        let viewerId = deps.auth.userId
+        var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
+        var extraSessions: [TranscriptGrouping.KnownSession] = []
+        var firstMessageIsPrompt: Bool?
+        var promptId: String?
+        for entry in entries {
+            let id = "row:\(entry.id)"
+            var item = TranscriptGrouping.Item(id: id, kind: .full)
+            switch entry.row {
+            case .toolRun, .edits, .expRun, .subagentRun:
+                item = TranscriptGrouping.Item(id: id, kind: .trace)
+            case .ask:
+                break
+            case let .single(feedItem):
+                switch feedItem {
+                case .narration:
+                    item = TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
+                    if firstMessageIsPrompt == nil { firstMessageIsPrompt = false }
+                case let .userMessage(_, text, _):
+                    if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
+                        break
+                    }
+                    if let input = TranscriptGrouping.crossSessionInput(text) {
+                        item = TranscriptGrouping.Item(
+                            id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
+                            authorSessionId: input.sessionId
+                        )
+                        extraSessions.append(TranscriptGrouping.KnownSession(id: input.sessionId, title: input.name, agentId: nil))
+                        if firstMessageIsPrompt == nil { firstMessageIsPrompt = false }
+                    } else {
+                        item = TranscriptGrouping.Item(
+                            id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
+                        )
+                        if firstMessageIsPrompt == nil {
+                            firstMessageIsPrompt = true
+                            promptId = id
+                        }
+                    }
+                case .tool, .thought, .subagent:
+                    item = TranscriptGrouping.Item(id: id, kind: .trace)
+                default:
+                    break
+                }
+            }
+            items.append(item)
+            items += Self.rowItemIds(entry.row).flatMap { anchors.anchors[$0] ?? [] }
+                .map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
+        }
+        // The origin's prompt: no viewer behind it (the origin claims it).
+        let origin = firstMessageIsPrompt == true ? originSessionId : nil
+        if origin != nil, let promptId, let index = items.firstIndex(where: { $0.id == promptId }) {
+            items[index] = TranscriptGrouping.Item(id: promptId, kind: .message, authorKind: DomainContract.messageAuthorKindUser)
+        }
+        let viewed = model.session ?? session
+        let input = transcriptRows?.transcriptInput(
+            items: items, viewerId: viewerId, chat: viewed, originSessionId: origin, extraSessions: extraSessions
+        ) ?? TranscriptGrouping.Input(
+            viewerId: viewerId,
+            chat: TranscriptGrouping.Chat(
+                sessionId: viewed.id,
+                title: viewed.title ?? SessionTitle.Copy.untitled,
+                agentId: viewed.agentId,
+                originSessionId: nil
+            ),
+            members: [], agents: [], sessions: extraSessions, items: items
+        )
+        var out = FeedGrouping()
+        var previous: TranscriptGrouping.Item?
+        for (item, layout) in zip(items, TranscriptGrouping.transcriptLayout(input)) {
+            defer { previous = item }
+            guard item.id.hasPrefix("row:"), let entryId = Int(item.id.dropFirst(4)) else { continue }
+            out.layouts[entryId] = layout
+            if layout.avatar, let sender = layout.sender {
+                out.avatars[entryId] = transcriptRows?.senderAvatar(sender) ?? Self.fallbackAvatar(sender)
+            }
+            if item.kind == .message, previous?.kind == .message, layout.side != .full {
+                out.bubbleGaps[entryId] = layout.gap
+            }
+        }
+        return out
+    }
+
+    /// A sender's avatar before the tree snapshot loaded.
+    private static func fallbackAvatar(_ sender: TranscriptGrouping.Sender) -> SenderAvatarModel {
+        switch sender.kind {
+        case .member: .member(user: nil, id: sender.id)
+        case .agent: .agent(UserAvatarAgent(icon: nil, color: nil))
+        case .session: .session
         }
     }
 
@@ -1227,26 +1371,28 @@ struct AgentSessionView: View {
         }
     }
 
-    /// S-3: this session's `origin` (`buildSessionChat` focused on it),
-    /// re-read only when its root's digest moves (`ChatRows.signature`).
-    private func observeOrigin() async {
+    /// #EXP-1736: this session's tree snapshot (the transcript's senders)
+    /// and S-3 `origin` (`buildSessionChat` focused on it), re-read only
+    /// when its root's digest moves (`ChatRows.signature`).
+    private func observeTranscriptSenders() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let rootId = session.rootId.isEmpty ? session.id : session.rootId
         let id = session.id
-        let accountId = accountId
         let observation = ValueObservation
             .tracking { db in try ChatRows.signature(db: db, rootId: rootId) }
             .removeDuplicates()
         do {
             for try await _ in observation.values(in: pool) {
                 guard let rows = try await pool.read({ db in try ChatRows.load(db: db, rootId: rootId) }) else {
-                    origin = nil
+                    transcriptRows = nil
+                    originSessionId = nil
                     continue
                 }
                 let link = await Task.detached(priority: .utility) {
                     rows.view(now: Date(), focus: id == rows.root.id ? nil : id).origin
                 }.value
-                origin = link.map { ($0, rows.xrefMark($0), rows.xrefRoute($0, accountId: accountId)) }
+                transcriptRows = rows
+                originSessionId = link?.sessionId
             }
         } catch {}
     }
@@ -2072,24 +2218,18 @@ struct NarrationBubble: View {
     }
 }
 
-/// A human turn (EXP-78): the initial prompt or a steered message — rendered
-/// trailing-aligned like the sender's own chat bubble, long text folded.
+/// A human turn (EXP-78): the initial prompt or a steered message — the
+/// viewer's own side of THE message bubble (#EXP-1736 `MessageBubble`
+/// `.own`: right, at most 78% of the column), long text folded.
 struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
-    /// EXP-1245: the turn bubble's muted caption (`<name> · <time>`), under
-    /// the bubble on the trailing edge; nil in the transcript.
+    /// EXP-1553 (chats.json TRANSCRIPT ×4): the bubble's caption (`HH:mm`,
+    /// ` · queued`) INSIDE it bottom-right; nil = none.
     var caption: String?
     /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
     /// at the END of the caption line (`sessions.unqueue`); nil = no X.
     var onRemove: (() -> Void)? = nil
-    /// The free leading gap: a transcript's max 70% of the column; a chat's
-    /// bubbles pass `ChatBubbleMetrics.personLeadingGap`, max 80%.
-    var leadingGap: CGFloat = ChatBubbleMetrics.transcriptLeadingGap
-    /// EXP-1553 (chats.json TRANSCRIPT ×4): a chat's bubble — the caption
-    /// (`HH:mm`, ` · queued`, the X) sits INSIDE the bubble bottom-right,
-    /// the 18pt chat radius; false = the caption under the bubble.
-    var inBubbleCaption = false
 
     @State private var expanded = false
 
@@ -2121,9 +2261,8 @@ struct UserMessageBubble: View {
         // more "lines" of nothing, and they used to push a two-line steer into
         // the fold — which then hid the images the fold was measuring.
         let clampable = isClampable(hasImages ? parsed.text : text)
-        return HStack {
-            Spacer(minLength: leadingGap)
-            BubbleColumn(spacing: 2) {
+        let hasCaption = (caption?.isEmpty == false) || onRemove != nil
+        return MessageBubble(side: .own, hasFooter: hasCaption) {
             VStack(alignment: .leading, spacing: 4) {
                 Group {
                     if !hasImages {
@@ -2180,49 +2319,8 @@ struct UserMessageBubble: View {
                     .padding(.top, parsed.text.isEmpty && parsed.attachmentIds.isEmpty ? 0 : 4)
                 }
             }
-                if inBubbleCaption, (caption?.isEmpty == false) || onRemove != nil {
-                    BubbleCaptionLine(caption: caption, onRemove: onRemove)
-                }
-            }
-            .padding(.horizontal, inBubbleCaption ? 14 : 12)
-            .padding(.vertical, inBubbleCaption ? 10 : 8)
-            // The sender's own bubble ×4 (web `UserMessageBubble`): the
-            // glass active fill inside the strong hairline.
-            .background(GlassTokens.fillActive)
-            .clipShape(RoundedRectangle(cornerRadius: radius))
-            .overlay(
-                RoundedRectangle(cornerRadius: radius)
-                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-            )
-        }
-        .modifier(BubbleCaption(caption: inBubbleCaption ? nil : caption, onRemove: inBubbleCaption ? nil : onRemove))
-    }
-
-    private var radius: CGFloat { inBubbleCaption ? ChatBubbleMetrics.radius : 12 }
-}
-
-/// EXP-1553: the chat bubble's column — the body leading, the caption line
-/// trailing under it, the column as wide as the wider of the two (the bubble
-/// hugs its text; no full-width stretch).
-private struct BubbleColumn: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
-        let width = sizes.map(\.width).max() ?? 0
-        let height = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var y = bounds.minY
-        for (index, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
-            // The last line (the caption) when there are two sits trailing.
-            let trailing = subviews.count > 1 && index == subviews.count - 1
-            let x = trailing ? bounds.maxX - size.width : bounds.minX
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: size.width, height: size.height))
-            y += size.height + spacing
+        } footer: {
+            BubbleCaptionLine(caption: caption, onRemove: onRemove)
         }
     }
 }
@@ -2252,26 +2350,6 @@ private struct BubbleCaptionLine: View {
                 .accessibilityLabel(AgentFeed.queueRemoveLabel)
                 .accessibilityIdentifier("chat-queue-remove")
             }
-        }
-    }
-}
-
-/// EXP-1245: the turn bubble's caption, muted under it on the trailing edge.
-/// EXP-1317 (×4): a queued row's caption ends on the `Remove from queue` X.
-private struct BubbleCaption: ViewModifier {
-    let caption: String?
-    var onRemove: (() -> Void)?
-
-    func body(content: Content) -> some View {
-        if (caption?.isEmpty == false) || onRemove != nil {
-            VStack(alignment: .trailing, spacing: 4) {
-                content
-                BubbleCaptionLine(caption: caption, onRemove: onRemove)
-                    .padding(.trailing, onRemove == nil ? 4 : 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        } else {
-            content
         }
     }
 }
@@ -4195,6 +4273,8 @@ extension AppDependencies {
 /// compare equal (they read state the key does not carry).
 struct TranscriptRowKey: Equatable {
     let entry: TranscriptEntry
+    /// #EXP-1736: the row's sender + name line.
+    let layout: TranscriptGrouping.RowLayout?
     let liveTail: Bool
     let liveTool: Int?
     let working: Bool
@@ -4207,7 +4287,7 @@ struct TranscriptRowKey: Equatable {
         !a.volatile && !b.volatile
             && a.liveTail == b.liveTail && a.liveTool == b.liveTool && a.working == b.working
             && a.agent == b.agent && a.cli == b.cli
-            && a.testResults == b.testResults && a.entry == b.entry
+            && a.testResults == b.testResults && a.entry == b.entry && a.layout == b.layout
     }
 }
 

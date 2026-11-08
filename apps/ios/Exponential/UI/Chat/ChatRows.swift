@@ -123,25 +123,84 @@ struct ChatRows: Sendable {
         return copy
     }
 
-    /// S-3: a link's agent mark (its icon in its colour); nil = no agent
-    /// or its definition not synced, the session glyph.
-    func xrefMark(_ xref: SessionXref) -> SessionXrefHeader.AgentMark? {
-        guard let agentId = xref.agentId,
-              let agent = xrefAgents.first(where: { $0.id == agentId }) ?? (agent?.id == agentId ? agent : nil)
-        else { return nil }
-        return SessionXrefHeader.AgentMark(
-            icon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-            color: Color(hex: agent.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
+    /// #EXP-1736 (transcript-grouping.json): the grouping's input over
+    /// this snapshot's people, agents and sessions; `chat` = the session
+    /// whose transcript it is (the root, or a session's raw view).
+    func transcriptInput(
+        items: [TranscriptGrouping.Item],
+        viewerId: String?,
+        chat: SessionEntity? = nil,
+        originSessionId: String?,
+        extraSessions: [TranscriptGrouping.KnownSession] = []
+    ) -> TranscriptGrouping.Input {
+        let chat = chat ?? root
+        let isRoot = chat.id == root.id
+        let title = isRoot && !agentName.isEmpty ? agentName : (chat.title ?? SessionTitle.Copy.untitled)
+        let known = sessions.map { session in
+            TranscriptGrouping.KnownSession(
+                id: session.id,
+                title: session.title ?? SessionTitle.Copy.untitled,
+                agentId: session.agentId
+            )
+        }
+        return TranscriptGrouping.Input(
+            viewerId: viewerId,
+            chat: TranscriptGrouping.Chat(
+                sessionId: chat.id,
+                title: title,
+                agentId: chat.agentId,
+                originSessionId: originSessionId
+            ),
+            members: users.map { TranscriptGrouping.Named(id: $0.id, name: $0.name ?? $0.email) },
+            agents: (xrefAgents + [agent].compactMap { $0 }).map { TranscriptGrouping.Named(id: $0.id, name: $0.name) },
+            sessions: known + extraSessions.filter { extra in !known.contains { $0.id == extra.id } },
+            items: items
         )
     }
 
-    /// S-3: a link's tap PUSHES its session (Back returns): a root opens
-    /// as its chat, a child as its raw work.
-    func xrefRoute(_ xref: SessionXref, accountId: String) -> AppRoute {
-        if let target = session(id: xref.sessionId), target.parentId == nil {
+    /// #EXP-1736: a Conversation row as a grouping item: a card-less
+    /// message = `message`, a child's report = a message from its session,
+    /// a subagent line = `trace`, every card `full`.
+    static func transcriptItem(_ row: SessionChatRow) -> TranscriptGrouping.Item {
+        switch row {
+        case let .message(id, author, authorId, _, _, authorSessionId, _):
+            TranscriptGrouping.Item(
+                id: id, kind: .message, authorKind: author, authorId: authorId, authorSessionId: authorSessionId
+            )
+        case let .report(id, sessionId, _, _, _):
+            TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent, authorSessionId: sessionId)
+        case let .subagent(id, _, _):
+            TranscriptGrouping.Item(id: id, kind: .trace)
+        default:
+            TranscriptGrouping.Item(id: row.id, kind: .full)
+        }
+    }
+
+    /// #EXP-1736: a sender's avatar: a member's (their picture or
+    /// initials in hue), an agent's mark (the defaults while its definition
+    /// is not synced), a session's glyph.
+    func senderAvatar(_ sender: TranscriptGrouping.Sender) -> SenderAvatarModel {
+        switch sender.kind {
+        case .member:
+            return .member(user: user(id: sender.id), id: sender.id)
+        case .agent:
+            let definition = xrefAgents.first { $0.id == sender.id } ?? (agent?.id == sender.id ? agent : nil)
+            if let definition { return .agent(UserAvatarAgent(definition)) }
+            return .agent(UserAvatarAgent(icon: nil, color: nil))
+        case .session:
+            // VAPP-110: an app editor's own sender wears the app's mark.
+            if sender.id == root.id, let app { return .agent(UserAvatarAgent(icon: app.icon, color: app.color)) }
+            return .session
+        }
+    }
+
+    /// S-3 / #EXP-1736: a cross-session sender's press PUSHES its session
+    /// (Back returns): a root opens as its chat, a child as its raw work.
+    func sessionRoute(_ sessionId: String, accountId: String) -> AppRoute {
+        if let target = session(id: sessionId), target.parentId == nil {
             return .chat(accountId: accountId, chatId: target.id)
         }
-        return .agentSession(accountId: accountId, sessionId: xref.sessionId)
+        return .agentSession(accountId: accountId, sessionId: sessionId)
     }
 
     func session(id: String) -> SessionEntity? {
@@ -278,8 +337,8 @@ struct ChatRows: Sendable {
     /// another chat, so `pullRequestIssueIds`/`issues` miss it).
     var stackIssueIds: [String: [String]] = [:]
     var stackIssues: [IssueEntity] = []
-    /// S-3: the agents an inter-session link names (`SessionXref.agentId`),
-    /// for their marks.
+    /// The agents the tree's sessions name (`agentId`, `startedByAgentId`):
+    /// the cross-session senders' names and marks.
     var xrefAgents: [AgentDefinitionEntity] = []
 
     /// The PR the Guide counts and merges (`SessionTree.guidePullRequest`,

@@ -1,0 +1,302 @@
+import Foundation
+
+// #EXP-1736: ONE transcript ×4, every chat a group chat. Who sent each row,
+// which rows share an avatar, the gaps between them.
+// fixtures/transcript-grouping.json holds the rules + cases; mirrors: TS
+// `src/transcript-grouping.ts`, desktop `domain::transcript_grouping`,
+// Android `domain/TranscriptGrouping.kt`.
+public enum TranscriptGrouping {
+    /// Fixture `layout` (points).
+    public enum Layout {
+        /// THE Avatar's default size beside a group.
+        public static let avatar: CGFloat = 32
+        /// The avatar column's gap to the bubble column.
+        public static let avatarGap: CGFloat = 8
+        /// The space above a row inside a group.
+        public static let gapInGroup: CGFloat = 3
+        /// The space above a row that starts a group.
+        public static let gapBetween: CGFloat = 12
+        /// A bubble's share of its column on a phone / a wide screen.
+        public static let maxWidthPhone: CGFloat = 0.78
+        public static let maxWidthWide: CGFloat = 0.62
+        public static let radius: CGFloat = 16
+        public static let nameSize: CGFloat = 12
+    }
+
+    /// Fixture `copy`.
+    public enum Copy {
+        public static let formerMember = "Former member"
+        public static let linkChevron = "›"
+    }
+
+    public enum ItemKind: String, Equatable, Sendable {
+        /// A card-less message row, a child's report, a pending input.
+        case message
+        /// A tool, thought or subagent line of the agent's work.
+        case trace
+        /// Every card: full width, never grouped.
+        case full
+    }
+
+    public struct Item: Equatable, Sendable {
+        public let id: String
+        public let kind: ItemKind
+        /// `message` only: `user` | `agent` | `system`.
+        public let authorKind: String?
+        public let authorId: String?
+        public let authorSessionId: String?
+
+        public init(
+            id: String,
+            kind: ItemKind,
+            authorKind: String? = nil,
+            authorId: String? = nil,
+            authorSessionId: String? = nil
+        ) {
+            self.id = id
+            self.kind = kind
+            self.authorKind = authorKind
+            self.authorId = authorId
+            self.authorSessionId = authorSessionId
+        }
+    }
+
+    public struct Chat: Equatable, Sendable {
+        /// The session whose conversation this is.
+        public let sessionId: String
+        public let title: String
+        public let agentId: String?
+        /// The session that started it (session-chat.json `origin`), else nil.
+        public let originSessionId: String?
+
+        public init(sessionId: String, title: String, agentId: String?, originSessionId: String?) {
+            self.sessionId = sessionId
+            self.title = title
+            self.agentId = agentId
+            self.originSessionId = originSessionId
+        }
+    }
+
+    /// A member or an agent: its id and display name.
+    public struct Named: Equatable, Sendable {
+        public let id: String
+        public let name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    public struct KnownSession: Equatable, Sendable {
+        public let id: String
+        public let title: String
+        public let agentId: String?
+
+        public init(id: String, title: String, agentId: String?) {
+            self.id = id
+            self.title = title
+            self.agentId = agentId
+        }
+    }
+
+    public struct Input: Equatable, Sendable {
+        public let viewerId: String?
+        public let chat: Chat
+        public let members: [Named]
+        public let agents: [Named]
+        public let sessions: [KnownSession]
+        public let items: [Item]
+
+        public init(
+            viewerId: String?,
+            chat: Chat,
+            members: [Named],
+            agents: [Named],
+            sessions: [KnownSession],
+            items: [Item]
+        ) {
+            self.viewerId = viewerId
+            self.chat = chat
+            self.members = members
+            self.agents = agents
+            self.sessions = sessions
+            self.items = items
+        }
+    }
+
+    public enum SenderKind: String, Equatable, Sendable {
+        case member
+        case agent
+        case session
+    }
+
+    public struct Sender: Equatable, Hashable, Sendable {
+        public let kind: SenderKind
+        public let id: String
+        public let name: String
+        /// A cross-session sender: the session a press opens.
+        public let link: String?
+
+        public init(kind: SenderKind, id: String, name: String, link: String?) {
+            self.kind = kind
+            self.id = id
+            self.name = name
+            self.link = link
+        }
+
+        /// The bubble's name line: a cross-session sender's ends in ` ›`.
+        public var displayName: String {
+            link == nil ? name : "\(name) \(Copy.linkChevron)"
+        }
+    }
+
+    public enum Side: String, Equatable, Sendable {
+        case own
+        case other
+        case full
+    }
+
+    public struct RowLayout: Equatable, Sendable {
+        public let id: String
+        public let side: Side
+        public let sender: Sender?
+        /// The sender's avatar beside this row (a group's first, not own).
+        public let avatar: Bool
+        /// The sender's name on this row (a group's first message, not own).
+        public let name: Bool
+        /// The space above the row.
+        public let gap: CGFloat
+
+        public init(id: String, side: Side, sender: Sender?, avatar: Bool, name: Bool, gap: CGFloat) {
+            self.id = id
+            self.side = side
+            self.sender = sender
+            self.avatar = avatar
+            self.name = name
+            self.gap = gap
+        }
+    }
+
+    public static func transcriptLayout(_ input: Input) -> [RowLayout] {
+        let chat = input.chat
+        let sessions = Dictionary(input.sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let members = Dictionary(input.members.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let agents = Dictionary(input.agents.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        func fromSession(_ id: String?) -> Sender? {
+            guard let id, !id.isEmpty, id != chat.sessionId, let session = sessions[id] else { return nil }
+            if let agentId = session.agentId, !agentId.isEmpty {
+                return Sender(kind: .agent, id: agentId, name: session.title, link: session.id)
+            }
+            return Sender(kind: .session, id: session.id, name: session.title, link: session.id)
+        }
+        let ownAgent: Sender = {
+            if let agentId = chat.agentId, !agentId.isEmpty {
+                return Sender(kind: .agent, id: agentId, name: agents[agentId] ?? chat.title, link: nil)
+            }
+            return Sender(kind: .session, id: chat.sessionId, name: chat.title, link: nil)
+        }()
+        var originPending = !(chat.originSessionId ?? "").isEmpty
+
+        var out: [RowLayout] = []
+        var prevKey: String?
+        var groupNamed = false
+        for item in input.items {
+            let side: Side
+            var sender: Sender?
+            if item.kind == .full || (item.kind == .message && item.authorKind == "system") {
+                side = .full
+            } else if item.kind == .trace {
+                side = .other
+                sender = ownAgent
+            } else {
+                let viewer = input.viewerId ?? ""
+                let own = item.authorKind == "user" && !viewer.isEmpty && item.authorId == viewer
+                let hasAuthorSession = !(item.authorSessionId ?? "").isEmpty
+                if let cross = fromSession(item.authorSessionId) {
+                    side = .other
+                    sender = cross
+                } else if own {
+                    side = .own
+                } else {
+                    side = .other
+                    let origin = originPending && !hasAuthorSession ? fromSession(chat.originSessionId) : nil
+                    if let origin {
+                        sender = origin
+                    } else if item.authorKind == "user" {
+                        let id = item.authorId ?? ""
+                        sender = Sender(kind: .member, id: id, name: members[id] ?? Copy.formerMember, link: nil)
+                    } else {
+                        sender = ownAgent
+                    }
+                }
+                if !own, !hasAuthorSession { originPending = false }
+            }
+            let key: String?
+            switch side {
+            case .full: key = nil
+            case .own: key = "own"
+            case .other: key = sender.map { "\($0.kind.rawValue):\($0.id):\($0.link ?? "")" }
+            }
+            let sameGroup = key != nil && key == prevKey
+            if !sameGroup { groupNamed = false }
+            let name = side == .other && item.kind == .message && !groupNamed
+            if name { groupNamed = true }
+            out.append(RowLayout(
+                id: item.id,
+                side: side,
+                sender: sender,
+                avatar: side == .other && !sameGroup,
+                name: name,
+                gap: out.isEmpty ? 0 : sameGroup ? Layout.gapInGroup : Layout.gapBetween
+            ))
+            prevKey = key
+        }
+        return out
+    }
+
+    /// A session input as the device words it (`coding::pickup::input_text`).
+    public struct CrossSessionInput: Equatable, Sendable {
+        public enum Kind: String, Equatable, Sendable {
+            case report
+            case message
+        }
+
+        public let kind: Kind
+        public let name: String
+        public let sessionId: String
+        public let body: String
+
+        public init(kind: Kind, name: String, sessionId: String, body: String) {
+            self.kind = kind
+            self.name = name
+            self.sessionId = sessionId
+            self.body = body
+        }
+    }
+
+    private static let inputPattern = try? NSRegularExpression(
+        pattern: #"^(Report|Message) from (.+?) \(session ([^,)\s]+)(, ended)?\): ([\s\S]*)$"#
+    )
+
+    /// `Report from <name> (session <id>, ended): <summary>` /
+    /// `Message from <name> (session <id>): <body>`; anything else = nil.
+    public static func crossSessionInput(_ text: String) -> CrossSessionInput? {
+        guard let pattern = inputPattern else { return nil }
+        let ns = text as NSString
+        guard let match = pattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+              match.range.location == 0, match.range.length == ns.length
+        else { return nil }
+        func group(_ index: Int) -> String? {
+            let range = match.range(at: index)
+            return range.location == NSNotFound ? nil : ns.substring(with: range)
+        }
+        guard let lead = group(1), let name = group(2), let sessionId = group(3) else { return nil }
+        return CrossSessionInput(
+            kind: lead == "Report" ? .report : .message,
+            name: name,
+            sessionId: sessionId,
+            body: group(5) ?? ""
+        )
+    }
+}
