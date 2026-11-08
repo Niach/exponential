@@ -318,6 +318,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -366,6 +367,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -624,9 +626,15 @@ jobs:
           SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
-          echo "${SHA256}  /tmp/actionlint.tgz" | sha256sum -c -
-          tar xzf /tmp/actionlint.tgz -C /tmp actionlint
+          # github.com's release download down = the same tag from Go's
+          # module proxy (sumdb-verified), built with the runner's Go.
+          if curl -fsSL --retry 2 -o /tmp/actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz" &&
+            echo "${SHA256}  /tmp/actionlint.tgz" | sha256sum -c -; then
+            tar xzf /tmp/actionlint.tgz -C /tmp actionlint
+          else
+            echo "::warning::the actionlint release download failed; building v${VERSION} from Go's module proxy"
+            GOBIN=/tmp go install "github.com/rhysd/actionlint/cmd/actionlint@v${VERSION}"
+          fi
           /tmp/actionlint -color -shellcheck= -pyflakes=
 
   # #EXP-1708: the merge train's engine against real git repos and its

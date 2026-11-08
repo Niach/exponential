@@ -176,6 +176,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK + NDK
         uses: android-actions/setup-android@v3
         with:

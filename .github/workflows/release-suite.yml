@@ -588,6 +588,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Kotlin binding suite (the committed binding vs the host .so)
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
@@ -626,6 +627,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/gradle-dist
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
