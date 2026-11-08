@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-app-editor-says-why",
+    date: "2026-11-08",
+    title: "The app editor says why nothing starts",
+    summary: "The app editor's header shows its status and device, like queued · no device online, and its + menu picks the Device, Account and Model it builds on.",
+    body: r#"- **App editor**: the header shows what the editor session is doing and on which device, for example `queued · no device online`, so a stuck start is never silent.
+- **Pick where it builds**: the app editor's + menu has Device, Account and Model, like every chat, and the first message starts on what you picked."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_228: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-auto-merge-for-every-team",
     date: "2026-11-08",
     title: "Auto-merge for every team",
