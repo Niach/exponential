@@ -1689,6 +1689,26 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_string_table_json(RustBuffer overri
 RustBuffer uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(RustBuffer extension_ids, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_BLOCKS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_BLOCKS
+int8_t uniffi_exponential_ui_ffi_fn_func_swipe_blocks(RustBuffer component, RustBuffer direction, RustBuffer overflow_x, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_LOCK
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_LOCK
+RustBuffer uniffi_exponential_ui_ffi_fn_func_swipe_lock(double dx, double dy, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_OFFSET
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_OFFSET
+double uniffi_exponential_ui_ffi_fn_func_swipe_offset(uint32_t index, uint32_t count, double offset, double width, int8_t rtl, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_SETTLE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SWIPE_SETTLE
+uint32_t uniffi_exponential_ui_ffi_fn_func_swipe_settle(uint32_t index, uint32_t count, double offset, double velocity, double width, int8_t rtl, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEMPLATE_MESSAGES_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEMPLATE_MESSAGES_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_template_messages_json(RustBuffer package_json, RustBuffer template_id, RustBuffer surface_id, RustBuffer data_json, RustCallStatus *_Nonnull out_status
@@ -2525,6 +2545,30 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_string_table_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SUPPORTED_CATALOG_IDS_FOR
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SUPPORTED_CATALOG_IDS_FOR
 uint16_t uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_BLOCKS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_BLOCKS
+uint16_t uniffi_exponential_ui_ffi_checksum_func_swipe_blocks(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_LOCK
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_LOCK
+uint16_t uniffi_exponential_ui_ffi_checksum_func_swipe_lock(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_OFFSET
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_OFFSET
+uint16_t uniffi_exponential_ui_ffi_checksum_func_swipe_offset(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_SETTLE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SWIPE_SETTLE
+uint16_t uniffi_exponential_ui_ffi_checksum_func_swipe_settle(void
     
 );
 #endif

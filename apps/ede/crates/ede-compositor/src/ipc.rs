@@ -577,6 +577,7 @@ impl Ede {
         self.config = config;
         let keyboard = self.seat.get_keyboard().unwrap();
         let xkb = smithay::input::keyboard::XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
+        self.virtual_keymap = None;
         if let Err(e) = keyboard.set_xkb_config(self, xkb) {
             tracing::warn!("keyboard layout {:?} rejected on reload: {e:?}", kb.layout);
         }

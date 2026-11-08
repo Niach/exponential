@@ -283,7 +283,7 @@ impl Surface {
     }
 
     /// If `prop` on `id` is bound, write `value` to the data model.
-    fn write_through(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
+    pub(super) fn write_through(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
         let Some(path) = self.binding_path(id, prop) else { return vec![] };
         // A refused write (VAPP-103 pointer limits) keeps the value locally.
         if set_pointer(&mut self.data, &path, Some(value.clone())).is_err() {
@@ -498,6 +498,7 @@ impl Surface {
             ("Tabs", Some("new"), "press") => out.extend(self.fire(&owner_id, "new", None)),
             // VAPP-279: a strip's `+N`, the reorder drag and keyboard move.
             ("Tabs", Some("more"), "press") => out.extend(self.tab_more(&owner_id)),
+            ("Tabs", None | Some("content"), "swipe") => out.extend(self.tab_swipe(&owner_id, payload.as_ref())),
             ("Tabs", Some("tab"), "drag") if self.is_tab_strip(&owner_id) => out.extend(self.tab_drag(&n.id, &owner_id, payload.as_ref())),
             ("Tabs", Some("tab"), "key") if self.is_tab_strip(&owner_id) => out.extend(self.tab_key(&n.id, &owner_id, payload.as_ref())),
             // EXP-1259: the SearchList field and rows.

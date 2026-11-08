@@ -429,27 +429,33 @@ export function subIssueReached(
   return (STAGE_RANK[child.status] ?? 0) >= EVENT_RANK[event]
 }
 
-type PrChainRow = Pick<PullRequestRow, `id` | `state` | `basePullRequestId`>
+type PrChainRow = Pick<PullRequestRow, `id` | `state` | `basePullRequestId`> & { mergedAt?: Date | null }
 
 /** A merged PR is IN the default branch when its base is no PR (the
  *  default or a branch nobody stacks on), or the PR it was stacked on is
- *  merged and in it (a stack landing bottom-up). */
+ *  merged and in it (a stack landing bottom-up). #FEED-207: a PR merged
+ *  into its parent's branch AFTER the parent landed never reached the
+ *  default branch (the branch was already squashed away): not landed. */
 async function prLandedInTx(tx: Tx, pr: PrChainRow): Promise<boolean> {
   let current: PrChainRow | undefined = pr
   for (let depth = 0; current && depth <= MAX_TREE_WALK; depth++) {
     if (current.state !== `merged`) return false
     if (!current.basePullRequestId) return true
+    const parentId: string = current.basePullRequestId
+    const childMergedAt: Date | null | undefined = current.mergedAt
     ;[current] = await tx
       .select({
         id: pullRequests.id,
         state: pullRequests.state,
         basePullRequestId: pullRequests.basePullRequestId,
+        mergedAt: pullRequests.mergedAt,
       })
       .from(pullRequests)
-      .where(eq(pullRequests.id, current.basePullRequestId))
+      .where(eq(pullRequests.id, parentId))
       .limit(1)
     // The PR below is gone: nothing holds this one back.
     if (!current) return true
+    if (current.state === `merged` && childMergedAt && current.mergedAt && childMergedAt > current.mergedAt) return false
   }
   return false
 }
@@ -501,6 +507,7 @@ async function parentCarriedInTx(tx: Tx, parentId: string, event: PrAutomationEv
       id: pullRequests.id,
       state: pullRequests.state,
       basePullRequestId: pullRequests.basePullRequestId,
+      mergedAt: pullRequests.mergedAt,
     })
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))

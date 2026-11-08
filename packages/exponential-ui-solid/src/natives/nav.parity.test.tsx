@@ -38,6 +38,10 @@ describe(`nav DOM parity with React`, () => {
   // VAPP-279: the strip (items, the folded `+N`, the + ; jsdom has no layout so nothing folds).
   it(`Tabs strip: icons, counts, closable hover, addable`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, variant: `strip`, fill: undefined } } as NestedNode }))
   it(`Tabs strip: closable always, no +`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, variant: `strip`, fill: undefined, closable: `always`, addable: false } } as NestedNode }))
+  // FEED-200: swipeable = the clipping pager, the neighbours drawn inert, the header thumb.
+  it(`Tabs swipeable: the middle tab, its neighbours, the thumb`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, swipeable: true } } as NestedNode }))
+  it(`Tabs swipeable rtl, dark: the first tab active`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, swipeable: true, value: `issue` } } as NestedNode, direction: `rtl`, mode: `dark` }))
+  it(`Tabs strip swipeable`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, variant: `strip`, fill: undefined, swipeable: true } } as NestedNode }))
   for (const variant of [`segmented`, `toggles`, `outline`, `bar`])
     for (const type of [`single`, `multiple`]) it(`Segmented ${variant} ${type}: icons, an icon-only item, a disabled item`, async () => expectDomParity({ tree: segmented(variant, type, type === `multiple` ? `a,c` : `b`) }))
   it(`Segmented multiple bound to an array`, async () => expectDomParity({ tree: segmented(`segmented`, `multiple`, { "@path": `/v` }), data: { v: [`b`, `d`] } }))

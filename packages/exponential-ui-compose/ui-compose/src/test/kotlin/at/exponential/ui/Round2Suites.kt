@@ -18,6 +18,10 @@ import at.exponential.ui.ffi.resizableJson
 import at.exponential.ui.ffi.resolveConditionsJson
 import at.exponential.ui.ffi.resolveDynamicJson
 import at.exponential.ui.ffi.runActionJson
+import at.exponential.ui.ffi.swipeBlocks
+import at.exponential.ui.ffi.swipeLock
+import at.exponential.ui.ffi.swipeOffset
+import at.exponential.ui.ffi.swipeSettle
 import at.exponential.ui.ffi.textShimmerJson
 import at.exponential.ui.ffi.tokenizeCodeJson
 import at.exponential.ui.format.IcuFormatter
@@ -232,6 +236,38 @@ object Round2Suites {
                 }
             }
         }
+    }
+
+    /**
+     * FEED-200: the `fixtures/swipe.json` groups the facade exposes (lock,
+     * offset, settle, blocks), case by case, through `swipeLock`,
+     * `swipeOffset`, `swipeSettle` and `swipeBlocks` (the painter's pager
+     * gesture asks the core for the lock and the blocking nodes; the core
+     * draws and settles). Numbers within 1e-6. Each case = "group name".
+     */
+    fun swipe(): List<Pair<String, String?>> {
+        val f = json("swipe.json")
+        fun d(c: JsonValue, k: String) = c[k]?.number ?: Double.NaN
+        fun u(c: JsonValue, k: String) = (c[k]?.number ?: 0.0).toInt().toUInt()
+        fun b(c: JsonValue, k: String) = c[k]?.bool ?: false
+        val out = ArrayList<Pair<String, String?>>()
+        for (c in list(f, "lock")) out += case("lock ${s(c, "name")}") {
+            val got = swipeLock(d(c, "dx"), d(c, "dy"))
+            if (got == s(c, "lock")) null else "got $got / expected ${s(c, "lock")}"
+        }
+        for (c in list(f, "offset")) out += case("offset ${s(c, "name")}") {
+            val got = swipeOffset(u(c, "index"), u(c, "count"), d(c, "offset"), d(c, "width"), b(c, "rtl"))
+            if (abs(got - d(c, "drawn")) <= 1e-6) null else "got $got / expected ${d(c, "drawn")}"
+        }
+        for (c in list(f, "settle")) out += case("settle ${s(c, "name")}") {
+            val got = swipeSettle(u(c, "index"), u(c, "count"), d(c, "offset"), d(c, "velocity"), d(c, "width"), b(c, "rtl"))
+            if (got == u(c, "settle")) null else "got $got / expected ${u(c, "settle")}"
+        }
+        for (c in list(f, "blocks")) out += case("blocks ${s(c, "name")}") {
+            val got = swipeBlocks(s(c, "component"), c["direction"]?.string, c["overflowX"]?.string)
+            if (got == b(c, "blocks")) null else "got $got / expected ${b(c, "blocks")}"
+        }
+        return out
     }
 
     /** null when [got] matches [want] (numbers within 1e-6), else where it differs. */

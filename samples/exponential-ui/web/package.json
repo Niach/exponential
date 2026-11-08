@@ -14,8 +14,8 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.4",
-    "vite": "^7.1.0"
+    "@vitejs/plugin-react": "^6.2.1",
+    "vite": "^8.3.6"
   },
   "overrides": {
     "@exponential_app/eui": "file:../.packs/exponential_app-eui-0.2.0.tgz"

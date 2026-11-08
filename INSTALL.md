@@ -127,11 +127,37 @@ The image self-migrates on boot. No other steps. `latest` tracks upstream `maste
 
 The reverse floor matters too: native clients updated from the stores or the desktop self-updater expect a server at least as new as the release they shipped with (since iOS 0.14.23 / Android 0.14.25 / desktop 0.14.30 they attach steering images through `/api/sessions/{id}/files`, which needs web v0.18.53 or newer). Upgrade the server before, or together with, the clients.
 
+### PostgreSQL 17 → 18 (one time)
+
+The compose file now runs `postgres:18-alpine` on a new volume, `pgdata`, mounted at `/var/lib/postgresql`. A PG 18 server cannot open a PG 17 data directory, so the data moves over with a dump and a restore. The old `postgres_data` volume is never touched, which is also the rollback. Do this **before** pulling the new compose file:
+
+```sh
+# 1. Dump the roles and the database while the old (PG 17) stack still runs
+docker compose exec -T postgres pg_dumpall -U postgres --roles-only > pre-pg18-roles.sql
+docker compose exec -T postgres pg_dump -U postgres -Fc exponential > pre-pg18.dump
+docker compose down
+
+# 2. Fetch the new compose file, start ONLY Postgres 18 (a fresh, empty database)
+curl -fsSLO https://raw.githubusercontent.com/Niach/exponential/master/selfhost/docker-compose.yaml
+docker compose up -d --wait postgres
+
+# 3. Restore before the web container boots ("role postgres already exists" is expected), then start everything
+docker compose exec -T postgres psql -U postgres -q < pre-pg18-roles.sql
+docker compose exec -T postgres pg_restore -U postgres -d exponential --no-owner --exit-on-error < pre-pg18.dump
+docker compose up -d
+```
+
+**Checkpoint:** `docker compose exec postgres psql -U postgres -d exponential -tAc 'select version()'` names PostgreSQL 18, and you can sign in with your existing account. Clients resync on their own (Electric rebuilds its shapes against the new server).
+
+**Rollback:** `docker compose down`, put the previous compose file back, `docker compose up -d`: PG 17 starts on the untouched `postgres_data` volume (writes made after the cutover are lost). Once you are happy, free the space with `docker volume rm exponential-selfhost_postgres_data`.
+
+Development checkouts: the same steps against the repo's `docker-compose.yaml` (`git pull` instead of the `curl`), or start over with `bun run backend:clear`.
+
 ## Backup and restore
 
 Session content is end-to-end encrypted on the clients: the database holds ciphertext for message bodies, cards, titles and previews, and only the members' devices hold the keys. A backup restores what the clients can open again; it never makes that content readable on the server. MCP call audit rows (`mcp_calls`) are kept 90 days and purged by a daily sweep.
 
-Three named volumes (`postgres_data`, `caddy_data`, `caddy_config`) plus your
+Three named volumes (`pgdata`, `caddy_data`, `caddy_config`) plus your
 external S3 bucket hold all state; `.env` holds the secrets that make them
 readable.
 

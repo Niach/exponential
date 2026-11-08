@@ -471,6 +471,30 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(await lines(w.children[531]!)).toEqual([])
   })
 
+  it(`#FEED-207: a repo without the pipeline never squash-merges onto a landed branch`, async () => {
+    const w = await world()
+    fake.branch.set(`exp/540`, `dead0`)
+    const parent = await w.pr(540)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged` }).where(eq(pullRequests.id, parent))
+    const child = await w.pr(541, { base: `exp/540` })
+    await w.idle()
+    fake.missingPipeline = true
+    const prs = await db.select().from(pullRequests).where(eq(pullRequests.id, child))
+    await db.update(pullRequests).set({ mergeState: `queued`, mergeWait: null }).where(eq(pullRequests.id, child))
+    const [run] = await db
+      .insert(mergeTrains)
+      .values({ teamId: w.teamId, repositoryId: w.repoId, base: `exp/540`, baseSha: `dead0`, units: [[child]], attempt: 0, pending: [], heads: { [child]: `head-541` } })
+      .returning()
+    await db.update(pullRequests).set({ mergeState: `testing`, mergeTrainId: run!.id }).where(eq(pullRequests.id, child))
+    await worker.landDirectForTests(w.repoId, run!.id)
+    expect(prs[0]!.base).toBe(`exp/540`)
+    expect(fake.squashed).toEqual([])
+    expect((await prRow(child)).state).toBe(`open`)
+    expect((await prRow(child)).mergeState).toBe(`queued`)
+    const [after] = await db.select().from(mergeTrains).where(eq(mergeTrains.id, run!.id))
+    expect(after).toMatchObject({ state: `cancelled`, error: `exp/540 already landed: nothing lands onto it` })
+  })
+
   it(`a push pulls a testing unit from its run; a repo without the pipeline lands directly`, async () => {
     const w = await world()
     const a = await w.pr(601)

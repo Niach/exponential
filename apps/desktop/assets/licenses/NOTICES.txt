@@ -1480,9 +1480,9 @@ Applies to the following 10 components:
   agent-client-protocol 2.1.0
   agent-client-protocol-derive 2.1.0
   agent-client-protocol-schema 1.7.0
-  ede-services 0.2.10
-  ede-theme 0.2.10
-  ede-ui 0.2.10
+  ede-services 0.2.11
+  ede-theme 0.2.11
+  ede-ui 0.2.11
   gpui-component-assets 0.5.1
   spirv 0.4.0+sdk-1.4.341.0  [x86_64-unknown-linux-gnu]
   stacksafe 0.1.4

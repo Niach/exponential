@@ -62,10 +62,10 @@ impl Ede {
             _ => {}
         }
         match event {
-            InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time_msec()),
+            InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time().millis()),
             InputEvent::PointerMotion { event, .. } => {
                 let pos = self.seat.get_pointer().unwrap().current_location() + event.delta();
-                if !self.person_pointer_motion_to(pos, event.time_msec()) {
+                if !self.person_pointer_motion_to(pos, event.time().millis()) {
                     return;
                 }
                 let pointer = self.seat.get_pointer().unwrap();
@@ -73,7 +73,7 @@ impl Ede {
                 pointer.relative_motion(
                     self,
                     under,
-                    &RelativeMotionEvent { delta: event.delta(), delta_unaccel: event.delta_unaccel(), utime: event.time() },
+                    &RelativeMotionEvent { delta: event.delta(), delta_unaccel: event.delta_unaccel(), time: event.time() },
                 );
                 pointer.frame(self);
             }
@@ -81,15 +81,15 @@ impl Ede {
                 let Some(output) = self.space.outputs().next().cloned() else { return };
                 let Some(geo) = self.space.output_geometry(&output) else { return };
                 let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
-                self.person_pointer_motion_to(pos, event.time_msec());
+                self.person_pointer_motion_to(pos, event.time().millis());
             }
-            InputEvent::PointerButton { event, .. } => self.person_pointer_button(event.button_code(), event.state(), event.time_msec()),
+            InputEvent::PointerButton { event, .. } => self.person_pointer_button(event.button_code(), event.state(), event.time().millis()),
             // Held (#EDE-23): the person's wheel reaches no window.
             InputEvent::PointerAxis { .. } if self.person_input_held() => {}
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();
                 let amount = |axis| event.amount(axis).unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.);
-                let mut frame = AxisFrame::new(event.time_msec()).source(source);
+                let mut frame = AxisFrame::new(event.time()).source(source);
                 for axis in [Axis::Horizontal, Axis::Vertical] {
                     let value = amount(axis);
                     if value != 0.0 {
@@ -115,7 +115,7 @@ impl Ede {
         let pos = self.clamp_to_outputs(pos);
         let pointer = self.seat.get_pointer().unwrap();
         let under = self.surface_under(pos);
-        pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
+        pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time: smithay::backend::input::InputTime::from_millis(time) });
         pointer.frame(self);
     }
 
@@ -162,7 +162,7 @@ impl Ede {
             }
         }
 
-        pointer.button(self, &ButtonEvent { button, state, serial, time });
+        pointer.button(self, &ButtonEvent { button, state, serial, time: smithay::backend::input::InputTime::from_millis(time) });
         pointer.frame(self);
     }
 
@@ -176,13 +176,14 @@ impl Ede {
     }
 
     pub(crate) fn key(&mut self, keycode: Keycode, state: KeyState, time: u32, bindings: bool) {
+        self.restore_seat_keymap();
         self.release_ime_grab_if_protected();
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
         let listening = self.shell_listening();
         let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some());
-        let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |ede, mods, handle| {
+        let action = keyboard.input::<Action, _>(self, keycode, state, serial, smithay::backend::input::InputTime::from_millis(time), |ede, mods, handle| {
             if !bindings {
                 return FilterResult::Forward;
             }
