@@ -43,6 +43,6 @@ pub use session::{start, start_with, ConfigValue, EngineSession, SessionSpec};
 pub use launch::{EngineError, ResumeHandle, RunOptions};
 pub use host_tools::{HostTools, NoHostTools, ScriptCall, ScriptReport};
 pub use mapper::{Mapper, MapperConfig};
-pub use reply::{ReplyCard, ReplyOption};
+pub use reply::{ReplyCard, ReplyOption, SubagentRow, SubagentRowStatus};
 pub use sink::{EventSink, RecordingSink};
 pub use transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};

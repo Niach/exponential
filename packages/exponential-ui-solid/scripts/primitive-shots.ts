@@ -12,7 +12,7 @@ import { chromium, type Browser, type Page } from "playwright"
 import { spawn, type ChildProcess } from "node:child_process"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import sharp from "sharp"
+import sharp, { type OverlayOptions } from "sharp"
 import { fontFaceCss, fontFiles, MANIFEST_PATH, type ConformanceManifest, type FontManifest } from "../../exponential-ui/conformance/dump"
 
 const pkgRoot = join(import.meta.dirname, `..`)
@@ -92,7 +92,7 @@ async function grid(tiles: Buffer[], columns: number, background: string, gap = 
   for (let i = 0; i < tiles.length; i += columns) rows.push(Math.max(...metas.slice(i, i + columns).map((m) => m.height ?? 0)))
   const width = columns * colWidth + (columns + 1) * gap
   const height = rows.reduce((a, b) => a + b, 0) + (rows.length + 1) * gap
-  const composite: sharp.OverlayOptions[] = []
+  const composite: OverlayOptions[] = []
   let y = gap
   tiles.forEach((t, i) => {
     const col = i % columns
