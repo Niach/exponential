@@ -29,7 +29,7 @@
   "dependencies": {
     "@exponential_app/eui": "workspace:*",
     "@exponential_app/eui-solid": "workspace:*",
-    "solid-js": "^1.9.17"
+    "solid-js": "^1.9.18"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
@@ -44,7 +44,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "typescript": "^5.7.2",
-    "vite": "7.3.3",
+    "vite": "7.3.7",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "4.1.5"
   }
