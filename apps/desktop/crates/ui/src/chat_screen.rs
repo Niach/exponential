@@ -2372,6 +2372,7 @@ impl ChatScreenView {
         // and (NEW-39) the team's MCP servers loaded: the menu is built when
         // it opens, so a list landing later would photograph without its
         // MCP servers row (web's capture hovers after the page settled).
+        // #EXP-1749: the same for the synced skills (the Skills row).
         // N-6: `dialog-implement-issue` is the dialog's turn (its menu opens
         // in a menu window over the dialog, `composer-dialog-menu`).
         // #EXP-1715 (`teams`): the open waits for the Teams row and lights it.
@@ -2394,6 +2395,7 @@ impl ChatScreenView {
             && bounds.size.width > px(0.)
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
+            && self.team_id.as_deref().is_some_and(|team| queries::team_skills(cx, team).1)
             && teams_step.is_none_or(|step| step.is_some())
             && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
         let view = cx.entity().downgrade();

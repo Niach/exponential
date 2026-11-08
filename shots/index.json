@@ -1647,8 +1647,8 @@
         "file": "shots/composer-menu/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 35612,
-        "sha256": "7f475ad7cc40f441567089d65f56838eee02766ddce48f5c685a71dc5253447a"
+        "bytes": 40286,
+        "sha256": "87cbf331300af9bd89314712dd48085c3fbafef780c952d9c5da7dec1317ceda"
       },
       "ios": {
         "file": "shots/composer-menu/ios.webp",
