@@ -129,9 +129,6 @@ export const teamsRouter = router({
             name: input.name,
             slug,
             iconUrl: input.iconUrl,
-            // EXP-1709: while yolo lives, a new team (yolo off) is `approval`
-            // (merge_mode mirrors yolo_mode until the EXP-1711 flip).
-            mergeMode: `approval`,
           })
           .returning(teamColumns)
 
@@ -179,7 +176,8 @@ export const teamsRouter = router({
         teamId: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
-        // EXP-1105: yolo mode (auto-merge every agent PR, hide Reviews).
+        // EXP-1105's yolo mode, an OLD client's write (EXP-1709): it maps
+        // onto mergeMode (true = auto, false = approval); never stored.
         yoloMode: z.boolean().optional(),
         // EXP-1709 (merge-train.json MODE): auto | approval.
         mergeMode: z.enum(teamMergeModeValues).optional(),
@@ -196,14 +194,10 @@ export const teamsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { teamId: id, agentPrompt, ...updates } = input
+      const { teamId: id, agentPrompt, yoloMode, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
-      // EXP-1709: merge_mode and yolo_mode stay one switch while yolo lives
-      // (the Merge select row writes mergeMode, yolo reads yoloMode).
-      if (updates.mergeMode !== undefined && updates.yoloMode === undefined) {
-        updates.yoloMode = updates.mergeMode === `auto`
-      } else if (updates.yoloMode !== undefined && updates.mergeMode === undefined) {
-        updates.mergeMode = updates.yoloMode ? `auto` : `approval`
+      if (yoloMode !== undefined && updates.mergeMode === undefined) {
+        updates.mergeMode = yoloMode ? `auto` : `approval`
       }
 
       return await ctx.db.transaction(async (tx) => {

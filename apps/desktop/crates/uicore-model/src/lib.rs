@@ -9,6 +9,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod chat;
+pub mod chats;
 pub mod ide;
 pub mod layout;
 
@@ -82,14 +84,6 @@ pub struct ShellWindow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Sidebar {
-    pub pinned_open: bool,
-    pub workspaces_open: bool,
-    pub sessions_open: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspaces {
     pub active: usize,
     pub count: usize,
@@ -119,14 +113,22 @@ pub struct Chat {
 pub struct AltTab {
     pub open: bool,
     pub selected: usize,
+    /// The popup is up (a quick Alt+Tab commits before the shell's delay shows it).
+    pub shown: bool,
+    /// Alt+`: only this app's windows cycle.
+    pub app: Option<String>,
+}
+
+impl AltTab {
+    pub fn closed() -> Self {
+        Self { open: false, selected: 0, shown: false, app: None }
+    }
 }
 
 /// The whole shell state; every key is always present.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellState {
-    pub rail: bool,
-    pub sidebar: Sidebar,
     pub switcher: Switcher,
     pub windows: Vec<ShellWindow>,
     pub mru: Vec<String>,
@@ -141,8 +143,6 @@ impl Default for ShellState {
     /// The fixture's `initial`: one local desktop, no windows, one workspace.
     fn default() -> Self {
         Self {
-            rail: false,
-            sidebar: Sidebar { pinned_open: true, workspaces_open: true, sessions_open: true },
             switcher: Switcher {
                 current: SwitcherEntry::local("local", "Local"),
                 entries: vec![SwitcherEntry::local("local", "Local")],
@@ -153,7 +153,7 @@ impl Default for ShellState {
             taskbar: Taskbar { pinned: Vec::new(), hover: None, previews: None, menu: None },
             start_menu: StartMenu { open: false, query: String::new(), category: "all".into() },
             chat: Chat { open: false },
-            alt_tab: AltTab { open: false, selected: 0 },
+            alt_tab: AltTab::closed(),
         }
     }
 }
@@ -170,11 +170,6 @@ pub enum ScrollDirection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum ShellEvent {
-    #[serde(rename = "rail.toggle")]
-    RailToggle,
-    /// `section` = `pinned`, `workspaces` or `sessions`; anything else changes nothing.
-    #[serde(rename = "sidebar.toggle")]
-    SidebarToggle { section: String },
     #[serde(rename = "switcher.pick")]
     SwitcherPick {
         #[serde(rename = "entryKind")]
@@ -229,6 +224,17 @@ pub enum ShellEvent {
     AltTabNext,
     #[serde(rename = "altTab.prev")]
     AltTabPrev,
+    /// Alt+` / Shift+Alt+`: the focused app's windows only.
+    #[serde(rename = "altTab.nextApp")]
+    AltTabNextApp,
+    #[serde(rename = "altTab.prevApp")]
+    AltTabPrevApp,
+    /// The shell's delay elapsed with Alt still held: the popup shows.
+    #[serde(rename = "altTab.show")]
+    AltTabShow,
+    /// A hovered entry, or an arrow key's target.
+    #[serde(rename = "altTab.select")]
+    AltTabSelect { index: i64 },
     #[serde(rename = "altTab.commit")]
     AltTabCommit,
     #[serde(rename = "altTab.cancel")]
@@ -259,7 +265,7 @@ fn clamp_alt_tab(s: &mut ShellState) {
     }
     let n = alt_tab_order(s).len();
     if n == 0 {
-        s.alt_tab = AltTab { open: false, selected: 0 };
+        s.alt_tab = AltTab::closed();
     } else if s.alt_tab.selected >= n {
         s.alt_tab.selected = n - 1;
     }
@@ -271,18 +277,11 @@ fn open_start_menu(s: &mut ShellState) {
     s.taskbar.menu = None;
 }
 
-/// `reduce(state, event) -> state`: pure; an unknown id, section or
+/// `reduce(state, event) -> state`: pure; an unknown id or
 /// workspace leaves the state as it was.
 pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
     let mut s = given.clone();
     match event {
-        ShellEvent::RailToggle => s.rail = !s.rail,
-        ShellEvent::SidebarToggle { section } => match section.as_str() {
-            "pinned" => s.sidebar.pinned_open = !s.sidebar.pinned_open,
-            "workspaces" => s.sidebar.workspaces_open = !s.sidebar.workspaces_open,
-            "sessions" => s.sidebar.sessions_open = !s.sidebar.sessions_open,
-            _ => {}
-        },
         ShellEvent::SwitcherPick { entry_kind, id } => {
             if let Some(hit) = s.switcher.entries.iter().find(|x| &x.kind == entry_kind && &x.id == id) {
                 s.switcher.current = hit.clone();
@@ -391,16 +390,28 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
         ShellEvent::StartMenuQuery { query } => s.start_menu.query = query.clone(),
         ShellEvent::StartMenuCategory { category } => s.start_menu.category = category.clone(),
         ShellEvent::ChatToggle => s.chat.open = !s.chat.open,
-        ShellEvent::AltTabNext | ShellEvent::AltTabPrev => {
-            let n = alt_tab_order(&s).len();
-            if n > 0 {
-                let forward = matches!(event, ShellEvent::AltTabNext);
-                if !s.alt_tab.open {
-                    let selected = if n >= 2 { if forward { 1 } else { n - 1 } } else { 0 };
-                    s.alt_tab = AltTab { open: true, selected };
-                } else {
+        ShellEvent::AltTabNext | ShellEvent::AltTabPrev | ShellEvent::AltTabNextApp | ShellEvent::AltTabPrevApp => {
+            let forward = matches!(event, ShellEvent::AltTabNext | ShellEvent::AltTabNextApp);
+            if s.alt_tab.open {
+                let n = alt_tab_order(&s).len();
+                if n > 0 {
                     s.alt_tab.selected = (s.alt_tab.selected + if forward { 1 } else { n - 1 }) % n;
                 }
+            } else if let Some(first) = alt_tab_order(&s).first().cloned() {
+                let app = matches!(event, ShellEvent::AltTabNextApp | ShellEvent::AltTabPrevApp).then(|| s.windows.iter().find(|w| w.id == first).map(|w| w.app.clone())).flatten();
+                s.alt_tab = AltTab { open: true, selected: 0, shown: false, app };
+                let n = alt_tab_order(&s).len();
+                s.alt_tab.selected = if n >= 2 { if forward { 1 } else { n - 1 } } else { 0 };
+            }
+        }
+        ShellEvent::AltTabShow => {
+            if s.alt_tab.open {
+                s.alt_tab.shown = true;
+            }
+        }
+        ShellEvent::AltTabSelect { index } => {
+            if s.alt_tab.open && *index >= 0 && (*index as usize) < alt_tab_order(&s).len() {
+                s.alt_tab.selected = *index as usize;
             }
         }
         ShellEvent::AltTabCommit => {
@@ -408,10 +419,10 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
                 if let Some(id) = alt_tab_order(&s).get(s.alt_tab.selected).cloned() {
                     focus(&mut s, &id);
                 }
-                s.alt_tab = AltTab { open: false, selected: 0 };
+                s.alt_tab = AltTab::closed();
             }
         }
-        ShellEvent::AltTabCancel => s.alt_tab = AltTab { open: false, selected: 0 },
+        ShellEvent::AltTabCancel => s.alt_tab = AltTab::closed(),
     }
     s
 }
@@ -538,13 +549,13 @@ pub fn switcher_sections(state: &ShellState) -> Vec<SwitcherSection> {
     sections
 }
 
-/// The switcher's order: the mru (minimized included), the active
-/// workspace's windows first, then the others.
+/// The switcher's order: the active workspace's windows in mru order
+/// (minimized included, Mint's default); with `alt_tab.app` only that app's.
 pub fn alt_tab_order(state: &ShellState) -> Vec<String> {
-    let workspace_of = |id: &str| state.windows.iter().find(|w| w.id == id).map(|w| w.workspace);
-    let here = state.mru.iter().filter(|id| workspace_of(id) == Some(state.workspaces.active)).cloned();
-    let elsewhere = state.mru.iter().filter(|id| workspace_of(id).is_some_and(|ws| ws != state.workspaces.active)).cloned();
-    here.chain(elsewhere).collect()
+    let listed = |id: &String| {
+        state.windows.iter().find(|w| &w.id == id).is_some_and(|w| w.workspace == state.workspaces.active && state.alt_tab.app.as_ref().is_none_or(|app| &w.app == app))
+    };
+    state.mru.iter().filter(|id| listed(id)).cloned().collect()
 }
 
 /// One installed application as the start menu sees it.
@@ -672,6 +683,62 @@ pub fn start_menu_categories(apps: &[StartMenuApp], favourites: &[String]) -> Ve
                 _ => apps.iter().filter(|a| app_groups(a).contains(id)).count(),
             };
             (*id == "all" || *id == "favourites" || count > 0).then(|| StartMenuCategory { id: id.to_string(), label: label.to_string(), count })
+        })
+        .collect()
+}
+
+/// #EDE-65: one issue-search hit for the start menu: the engine
+/// (`domain::issue_search`) ranks every connected team's issues and every
+/// Local desktop's as one pool; this is a hit in its order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuIssue {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: String,
+    pub source: SwitcherKind,
+    pub source_id: String,
+    pub source_name: String,
+    pub board: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuIssueRow {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: String,
+    pub icon: String,
+    pub source: SwitcherKind,
+    pub source_id: String,
+    pub context: String,
+}
+
+/// #EDE-65: the start menu's issue rows under its apps.
+pub const START_MENU_ISSUE_LIMIT: usize = 8;
+
+const ISSUE_ANCHORS: &[&str] = &["backlog", "in_progress", "in_review", "done", "cancelled", "duplicate"];
+
+/// The ranked hits as rows: none without a query, else the first eight in
+/// the engine's order with a status icon and `<source> · <board>`.
+pub fn start_menu_issues(state: &ShellState, issues: &[StartMenuIssue]) -> Vec<StartMenuIssueRow> {
+    if state.start_menu.query.trim().is_empty() {
+        return Vec::new();
+    }
+    issues
+        .iter()
+        .take(START_MENU_ISSUE_LIMIT)
+        .map(|i| StartMenuIssueRow {
+            id: i.id.clone(),
+            identifier: i.identifier.clone(),
+            title: i.title.clone(),
+            status: i.status.clone(),
+            icon: if ISSUE_ANCHORS.contains(&i.status.as_str()) { format!("status-{}", i.status.replace('_', "-")) } else { "ui-issue".into() },
+            source: i.source.clone(),
+            source_id: i.source_id.clone(),
+            context: if i.board.is_empty() { i.source_name.clone() } else { format!("{} · {}", i.source_name, i.board) },
         })
         .collect()
 }

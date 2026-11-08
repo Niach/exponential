@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -315,6 +315,18 @@ function popupMount(hosted: HostedContainer, portal: HTMLElement | null): HTMLEl
 const HOVER_OPEN_MS = 200
 const HOVER_CLOSE_MS = 150
 
+/** #EXP-1739 (overlayAnchor): while `open`, the overlay closes once its
+ *  anchor (`get`, read every frame) scrolls, moves or goes. */
+function closeOnAnchorLost(open: Accessor<boolean>, get: () => Element | null | undefined, close: () => void): void {
+  createEffect(() => {
+    if (!open()) return
+    // Watched from the element it resolved to; a newly resolved one restarts it.
+    const el = get()
+    if (!el) return
+    onCleanup(watchAnchor(() => el, close))
+  })
+}
+
 export function PopoverNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
@@ -349,6 +361,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
   const linked = createAnchor(anchorId, wrapper, { haspopup: `dialog`, toggle: () => setOpen(!untrack(open)), hover: { active: hoverMode, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchor = () => (anchored() ? (linked() ?? undefined) : own())
   const hosted = createHostedPopup(() => props.node.id, `Popover`, open, anchor, side, align)
+  closeOnAnchorLost(open, () => anchor() ?? wrapper(), () => setOpen(false))
   const state = () => (open() ? `open` : `closed`)
   const presence = createPresence(open)
 
@@ -357,14 +370,17 @@ export function PopoverNative(props: NativeProps): JSX.Element {
     let hasPointerDownOutside = false
     const layer = createLayer({
       onInteractOutside: (e) => {
+        // VAPP-276: a press or focus in ANOTHER open overlay (a second panel
+        // applet) dismisses nothing (the core's rule), and a press on the
+        // anchor is its toggle. These are React's own onInteractOutside, so
+        // they run BEFORE Radix's bookkeeping: an interaction they prevent
+        // is not "outside", and the close still returns focus to the anchor.
+        if (withinOtherOverlay(contentEl, e.target) || (anchored() && withinAnchor(anchor(), e.target))) e.preventDefault()
         if (!e.defaultPrevented) {
           hasInteractedOutside = true
           if (e.detail.originalEvent.type === `pointerdown`) hasPointerDownOutside = true
         }
-        if (withinAnchor(anchor(), e.target) && (hasTrigger() || anchored())) e.preventDefault()
-        // VAPP-276: a press or focus in ANOTHER open overlay (a second panel
-        // applet) dismisses nothing (the core's rule).
-        if (withinOtherOverlay(contentEl, e.target)) e.preventDefault()
+        if (withinAnchor(anchor(), e.target) && hasTrigger()) e.preventDefault()
         if (e.detail.originalEvent.type === `focusin` && hasPointerDownOutside) e.preventDefault()
       },
       onDismiss: () => setOpen(false),
@@ -508,6 +524,7 @@ export function TooltipNative(props: NativeProps): JSX.Element {
     clearTimeout(openTimer)
     if (untrack(open)) setOpen(false)
   }
+  closeOnAnchorLost(open, () => anchorEl, () => handleClose())
   const handleDelayedOpen = () => {
     clearTimeout(openTimer)
     openTimer = setTimeout(() => {
@@ -1119,6 +1136,7 @@ export function PressMenu(props: {
   const contentId = props.contentId ?? createUniqueId()
   const [own, setTrigger] = createSignal<HTMLElement>()
   const trigger = () => props.anchor?.() ?? own()
+  closeOnAnchorLost(open, trigger, () => setOpen(false))
   const hosted = createHostedPopup(() => props.hostAs ?? ``, `Menu`, () => !!props.hostAs && open(), trigger, () => props.side ?? `bottom`, () => props.align ?? `start`)
   useKeyboardTracking()
   const root: MenuRoot = { close: () => setOpen(false), dir: () => ctx.direction, overlay: `Menu`, openOn: `press`, part: props.part, emit: props.emit, scope: () => props.scope }
@@ -1198,10 +1216,13 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
     setOpen(true)
   }
   const anchor: VirtualElement = { getBoundingClientRect: () => DOMRect.fromRect({ width: 0, height: 0, ...point() }) }
+  let area: HTMLDivElement | undefined
+  closeOnAnchorLost(open, () => area, () => setOpen(false))
   return (
     <MenuRootContext.Provider value={root}>
       <div
         {...props.rootProps}
+        ref={(el: HTMLDivElement) => (area = el)}
         data-state={open() ? `open` : `closed`}
         on:contextmenu={(e: MouseEvent) => {
           clearLongPress()

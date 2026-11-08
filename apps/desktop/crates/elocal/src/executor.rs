@@ -225,6 +225,10 @@ impl LocalExecutor {
             "issues.search" => self.issues_search(input),
             "issues.bulkUpdate" => self.issues_bulk_update(input),
             "issues.bulkDelete" => self.issues_bulk_delete(input),
+            "issueDrafts.upsert" => self.drafts_upsert(input),
+            "issueDrafts.delete" => self.drafts_delete(input),
+            // A Local desktop's files ride an issue, never a draft: none to list.
+            "issueDrafts.listAttachments" => Ok(json!([])),
             "comments.create" => self.comments_create(input),
             "comments.update" => self.comments_update(input),
             "comments.delete" => self.comments_delete(input),
@@ -529,6 +533,10 @@ impl LocalExecutor {
         let ctx = parity::IssueContext { team_id: &self.team_id, board_prefix: text(&board, "prefix").unwrap_or("X"), numbers: &numbers, statuses: &statuses, identity: &identity, id: &id, now: &now };
         let row = parity::create_issue_row(&input, &ctx);
         self.write("issues", row.clone())?;
+        // Filed from a draft: the draft goes (it IS this issue now).
+        if let Some(draft) = text(&input, "draftId") {
+            self.delete("issue_drafts", draft)?;
+        }
         let labels = ids_of(&input, "labelIds");
         if !labels.is_empty() {
             let rows: Vec<Row> = labels.iter().map(|label| obj(json!({"issue_id": id, "label_id": label, "team_id": self.team_id, "created_at": now}))).collect();
@@ -538,6 +546,31 @@ impl LocalExecutor {
             self.write("session_issues", obj(json!({"id": new_id(), "session_id": session, "issue_id": id, "team_id": self.team_id, "source": "user", "added_by": identity.user_id, "added_by_session_id": null, "sort_order": 0, "created_at": now, "updated_at": now})))?;
         }
         Ok(json!({"issue": Self::issue_out(&row), "txid": self.txid()}))
+    }
+
+    /// #EDE-65 J3b: the person's draft (local-parity.json `drafts`).
+    fn drafts_upsert(&self, input: Row) -> Out {
+        let id = need(&input, "id")?;
+        let board = self.row_or("boards", need(&input, "boardId")?, "Board")?;
+        if text(&board, "team_id") != Some(need(&input, "teamId")?) {
+            return Err(bad("The board must belong to this team"));
+        }
+        if let Some(filed) = self.rows_where("issues", "draft_id", id)?.first() {
+            return Err(Refusal(409, parity::draft_consumed_refusal(text(filed, "identifier").unwrap_or(""))));
+        }
+        let existing = self.row("issue_drafts", id)?;
+        let row = parity::draft_row(&input, &self.identity(), existing.as_ref(), &time::now());
+        self.write("issue_drafts", row.clone())?;
+        Ok(json!({"draft": Value::Object(row), "txId": self.txid()}))
+    }
+
+    fn drafts_delete(&self, input: Row) -> Out {
+        let id = need(&input, "id")?;
+        let deleted = self.row("issue_drafts", id)?.is_some();
+        if deleted {
+            self.delete("issue_drafts", id)?;
+        }
+        Ok(json!({"deleted": deleted, "txId": self.txid()}))
     }
 
     fn issues_update(&self, input: Row) -> Out {

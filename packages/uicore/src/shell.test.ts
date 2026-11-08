@@ -2,18 +2,22 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/shell.json" with { type: "json" }
 import {
   altTabOrder,
+  chatRows,
   hydrate,
   reduce,
   startMenuApps,
   startMenuCategories,
+  startMenuIssues,
   taskbarButtons,
   taskbarPress,
   taskbarScroll,
   workspaceBadges,
   switcherSections,
+  type RailChatInput,
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
+  type StartMenuIssue,
 } from "./shell"
 
 const given = (state: unknown): ShellState => hydrate(state as Partial<ShellState>)
@@ -27,7 +31,7 @@ describe(`shell.json reduce`, () => {
   test(`every event kind has a case`, () => {
     const kinds = new Set(fixture.reduce.map((c) => c.event.kind))
     for (const kind of [
-      `rail.toggle`, `sidebar.toggle`, `switcher.pick`, `switcher.set`,
+      `switcher.pick`, `switcher.set`,
       `window.opened`, `window.closed`, `window.focused`, `window.titled`, `window.minimized`, `window.restored`, `window.moved`,
       `workspace.switched`, `workspace.count`,
       `taskbar.pin`, `taskbar.unpin`, `taskbar.hover`, `taskbar.unhover`, `taskbar.previews`, `taskbar.menu`,
@@ -54,7 +58,7 @@ describe(`shell.json selectors`, () => {
   for (const c of fixture.selectors.taskbarPress) test(c.name, () => expect(taskbarPress(given(c.state), c.args.app)).toEqual(c.expected as ReturnType<typeof taskbarPress>))
   for (const c of fixture.selectors.taskbarScroll) test(c.name, () => expect(taskbarScroll(given(c.state), c.args.app, c.args.direction as `up` | `down`)).toEqual(c.expected as ReturnType<typeof taskbarScroll>))
   for (const c of fixture.selectors.workspaceBadges) test(c.name, () => expect(workspaceBadges(given(c.state))).toEqual(c.expected))
-  for (const c of fixture.selectors.switcherSections) test(c.name, () => expect(switcherSections(given(c.state as never))).toEqual(c.expected))
+  for (const c of fixture.selectors.switcherSections) test(c.name, () => expect(switcherSections(given(c.state as never))).toEqual(c.expected as ReturnType<typeof switcherSections>))
   for (const c of fixture.selectors.altTabOrder) test(c.name, () => expect(altTabOrder(given(c.state))).toEqual(c.expected))
   for (const c of fixture.selectors.startMenuApps) {
     const args = (c as { args?: { apps?: StartMenuApp[]; favourites?: string[] } }).args ?? {}
@@ -64,4 +68,17 @@ describe(`shell.json selectors`, () => {
     const args = (c as { args?: { apps?: StartMenuApp[]; favourites?: string[] } }).args ?? {}
     test(c.name, () => expect(startMenuCategories(args.apps ?? apps, args.favourites ?? favourites)).toEqual(c.expected))
   }
+  for (const c of fixture.selectors.startMenuIssues) {
+    const args = (c as { args?: { issues?: StartMenuIssue[] } }).args ?? {}
+    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected as ReturnType<typeof startMenuIssues>))
+  }
+})
+
+describe(`shell.json chats (#EDE-65)`, () => {
+  for (const c of fixture.chats) test(c.name, () => expect(chatRows(c.chats as RailChatInput[])).toEqual(c.expected as ReturnType<typeof chatRows>))
+
+  test(`the state has no rail and no folded sections`, () => {
+    expect(Object.keys(fixture.initial)).not.toContain(`rail`)
+    expect(Object.keys(fixture.initial)).not.toContain(`sidebar`)
+  })
 })

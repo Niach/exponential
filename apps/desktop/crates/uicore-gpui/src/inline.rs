@@ -37,6 +37,12 @@ pub fn popup(doc: &uicore_docs::Doc) -> Document {
     ede_ui::validate_document(doc.name, &doc.json()).expect("a factory document validates")
 }
 
+/// #EDE-65: what eDE does not draw of the sidebar the IDE shares
+/// (#EXP-1725): the IDE's header (the team switcher, search, new and the
+/// rail toggle) and its menu, the IDE's nav and its corners (eDE's start,
+/// chat and new-issue buttons live on the taskbar).
+pub const EDE_SIDEBAR_PRUNED: &[&str] = &["header", "switcher_menu", "ide_nav", "corner"];
+
 /// Drops the nodes a host draws itself or has no use for.
 pub fn without(doc: &mut Document, ids: &[&str]) {
     fn prune(node: &mut eui_core::types::NestedNode, ids: &[&str]) {
@@ -50,6 +56,14 @@ pub fn without(doc: &mut Document, ids: &[&str]) {
     }
     if let Body::Nested(tree) = &mut doc.body {
         prune(tree, ids);
+    }
+}
+
+/// The document's tree as JSON (a styleguide entry draws it as a surface).
+pub fn root_json(doc: &Document) -> Option<serde_json::Value> {
+    match &doc.body {
+        Body::Nested(tree) => serde_json::to_value(tree).ok(),
+        _ => None,
     }
 }
 

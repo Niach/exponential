@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
+import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -118,6 +118,19 @@ function useAnchor(id: string, from: { current: Element | null }, link: AnchorLi
   // Radix's `virtualRef` is a ref object.
   const virtualRef = useMemo(() => ({ current: virtual }), [virtual])
   return { el, virtual, virtualRef }
+}
+
+/** #EXP-1739 (overlayAnchor): while `open`, the overlay closes once its
+ *  anchor `el` scrolls, moves or goes (watched from the element it resolved
+ *  to; a newly resolved element starts a new watch). */
+function useCloseOnAnchorLost(open: boolean, el: Element | null | undefined, close: () => void) {
+  const ctx = useSurfaceContext()
+  const closeRef = useRef(close)
+  closeRef.current = close
+  useEffect(() => {
+    if (!open || ctx.inlineOverlays || !el) return
+    return watchAnchor(() => el, () => closeRef.current())
+  }, [open, el, ctx.inlineOverlays])
 }
 
 /** VAPP-276: the popper reference a Radix DropdownMenu Trigger measures and
@@ -312,6 +325,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild ?? null), [])
   const hosted = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
+  useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
   return (
@@ -382,6 +396,7 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
   const content = str(props.content) || str(props.text)
   const anchorRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  useCloseOnAnchorLost(open, open ? anchorRef.current : null, () => setOpen(false))
   const [hosted, setHosted] = useState(false)
   useEffect(() => {
     const anchor = anchorRef.current
@@ -616,6 +631,7 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.firstElementChild ?? null), [])
   const hosted = useHostedPopup(node.id, `Menu`, open, anchored ? anchor.el : triggerEl, side, align)
+  useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, anchored && !child ? null : true, child)}>
@@ -661,10 +677,13 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
   const part = useParts(node, props)
   const items = objects<MenuItem>(props.items)
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLDivElement | null>(null)
+  useCloseOnAnchorLost(open, open ? triggerRef.current : null, closeContextMenu)
   return (
     <ContextPrimitive.Root onOpenChange={setOpen} dir={ctx.direction}>
       <ContextPrimitive.Trigger asChild>
         <div
+          ref={triggerRef}
           {...(rootProps as Record<string, unknown>)}
           data-state={open ? `open` : `closed`}
           onKeyDown={(e) => {

@@ -9,93 +9,25 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use domain::session_tree::SessionState;
-use eui_core::{surface::SurfaceCommand, theme::Mode};
+use eui_core::theme::Mode;
 use eui_gpui::{
-    host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent},
+    host::{ActionEvent, FunctionCallEvent, HostPlugin},
     view::SurfaceView,
 };
 use crate::controls::PointerContextMenuExt as _;
-use gpui::{anchored, deferred, div, point, prelude::*, px, AnyElement, AnyWindowHandle, App, Entity, Hsla, SharedString, Window};
+use gpui::{div, prelude::*, AnyElement, AnyWindowHandle, App, Entity, Hsla, SharedString, Window};
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
-use uicore_model::{reduce, ShellEvent, ShellState, StartMenuApp};
 use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeDot, IdePinInput, IdeSidebarInput};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
 
 /// What the sidebar document draws itself; the rest is the IDE's own until
-/// its region moves (the header, the footer).
-const PRUNED: &[&str] = &["header", "switcher_menu", "header_rail", "nav", "pinned", "workspaces", "sessions", "settings", "rail_settings"];
-
-/// The start menu without what only a desktop session has (the switcher:
-/// the IDE's sidebar header has its own).
-const MENU_PRUNED: &[&str] = &["lock", "power", "switcher", "switcher_menu"];
-
-const TERMINAL: &str = "ide.terminal";
-const FILES: &str = "ide.files";
-const HISTORY: &str = "ide.history";
-const SOURCE_CONTROL: &str = "ide.source-control";
-
-/// A team app's start-menu id ([`uicore_model::EXPONENTIAL_APP_PREFIX`]: the
-/// menu's Exponential category).
-fn team_app(id: &str) -> String {
-    format!("{}{id}", uicore_model::EXPONENTIAL_APP_PREFIX)
-}
-
-fn tool(id: &str, name: &str) -> StartMenuApp {
-    StartMenuApp { id: id.into(), name: name.into(), comment: String::new(), categories: vec!["Development".into()], keywords: String::new() }
-}
-
-/// What the footer's Computer menu held, gated like it was (EXP-1105: yolo
-/// mode hides Files and Source Control until a git failure needs a person).
-fn tools(files: bool, source_control: bool, trunk: &str) -> Vec<StartMenuApp> {
-    let mut apps = vec![tool(TERMINAL, "Terminal")];
-    if files {
-        apps.push(tool(FILES, "Files"));
-    }
-    if source_control {
-        apps.push(tool(HISTORY, "Version history"));
-        apps.push(StartMenuApp { comment: trunk.to_string(), ..tool(SOURCE_CONTROL, "Source control") });
-    }
-    apps
-}
-
-fn tool_glyph(id: &str) -> &'static str {
-    match id {
-        TERMINAL => "nav-terminal",
-        FILES => "nav-files",
-        HISTORY => "ui-history",
-        _ => "nav-source-control",
-    }
-}
-
-fn category_icon(id: &str) -> &'static str {
-    match id {
-        "favourites" => "ui-pin",
-        "exponential" => "brand-exponential",
-        "programming" => "nav-terminal",
-        _ => "nav-apps",
-    }
-}
-
-/// `/shell/startMenu`: the reducer's selectors over the IDE's tools and the
-/// team's apps.
-fn start_menu(state: &ShellState, apps: &[StartMenuApp], glyphs: &HashMap<String, Glyph>) -> Value {
-    let favourites: Vec<String> = apps.iter().filter(|a| !a.id.starts_with(uicore_model::EXPONENTIAL_APP_PREFIX)).map(|a| a.id.clone()).collect();
-    let glyph = |id: &str| match id.strip_prefix(uicore_model::EXPONENTIAL_APP_PREFIX) {
-        Some(app) => {
-            let name = format!("ide:app:{app}");
-            if glyphs.contains_key(&name) { name } else { "nav-apps".to_string() }
-        }
-        None => tool_glyph(id).to_string(),
-    };
-    let entries: Vec<Value> = uicore_model::start_menu_apps(state, apps, &favourites).into_iter().map(|e| json!({"id": e.id, "name": e.name, "comment": e.comment, "glyph": glyph(&e.id)})).collect();
-    let categories: Vec<Value> = uicore_model::start_menu_categories(apps, &favourites).into_iter().map(|c| json!({"id": c.id, "label": c.label, "icon": category_icon(&c.id), "selected": c.id == state.start_menu.category})).collect();
-    let favourites: Vec<Value> = apps.iter().filter(|a| favourites.contains(&a.id)).map(|a| json!({"id": a.id, "name": a.name, "glyph": glyph(&a.id)})).collect();
-    json!({"query": state.start_menu.query, "categories": categories, "apps": entries, "favourites": favourites})
-}
+/// its region moves (the header, the footer). `chats` is eDE's rail list
+/// (#EDE-65); the IDE lists its chats under Chats.
+const PRUNED: &[&str] = &["header", "switcher_menu", "chats"];
 
 /// A row glyph the IDE paints.
 #[derive(Clone)]
@@ -202,7 +134,7 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
 
 /// The fixture's output as the document binds it: dots as glyph names, the
 /// row under the pointer marked, the active rows' device glyphs.
-fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>, rail: bool, start_badge: Option<&str>) -> Value {
+fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>, assistant: Option<(&str, &str)>) -> Value {
     let mut value = serde_json::to_value(ide_sidebar(input)).expect("the sidebar serializes");
     let mark = |rows: &mut Value| {
         for row in rows.as_array_mut().into_iter().flatten() {
@@ -211,22 +143,6 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
                 None => dot_icon(&row["dot"]),
             };
             row["hover"] = json!(hover == row["id"].as_str());
-            // #EXP-1724: a rail tile says its count (or that there is news)
-            // in its corner, and a pin needs a glyph of its own.
-            if rail && row.get("identifier").is_some() {
-                row["icon"] = json!("ui-pin");
-                row["identifier"] = Value::Null;
-            }
-            // A rail row keeps only its glyph: the count or the dot rides
-            // the glyph's corner (`ide:badge:<count|dot:tone>|<glyph>`).
-            let badge = match (row["count"].as_str(), row["dot"].as_str()) {
-                (Some(count), _) => Some(count.to_string()),
-                (None, Some(tone)) => Some(format!("dot:{tone}")),
-                _ => None,
-            };
-            if let (true, Some(badge), Some(icon)) = (rail, badge, row["icon"].as_str()) {
-                row["icon"] = json!(format!("ide:badge:{badge}|{icon}"));
-            }
         }
     };
     mark(&mut value["nav"]);
@@ -234,7 +150,9 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     mark(&mut value["agents"]["rows"]);
     mark(&mut value["apps"]["rows"]);
     mark(&mut value["boards"]["rows"]);
-    value["startBadge"] = start_badge.map(|b| json!(b)).unwrap_or(Value::Null);
+    // #EXP-1741: the corner is the person's Assistant (its chat on a press).
+    value["assistant"] = assistant.map(|(id, name)| json!({"id": id, "name": name})).unwrap_or(Value::Null);
+    value["computer"] = json!("ide:computer");
     value["boards"]["emptyText"] = json!(crate::empty_state_copy::BOARD_SWITCHER);
     for row in value["active"].as_array_mut().into_iter().flatten() {
         let device = format!("ide:device:{}", row["id"].as_str().unwrap_or_default());
@@ -257,15 +175,10 @@ pub(crate) struct SidebarRegion {
     hover: Rc<RefCell<Option<String>>>,
     input: IdeSidebarInput,
     shown: Option<Value>,
-    rail: bool,
-    menu_view: Entity<SurfaceView>,
-    menu: Rc<RefCell<ShellState>>,
-    region_handle: gpui::WeakEntity<SidebarRegion>,
-    /// The tools the footer's gate lets through + the team's apps.
-    apps: Vec<StartMenuApp>,
-    tools: (bool, bool, String),
-    /// A trunk failure's glyph on the start button.
-    start_badge: Option<String>,
+    /// The person's Assistant as the active team lists it: `(id, name)`.
+    assistant: Option<(String, String)>,
+    /// #EXP-1741: the Computer button's state (the corner paints it).
+    computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
     frozen: bool,
@@ -276,28 +189,22 @@ impl SidebarRegion {
         cx.new(|cx: &mut gpui::Context<Self>| {
             let glyphs = Rc::new(RefCell::new(HashMap::new()));
             let hover = Rc::new(RefCell::new(None));
-            let menu = Rc::new(RefCell::new(ShellState::default()));
-            let host = Rc::new(RegionHost { glyphs: glyphs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
+            let computer = Rc::new(RefCell::new(None));
+            let host = Rc::new(RegionHost { computer: computer.clone(), glyphs: glyphs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
             let mut doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
             uicore_gpui::inline::without(&mut doc, PRUNED);
+            // #EXP-1741: the IDE's sidebar never folds (eDE's is the rail).
+            uicore_gpui::inline::set_prop(&mut doc, "sidebar", "collapsed", json!(false));
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
-            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme.clone(), host.clone(), Mode::Dark, window, cx);
-            let mut menu_doc = uicore_gpui::inline::popup(uicore_docs::doc("start-menu").expect("the factory start menu"));
-            uicore_gpui::inline::without(&mut menu_doc, MENU_PRUNED);
-            let menu_view = uicore_gpui::inline::mount(&menu_doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             Self {
                 view,
                 glyphs,
                 hover,
                 input: IdeSidebarInput::default(),
                 shown: None,
-                rail: false,
-                menu_view,
-                menu,
-                region_handle: cx.weak_entity(),
-                apps: Vec::new(),
-                tools: (true, true, String::new()),
-                start_badge: None,
+                assistant: None,
+                computer,
                 #[cfg(test)]
                 frozen: false,
             }
@@ -312,106 +219,52 @@ impl SidebarRegion {
         }
         let (input, glyphs) = gather(nav, cx);
         *self.glyphs.borrow_mut() = glyphs;
-        self.apps = tools(self.tools.0, self.tools.1, &self.tools.2);
-        self.apps.extend(self.input_apps(&input));
+        self.assistant = active_team_id(nav, cx).and_then(|team| crate::session_data::my_assistant(&team, cx)).map(|a| (a.id, a.name.unwrap_or_else(|| "Assistant".into())));
         self.input = input;
         self.push(cx);
-        self.push_menu(cx);
         // A glyph is host-painted: its state changes without the data.
         self.view.update(cx, |_, cx| cx.notify());
-    }
-
-    /// Opens the start menu, for the pictures.
-    #[cfg(test)]
-    pub(crate) fn open_menu(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.apps = tools(true, true, "");
-        self.apps.extend(self.input_apps(&self.input.clone()));
-        self.menu_event(ShellEvent::StartMenuToggle, window, cx);
     }
 
     /// A sample state, for the pictures.
     #[cfg(test)]
     pub(crate) fn show(&mut self, input: IdeSidebarInput, hover: Option<&str>, cx: &mut gpui::Context<Self>) {
         self.frozen = true;
+        self.assistant = Some(("a0".into(), "Assistant".into()));
+        // A trunk that needs a person: the warning rides the Computer button.
+        *self.computer.borrow_mut() = Some(crate::sidebar::ComputerState {
+            files: true,
+            source_control: true,
+            tooltip: "Source Control: local commits".into(),
+            badge: Some(crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning)),
+            active: false,
+        });
         self.input = input;
         *self.hover.borrow_mut() = hover.map(str::to_string);
         self.push(cx);
     }
 
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
-        let rail = crate::ui_prefs::rail();
-        let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref(), rail, self.start_badge.as_deref());
-        if self.shown.as_ref() == Some(&value) && self.rail == rail {
+        let assistant = self.assistant.as_ref().map(|(id, name)| (id.as_str(), name.as_str()));
+        let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref(), assistant);
+        if self.shown.as_ref() == Some(&value) {
             return;
         }
         self.shown = Some(value.clone());
-        self.rail = rail;
         self.view.update(cx, |view, cx| {
-            let _ = view.set_data("/shell/rail", Some(json!(rail)), cx);
+            // The IDE's sidebar never folds: the nodes the rail hides read it.
+            let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
             let _ = view.set_data("/shell/ide", Some(value), cx);
         });
     }
 
-    fn input_apps(&self, input: &IdeSidebarInput) -> Vec<StartMenuApp> {
-        input.apps.iter().map(|a| StartMenuApp { id: team_app(&a.id), name: a.name.clone(), comment: String::new(), categories: Vec::new(), keywords: a.slug.clone() }).collect()
-    }
-
-    /// The footer's gate and trunk badge (the rail's render reads them).
-    pub(crate) fn set_tools(&mut self, files: bool, source_control: bool, trunk: String, badge: Option<String>) {
-        self.tools = (files, source_control, trunk);
-        self.start_badge = badge;
-    }
-
-    fn push_menu(&mut self, cx: &mut gpui::Context<Self>) {
-        let value = start_menu(&self.menu.borrow(), &self.apps, &self.glyphs.borrow());
-        let user = crate::queries::active_account(cx).map(|a| json!({"name": a.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| a.email.clone()), "host": a.email})).unwrap_or_else(|| json!({"name": "", "host": ""}));
-        self.menu_view.update(cx, |view, cx| {
-            let _ = view.set_data("/user", Some(user), cx);
-            let _ = view.set_data("/shell/startMenu", Some(value), cx);
-        });
-    }
-
-    /// Runs a start-menu event through the reducer.
-    fn menu_event(&mut self, event: ShellEvent, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let (was, next) = {
-            let state = self.menu.borrow();
-            (state.start_menu.open, reduce(&state, &event))
-        };
-        let open = next.start_menu.open;
-        *self.menu.borrow_mut() = next;
-        self.push_menu(cx);
-        if open && !was {
-            let focus = self.menu_view.clone();
-            window.defer(cx, move |_, cx| focus.update(cx, |view, cx| view.command(&SurfaceCommand::Focus { id: "search".into() }, cx)));
+    /// #EXP-1741: the Computer button's state, from the rail's render.
+    pub(crate) fn set_computer(&mut self, state: crate::sidebar::ComputerState) {
+        #[cfg(test)]
+        if self.frozen {
+            return;
         }
-        cx.notify();
-    }
-
-    /// The open start menu over the window, above the start button.
-    fn overlay(&self, cx: &App) -> Option<AnyElement> {
-        if !self.menu.borrow().start_menu.open {
-            return None;
-        }
-        let layout = uicore_model::layout::shell_layout();
-        let anchor = self.view.read(cx).painted_bounds("start").or_else(|| self.view.read(cx).painted_bounds("rail_start"))?;
-        let region = self.region_handle.clone();
-        Some(
-            deferred(
-                anchored().anchor(gpui::Anchor::BottomLeft).position(anchor.origin - point(px(0.), px(4.))).snap_to_window().child(
-                    div()
-                        .id("start-menu")
-                        .occlude()
-                        .w(px(layout.start_menu.width as f32))
-                        .h(px(layout.start_menu.height as f32))
-                        .on_mouse_down_out(move |_, window, cx| {
-                            let _ = region.update(cx, |region, cx| region.menu_event(ShellEvent::StartMenuClose, window, cx));
-                        })
-                        .child(uicore_gpui::inline::region(&self.menu_view)),
-                ),
-            )
-            .with_priority(1)
-            .into_any_element(),
-        )
+        *self.computer.borrow_mut() = Some(state);
     }
 
     /// The row under the pointer, for the context menu.
@@ -429,12 +282,13 @@ impl SidebarRegion {
 }
 
 impl Render for SidebarRegion {
-    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        div().size_full().child(uicore_gpui::inline::region(&self.view)).children(self.overlay(cx))
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        uicore_gpui::inline::region(&self.view)
     }
 }
 
 struct RegionHost {
+    computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
     window: AnyWindowHandle,
@@ -457,6 +311,7 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             let screen = match id.as_str() {
                 "needs-you" => Screen::NeedsYou,
                 "threads" => Screen::Threads,
+                "devices" => Screen::Devices,
                 _ => Screen::Drafts,
             };
             navigate(window, cx, screen);
@@ -475,19 +330,8 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             navigate(window, cx, Screen::BoardIssues { board_id: id });
         }
         "active" => navigation::navigate_from_live_rail(window, cx, Screen::Thread { session_id: id }),
-        _ => {}
-    }
-}
-
-/// A start-menu entry: the tools the footer's Computer menu held, a team app.
-fn launch(app: &str, window: &mut Window, cx: &mut App) {
-    if let Some(id) = app.strip_prefix(uicore_model::EXPONENTIAL_APP_PREFIX) {
-        return navigate(window, cx, Screen::AppRun { app: id.to_string() });
-    }
-    match app {
-        TERMINAL => crate::session_bar::open_new_shell(window, cx),
-        FILES => crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::Files),
-        HISTORY | SOURCE_CONTROL => crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::SourceControl),
+        "assistant" => navigate(window, cx, Screen::Agent { agent_id: id }),
+        "settings" => navigate(window, cx, Screen::Settings),
         _ => {}
     }
 }
@@ -531,6 +375,9 @@ impl HostPlugin for RegionHost {
             let dot = serde_json::from_value::<IdeDot>(json!(tone)).ok()?;
             return Some(crate::sidebar::rail_dot(dot_color(dot, cx)).into_any_element());
         }
+        if name == "ide:computer" {
+            return self.computer.borrow().as_ref().map(|state| crate::sidebar::computer_button(state, cx));
+        }
         if let Some(state) = name.strip_prefix("ide:trunk:") {
             let badge = if state == "error" { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_ERROR, cx.theme().danger) } else { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning) };
             return Some(crate::sidebar::rail_badge_element(badge, 12., cx));
@@ -548,7 +395,7 @@ impl HostPlugin for RegionHost {
                 Some(tone) => crate::sidebar::rail_dot(dot_color(serde_json::from_value(json!(tone)).ok()?, cx)).into_any_element(),
                 None => crate::sidebar::rail_badge_element(crate::sidebar::RailBadge::Count(badge.parse().ok()?, crate::surface::BadgeTone::Muted), 12., cx),
             };
-            return Some(div().relative().size(gpui::px(size)).child(inner).child(div().absolute().top(gpui::px(-6.)).right(gpui::px(-8.)).child(corner)).into_any_element());
+            return Some(uicore_gpui::glyphs::cornered(inner, corner, size));
         }
         let glyphs = self.glyphs.borrow();
         let element = match glyphs.get(name)? {
@@ -579,71 +426,6 @@ impl HostPlugin for RegionHost {
         let region = self.region.clone();
         cx.defer(move |cx| {
             let _ = region.update(cx, |region, cx| region.push(cx));
-        });
-    }
-
-    fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
-        let region = self.region.clone();
-        let closing = region.clone();
-        let close = move |window: &mut Window, cx: &mut App| {
-            let _ = closing.update(cx, |region, cx| region.menu_event(ShellEvent::StartMenuClose, window, cx));
-        };
-        let args = event.args.clone();
-        match (event.name.as_str(), event.component_id.as_str()) {
-            ("ede_start_menu", _) => {
-                let region = region.clone();
-                let ev = if args["toggle"] == json!(true) {
-                    ShellEvent::StartMenuToggle
-                } else if let Some(category) = args["category"].as_str() {
-                    ShellEvent::StartMenuCategory { category: category.to_string() }
-                } else {
-                    ShellEvent::StartMenuClose
-                };
-                self.in_window(cx, move |window, cx| {
-                    let _ = region.update(cx, |region, cx| region.menu_event(ev, window, cx));
-                });
-            }
-            ("ede_chat", _) => self.in_window(cx, |window, cx| navigate(window, cx, Screen::Home)),
-            ("ede_launch", "whats_new") => self.in_window(cx, move |window, cx| {
-                close(window, cx);
-                crate::changelog::open_whats_new(window, cx);
-            }),
-            ("ede_launch", "account") => self.in_window(cx, move |window, cx| {
-                close(window, cx);
-                crate::sidebar::select_settings_section(window, cx, SettingsSection::Account);
-                navigate(window, cx, Screen::Settings);
-            }),
-            ("ede_launch", "devices") => self.in_window(cx, move |window, cx| {
-                close(window, cx);
-                navigate(window, cx, Screen::Devices);
-            }),
-            ("ede_open_document", "settings") => self.in_window(cx, move |window, cx| {
-                close(window, cx);
-                navigate(window, cx, Screen::Settings);
-            }),
-            ("ede_logout", _) => self.in_window(cx, move |window, cx| {
-                close(window, cx);
-                window.dispatch_action(Box::new(crate::actions::SignOut), cx);
-            }),
-            ("ede_launch", _) => {
-                let app = args["app"].as_str().unwrap_or_default().to_string();
-                self.in_window(cx, move |window, cx| {
-                    close(window, cx);
-                    launch(&app, window, cx);
-                });
-            }
-            _ => {}
-        }
-    }
-
-    fn on_input(&self, event: &InputEvent, cx: &mut App) {
-        if event.path.as_deref() != Some("/shell/startMenu/query") {
-            return;
-        }
-        let query = event.value.as_str().unwrap_or_default().to_string();
-        let region = self.region.clone();
-        self.in_window(cx, move |window, cx| {
-            let _ = region.update(cx, |region, cx| region.menu_event(ShellEvent::StartMenuQuery { query }, window, cx));
         });
     }
 
@@ -893,7 +675,8 @@ impl HostPlugin for TabHost {
                 let Some(screen) = chosen.and_then(|key| self.screen(&key)) else { return };
                 self.in_window(cx, move |window, cx| with_panel(window, cx, |panel, window, cx| panel.close_screen(&screen, window, cx)));
             }
-            "new" => self.in_window(cx, |window, cx| crate::session_bar::open_new_shell(window, cx)),
+            // #EXP-1741: the + opens the composer page (Home), not a terminal.
+            "new" => self.in_window(cx, |window, cx| navigate(window, cx, Screen::Home)),
             "reorder" => {
                 let Some((screen, to)) = chosen.and_then(|key| self.screen(&key)).zip(payload["to"].as_u64()) else { return };
                 self.in_window(cx, move |window, cx| with_panel(window, cx, |panel, _, cx| panel.move_tab(&screen, to as usize, cx)));
@@ -918,9 +701,9 @@ impl HostPlugin for TabHost {
     }
 }
 
-/// What the header region draws itself (the rows are [`SidebarRegion`]'s),
-/// and the eDE-only parts it has its own of.
-const HEADER_PRUNED: &[&str] = &["nav", "ide_nav", "scroll", "corner", "corner_rail", "inbox", "rail_inbox", "switcher_avatar", "switcher_chevron", "switcher_share", "switcher_new"];
+/// What the header region leaves to [`SidebarRegion`]: the rows and the
+/// corners.
+const HEADER_PRUNED: &[&str] = &["ide_nav", "scroll", "corner"];
 
 /// The left column's header (#EXP-1725): the team switcher, the inbox,
 /// search and new, the rail toggle: `sidebar.json`'s header and its
@@ -939,6 +722,7 @@ impl HeaderRegion {
             let host = Rc::new(HeaderHost { team: team.clone(), nav, window: window.window_handle(), region: cx.weak_entity() });
             let mut doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
             uicore_gpui::inline::without(&mut doc, HEADER_PRUNED);
+            uicore_gpui::inline::set_prop(&mut doc, "sidebar", "collapsed", json!(false));
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
             let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             Self { view, team, shown: None }
@@ -982,7 +766,6 @@ impl HeaderRegion {
             None => "nav-team-switcher".to_string(),
         };
         let value = json!({
-            "rail": crate::ui_prefs::rail(),
             "switcher": {"current": {"name": name}, "sections": sections},
             "ide": {"teamMark": "ide:team", "chevron": chevron, "inbox": "ide:inbox", "noBoard": active_board_id(nav, cx).is_none(), "signedIn": !on_local},
         });
@@ -992,7 +775,6 @@ impl HeaderRegion {
         }
         self.shown = Some(value.clone());
         self.view.update(cx, |view, cx| {
-            let _ = view.set_data("/shell/rail", Some(value["rail"].clone()), cx);
             let _ = view.set_data("/shell/switcher", Some(value["switcher"].clone()), cx);
             let _ = view.set_data("/shell/ide", Some(value["ide"].clone()), cx);
         });
@@ -1061,7 +843,6 @@ impl HostPlugin for HeaderHost {
                     crate::issue_draft_screen::open_new_from_rail(window, cx, board);
                 }
             }),
-            ("ede_rail", _) => self.in_window(cx, |_, cx| crate::sidebar::toggle_rail(cx)),
             ("ede_switcher", _) => self.in_window(cx, move |window, cx| {
                 let id = args["id"].as_str().unwrap_or_default().to_string();
                 match (args["action"].as_str(), args["kind"].as_str()) {
@@ -1105,39 +886,12 @@ mod tests {
             boards: vec![IdeBoardInput { id: "b1".into(), name: "Web".into(), icon: "ide:board:b1".into() }],
             ..Default::default()
         };
-        let value = shaped(&input, &HashMap::new(), Some("b1"), false, None);
+        let value = shaped(&input, &HashMap::new(), Some("b1"), None);
         assert_eq!(value["nav"][0]["dotIcon"], "ide:dot:amber");
         let counted = IdeSidebarInput { needs_you: 5, ..input.clone() };
-        assert_eq!(shaped(&counted, &HashMap::new(), None, false, None)["nav"][0]["dotIcon"], "ide:count:5");
+        assert_eq!(shaped(&counted, &HashMap::new(), None, None)["nav"][0]["dotIcon"], "ide:count:5");
         assert_eq!(value["boards"]["rows"][0]["hover"], true);
 
-    }
-
-    #[test]
-    fn a_rail_tile_carries_its_count_and_a_pin_a_glyph() {
-        let input = IdeSidebarInput {
-            screen: "home".into(),
-            needs_you: 5,
-            threads_dot: Some(IdeDot::Primary),
-            pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash".into() }],
-            ..Default::default()
-        };
-        let value = shaped(&input, &HashMap::new(), None, true, None);
-        assert_eq!(value["nav"][0]["icon"], "ide:badge:5|nav-needs-you");
-        assert_eq!(value["nav"][1]["icon"], "ide:badge:dot:primary|nav-threads");
-        assert_eq!(value["pins"][0]["icon"], "ui-pin");
-        assert_eq!(shaped(&input, &HashMap::new(), None, false, None)["nav"][0]["icon"], "nav-needs-you");
-    }
-
-    #[test]
-    fn the_menu_holds_the_gated_tools_and_the_teams_apps() {
-        let mut apps = tools(false, false, "");
-        apps.push(StartMenuApp { id: team_app("x1"), name: "CRM".into(), comment: String::new(), categories: Vec::new(), keywords: String::new() });
-        let value = start_menu(&ShellState::default(), &apps, &HashMap::new());
-        let names: Vec<&str> = value["apps"].as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["CRM", "Terminal"]);
-        assert_eq!(value["favourites"][0]["glyph"], "nav-terminal");
-        assert_eq!(value["categories"].as_array().unwrap().iter().filter(|c| c["id"] == "exponential").count(), 1);
     }
 
     #[test]
@@ -1150,7 +904,7 @@ mod tests {
     #[test]
     fn the_document_prunes_only_nodes_it_has() {
         let doc = uicore_docs::doc("sidebar").expect("the sidebar");
-        for id in PRUNED {
+        for id in PRUNED.iter().chain(HEADER_PRUNED) {
             assert!(doc.source.contains(&format!("\"id\": \"{id}\"")), "{id}");
         }
     }

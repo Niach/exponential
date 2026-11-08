@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).
 - `Window` (VAPP-290) paints from the core macro (no per-renderer code); snapshot recorded.
 
 ## 0.19.1 (2026-11-07)

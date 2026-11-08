@@ -20,12 +20,19 @@
 //!
 //! No steer, no presence, no relay: the host drains [`LocalRuns::changes`]
 //! to redraw.
+//!
+//! #EDE-65: ONE runner per desktop on the machine. The IDE and eDE may both
+//! open a desktop; only the process holding the desktop's `runs.lock` (an
+//! exclusive lock for the runner's life, so a crash frees it) claims and
+//! runs sessions, the other stands by and takes over when the lock frees.
+//! The holder also wakes on the other process's writes (the store file
+//! moved), so a message sent from either app runs.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use api::{CallKind, Transport};
 use eagent::provider::{AcpAgent, Brief, EventSink, HubGrant, HubLevel};
@@ -37,6 +44,11 @@ use serde_json::{json, Map, Value};
 
 use crate::desktops::LocalDesktop;
 use crate::time;
+
+/// The CLIs this machine has (signed in), in the default's order: Claude, Codex.
+pub fn installed_runners() -> Vec<Arc<dyn Runner>> {
+    [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex].into_iter().map(AcpRunner::new).filter(AcpRunner::available).map(|r| Arc::new(r) as Arc<dyn Runner>).collect()
+}
 
 /// One run the runner controls (the ACP session, or a test double).
 pub trait Run: Send {
@@ -50,6 +62,46 @@ pub trait Run: Send {
 pub trait Runner: Send + Sync {
     fn id(&self) -> &str;
     fn start(&self, brief: Brief, grant: HubGrant, sink: Arc<dyn EventSink>) -> Result<Box<dyn Run>, String>;
+}
+
+/// #EXP-1727: the working copy a session runs in: its root's linked issue's
+/// board's linked folder, as a git worktree of its own under the desktop
+/// (`worktrees/<root>`, branch `exp/<first 8 of the root>`), made once and
+/// reused by every session of the tree. `None` = no linked folder (the run
+/// takes the desktop's default directory).
+pub fn worktree_for(desktop: &LocalDesktop, session_id: &str) -> Option<(PathBuf, crate::LocalRepository, String)> {
+    let session = desktop.store.row("sessions", session_id).ok().flatten()?;
+    let root = session.get("root_id").and_then(Value::as_str).filter(|r| !r.is_empty()).unwrap_or(session_id).to_string();
+    let issue = [root.as_str(), session_id].iter().find_map(|id| {
+        desktop.store.rows_where("session_issues", "session_id", id).ok()?.into_iter().find_map(|l| l.get("issue_id").and_then(Value::as_str).map(str::to_string))
+    })?;
+    let board = desktop.store.row("issues", &issue).ok().flatten()?.get("board_id").and_then(Value::as_str)?.to_string();
+    let repo = desktop.executor.board_repository(&board)?;
+    let short: String = root.chars().take(8).collect();
+    let branch = format!("exp/{short}");
+    let dir = desktop.dir.join("worktrees").join(&root);
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(dir.parent()?);
+        let made = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo.path)
+            .args(["worktree", "add", "-b", &branch])
+            .arg(&dir)
+            .arg(&repo.default_branch)
+            .output();
+        match made {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                log::warn!("worktree for {root}: {}", String::from_utf8_lossy(&out.stderr).trim());
+                return Some((repo.path.clone(), repo, branch));
+            }
+            Err(e) => {
+                log::warn!("worktree for {root}: {e}");
+                return Some((repo.path.clone(), repo, branch));
+            }
+        }
+    }
+    Some((dir, repo, branch))
 }
 
 /// The person's own CLI over ACP ([`AcpAgent`]).
@@ -125,7 +177,9 @@ struct Live {
 
 pub struct LocalRuns {
     desktop: Arc<LocalDesktop>,
-    runner: Arc<dyn Runner>,
+    /// The CLIs this machine can run, the default first (#EDE-65 J5: a
+    /// session runs the one its `cli` names, else its agent's).
+    runners: Vec<Arc<dyn Runner>>,
     cwd: PathBuf,
     /// What the brief says about the host's tools (`HostTools::note`).
     host_note: Option<String>,
@@ -141,6 +195,25 @@ pub struct LocalRuns {
     events: (flume::Sender<(String, ActivityEvent)>, flume::Receiver<(String, ActivityEvent)>),
     changes: (flume::Sender<Changed>, flume::Receiver<Changed>),
     seq: AtomicU64,
+    /// The desktop's `runs.lock` while this runner is THE runner (#EDE-65).
+    lock: Mutex<Option<std::fs::File>>,
+    /// After [`LocalRuns::stop_all`]: the lock is gone and never taken again.
+    stopped: std::sync::atomic::AtomicBool,
+    /// The store files' (modified, length) when last looked at.
+    seen: Mutex<Option<Vec<(SystemTime, u64)>>>,
+}
+
+/// The desktop's run lock, `None` while another process holds it.
+fn try_run_lock(dir: &std::path::Path) -> Option<std::fs::File> {
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("runs.lock")).ok()?;
+    match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(std::fs::TryLockError::WouldBlock) => None,
+        Err(std::fs::TryLockError::Error(e)) => {
+            log::warn!("[elocal] runs.lock: {e}");
+            None
+        }
+    }
 }
 
 /// The `sessions` row columns the hub's state mirrors onto.
@@ -196,10 +269,10 @@ impl ToolProvider for Merged {
 impl LocalRuns {
     /// Starts the runner for `desktop`: the MCP hub, the hub state from the
     /// store's live sessions, the worker thread.
-    /// The runner over the person's first usable CLI, `None` without one.
+    /// The runner over the person's usable CLIs, `None` without one.
     pub fn start_first_cli(desktop: Arc<LocalDesktop>, cwd: PathBuf) -> Option<Result<Arc<Self>, String>> {
-        let acp = [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex].into_iter().map(AcpRunner::new).find(AcpRunner::available)?;
-        Some(Self::start(desktop, Arc::new(acp), cwd))
+        let runners = installed_runners();
+        (!runners.is_empty()).then(|| Self::start_with_runners(desktop, runners, cwd, None))
     }
 
     pub fn start(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf) -> Result<Arc<Self>, String> {
@@ -208,6 +281,14 @@ impl LocalRuns {
 
     /// [`Self::start`] with the host's tools on the same hub.
     pub fn start_with(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf, host: Option<HostTools>) -> Result<Arc<Self>, String> {
+        Self::start_with_runners(desktop, vec![runner], cwd, host)
+    }
+
+    /// [`Self::start_with`] over several CLIs (the first = the default).
+    pub fn start_with_runners(desktop: Arc<LocalDesktop>, runners: Vec<Arc<dyn Runner>>, cwd: PathBuf, host: Option<HostTools>) -> Result<Arc<Self>, String> {
+        if runners.is_empty() {
+            return Err("no agent CLI to run".into());
+        }
         let local = Arc::new(LocalTools { desktop: desktop.clone() });
         let (provider, note): (Arc<dyn ToolProvider>, Option<String>) = match host {
             Some(host) => (Arc::new(Merged { local, host: host.provider }), Some(host.note)),
@@ -217,7 +298,7 @@ impl LocalRuns {
         let server = Server::serve(info, provider)?;
         let runs = Arc::new(Self {
             desktop,
-            runner,
+            runners,
             cwd,
             host_note: note,
             server,
@@ -228,16 +309,58 @@ impl LocalRuns {
             events: flume::unbounded(),
             changes: flume::unbounded(),
             seq: AtomicU64::new(1),
+            lock: Mutex::new(None),
+            stopped: std::sync::atomic::AtomicBool::new(false),
+            seen: Mutex::new(None),
         });
-        runs.hydrate()?;
         let deltas = runs.desktop.store.subscribe();
+        if runs.take_over() {
+            runs.reconcile();
+        } else {
+            log::info!("[elocal] desktop {}: another app runs its agents, standing by", runs.desktop.entry.id);
+        }
         let worker = runs.clone();
         std::thread::Builder::new()
             .name("elocal-runs".into())
             .spawn(move || worker.work(deltas))
             .map_err(|e| e.to_string())?;
-        runs.reconcile();
         Ok(runs)
+    }
+
+    /// Is this THE runner of the desktop (the holder of its `runs.lock`)?
+    pub fn is_runner(&self) -> bool {
+        self.lock.lock().expect("lock").is_some()
+    }
+
+    /// Takes the desktop's run lock when it is free: the hub starts over
+    /// from the store (what the other process ran is in it).
+    fn take_over(&self) -> bool {
+        if self.is_runner() {
+            return true;
+        }
+        if self.stopped.load(Ordering::Relaxed) {
+            return false;
+        }
+        let Some(lock) = try_run_lock(&self.desktop.dir) else { return false };
+        *self.lock.lock().expect("lock") = Some(lock);
+        // The files as they are now: a later move is the other app's write.
+        self.store_moved();
+        if let Err(e) = self.hydrate() {
+            log::warn!("[elocal] hydrate: {e}");
+        }
+        true
+    }
+
+    /// Did the store's files change since the last look (another process wrote)?
+    fn store_moved(&self) -> bool {
+        let stamp: Vec<(SystemTime, u64)> = ["local.sqlite", "local.sqlite-wal"]
+            .iter()
+            .map(|f| std::fs::metadata(self.desktop.dir.join(f)).map(|m| (m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len())).unwrap_or((SystemTime::UNIX_EPOCH, 0)))
+            .collect();
+        let mut seen = self.seen.lock().expect("seen");
+        let moved = seen.as_ref().is_some_and(|s| *s != stamp);
+        *seen = Some(stamp);
+        moved
     }
 
     /// The host's change stream (one per session that changed).
@@ -275,13 +398,22 @@ impl LocalRuns {
                     while let Ok(more) = deltas.try_recv() {
                         touched |= matches!(more.table, "sessions" | "messages");
                     }
-                    if touched {
+                    if touched && self.is_runner() {
                         self.reconcile();
                     }
                 }
                 Ok(Woke::Event(session_id, event)) => self.on_event(&session_id, event),
                 Ok(Woke::Gone) => return,
-                Err(_) => {}
+                // A quiet second: take the lock when it freed, follow the other app's writes.
+                Err(_) => {
+                    if self.stopped.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let was = self.is_runner();
+                    if self.take_over() && (!was || self.store_moved()) {
+                        self.reconcile();
+                    }
+                }
             }
             self.sweep_exits();
         }
@@ -319,6 +451,27 @@ impl LocalRuns {
             .collect();
         let given = json!({"sessions": sessions, "devices": [{"id": device_id, "lastSeenAt": Self::now()}]});
         let state = eagent_hub_core::hydrate(&given)?;
+        // The person's messages a turn already answered (before the session's
+        // last turn ended) are heard: a restart or a takeover never re-sends them.
+        let answered: HashMap<String, String> = self
+            .desktop
+            .store
+            .rows("sessions")?
+            .into_iter()
+            .filter_map(|s| {
+                let at = s.get("last_turn_at").and_then(Value::as_str).filter(|_| s.get("busy").and_then(Value::as_bool) != Some(true))?.to_string();
+                Some((s.get("id")?.as_str()?.to_string(), at))
+            })
+            .collect();
+        let mut ids = self.ids.lock().expect("ids");
+        for m in self.desktop.store.rows("messages")? {
+            let (Some(id), Some(root)) = (m.get("id").and_then(Value::as_str), m.get("root_id").and_then(Value::as_str)) else { continue };
+            let done = answered.get(root).zip(m.get("created_at").and_then(Value::as_str)).is_some_and(|(turn, at)| domain::instant::parse_instant(at) <= domain::instant::parse_instant(turn));
+            if done && m.get("author_kind").and_then(Value::as_str) == Some("user") {
+                ids.insert(format!("store:{id}"), id.to_string());
+            }
+        }
+        drop(ids);
         *self.hub.lock().expect("hub") = state;
         Ok(())
     }
@@ -451,6 +604,10 @@ impl LocalRuns {
 
     /// Starts the CLI for `session_id` with `text` as its first prompt.
     fn launch(&self, session_id: &str, text: &str) {
+        let (cwd, worktree_note) = match worktree_for(&self.desktop, session_id) {
+            Some((dir, repo, branch)) => (dir, Some(format!("You work in a git worktree of {} on the branch {branch}; commit there, nothing pushes.", repo.name))),
+            None => (self.cwd.clone(), None),
+        };
         let Ok(sid) = SessionId::new(session_id) else { return };
         let token = self.server.grant(&sid, "local");
         let endpoint = format!("{}", self.server.url());
@@ -461,9 +618,17 @@ impl LocalRuns {
             system.push(' ');
             system.push_str(note);
         }
-        let brief = Brief::new(sid, text).cwd(self.cwd.clone()).system_append(&system);
+        if let Some(note) = &worktree_note {
+            system.push(' ');
+            system.push_str(note);
+        }
+        let brief = Brief::new(sid, text).cwd(cwd).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
-        match self.runner.start(brief, grant, sink) {
+        let (runner, missing) = self.runner_for(session_id);
+        if let Some(missing) = missing {
+            let _ = self.post(session_id, "system", None, &format!("{missing} is not installed on this machine: {} runs this session.", runner.id()), None);
+        }
+        match runner.start(brief, grant, sink) {
             Ok(run) => {
                 self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None });
             }
@@ -472,6 +637,28 @@ impl LocalRuns {
                 self.step("device.report", json!({"sessionId": session_id, "deviceId": self.desktop.executor.device_id(), "status": "idle", "busy": false, "blocked": {"kind": "start_failed"}}));
                 let _ = self.post(session_id, "system", None, &format!("The agent could not start: {e}"), None);
             }
+        }
+    }
+
+    /// The CLI a session runs: the one its row's `cli` names (the composer's
+    /// pick), else its agent's, else the default; a named one this machine
+    /// lacks comes back as the second value (the default runs instead).
+    fn runner_for(&self, session_id: &str) -> (Arc<dyn Runner>, Option<String>) {
+        let text = |row: &Map<String, Value>, key: &str| row.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+        let session = self.desktop.store.row("sessions", session_id).ok().flatten();
+        let wanted = session.as_ref().and_then(|s| {
+            text(s, "cli").or_else(|| {
+                let agent = text(s, "agent_id")?;
+                text(&self.desktop.store.row("agents", &agent).ok().flatten()?, "cli")
+            })
+        });
+        let default = self.runners[0].clone();
+        match wanted {
+            None => (default, None),
+            Some(cli) => match self.runners.iter().find(|r| r.id() == cli) {
+                Some(runner) => (runner.clone(), None),
+                None => (default, Some(cli)),
+            },
         }
     }
 
@@ -609,11 +796,15 @@ impl LocalRuns {
     }
 
     /// Stops every run (the host is going away).
+    /// Stops every run and gives the desktop's run lock up for good (the
+    /// other app, or the next runner, takes over).
     pub fn stop_all(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
         for (_, live) in self.live.lock().expect("live").drain() {
             live.run.stop();
         }
         self.server.revoke_all();
+        *self.lock.lock().expect("lock") = None;
     }
 }
 
@@ -885,6 +1076,108 @@ mod tests {
         assert_eq!(tools.call(&caller, "exponential_statuses", json!({"op": "list"}))["structuredContent"].as_array().unwrap().len(), 6);
         let refused = tools.call(&caller, "exponential_nope", json!({}));
         assert_eq!(refused["isError"], json!(true));
+    }
+
+    /// #EDE-65: the IDE and eDE on one desktop (two opens of its folder, as
+    /// two processes would): one runs the agents, the other stands by; a
+    /// message sent from the standby's side runs on the runner, and when the
+    /// runner stops the standby takes over.
+    #[test]
+    fn one_runner_per_desktop_and_the_other_takes_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let id = desktops.current().unwrap().to_string();
+        let (ide, ede) = (Arc::new(desktops.open_desktop(&id).unwrap()), Arc::new(desktops.open_desktop(&id).unwrap()));
+        let (ide_prompts, ede_prompts) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let fake = |prompts: &Arc<Mutex<Vec<String>>>| Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) });
+        let ide_runs = LocalRuns::start(ide.clone(), fake(&ide_prompts), dir.path().to_path_buf()).unwrap();
+        let ede_runs = LocalRuns::start(ede.clone(), fake(&ede_prompts), dir.path().to_path_buf()).unwrap();
+        assert!(ide_runs.is_runner());
+        assert!(!ede_runs.is_runner());
+
+        // Sent through eDE's store: the IDE's runner hears the file move.
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(id.clone());
+        send.text = Some("From the shell".into());
+        let session = api::sessions::send(&ede.client(), &send).unwrap().session_id;
+        wait_for(&ide_runs.changes(), || ide.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
+        assert_eq!(ide_prompts.lock().unwrap().as_slice(), ["From the shell"]);
+        assert!(ede_prompts.lock().unwrap().is_empty());
+
+        // The IDE leaves the desktop: eDE takes over, never re-running what was answered.
+        ide_runs.stop_all();
+        let changes = ede_runs.changes();
+        wait_for(&changes, || ede_runs.is_runner());
+        send.text = Some("Second chat".into());
+        let second = api::sessions::send(&ede.client(), &send).unwrap().session_id;
+        wait_for(&changes, || ede.store.row("sessions", &second).unwrap().unwrap()["status"] == json!("idle"));
+        assert_eq!(ede_prompts.lock().unwrap().as_slice(), ["Second chat"]);
+        ede_runs.stop_all();
+    }
+
+    /// A fake CLI under a real id ("claude", "codex").
+    struct NamedFake(&'static str, FakeRunner);
+
+    impl Runner for NamedFake {
+        fn id(&self) -> &str {
+            self.0
+        }
+        fn start(&self, brief: Brief, grant: HubGrant, sink: Arc<dyn EventSink>) -> Result<Box<dyn Run>, String> {
+            self.1.start(brief, grant, sink)
+        }
+    }
+
+    /// #EDE-65 J5: a session runs the CLI the chat's picker chose (its
+    /// `cli`), else its agent's, else the default; one this machine lacks
+    /// runs on the default with a note.
+    #[test]
+    fn a_session_runs_the_cli_it_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let (claude, codex) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let fake = |id: &'static str, prompts: &Arc<Mutex<Vec<String>>>| Arc::new(NamedFake(id, FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) })) as Arc<dyn Runner>;
+        let runs = LocalRuns::start_with_runners(desktop.clone(), vec![fake("claude", &claude), fake("codex", &codex)], dir.path().to_path_buf(), None).unwrap();
+        let changes = runs.changes();
+        let client = desktop.client();
+        let send = |text: &str, cli: Option<&str>| {
+            let mut input = api::sessions::SendInput::default();
+            input.team_id = Some(desktop.executor.team_id().to_string());
+            input.text = Some(text.into());
+            input.cli = cli.map(str::to_string);
+            api::sessions::send(&client, &input).unwrap().session_id
+        };
+        let idle = |session: &str| desktop.store.row("sessions", session).unwrap().unwrap()["status"] == json!("idle");
+
+        let picked = send("On codex", Some("codex"));
+        wait_for(&changes, || idle(&picked));
+        assert_eq!(codex.lock().unwrap().as_slice(), ["On codex"]);
+
+        let plain = send("On the default", None);
+        wait_for(&changes, || idle(&plain));
+        assert_eq!(claude.lock().unwrap().as_slice(), ["On the default"]);
+
+        // An agent's CLI when the session names none.
+        let agent = api::agents::ensure_assistant(&client, desktop.executor.team_id()).unwrap().expect("the assistant");
+        desktop.store.modify("agents", &agent.id, |row| {
+            let mut row = row.clone();
+            row.insert("cli".into(), json!("codex"));
+            Some(row)
+        }).unwrap();
+        let mut input = api::sessions::SendInput::default();
+        input.team_id = Some(desktop.executor.team_id().to_string());
+        input.agent_id = Some(agent.id.clone());
+        input.text = Some("For the assistant".into());
+        let for_agent = api::sessions::send(&client, &input).unwrap().session_id;
+        wait_for(&changes, || idle(&for_agent));
+        assert_eq!(codex.lock().unwrap().last().map(String::as_str), Some("For the assistant"));
+
+        let missing = send("On cursor", Some("cursor"));
+        wait_for(&changes, || idle(&missing));
+        assert_eq!(claude.lock().unwrap().last().map(String::as_str), Some("On cursor"));
+        let notes: Vec<Value> = desktop.store.rows_where("messages", "root_id", &missing).unwrap().into_iter().filter(|m| m["author_kind"] == json!("system")).map(|m| m["body"].clone()).collect();
+        assert_eq!(notes, [json!("cursor is not installed on this machine: claude runs this session.")]);
+        runs.stop_all();
     }
 }
 

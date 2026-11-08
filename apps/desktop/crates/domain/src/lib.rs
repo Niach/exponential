@@ -93,6 +93,8 @@
 //!
 //! gpui-free — headless-testable.
 
+pub mod action_error;
+pub mod slash_menu;
 pub mod contract {
     include!("contract.generated.rs");
 }

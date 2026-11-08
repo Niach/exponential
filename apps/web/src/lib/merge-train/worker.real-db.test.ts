@@ -64,7 +64,6 @@ interface FakePr {
   title: string
   state: `open` | `closed`
   draft: boolean
-  mergeable?: boolean | null
 }
 
 class FakeForge {
@@ -76,7 +75,7 @@ class FakeForge {
   missingPipeline = false
   refuseFastForward = false
   /** Decides each run: which PR numbers conflict, and whether CI is red. */
-  judge: (prs: number[]) => { conflicts?: number[]; red?: boolean; error?: string } = () => ({})
+  judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string } = () => ({})
   private outcomes = new Map<string, TrainPipelineOutcome>()
   private checks = new Map<string, TrainCheck[]>()
 
@@ -98,7 +97,6 @@ class FakeForge {
           mergedAt: null,
           mergedBy: null,
           author: `dev <dev@example.com>`,
-          mergeable: pr.mergeable ?? null,
         }
       },
       readBranch: async (_repo, branch) => this.branch.get(branch) ?? null,
@@ -109,7 +107,8 @@ class FakeForge {
         this.dispatches.push({ inputs, units })
         const numbers = units.flatMap((u) => u.prs.map((p) => p.number))
         const verdict = this.judge(numbers)
-        const conflicts = new Set(verdict.conflicts ?? [])
+        const conflicts = new Set([...(verdict.conflicts ?? []), ...(verdict.siblings ?? [])])
+        const siblings = new Set(verdict.siblings ?? [])
         const head = `train-${inputs.train_id.slice(0, 8)}`
         if (verdict.error) {
           this.outcomes.set(inputs.train_id, { train: inputs.train_id, base_sha: inputs.base_sha, head: null, checks: `none`, units: [], error: verdict.error })
@@ -123,7 +122,8 @@ class FakeForge {
           units: units.map((u) => {
             const prs = u.prs.map((p) => p.number)
             const conflict = prs.some((n) => conflicts.has(n))
-            return { prs, outcome: conflict ? `conflict` : `composed`, files: conflict ? [`src/a.ts`] : [], resolved: [] }
+            const against = prs.some((n) => siblings.has(n)) ? { against: `batch` as const } : {}
+            return { prs, outcome: conflict ? `conflict` : `composed`, files: conflict ? [`src/a.ts`] : [], resolved: [], ...against }
           }),
           error: null,
         })
@@ -159,11 +159,9 @@ beforeEach(() => {
   fake = new FakeForge()
   setForgeForTests(() => fake.forge())
   worker.resetMergeTrainForTests()
-  process.env.MERGE_TRAIN = `true`
 })
 afterEach(() => {
   setForgeForTests(null)
-  delete process.env.MERGE_TRAIN
 })
 
 // ── the world ────────────────────────────────────────────────────────────
@@ -223,43 +221,17 @@ const pass = async (repoId: string, n = 1) => {
 }
 
 describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
-  it(`MERGE_TRAIN off: the display pass only (ready = queued, unmergeable = conflict), no run, no landing, no post`, async () => {
-    delete process.env.MERGE_TRAIN
-    const w = await world()
-    const a = await w.pr(201)
-    const b = await w.pr(202)
-    expect(await worker.runMergeTrainTick()).toBeGreaterThanOrEqual(1)
-    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `session` })
-    await w.idle()
-    fake.prs.get(202)!.mergeable = false
-    await pass(w.repoId)
-    expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergeWait: null, mergePosition: null, mergeQueuedSince: null })
-    expect((await prRow(a)).mergeReadyAt).not.toBeNull()
-    expect(await prRow(b)).toMatchObject({ mergeState: `conflict`, mergeAttempts: 0 })
-    expect(fake.dispatches).toEqual([])
-    expect(fake.squashed).toEqual([])
-    expect(fake.closed).toEqual([])
-    expect(await db.select().from(mergeTrains).where(eq(mergeTrains.repositoryId, w.repoId))).toEqual([])
-    expect(await lines(w.children[201]!)).toEqual([])
-    expect(await lines(w.children[202]!)).toEqual([])
-  })
-
-  it(`a conflict only the switch-off display pass saw is tried by the train once it is on (#EXP-1711)`, async () => {
-    delete process.env.MERGE_TRAIN
+  it(`a conflict the train never tested (a pre-train row) is tried by the train (#EXP-1711)`, async () => {
     const w = await world()
     const a = await w.pr(241)
     await w.idle()
-    fake.prs.get(241)!.mergeable = false
-    await pass(w.repoId)
-    expect(await prRow(a)).toMatchObject({ mergeState: `conflict`, mergeHeadSha: null })
-    process.env.MERGE_TRAIN = `true`
+    await db.update(pullRequests).set({ mergeState: `conflict`, mergeHeadSha: null }).where(eq(pullRequests.id, a))
     await pass(w.repoId)
     expect(fake.dispatches.map((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[[241]]])
     expect((await prRow(a)).mergeState).toBe(`testing`)
   })
 
-  it(`MERGE_TRAIN off: an approval team's ready PR waits on Needs approval; Hold is a flag (no post), Resume re-reads`, async () => {
-    delete process.env.MERGE_TRAIN
+  it(`an approval team's ready PR waits on Needs approval; Hold holds it, Resume re-reads`, async () => {
     const w = await world()
     await db.update(teams).set({ mergeMode: `approval` }).where(eq(teams.id, w.teamId))
     const a = await w.pr(211)
@@ -271,14 +243,14 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(await prRow(a)).toMatchObject({ mergeState: `held`, mergeHold: `person` })
     await pass(w.repoId)
     expect((await prRow(a)).mergeState).toBe(`held`)
-    expect(await lines(w.children[211]!)).toEqual([])
     await worker.resumePullRequest(a)
     await worker.drainMergeTrainEdges()
+    await pass(w.repoId)
     expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `approval`, mergeHold: null })
+    expect(fake.dispatches).toEqual([])
   })
 
   it(`an informational leg never holds a PR: only the required checks do (#EXP-1711)`, async () => {
-    delete process.env.MERGE_TRAIN
     const w = await world()
     const a = await w.pr(221)
     await w.idle()
@@ -296,9 +268,10 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await pass(w.repoId)
     expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks` })
     await db.update(pullRequestChecks).set({ status: `completed`, conclusion: `success` }).where(and(eq(pullRequestChecks.pullRequestId, a), eq(pullRequestChecks.name, `gate`)))
-    // checks_state still pending (ios-core has no runner): ready anyway.
+    // checks_state still pending (ios-core has no runner): ready anyway,
+    // so the same pass starts its run.
     await pass(w.repoId)
-    expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergeWait: null })
+    expect(await prRow(a)).toMatchObject({ mergeState: `testing`, mergeWait: null })
   })
 
   it(`waits for the opener's subtree, then batches ready PRs, lands them on green and tells each opener`, async () => {
@@ -392,24 +365,41 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     )
   })
 
-  it(`the third bounce holds the PR (Needs you), never another conflict`, async () => {
+  it(`a conflict only behind an unlanded sibling is no bounce: it re-queues and lands after (#EXP-1711)`, async () => {
+    const w = await world()
+    const a = await w.pr(351)
+    const b = await w.pr(352)
+    await w.idle()
+    fake.judge = (prs) => (prs.includes(351) ? { siblings: [352] } : {})
+    await pass(w.repoId)
+    await pass(w.repoId)
+    expect((await prRow(a)).state).toBe(`merged`)
+    expect(await prRow(b)).toMatchObject({ mergeAttempts: 0 })
+    expect(await lines(w.children[352]!)).toEqual([])
+    await pass(w.repoId, 2)
+    expect((await prRow(b)).state).toBe(`merged`)
+  })
+
+  it(`a new push resets the bounces: an agent rebasing against a busy master is never held for it (#EXP-1711)`, async () => {
     const w = await world()
     const a = await w.pr(401)
     await w.idle()
     fake.judge = () => ({ conflicts: [401] })
-    for (let bounce = 1; bounce <= 3; bounce++) {
+    for (let bounce = 1; bounce <= 4; bounce++) {
+      if (bounce > 1) fake.prs.get(401)!.headSha = `head-401-${bounce}`
       await pass(w.repoId, 2)
-      fake.prs.get(401)!.headSha = `head-401-${bounce}`
+      expect(await prRow(a)).toMatchObject({ mergeState: `conflict`, mergeAttempts: 1 })
     }
-    const row = await prRow(a)
-    expect([row.mergeState, row.mergeHold, row.mergeAttempts]).toEqual([`held`, `bounces`, 3])
+    expect(fake.dispatches).toHaveLength(4)
     expect((await lines(w.children[401]!)).map((l) => (l.card as { mergeOutcome?: string }).mergeOutcome)).toEqual([
       `conflict`,
       `conflict`,
-      `held`,
+      `conflict`,
+      `conflict`,
     ])
+    // No push: the bounce stays (an abandoned PR is held by the 24 h clock).
     await pass(w.repoId, 2)
-    expect(fake.dispatches).toHaveLength(3)
+    expect(fake.dispatches).toHaveLength(4)
   })
 
   it(`a moved base recomposes; a stack lands as one unit, bottom first`, async () => {

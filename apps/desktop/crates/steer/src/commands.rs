@@ -11,21 +11,9 @@
 //! command link); this module only answers "is it one, and which".
 
 use crate::activity::SessionAgent;
-use domain::contract::{
-    STEER_COMMAND_AGENTS, STEER_COMMAND_ARG_HINTS, STEER_COMMAND_CONFIRM,
-    STEER_COMMAND_DESCRIPTIONS, STEER_COMMAND_NAMES,
-};
 
-/// One catalog row (a zipped view over the contract's parallel arrays).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SteerCommand {
-    pub name: &'static str,
-    pub description: &'static str,
-    /// Empty = the command takes no argument.
-    pub arg_hint: &'static str,
-    /// The client confirms before sending (context is discarded).
-    pub confirm: bool,
-}
+/// One catalog row (`domain::slash_menu`'s, the contract's parallel arrays zipped).
+pub type SteerCommand = domain::slash_menu::SlashCommand;
 
 /// A remote message recognised as a catalog command.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,31 +43,14 @@ fn agent_id(agent: SessionAgent) -> &'static str {
     agent.id()
 }
 
-/// Every catalog row, agent-agnostic, in contract order.
+/// Every catalog row, agent-agnostic, in contract order (`domain::slash_menu`).
 pub fn catalog() -> impl Iterator<Item = (SteerCommand, &'static str)> {
-    STEER_COMMAND_NAMES
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            (
-                SteerCommand {
-                    name,
-                    description: STEER_COMMAND_DESCRIPTIONS[i],
-                    arg_hint: STEER_COMMAND_ARG_HINTS[i],
-                    confirm: STEER_COMMAND_CONFIRM[i],
-                },
-                STEER_COMMAND_AGENTS[i],
-            )
-        })
+    domain::slash_menu::catalog()
 }
 
 /// The rows applicable to `agent`, in contract order.
 pub fn catalog_for(agent: SessionAgent) -> Vec<SteerCommand> {
-    let id = agent_id(agent);
-    catalog()
-        .filter(|(_, agents)| agents.split(',').any(|a| a == id))
-        .map(|(command, _)| command)
-        .collect()
+    domain::slash_menu::catalog_for(agent_id(agent))
 }
 
 /// Recognise `text` as a command for `agent`: `/name` or `/name <args>`,
@@ -107,6 +78,7 @@ pub fn parse_command(text: &str, agent: SessionAgent) -> Option<ParsedCommand> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::contract::{STEER_COMMAND_AGENTS, STEER_COMMAND_ARG_HINTS, STEER_COMMAND_CONFIRM, STEER_COMMAND_DESCRIPTIONS, STEER_COMMAND_NAMES};
 
     #[test]
     fn the_catalog_is_the_contract_and_every_agent_id_is_known() {

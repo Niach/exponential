@@ -46,6 +46,42 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-auto-merge-for-every-team",
+    date: "2026-11-08",
+    title: "Auto-merge for every team",
+    summary: "When a pull request is ready, the merge train tests it with others and lands it on its own; Hold or Merge now from the … menu.",
+    body: r#"- **Auto-merge for every team**: when a pull request is ready, the merge train tests it together with others and lands it on its own, then tells the agent that opened it.
+- **Hold or Merge now**: the … menu of a pull request holds its auto-merge, and team owners can merge it now.
+- **Settings → Merge**: pick Automatic or After approval; with After approval a ready pull request waits for Needs approval first.
+- **Local desktops stay on Exponential Desktop**: outside Exponential Desktop the desktop app no longer offers Local desktops, and anyone left on one starts back on their signed-in account and teams, with no new sign-in."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_227: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-local-desktops-complete",
+    date: "2026-11-08",
+    title: "Local desktops are complete",
+    summary: "A Local desktop's apps keep their own records, new issues and drafts work there, its chat lists the desktop's agents, and Settings open in the sidebar; Alt-Tab picks the tile you hover.",
+    body: r#"- **Local desktops**: a Local desktop's apps keep their own records, the new-issue button opens the app's new issue there and its draft saves, and the chat lists the desktop's own agents.
+- **Sidebar**: Settings open into the sidebar like in the desktop app, and the rail's team chats show unread and open in the chat panel; agents' icons draw in their colour.
+- **Alt-Tab**: the tile you hover is the one Alt-Tab picks, like on Mint."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_226: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-desktop-follows-exponential-desktop",
+    date: "2026-11-08",
+    title: "The desktop app follows Exponential Desktop",
+    summary: "On Exponential Desktop the app starts on the right account and desktop and follows you onto Local desktops; Alt-Tab, the icon rail, the shared chat and start-menu search arrive with eDE 0.2.9.",
+    body: r#"- **Follows Exponential Desktop**: on Exponential Desktop the app starts on the account that owns the desktop's team, where the switcher is, and follows you onto Local desktops.
+- **Exponential Desktop 0.2.9**: Alt-Tab with icons and thumbnails, the IDE's icon rail as the sidebar, the shared agent chat in its panel, the inbox in the bell, and start-menu search across every team and Local desktop."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_225: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-desktop-on-exponential-desktop",
     date: "2026-11-08",
     title: "The desktop app on Exponential Desktop",

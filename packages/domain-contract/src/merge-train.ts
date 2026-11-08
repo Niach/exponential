@@ -114,8 +114,11 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
       return { pr: { ...pr, state, queuedSince }, post: null }
     }
     case `push`:
-      if (pr.state === `held`) return same
-      return { pr: { ...pr, state: `checks` }, post: null }
+      // #EXP-1711 (Danny 2026-11-08): a new head resets the bounces; it
+      // revives a bounces hold (the agent is back), never a person's or the
+      // 24 h one, and the clock keeps running from the first queue.
+      if (pr.state === `held` && pr.holdReason !== `bounces`) return same
+      return { pr: { ...pr, state: `checks`, attempts: 0, holdReason: null }, post: null }
     case `train_start`:
       return pr.state === `queued` ? { pr: { ...pr, state: `testing` }, post: null } : same
     case `train_landed`:
@@ -391,6 +394,10 @@ export interface TrainUnitOutcome {
   files: string[]
   /** The resolver rule names applied to this unit. */
   resolved: string[]
+  /** #EXP-1711, a conflict only: `batch` = it composes clean on the base
+   *  alone, so only an earlier unit of this batch (not landed) is in the
+   *  way: no bounce. Absent = `base`. */
+  against?: `base` | `batch`
 }
 
 /** The `exp-train` result's JSON. */
@@ -415,7 +422,7 @@ export interface TrainVerdict {
   /** The units that ride (green: land; red: re-run, then bisect). */
   composed: number[][]
   /** The units that bounce, whatever the state. */
-  conflicts: Array<{ prs: number[]; files: string[] }>
+  conflicts: Array<{ prs: number[]; files: string[]; against?: `base` | `batch` }>
 }
 
 const PASSING = new Set([`success`, `neutral`, `skipped`])
@@ -430,7 +437,9 @@ export function trainVerdict(input: {
   const o = input.outcome
   if (!o) return { state: `pending`, head: null, composed: [], conflicts: [] }
   const composed = o.units.filter((u) => u.outcome === `composed`).map((u) => u.prs)
-  const conflicts = o.units.filter((u) => u.outcome === `conflict`).map((u) => ({ prs: u.prs, files: u.files }))
+  const conflicts = o.units
+    .filter((u) => u.outcome === `conflict`)
+    .map((u) => ({ prs: u.prs, files: u.files, ...(u.against ? { against: u.against } : {}) }))
   const base = { head: o.head, composed, conflicts }
   if (o.error) return { state: `error`, head: o.head, composed: [], conflicts: [] }
   if (composed.length === 0) return { state: `conflict`, ...base }
