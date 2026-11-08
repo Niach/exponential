@@ -110,8 +110,11 @@ pub struct AcpRunner {
 }
 
 impl AcpRunner {
+    /// EXP-1513: the bare name on the login PATH, else where the vendor's
+    /// installer put it (`~/.local/bin/claude` right after an install).
     pub fn new(agent: eagent::agent::CodingAgent) -> Self {
-        Self { agent: AcpAgent::new(agent) }
+        let program = eagent::install::resolve_program(agent, &eagent::spawn::login_path());
+        Self { agent: AcpAgent::with_program(agent, program) }
     }
 
     /// Is the CLI installed and signed in here?

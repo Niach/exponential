@@ -212,7 +212,7 @@ fn sign_in(client: &AuthClient, auth: &AuthStore, instance: &str, token: &str) -
     }
 }
 
-fn open_url(url: &str) {
+pub(crate) fn open_url(url: &str) {
     match std::process::Command::new("xdg-open").arg(url).spawn() {
         Ok(_) => tracing::info!(url, "opened in the browser"),
         Err(e) => tracing::warn!(url, "xdg-open: {e}"),

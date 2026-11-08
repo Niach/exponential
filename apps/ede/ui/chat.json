@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). /chat/draft is the composer's text, owned by the document. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
+  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer; EXP-1513: by /chatting/setup/state it is `idle` = Set up Claude Code (ede_chat setup: Anthropic's installer when claude is missing, then the CLI's own sign-in, which opens the browser; never a credential), `installing` = Setting up Claude Code… (no action), `signingIn` = Sign in to Claude Code with Open sign-in (ede_chat signIn re-opens the CLI's sign-in link), `failed` = the reason (/chatting/setup/message) with Try again; once signed in the desktop's agent restarts on it. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). /chat/draft is the composer's text, owned by the document. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -319,17 +319,175 @@
                 "props": {
                   "icon": "settings-agents",
                   "title": "No coding CLI on this desktop",
-                  "description": "Install and sign in to Claude Code or Codex; the desktop's agent runs with it.",
+                  "description": "Claude Code installs with Anthropic's installer and signs in with your Claude account.",
+                  "actionLabel": "Set up Claude Code",
+                  "size": "page"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "setup"
+                      }
+                    }
+                  }
+                },
+                "visible": {
+                  "@call": "and",
+                  "args": {
+                    "values": [
+                      {
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "/chatting/noCli"
+                          },
+                          "then": true,
+                          "else": false
+                        }
+                      },
+                      {
+                        "@call": "eq",
+                        "args": {
+                          "a": {
+                            "@path": "/chatting/setup/state"
+                          },
+                          "b": "idle"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "chat_cli_installing",
+                "component": "EmptyState",
+                "props": {
+                  "icon": "settings-agents",
+                  "title": "Setting up Claude Code…",
                   "size": "page"
                 },
                 "visible": {
-                  "@call": "cond",
+                  "@call": "and",
                   "args": {
-                    "if": {
-                      "@path": "/chatting/noCli"
-                    },
-                    "then": true,
-                    "else": false
+                    "values": [
+                      {
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "/chatting/noCli"
+                          },
+                          "then": true,
+                          "else": false
+                        }
+                      },
+                      {
+                        "@call": "eq",
+                        "args": {
+                          "a": {
+                            "@path": "/chatting/setup/state"
+                          },
+                          "b": "installing"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "chat_cli_signing_in",
+                "component": "EmptyState",
+                "props": {
+                  "icon": "settings-agents",
+                  "title": "Sign in to Claude Code",
+                  "description": "Finish in your browser.",
+                  "actionLabel": "Open sign-in",
+                  "size": "page"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "signIn"
+                      }
+                    }
+                  }
+                },
+                "visible": {
+                  "@call": "and",
+                  "args": {
+                    "values": [
+                      {
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "/chatting/noCli"
+                          },
+                          "then": true,
+                          "else": false
+                        }
+                      },
+                      {
+                        "@call": "eq",
+                        "args": {
+                          "a": {
+                            "@path": "/chatting/setup/state"
+                          },
+                          "b": "signingIn"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "chat_cli_failed",
+                "component": "EmptyState",
+                "props": {
+                  "icon": "settings-agents",
+                  "title": "Couldn't set up Claude Code",
+                  "description": {
+                    "@path": "/chatting/setup/message"
+                  },
+                  "actionLabel": "Try again",
+                  "size": "page"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "setup"
+                      }
+                    }
+                  }
+                },
+                "visible": {
+                  "@call": "and",
+                  "args": {
+                    "values": [
+                      {
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "/chatting/noCli"
+                          },
+                          "then": true,
+                          "else": false
+                        }
+                      },
+                      {
+                        "@call": "eq",
+                        "args": {
+                          "a": {
+                            "@path": "/chatting/setup/state"
+                          },
+                          "b": "failed"
+                        }
+                      }
+                    ]
                   }
                 }
               },
@@ -1330,6 +1488,11 @@
     },
     "chatting": {
       "noCli": false,
+      "setup": {
+        "state": "idle",
+        "message": "",
+        "url": ""
+      },
       "face": "home",
       "header": {
         "title": "",
