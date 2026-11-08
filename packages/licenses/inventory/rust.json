@@ -13863,7 +13863,7 @@
     },
     {
       "name": "rio-grapheme-width",
-      "version": "0.5.29",
+      "version": "0.5.26",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -13883,7 +13883,7 @@
     },
     {
       "name": "rio-graphics",
-      "version": "0.5.29",
+      "version": "0.5.26",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -13899,7 +13899,7 @@
     },
     {
       "name": "rio-unicode",
-      "version": "0.5.29",
+      "version": "0.5.26",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -13916,7 +13916,7 @@
     },
     {
       "name": "rio-vt",
-      "version": "0.5.29",
+      "version": "0.5.26",
       "declared": "MIT",
       "licenses": [
         "MIT"
