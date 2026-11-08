@@ -128,7 +128,7 @@ jobs:
           tags: exponential-web:smoke
           cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
 
       - name: Smoke the image
         run: |

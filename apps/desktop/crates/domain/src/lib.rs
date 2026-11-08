@@ -94,7 +94,9 @@
 //! gpui-free — headless-testable.
 
 pub mod action_error;
+pub mod emoji;
 pub mod slash_menu;
+pub mod typeahead;
 pub mod contract {
     include!("contract.generated.rs");
 }
