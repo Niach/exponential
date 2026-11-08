@@ -122,7 +122,7 @@ export function createIssueRow(input: Row, ctx: IssueContext): Row {
     sort_order: number,
     completed_at: null,
     duplicate_of_id: null,
-    draft_id: null,
+    draft_id: typeof input.draftId === `string` ? input.draftId : null,
     via_app_id: null,
     created_at: ctx.now,
     updated_at: ctx.now,
@@ -158,6 +158,37 @@ export function applyIssuePatch(row: Row, patch: Row, statuses: readonly StatusR
   }
   out.updated_at = now
   return out
+}
+
+export const LOCAL_DRAFT_CONSUMED: string = fixture.drafts.consumedRefusal
+
+/** `issueDrafts.upsert` refused: an issue was already filed from the draft. */
+export function draftConsumedRefusal(identifier: string): string {
+  return LOCAL_DRAFT_CONSUMED.replace(`{identifier}`, identifier)
+}
+
+/** `issueDrafts.upsert`: the person's draft row, keyed by the client's id
+ *  (a re-save keeps `created_at`; an agent assignee clears the person). */
+export function draftRow(input: Row, ctx: { identity: LocalIdentity; existing: Row | null; now: string }): Row {
+  const str = (key: string) => (typeof input[key] === `string` ? (input[key] as string) : null)
+  const agent = str(`assigneeAgentId`)
+  return {
+    id: input.id,
+    user_id: ctx.identity.userId,
+    team_id: input.teamId,
+    board_id: input.boardId,
+    title: str(`title`) ?? ``,
+    description: str(`description`) ?? ``,
+    status_id: str(`statusId`),
+    priority: str(`priority`) ?? `none`,
+    assignee_id: agent ? null : str(`assigneeId`),
+    assignee_agent_id: agent,
+    label_ids: Array.isArray(input.labelIds) ? input.labelIds : [],
+    due_date: str(`dueDate`),
+    session_id: str(`sessionId`),
+    created_at: (ctx.existing?.created_at as string | undefined) ?? ctx.now,
+    updated_at: ctx.now,
+  }
 }
 
 /** `comments.create`: the identity's, one level deep. */

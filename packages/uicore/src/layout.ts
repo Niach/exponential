@@ -22,7 +22,8 @@ export interface ShellLayout {
   widgets: { cell: number; gap: number; margin: number; sizes: Record<string, [number, number]> }
 }
 
-export const LAYOUT: ShellLayout = fixture
+// JSON infers number[] where the type says [w, h].
+export const LAYOUT: ShellLayout = fixture as unknown as ShellLayout
 
 /** A widget's size in px for its class (`s` when unknown). */
 export function widgetSize(size: string): { width: number; height: number } {

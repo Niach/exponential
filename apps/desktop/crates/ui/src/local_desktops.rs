@@ -82,6 +82,16 @@ pub(crate) fn account(id: &str, cx: &App) -> Option<api::Account> {
     })
 }
 
+/// Is `id` one of the machine's Local desktops (the shared index, re-read)?
+pub(crate) fn knows(id: &str, cx: &mut App) -> bool {
+    if !ensure(cx) {
+        return false;
+    }
+    let locals = cx.global_mut::<LocalDesktops>();
+    locals.desktops.reload();
+    locals.desktops.get(id).is_some_and(|d| d.archived_at.is_none())
+}
+
 /// The open Local desktop's id (the app is on it).
 pub(crate) fn open_id(cx: &App) -> Option<String> {
     Some(cx.try_global::<LocalDesktops>()?.open.as_ref()?.entry.id.clone())

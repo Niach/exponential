@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-55 LOCAL PARITY (Local desktops, #EDE-54): the rules a LOCAL DESKTOP replays without a server. A Local desktop is one team in its own SQLite store (the IDE's synced-shape layout, every column TEXT, the same 34 tables), authoritative and offline; elocal's executor answers the tRPC procedures the clients call (`procedures.local`, the exact wire names) over that store, and refuses every other one with `procedures.refusal` (HTTP 501 on the Transport, so a client shows it as a plain refusal, never a sign-in). IDENTITY: the person at the machine is the one member and owner; their user id is minted once per desktop, their email is `<login>@<identity.emailDomain>` (`identity.cases`: lowercase, runs of anything but a-z 0-9 . _ - become one dash, trimmed, empty = local), which is what mentions and the team import rewrite. SEED (`seed.cases`, ids from the caller's id source in order): a new desktop holds its team row (id = the desktop id, slug = `seed.slugPrefix` + the first 8 characters of the desktop id), the identity's user row and owner membership, the contract's builtin statuses (`issueStatusDefaults`, in order) and one board (`seed.board`). ISSUES: numbers count per board from 1 (`issues.numberCases`: the next = max + 1), the identifier is `<prefix>-<number>` (`issues.identifierCases`), the status anchor follows the row's category (`issues.anchorByCategory`, the server's CATEGORY_ANCHOR) and `issues.create.cases` give the whole created row (status from `statusId`, else from the anchor `status`, else the builtin backlog; the assignee = the input's, else the identity (the sole member rule); creator = the identity; priority none; sort_order = the number; source user; created and updated = now); `issues.update.cases` apply a patch (a key present = set, null = cleared, a status by id dual-writes the anchor). COMMENTS (`comments.cases`): author = the identity, audience team, source user, one level deep: a reply to a reply lands under the top comment. SESSIONS (`sessions.send.cases`): a send without a session makes a ROOT session (status queued until a local agent run takes it, #EDE-58; device = the desktop's device id; title = the name, else the text's first line cut at 80), its conversation (kind session) and the person's message (author user); a send into a session adds only the message; `issueIds` link through session_issues (source user). AGENTS (`agents.assistant`): `ensureAssistant` makes the identity's one assistant row (name Assistant, role assistant, device = the desktop's) and answers it again after. Everything else a procedure writes keeps the server's column names; a local id is a uuid the client mints. REPOSITORIES (#EXP-1727): a Local desktop links git working copies on the machine (`repositories.linkFolder {path, boardId?}`: the folder's name, the branch its HEAD names, the board pointed at it; `repositories.listLocal`; `repositories.forIssue` = the issue's board's linked folder or null). They live in the desktop's sidecar, never in a shape, and nothing clones or fetches: the folder is the clone.",
+  "$comment": "#EDE-55 LOCAL PARITY (Local desktops, #EDE-54): the rules a LOCAL DESKTOP replays without a server. A Local desktop is one team in its own SQLite store (the IDE's synced-shape layout, every column TEXT, the same 34 tables), authoritative and offline; elocal's executor answers the tRPC procedures the clients call (`procedures.local`, the exact wire names) over that store, and refuses every other one with `procedures.refusal` (HTTP 501 on the Transport, so a client shows it as a plain refusal, never a sign-in). IDENTITY: the person at the machine is the one member and owner; their user id is minted once per desktop, their email is `<login>@<identity.emailDomain>` (`identity.cases`: lowercase, runs of anything but a-z 0-9 . _ - become one dash, trimmed, empty = local), which is what mentions and the team import rewrite. SEED (`seed.cases`, ids from the caller's id source in order): a new desktop holds its team row (id = the desktop id, slug = `seed.slugPrefix` + the first 8 characters of the desktop id), the identity's user row and owner membership, the contract's builtin statuses (`issueStatusDefaults`, in order) and one board (`seed.board`). ISSUES: numbers count per board from 1 (`issues.numberCases`: the next = max + 1), the identifier is `<prefix>-<number>` (`issues.identifierCases`), the status anchor follows the row's category (`issues.anchorByCategory`, the server's CATEGORY_ANCHOR) and `issues.create.cases` give the whole created row (status from `statusId`, else from the anchor `status`, else the builtin backlog; the assignee = the input's, else the identity (the sole member rule); creator = the identity; priority none; sort_order = the number; source user; created and updated = now); `issues.update.cases` apply a patch (a key present = set, null = cleared, a status by id dual-writes the anchor). A created issue keeps the input's `draftId` as `draft_id` (the draft it was filed from; that draft row goes). DRAFTS (#EDE-65, `drafts`): `issueDrafts.upsert` writes the person's draft row (`drafts.upsert.cases`: keyed by the client's id, user = the identity, title and description default empty, priority none, labels the full set, an agent assignee clears the person, a re-save keeps created_at), refused with `drafts.consumedRefusal` when an issue already carries that `draft_id`; `issueDrafts.delete` removes it (`deleted`: was there one); `issueDrafts.listAttachments` = none (a Local desktop's files ride an issue, never a draft). COMMENTS (`comments.cases`): author = the identity, audience team, source user, one level deep: a reply to a reply lands under the top comment. SESSIONS (`sessions.send.cases`): a send without a session makes a ROOT session (status queued until a local agent run takes it, #EDE-58; device = the desktop's device id; title = the name, else the text's first line cut at 80), its conversation (kind session) and the person's message (author user); a send into a session adds only the message; `issueIds` link through session_issues (source user). AGENTS (`agents.assistant`): `ensureAssistant` makes the identity's one assistant row (name Assistant, role assistant, device = the desktop's) and answers it again after. Everything else a procedure writes keeps the server's column names; a local id is a uuid the client mints. REPOSITORIES (#EXP-1727): a Local desktop links git working copies on the machine (`repositories.linkFolder {path, boardId?}`: the folder's name, the branch its HEAD names, the board pointed at it; `repositories.listLocal`; `repositories.forIssue` = the issue's board's linked folder or null). They live in the desktop's sidecar, never in a shape, and nothing clones or fetches: the folder is the clone.",
   "procedures": {
     "refusal": "{procedure} is not available on a Local desktop",
     "local": [
@@ -35,6 +35,9 @@
       "issues.search",
       "issues.bulkUpdate",
       "issues.bulkDelete",
+      "issueDrafts.upsert",
+      "issueDrafts.delete",
+      "issueDrafts.listAttachments",
       "comments.create",
       "comments.update",
       "comments.delete",
@@ -71,6 +74,11 @@
     "cases": [
       {
         "procedure": "issues.create",
+        "local": true,
+        "error": null
+      },
+      {
+        "procedure": "issueDrafts.upsert",
         "local": true,
         "error": null
       },
@@ -554,6 +562,43 @@
             "created_at": "2026-11-07T01:00:00.000Z",
             "updated_at": "2026-11-07T01:00:00.000Z"
           }
+        },
+        {
+          "name": "filed from a draft keeps its id",
+          "input": {
+            "boardId": "b-1",
+            "title": "Hello",
+            "draftId": "d-1"
+          },
+          "numbers": [],
+          "id": "i-1",
+          "now": "2026-11-07T01:00:00.000Z",
+          "expected": {
+            "id": "i-1",
+            "board_id": "b-1",
+            "team_id": "t-1",
+            "number": 1,
+            "identifier": "GEN-1",
+            "title": "Hello",
+            "description": null,
+            "status": "backlog",
+            "status_id": "s-backlog",
+            "priority": "none",
+            "assignee_id": "u-1",
+            "assignee_agent_id": null,
+            "creator_id": "u-1",
+            "creator_agent_id": null,
+            "source": "user",
+            "due_date": null,
+            "estimate": null,
+            "sort_order": 1,
+            "completed_at": null,
+            "duplicate_of_id": null,
+            "draft_id": "d-1",
+            "via_app_id": null,
+            "created_at": "2026-11-07T01:00:00.000Z",
+            "updated_at": "2026-11-07T01:00:00.000Z"
+          }
         }
       ]
     },
@@ -930,6 +975,101 @@
         "created_at": "2026-11-07T01:00:00.000Z",
         "updated_at": "2026-11-07T01:00:00.000Z"
       }
+    }
+  },
+  "drafts": {
+    "consumedRefusal": "This draft was already created as {identifier}",
+    "upsert": {
+      "cases": [
+        {
+          "name": "a new draft",
+          "input": {
+            "id": "d-1",
+            "teamId": "t-1",
+            "boardId": "b-1",
+            "title": "Half a thought",
+            "assigneeId": "u-1",
+            "labelIds": [
+              "l-1"
+            ]
+          },
+          "existing": null,
+          "now": "2026-11-07T01:00:00.000Z",
+          "expected": {
+            "id": "d-1",
+            "user_id": "u-1",
+            "team_id": "t-1",
+            "board_id": "b-1",
+            "title": "Half a thought",
+            "description": "",
+            "status_id": null,
+            "priority": "none",
+            "assignee_id": "u-1",
+            "assignee_agent_id": null,
+            "label_ids": [
+              "l-1"
+            ],
+            "due_date": null,
+            "session_id": null,
+            "created_at": "2026-11-07T01:00:00.000Z",
+            "updated_at": "2026-11-07T01:00:00.000Z"
+          }
+        },
+        {
+          "name": "a re-save keeps created_at; an agent assignee clears the person",
+          "input": {
+            "id": "d-1",
+            "teamId": "t-1",
+            "boardId": "b-1",
+            "title": "Half a thought, more",
+            "description": "Body",
+            "statusId": "s-progress",
+            "priority": "high",
+            "assigneeId": "u-1",
+            "assigneeAgentId": "ag-1",
+            "labelIds": [],
+            "dueDate": "2026-11-20",
+            "sessionId": "s-1"
+          },
+          "existing": {
+            "id": "d-1",
+            "user_id": "u-1",
+            "team_id": "t-1",
+            "board_id": "b-1",
+            "title": "Half a thought",
+            "description": "",
+            "status_id": null,
+            "priority": "none",
+            "assignee_id": "u-1",
+            "assignee_agent_id": null,
+            "label_ids": [
+              "l-1"
+            ],
+            "due_date": null,
+            "session_id": null,
+            "created_at": "2026-11-07T01:00:00.000Z",
+            "updated_at": "2026-11-07T01:00:00.000Z"
+          },
+          "now": "2026-11-07T02:00:00.000Z",
+          "expected": {
+            "id": "d-1",
+            "user_id": "u-1",
+            "team_id": "t-1",
+            "board_id": "b-1",
+            "title": "Half a thought, more",
+            "description": "Body",
+            "status_id": "s-progress",
+            "priority": "high",
+            "assignee_id": null,
+            "assignee_agent_id": "ag-1",
+            "label_ids": [],
+            "due_date": "2026-11-20",
+            "session_id": "s-1",
+            "created_at": "2026-11-07T01:00:00.000Z",
+            "updated_at": "2026-11-07T02:00:00.000Z"
+          }
+        }
+      ]
     }
   }
 }
