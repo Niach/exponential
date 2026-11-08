@@ -1,48 +1,42 @@
-//! EXP-1294 — the CHAT screen ([`Screen::Chat`]): a chat IS a root
-//! session (kind `thread`), its model the contract's
-//! [`domain::session_tree::build_session_chat`] over the synced rows
-//! ([`crate::session_data::chat_view_and_messages`], fixture
-//! `session-chat.json`).
+//! EXP-1294 / #EXP-1732 — THE SESSION SCREEN ([`Screen::Chat`],
+//! fixtures/session-screen.json ×4): a chat IS a root session, its model
+//! the contract's [`domain::session_tree::build_session_chat`] over the
+//! synced rows ([`crate::session_data::chat_view_and_messages`]). A team
+//! agent's and the Assistant's conversation render THIS view too
+//! ([`crate::agent_screen`] wraps it once the conversation exists); an
+//! app's editor draws the same chrome ([`crate::app_screen`]).
 //!
-//! * The HEADER: the title (EXP-1316: derived, plain text, nobody renames
-//!   it) and a lock while private — no caption; its trailing slot holds the
-//!   Merge pill while the chat's PR is open, then the `…`, on EVERY tab.
-//! * The STRIP (EXP-1334, [`chat_strip`], never scrolls): `+` ·
-//!   `Conversation` pinned left (S-3: no Guide tab, results carry what a
-//!   session shows); after them the TOP-LEVEL linked issues
-//!   (status glyph, mono identifier, title) then the dispatcher's DIRECT
-//!   children, laid out by `partition_chat_strip` (titles → identifiers
-//!   → a "+N" menu per zone). A chip with sub-issues / deeper sessions wears
-//!   a chevron and a click opens THE Menu of its subtree (the tree rows);
-//!   it reads `<chip> › <open one>` while a nested one is open. A chip
-//!   linked moments before it first renders fades in with a ring.
-//! * The CONVERSATION (no root card: it IS the dispatcher): the root's
-//!   messages plus its children's question / plan cards — a person's message a
-//!   right-aligned bubble over `author · HH:MM` (`Queued` + remove while the
-//!   device has not consumed it), the agent's prose as markdown, a session
-//!   = THE session card ([`crate::work_card::session_card`], opens that
-//!   session), question and plan cards = THE session view's card
-//!   (`crate::steer_viewer::ask_card` + its option rows, the free-text row
-//!   and the plan's note; `sessions.answer`), events as muted lines, pictures as tiles; under it
-//!   THE session composer box ([`crate::composer::session_composer_card`])
-//!   sending `sessions.send({sessionId: root})`.
-//! * NEW-6 (N-1) / NEW-46: a chat with ONE session (`view.main_session_id`,
-//!   no child yet): its Conversation tab = that session's raw work in place
-//!   (its own composer, Stop in the header's trailing slot). The tab stays
-//!   in the strip; the first child turns it into the dispatcher's
-//!   conversation.
-//! * An ISSUE child = the issue detail, EMBEDDED (no work header bar, no
-//!   Chats row).
-//! * THE Menu on the `+` and on every issue chip: `Link an issue` (THE
-//!   search list, `sessions.linkIssues`), `New issue` and, on a chip,
-//!   `Unlink <IDENT>` (`sessions.unlinkIssue`).
+//! * THE HEADER ([`screen_header`]): the lead avatar (a chat's lead disc,
+//!   the agent's disc, the Assistant's brand mark), the title (EXP-1316:
+//!   derived, plain text; a lock while private) over ONE subtitle line
+//!   (`session_screen_subtitle`: state · device · trigger), then the merge
+//!   status pill while the chat's PR is open, an agent's telephone, THE gear
+//!   (agents and the Assistant: the agent's settings page in the pane) and
+//!   the `…`.
+//! * UNDER IT, THE Segmented ([`screen_tabs`], the app editor's): Chat ·
+//!   Issues · Sessions · Results, each with its muted count.
+//! * THE BODY (the IDE is WIDE: the beside rule, [`screen_beside`]): the
+//!   Chat tab alone = the chat full width; any other tab, or an opened item,
+//!   = the chat pane (5fr, min 360px) beside the tab pane (7fr), a hairline
+//!   between. The chat = the root's messages plus its children's question /
+//!   plan cards on THE transcript (#EXP-1736's MessageBubble rows), THE Dock
+//!   and THE session composer ([`crate::composer::session_composer_card`],
+//!   `sessions.send({sessionId: root})`). NEW-6 (N-1): a chat with ONE
+//!   session shows that session's raw work as its chat body.
+//! * THE TABS: Issues = THE issue rows of the tree led by the `+` (THE Menu:
+//!   `Link an issue` › the search list, `New issue`; a root link's row
+//!   `Unlink <IDENT>` on its context menu), a row opens that issue EMBEDDED
+//!   in the pane; Sessions = THE tree rows (SessionRow small + the guides)
+//!   of every session under the root, a row opens its raw work in the pane;
+//!   Results = results-tab.json's body. An opened item (an issue, a session,
+//!   a plan, the settings) carries a `‹` back to its tab.
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
     Entity, FocusHandle, Focusable, FollowMode, FontWeight, InteractiveElement as _, IntoElement, ListAlignment,
     ListState, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Task,
     Window,
@@ -55,6 +49,10 @@ use domain::session_results::SessionResultEntry;
 use domain::dock::DockSource;
 use domain::session_tree::{SessionChatRow, SessionChatView, ChatTab, SESSION_CHAT, CHATS_LIST};
 use domain::results_tab::RESULTS_TAB;
+use domain::session_screen::{
+    session_screen, session_screen_kind, SessionScreen, SessionScreenCounts, SessionScreenKind, SessionScreenLayout,
+    SessionScreenOpen, SessionScreenTab, SessionScreenTabEntry, SESSION_SCREEN,
+};
 
 use crate::controls::PointerContextMenuExt as _;
 use crate::controls::WebControl as _;
@@ -92,16 +90,27 @@ const ISSUE_CHIP_TITLE_MAX_W: f32 = 140.;
 const CHIP_MARK_PX: f32 = 12.;
 const CHIP_BADGE_PX: f32 = 5.;
 
-/// Which child of the strip is on show.
+/// #EXP-1732: the item opened over the tab pane (a session open in place is
+/// the view's `focus`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ChatChildSel {
-    Conversation,
+pub(crate) enum ChatOpened {
+    /// The issue's embedded detail.
     Issue(String),
-    /// results-tab.json: the strip's last tab.
-    Results,
-    /// #EXP-1662 THE plan tab: the plan a row opened, else (`None`, the
-    /// chip) `plan_tab_target`.
-    Plan(Option<String>),
+    /// A plan card (plan-page.json): its plan page.
+    Plan(String),
+    /// THE gear's settings (agents, the Assistant).
+    Settings,
+}
+
+impl ChatOpened {
+    /// session-screen.json's `open` value.
+    fn open(&self) -> &'static str {
+        match self {
+            Self::Issue(_) => SessionScreenOpen::Issue.as_str(),
+            Self::Plan(_) => SessionScreenOpen::Plan.as_str(),
+            Self::Settings => SessionScreenOpen::Settings.as_str(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,15 +175,16 @@ pub(crate) fn in_chat_label(title: &str) -> String {
 #[derive(Default)]
 struct PendingChatChild(HashMap<String, String>);
 
-/// #EXP-1662: the plan a way in wants its chat's plan tab on (root id →
-/// plan card id), read by that chat's view on its next frame.
+/// #EXP-1662: the plan a way in wants its chat to open (root id → plan card
+/// id), read by that chat's view on its next frame.
 #[derive(Default)]
 struct PendingChatPlan(HashMap<String, String>);
 
 impl gpui::Global for PendingChatPlan {}
 
-/// #EXP-1662: select the plan tab of the chat `root_id` on `message_id`
-/// (the caller navigates there; on that chat already, this alone does it).
+/// #EXP-1662 / #EXP-1732: open the plan `message_id` beside the chat
+/// `root_id` (the caller navigates there; on that chat already, this alone
+/// does it).
 pub(crate) fn request_chat_plan(root_id: &str, message_id: &str, cx: &mut App) {
     cx.default_global::<PendingChatPlan>().0.insert(root_id.to_string(), message_id.to_string());
     cx.refresh_windows();
@@ -762,12 +772,6 @@ fn link_issue_source(target: &ChatMenuTarget) -> crate::picker::search_list::Men
 /// work tabs strip wears too) with its hairline at rest.
 pub(crate) fn strip_chip(id: impl Into<gpui::ElementId>, active: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
     crate::surface::strip_chip_frame(id, active, true, cx)
-}
-
-/// The strip's TAB frame (Conversation, Guide): the same box with no stroke
-/// at rest (web `stripTabClass(active)` unbordered).
-pub(crate) fn strip_tab(id: impl Into<gpui::ElementId>, active: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
-    crate::surface::strip_chip_frame(id, active, false, cx)
 }
 
 /// THE issue chip's lead ×4: the issue's STATUS glyph. S-3: an unresolved
@@ -2574,13 +2578,248 @@ pub(crate) fn issue_chats_row(issue_id: &str, cx: &App) -> Option<AnyElement> {
 }
 
 // ---------------------------------------------------------------------------
-// EXP-1334: the strip (never scrolls) and the chips' subtree menus
+// #EXP-1732 THE session screen's chrome (session-screen.json ×4): a chat, an
+// agent's or the Assistant's conversation and an app's editor draw the SAME
+// header, THE Segmented under it, the beside split and the tree rows.
 // ---------------------------------------------------------------------------
 
-/// A chip's mark state as THE session state (the run mark reads it; S-3:
-/// they are one type, the four display states).
-fn chip_state(mark: domain::session_tree::SessionTabMarkState) -> domain::session_tree::SessionState {
-    mark
+/// A press with no payload (the gear, an opened item's back).
+pub(crate) type OnPress = Rc<dyn Fn(&mut Window, &mut App)>;
+/// A header tab's pick.
+pub(crate) type OnTabPick = Rc<dyn Fn(SessionScreenTab, &mut Window, &mut App)>;
+/// A tree row's pick (an issue or a session of the Issues / Sessions tab).
+pub(crate) type OnTreePick = Rc<dyn Fn(&TreeItem, &mut Window, &mut App)>;
+
+/// One segment's width (the app editor's Segmented, now every kind's).
+pub(crate) const SCREEN_TAB_SEGMENT_PX: f32 = 96.;
+/// The Segmented's height (the app editor's).
+const SCREEN_TABS_H: f32 = 32.;
+
+/// THE header's inputs.
+pub(crate) struct ScreenHeader {
+    /// The lead avatar: a chat's lead disc, the agent's disc, the
+    /// Assistant's brand mark, an app's glyph + version pill.
+    pub(crate) avatar: AnyElement,
+    /// The title (one truncated line).
+    pub(crate) title: AnyElement,
+    /// ONE line (`session_screen_subtitle`); empty = none.
+    pub(crate) subtitle: String,
+    /// Before the gear: the merge status pill, an app's Publish, an agent's
+    /// telephone.
+    pub(crate) trailing: Vec<AnyElement>,
+    /// THE gear (agents, the Assistant, apps): its press and whether the
+    /// settings are open.
+    pub(crate) gear: Option<(OnPress, bool)>,
+    /// The `…`.
+    pub(crate) menu: Option<AnyElement>,
+    /// A session link's Back over the row (chats.json THE WAY BACK).
+    pub(crate) back: Option<AnyElement>,
+    /// THE Segmented ([`screen_tabs`]).
+    pub(crate) tabs: AnyElement,
+}
+
+/// THE session screen header: the Back (a link opened it), the avatar, the
+/// title over its subtitle, the trailing slot, the gear, the `…`; THE
+/// Segmented under the row; the hairline spans the content card.
+pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
+    let gear = header.gear.map(|(on_press, open)| gear_button(on_press, open, cx));
+    let theme = cx.theme();
+    let subtitle = (!header.subtitle.is_empty()).then(|| {
+        div()
+            .min_w_0()
+            .truncate()
+            .text_sm()
+            .text_color(theme.muted_foreground)
+            .child(SharedString::from(header.subtitle))
+    });
+    v_flex()
+        .w_full()
+        .flex_shrink_0()
+        .child(
+            v_flex()
+                .w_full()
+                .px(px(HEADER_INSET))
+                .pt_6()
+                .pb_3()
+                .gap_3()
+                .children(header.back)
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_3()
+                        .items_center()
+                        .child(div().flex_shrink_0().child(header.avatar))
+                        .child(v_flex().flex_1().min_w_0().child(header.title).children(subtitle))
+                        .children(header.trailing)
+                        .children(gear)
+                        .children(header.menu),
+                )
+                .child(header.tabs),
+        )
+        .child(div().w_full().h(px(1.)).bg(theme.border))
+        .into_any_element()
+}
+
+/// THE gear: the existing ghost icon button (concept `nav-settings`, label
+/// `copy.settings`), toggled while the settings are open.
+pub(crate) fn gear_button(on_press: OnPress, open: bool, cx: &App) -> AnyElement {
+    let button = crate::controls::ghost_icon_button(
+        SharedString::from(SESSION_SCREEN.test_ids.gear.clone()),
+        Icon::new(registry::NAV_SETTINGS),
+        cx,
+    )
+    .tooltip(SESSION_SCREEN.copy.settings.clone())
+    .toggled(open)
+    .on_click(move |_, window, cx| on_press(window, cx));
+    div().flex_shrink_0().child(button).into_any_element()
+}
+
+/// THE Segmented under the header (the app editor's, every kind's): the
+/// kind's tabs in order, each its label then its count as a muted number;
+/// it scrolls sideways when it overflows, never wraps.
+pub(crate) fn screen_tabs(
+    tabs: &[SessionScreenTabEntry],
+    active: SessionScreenTab,
+    on_pick: OnTabPick,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let segments: Vec<AnyElement> = tabs
+        .iter()
+        .map(|tab| {
+            let id = tab.id;
+            let count = tab.count.map(|count| count.to_string());
+            let name = eui_core::segmented::item_accessibility_label(&tab.label, count.as_deref());
+            let on_pick = on_pick.clone();
+            crate::controls::segmented_item(active == id, cx)
+                .id(SharedString::from(format!("{}-{}", SESSION_SCREEN.test_ids.tabs, id.as_str())))
+                .role(gpui::Role::Tab)
+                .aria_label(SharedString::from(name))
+                .aria_selected(active == id)
+                .child(SharedString::from(tab.label.clone()))
+                .children(count.map(|count| div().text_color(muted).child(SharedString::from(count))))
+                .on_click(move |_, window, cx| on_pick(id, window, cx))
+                .into_any_element()
+        })
+        .collect();
+    div()
+        .id(SharedString::from(format!("{}-scroll", SESSION_SCREEN.test_ids.tabs)))
+        .w_full()
+        .min_w_0()
+        .overflow_x_scroll()
+        .child(
+            crate::controls::segmented(cx)
+                .id(SharedString::from(SESSION_SCREEN.test_ids.tabs.clone()))
+                .debug_selector(|| SESSION_SCREEN.test_ids.tabs.clone())
+                .flex_shrink_0()
+                .w(px(SCREEN_TAB_SEGMENT_PX * tabs.len() as f32))
+                .h(px(SCREEN_TABS_H))
+                .children(segments),
+        )
+        .into_any_element()
+}
+
+/// The beside rule (wide = the IDE, always): the chat pane (`beside.chat`
+/// fr, min `beside.chatMinWidth` px, THE chat body with its composer) : the
+/// tab pane (`beside.pane` fr), a hairline between.
+pub(crate) fn screen_beside(chat: AnyElement, pane: AnyElement, cx: &App) -> AnyElement {
+    let beside = &SESSION_SCREEN.beside;
+    let share = beside.chat / (beside.chat + beside.pane);
+    h_flex()
+        .id(SharedString::from(SESSION_SCREEN.test_ids.beside.clone()))
+        .debug_selector(|| SESSION_SCREEN.test_ids.beside.clone())
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .items_stretch()
+        .child(
+            v_flex()
+                .h_full()
+                .min_h_0()
+                .w(gpui::relative(share))
+                .min_w(px(beside.chat_min_width))
+                .flex_shrink_0()
+                .border_r_1()
+                .border_color(cx.theme().border)
+                .child(chat),
+        )
+        .child(
+            v_flex()
+                .id(SharedString::from(SESSION_SCREEN.test_ids.pane.clone()))
+                .debug_selector(|| SESSION_SCREEN.test_ids.pane.clone())
+                .h_full()
+                .min_h_0()
+                .min_w_0()
+                .flex_1()
+                .child(pane),
+        )
+        .into_any_element()
+}
+
+/// An opened item in the pane (an issue, a session, a plan, settings): the
+/// `‹` back to where it came from over its body.
+pub(crate) fn pane_item(label: &str, on_back: OnPress, body: AnyElement, cx: &App) -> AnyElement {
+    let back = crate::session_screen::back_link_row(
+        "session-pane-back",
+        label.to_string(),
+        move |window, cx| on_back(window, cx),
+        cx,
+    );
+    v_flex()
+        .size_full()
+        .min_h_0()
+        .child(div().w_full().flex_shrink_0().px(px(crate::work_header::WORK_GUTTER)).pt_4().pb_2().child(back))
+        .child(div().flex_1().min_h_0().w_full().flex().flex_col().child(body))
+        .into_any_element()
+}
+
+/// The back's label: the tab the item was opened from (`Back` from Chat).
+pub(crate) fn pane_back_label(active: SessionScreenTab) -> String {
+    match active {
+        SessionScreenTab::Chat => SESSION_SCREEN.copy.back.clone(),
+        tab => tab.label(),
+    }
+}
+
+/// A session opened in the pane: its raw work and its own composer (the
+/// in-place session view's body).
+pub(crate) fn session_pane(view: &Entity<crate::session_screen::SessionScreenView>, cx: &App) -> AnyElement {
+    let inner = view.read(cx).inner().clone();
+    let scrolled = inner.read(cx).body_scrolled();
+    let via_app = crate::session_screen::via_app_line(inner.read(cx).session_row(), cx)
+        .map(|line| div().w_full().px(px(crate::work_header::WORK_GUTTER)).pb_1().child(line));
+    v_flex()
+        .size_full()
+        .min_h_0()
+        .children(via_app)
+        .child(crate::work_header::work_body(div().flex_1().min_h_0().child(inner).into_any_element(), false, scrolled))
+        .into_any_element()
+}
+
+/// The header's subtitle (`session_screen_subtitle`): the root's state word,
+/// its device's name (else the agent's), an agent's first enabled trigger.
+pub(crate) fn screen_subtitle(
+    root: Option<&SessionRow>,
+    agent: Option<&domain::rows::AgentDefRow>,
+    cx: &App,
+) -> String {
+    let status = root.map(|root| domain::session_tree::session_state(root).word().to_string());
+    let device_id = root
+        .and_then(|root| root.device_id.clone())
+        .or_else(|| agent.and_then(|agent| agent.device_id.clone()));
+    let device = device_id
+        .as_deref()
+        .and_then(|id| crate::entity_preview::find_device(id, cx))
+        .and_then(|device| device.label);
+    let trigger = agent.and_then(|agent| {
+        agent
+            .trigger_list()
+            .into_iter()
+            .find(|trigger| trigger.get("enabled").and_then(serde_json::Value::as_bool) != Some(false))
+            .map(|trigger| domain::agent_settings::trigger_summary(&trigger))
+    });
+    domain::session_screen::session_screen_subtitle(status.as_deref(), device.as_deref(), trigger.as_deref())
 }
 
 /// Open `session_id` IN PLACE (its chat hosts the raw work).
@@ -2588,111 +2827,9 @@ fn open_session_in_place(session_id: String, window: &mut Window, cx: &mut App) 
     crate::navigation::navigate(window, cx, Screen::Session { session_id });
 }
 
-/// What the strip shows open (a strip pick).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum StripPick {
-    Conversation,
-    Issue(String),
-    Session(String),
-    Results,
-    /// #EXP-1662: the plan tab.
-    Plan,
-}
-
-/// #EXP-1662: the strip's plan chip.
-#[derive(Clone)]
-pub(crate) struct StripPlan {
-    /// `plan_row_label`.
-    pub(crate) label: String,
-    /// Its plan waits: the needs-you dot.
-    pub(crate) waiting: bool,
-    /// #FEED-191 (`plan_tab_glyph`): approved = THE check in emerald.
-    pub(crate) glyph: domain::plan_page::PlanTabGlyph,
-}
-
-/// #FEED-191 (`plan_tab_glyph`): the plan chip's lead glyph: approved = THE
-/// check in the plan row's emerald, else the plan glyph in the chip's colour.
-fn plan_tab_icon(glyph: domain::plan_page::PlanTabGlyph, cx: &App) -> Icon {
-    let icon = Icon::new(if glyph.icon == "ui-check" { registry::UI_CHECK } else { registry::CODING_PLAN })
-        .xsmall()
-        .flex_shrink_0();
-    if glyph.tone == "approved" {
-        icon.text_color(cx.theme().success)
-    } else {
-        icon
-    }
-}
-
-/// #EXP-1662: a plan row as the strip's chip (a non-plan row = `None`).
-pub(crate) fn strip_plan_of(row: &SessionChatRow) -> Option<StripPlan> {
-    match row {
-        SessionChatRow::Plan { plan, decision, .. } => {
-            Some(StripPlan {
-                label: domain::plan_page::plan_row_label(plan),
-                waiting: decision.is_none(),
-                glyph: domain::plan_page::plan_tab_glyph(decision.as_deref()),
-            })
-        }
-        _ => None,
-    }
-}
-
-/// #EXP-1662 / #FEED-191: the plan the chat's tab targets (`plan_tab_target`
-/// over its plan rows, oldest first, and the plan `kept` this visit).
-pub(crate) fn tab_plan<'a>(rows: &'a [SessionChatRow], kept: Option<&str>) -> Option<&'a SessionChatRow> {
-    let plans: Vec<(&str, Option<&str>)> = rows
-        .iter()
-        .filter_map(|row| match row {
-            SessionChatRow::Plan { id, decision, .. } => Some((id.as_str(), decision.as_deref())),
-            _ => None,
-        })
-        .collect();
-    let target = domain::plan_page::plan_tab_target(&plans, kept)?;
-    rows.iter().find(|row| row.id() == target)
-}
-
-/// One linked issue as the strip paints it.
-#[derive(Clone, Default)]
-pub(crate) struct StripIssue {
-    pub(crate) title: String,
-    pub(crate) status: Option<domain::statuses::ResolvedStatus>,
-    /// The link id while the chip wears its NEW ring.
-    pub(crate) ringed: Option<String>,
-}
-
-pub(crate) type OnStripPick = std::rc::Rc<dyn Fn(StripPick, &mut Window, &mut App)>;
-
-/// THE chat strip's inputs (the screen and the styleguide draw it):
-/// `[+] [Conversation] | the one issue chip OR the group tab | Results`,
-/// nothing scrolls (#EXP-1433, `domain::session_tree::chat_strip_mode`).
-pub(crate) struct ChatStrip {
-    /// Element id prefix (`chat` on the screen).
-    pub(crate) prefix: &'static str,
-    pub(crate) tabs: Vec<ChatTab>,
-    pub(crate) issues: HashMap<String, StripIssue>,
-    /// Each session's agent CLI (its run mark).
-    pub(crate) clis: HashMap<String, Option<String>>,
-    pub(crate) open: StripPick,
-    /// THE chat menu's target for the `+` and the issue chip's context
-    /// menu (`None` = a non-member: no `+`, no menu).
-    pub(crate) menu: Option<ChatMenuTarget>,
-    pub(crate) on_pick: OnStripPick,
-    /// results-tab.json: the Results tab pinned right after a divider (no
-    /// dot); an agent's chat has none.
-    pub(crate) results: bool,
-    /// #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
-    /// cards (Conversation order) and what a chip's press does; empty =
-    /// no chips.
-    pub(crate) waiting: Vec<domain::waiting_cards::WaitingCardInput>,
-    pub(crate) on_waiting: Option<crate::waiting_cards::OnWaitingPick>,
-    /// #EXP-1662: the plan chip, right after Conversation (`None` = the
-    /// chat holds no plan the tab targets).
-    pub(crate) plan: Option<StripPlan>,
-}
-
-/// One row of the strip's group menu (#EXP-1433).
-#[derive(Clone)]
-pub(crate) enum StripGroupItem {
+/// One row of the Issues / Sessions tab (THE tree rows).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TreeItem {
     Issue {
         issue_id: String,
         identifier: String,
@@ -2707,68 +2844,88 @@ pub(crate) enum StripGroupItem {
     },
 }
 
-impl StripGroupItem {
-    fn pick(&self) -> StripPick {
+impl TreeItem {
+    /// The row's id (the issue's, the session's).
+    pub(crate) fn key(&self) -> &str {
         match self {
-            Self::Issue { issue_id, .. } => StripPick::Issue(issue_id.clone()),
-            Self::Session { session_id, .. } => StripPick::Session(session_id.clone()),
+            Self::Issue { issue_id, .. } => issue_id,
+            Self::Session { session_id, .. } => session_id,
         }
     }
 
-    /// The group tab's label while this row is open: the identifier, or the
-    /// session's name.
-    fn open_label(&self) -> &str {
+    /// The row's accessible name.
+    fn name(&self) -> String {
         match self {
-            Self::Issue { identifier, .. } => identifier,
-            Self::Session { name, .. } => name,
+            Self::Issue { identifier, title, .. } => format!("{identifier} {title}"),
+            Self::Session { name, .. } => name.clone(),
         }
     }
 }
 
-/// #EXP-1433: the strip's items: EVERY issue of the tree (a chip's
-/// sub-issues after it) and every session under the root as THE tree rows
-/// (depth relative to the root's direct children, 0).
-pub(crate) fn strip_group_items(spec: &ChatStrip) -> (Vec<StripGroupItem>, Vec<(StripGroupItem, usize)>) {
-    let issue = |issue_id: &str, identifier: &str| {
-        let info = spec.issues.get(issue_id).cloned().unwrap_or_default();
-        StripGroupItem::Issue {
-            issue_id: issue_id.to_string(),
-            identifier: identifier.to_string(),
-            title: info.title,
-            status: info.status,
+/// Every session UNDER `root_id` (never the root; its children and theirs,
+/// subagents included) as THE tree rows, depth-first in creation order;
+/// `tree` = [`crate::session_data::tree_of_root`].
+pub(crate) fn session_tree_items(root_id: &str, tree: &[SessionRow], cx: &App) -> Vec<(TreeItem, usize)> {
+    fn push<'a>(
+        node: &'a SessionRow,
+        depth: usize,
+        kids: &HashMap<&'a str, Vec<&'a SessionRow>>,
+        seen: &mut HashSet<&'a str>,
+        out: &mut Vec<(&'a SessionRow, usize)>,
+    ) {
+        if !seen.insert(node.id.as_str()) {
+            return;
         }
-    };
-    let session = |session_id: &str, name: &str, mark| StripGroupItem::Session {
-        session_id: session_id.to_string(),
-        name: name.to_string(),
-        state: chip_state(mark),
-        cli: spec.clis.get(session_id).cloned().flatten(),
-    };
-    let mut issues = Vec::new();
-    let mut sessions = Vec::new();
-    for tab in &spec.tabs {
-        match tab {
-            ChatTab::Issue { issue_id, identifier, nested } => {
-                issues.push(issue(issue_id, identifier));
-                issues.extend(nested.iter().map(|item| issue(&item.issue_id, &item.identifier)));
-            }
-            ChatTab::Session { session_id, name, mark_state, nested } => {
-                sessions.push((session(session_id, name, *mark_state), 0));
-                sessions.extend(nested.iter().map(|item| (session(&item.session_id, &item.name, item.mark_state), item.depth)));
-            }
-            _ => {}
+        out.push((node, depth));
+        for &child in kids.get(node.id.as_str()).into_iter().flatten() {
+            push(child, depth + 1, kids, seen, out);
         }
     }
-    (issues, sessions)
+    let below: Vec<&SessionRow> = tree.iter().filter(|session| session.id != root_id).collect();
+    let ids: HashSet<&str> = below.iter().map(|session| session.id.as_str()).collect();
+    let mut kids: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
+    let mut tops: Vec<&SessionRow> = Vec::new();
+    for &session in &below {
+        match session.parent_id.as_deref().filter(|parent| ids.contains(parent)) {
+            Some(parent) => kids.entry(parent).or_default().push(session),
+            None => tops.push(session),
+        }
+    }
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::new();
+    for top in tops {
+        push(top, 0, &kids, &mut seen, &mut ordered);
+    }
+    // A cycle's leftovers still show, at the top.
+    for &session in &below {
+        push(session, 0, &kids, &mut seen, &mut ordered);
+    }
+    ordered
+        .into_iter()
+        .map(|(session, depth)| {
+            let name = crate::session_data::session_title_of(&session.id, cx)
+                .or_else(|| session.title.clone())
+                .unwrap_or_else(|| SESSION_CHAT.copy.untitled.clone());
+            (
+                TreeItem::Session {
+                    session_id: session.id.clone(),
+                    name,
+                    state: domain::session_tree::session_tab_mark_state(session),
+                    cli: session.cli.clone(),
+                },
+                depth,
+            )
+        })
+        .collect()
 }
 
-/// One group menu row: an issue = THE issue search list's row (status
-/// glyph, mono identifier, title); a session = THE tree row (guides, the
-/// run mark, the name, its state word in its tone); the open one checked.
-fn group_row(item: &StripGroupItem, guides: &domain::tree_guides::Guides, active: bool, cx: &App) -> gpui::Div {
+/// One tree row's body: an issue = THE issue row (status glyph, mono
+/// identifier, title); a session = THE tree row (the run mark, the name, its
+/// state word in its tone); the guides over the nesting.
+fn tree_row_body(item: &TreeItem, guides: &domain::tree_guides::Guides, cx: &App) -> gpui::Div {
     use domain::list_item::{GAP, INDENT, SMALL};
     let theme = cx.theme();
-    let mut row = h_flex()
+    let row = h_flex()
         .relative()
         .flex_1()
         .min_w_0()
@@ -2777,8 +2934,8 @@ fn group_row(item: &StripGroupItem, guides: &domain::tree_guides::Guides, active
         .items_center()
         .pl(px(INDENT * guides.depth() as f32))
         .children(crate::tree_guides::guide_layer(guides, 0., 0.));
-    row = match item {
-        StripGroupItem::Issue { identifier, title, status, .. } => row
+    match item {
+        TreeItem::Issue { identifier, title, status, .. } => row
             .children(issue_glyph(status.as_ref(), cx))
             .child(
                 div()
@@ -2797,7 +2954,7 @@ fn group_row(item: &StripGroupItem, guides: &domain::tree_guides::Guides, active
                     .text_color(theme.foreground)
                     .child(SharedString::from(title.clone())),
             ),
-        StripGroupItem::Session { name, state, cli, .. } => {
+        TreeItem::Session { name, state, cli, .. } => {
             let word_color = match state {
                 domain::session_tree::SessionState::NeedsYou => crate::work_card::session_tone_color(state.tone(), cx),
                 _ => theme.muted_foreground,
@@ -2820,230 +2977,106 @@ fn group_row(item: &StripGroupItem, guides: &domain::tree_guides::Guides, active
                         .child(SharedString::from(state.word())),
                 )
         }
-    };
-    let check =
-        active.then(|| Icon::new(registry::UI_CHECK).size(px(14.)).text_color(theme.foreground).into_any_element());
-    crate::controls::pointer_row_fill(
-        h_flex().flex_1().min_w_0().gap_2().items_center().child(row).children(check),
-        false,
-    )
+    }
 }
 
-/// #EXP-1433: THE Menu of the group tab: the issue rows, a separator, then
-/// the session tree rows (one guide set); a pick opens it in place.
-pub(crate) fn strip_group_menu(
-    mut menu: gpui_component::menu::PopupMenu,
-    issues: &[StripGroupItem],
-    sessions: &[(StripGroupItem, usize)],
-    open: &StripPick,
-    on_pick: Option<&OnStripPick>,
-) -> gpui_component::menu::PopupMenu {
-    menu = menu.min_w(px(384.)).max_w(px(384.)).scrollable(true).max_h(px(448.));
-    let flat = domain::tree_guides::guides_for(&vec![0; issues.len()]);
-    let depths: Vec<usize> = sessions.iter().map(|(_, depth)| *depth).collect();
-    let tree = domain::tree_guides::guides_for(&depths);
-    let rows = issues
+/// THE tree rows of the Issues / Sessions tab (`items` with their depths):
+/// each a list item named by its text, the open one selected; a press picks
+/// it. `menu` = the issue rows' context menu (Unlink) for the root's links.
+pub(crate) fn tree_rows(
+    prefix: &str,
+    items: &[(TreeItem, usize)],
+    open: Option<&str>,
+    on_pick: OnTreePick,
+    menu: Option<(ChatMenuTarget, HashSet<String>)>,
+    cx: &App,
+) -> Vec<AnyElement> {
+    let depths: Vec<usize> = items.iter().map(|(_, depth)| *depth).collect();
+    let guides = domain::tree_guides::guides_for(&depths);
+    let theme = cx.theme();
+    let (hover, selected) = (theme.list_hover, theme.list_active);
+    items
         .iter()
-        .zip(flat)
-        .map(|(item, guides)| (item, guides, false))
-        .chain(sessions.iter().zip(tree).enumerate().map(|(at, ((item, _), guides))| (item, guides, at == 0)));
-    for (item, guides, first_session) in rows {
-        if first_session && !issues.is_empty() {
-            menu = menu.separator();
-        }
-        let pick = item.pick();
-        let active = *open == pick;
-        let item = item.clone();
-        let mut row = gpui_component::menu::PopupMenuItem::element(move |_, cx| group_row(&item, &guides, active, cx));
-        if let Some(on_pick) = on_pick.cloned() {
-            row = row.on_click(move |_, window, cx| on_pick(pick.clone(), window, cx));
-        }
-        menu = menu.item(row);
-    }
-    menu
-}
-
-/// #EXP-1433: THE group tab: the strip chip box, the `session-tree` glyph
-/// and the count (muted) at rest; ACTIVE with the open item's label
-/// (truncated at `stripGroupMaxWidth`) while one of its items is open.
-pub(crate) fn strip_group_tab(id: SharedString, count: usize, open_label: Option<&str>, cx: &App) -> gpui::Stateful<gpui::Div> {
-    let active = open_label.is_some();
-    let tooltip = SharedString::from(match open_label {
-        Some(label) => label.to_string(),
-        None => SESSION_CHAT.copy.strip_group.clone(),
-    });
-    strip_chip(id, active, cx)
-        .child(Icon::new(registry::SESSION_TREE).xsmall().flex_shrink_0())
-        .child(match open_label {
-            Some(label) => div()
+        .zip(guides)
+        .map(|((item, _), guides)| {
+            let key = item.key().to_string();
+            let active = open == Some(key.as_str());
+            let picked = item.clone();
+            let on_pick = on_pick.clone();
+            let row = h_flex()
+                .id(SharedString::from(format!("{prefix}-{key}")))
+                .role(gpui::Role::ListItem)
+                .aria_label(SharedString::from(item.name()))
+                .aria_selected(active)
+                .w_full()
                 .min_w_0()
-                .max_w(px(SESSION_CHAT.strip_group_max_width as f32))
-                .truncate()
-                .child(SharedString::from(label.to_string())),
-            None => div()
-                .flex_shrink_0()
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(count.to_string())),
-        })
-        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx))
-}
-
-/// Paint THE chat strip (#EXP-1433): `+` · Conversation | the ONE issue
-/// chip (`chips`) or ONE group tab (`group`) | Results — nothing scrolls.
-pub(crate) fn chat_strip(spec: ChatStrip, _window: &Window, cx: &App) -> AnyElement {
-    let prefix = spec.prefix;
-    let (issues, sessions) = strip_group_items(&spec);
-    let mode = domain::session_tree::chat_strip_mode(issues.len(), sessions.len());
-
-    let pick = |pick: StripPick| {
-        let on_pick = spec.on_pick.clone();
-        move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_pick(pick.clone(), window, cx)
-    };
-
-    let mut lead: Vec<AnyElement> = Vec::new();
-    if let Some(target) = spec.menu.clone() {
-        let trigger =
-            crate::controls::ghost_icon_button(SharedString::from(format!("{prefix}-child-add")), Icon::new(registry::UI_ADD), cx);
-        lead.push(
-            div()
-                .flex_shrink_0()
-                .child(crate::controls::PointerMenu::new(
-                    SharedString::from(format!("{prefix}-child-add-menu")),
-                    trigger,
-                    move |menu, window, cx| chat_menu(menu, &target, window, cx),
-                ))
-                .into_any_element(),
-        );
-    }
-    // NEW-6 (N-1): a chat with ONE session has no Conversation tab (its
-    // raw work IS the body); the tab comes back with the first child.
-    // The Results or plan tab open on a one-session chat brings the
-    // Conversation tab back (the way home, web draws it always).
-    if spec.tabs.iter().any(|tab| matches!(tab, ChatTab::Conversation))
-        || matches!(spec.open, StripPick::Results | StripPick::Plan)
-    {
-        lead.push(
-            strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
-                .child(Icon::new(registry::ACTION_CHAT).xsmall())
-                .child(SharedString::from(SESSION_CHAT.copy.conversation.clone()))
-                .on_click(pick(StripPick::Conversation))
-                .into_any_element(),
-        );
-    }
-    // #EXP-1662 (plan-page.json): THE plan chip, right after Conversation.
-    if let Some(plan) = spec.plan.clone() {
-        let mut chip = strip_chip(SharedString::from(domain::plan_page::PLAN_PAGE.test_ids.tab.clone()), spec.open == StripPick::Plan, cx)
-            .debug_selector(|| domain::plan_page::PLAN_PAGE.test_ids.tab.clone())
-            .max_w(px(domain::plan_page::PLAN_PAGE.layout.tab_max_width))
-            .child(plan_tab_icon(plan.glyph, cx))
-            .child(div().min_w_0().truncate().child(SharedString::from(plan.label)))
-            .when(plan.waiting, |chip| {
-                chip.child(div().flex_shrink_0().size(px(6.)).rounded_full().bg(theme::tokens::YELLOW.to_hsla()))
-            })
-            .on_click(pick(StripPick::Plan));
-        chip.style().flex_shrink = Some(1.);
-        lead.push(chip.into_any_element());
-    }
-    // #EXP-1562: the WAITING chips, right after Conversation (none = the
-    // first of the tablist), before the issue / group zone.
-    if let Some(on_waiting) = spec.on_waiting.clone() {
-        lead.extend(crate::waiting_cards::strip_chips(prefix, &spec.waiting, on_waiting, cx));
-    }
-
-    let middle: Option<AnyElement> = match (mode.mode, issues.first()) {
-        // `chips`: the ONE issue keeps its chip (full title, truncated).
-        (domain::session_tree::StripMode::Chips, Some(StripGroupItem::Issue { issue_id, identifier, title, status })) => {
-            let active = spec.open == StripPick::Issue(issue_id.clone());
-            let id = SharedString::from(format!("{prefix}-child-{issue_id}"));
-            let info = spec.issues.get(issue_id).cloned().unwrap_or_default();
-            let mut chip = strip_chip(id, active, cx)
-                .children(strip_issue_body(status.clone(), identifier, title, active, cx))
-                .on_click(pick(StripPick::Issue(issue_id.clone())));
-            if info.ringed.is_some() {
-                chip = chip.border_color(cx.theme().ring);
-            }
-            let chip: AnyElement = match spec.menu.clone() {
-                Some(target) => {
-                    let target = ChatMenuTarget { chip: Some((issue_id.clone(), identifier.clone())), ..target };
-                    chip.pointer_context_menu(move |menu, window, cx| chat_menu(menu, &target, window, cx))
-                        .into_any_element()
+                .px_2()
+                .rounded_md()
+                .cursor_pointer()
+                .hover(move |style| style.bg(hover))
+                .when(active, |row| row.bg(selected))
+                .child(tree_row_body(item, &guides, cx))
+                .on_click(move |_, window, cx| on_pick(&picked, window, cx));
+            let target = match (&menu, item) {
+                (Some((target, linked)), TreeItem::Issue { issue_id, identifier, .. }) if linked.contains(issue_id) => {
+                    Some(ChatMenuTarget { chip: Some((issue_id.clone(), identifier.clone())), ..target.clone() })
                 }
-                None => chip.into_any_element(),
+                _ => None,
             };
-            Some(match info.ringed {
-                Some(link_id) => div()
-                    .flex()
-                    .min_w_0()
-                    .child(chip)
-                    .with_animation(
-                        SharedString::from(format!("{prefix}-child-enter-{link_id}")),
-                        Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
-                        |el, delta| el.opacity(delta),
-                    )
+            match target {
+                Some(target) => row
+                    .pointer_context_menu(move |menu, window, cx| chat_menu(menu, &target, window, cx))
                     .into_any_element(),
-                None => chip,
-            })
-        }
-        // `group`: ONE icon tab over every issue and session.
-        (domain::session_tree::StripMode::Group, _) => {
-            let open_label = issues
-                .iter()
-                .chain(sessions.iter().map(|(item, _)| item))
-                .find(|item| item.pick() == spec.open)
-                .map(|item| item.open_label().to_string());
-            let id = SharedString::from(if prefix == "chat" {
-                SESSION_CHAT.test_ids.group.clone()
-            } else {
-                format!("{prefix}-strip-group")
-            });
-            let tab = strip_group_tab(id.clone(), mode.count, open_label.as_deref(), cx).into_any_element();
-            let open = spec.open.clone();
-            let on_pick = spec.on_pick.clone();
-            Some(
-                crate::controls::PointerMenu::new(
-                    SharedString::from(format!("{id}-menu")),
-                    crate::picker::PickerTrigger::new(SharedString::from(format!("{id}-trigger")).into(), tab),
-                    move |menu, _window, _cx| strip_group_menu(menu, &issues, &sessions, &open, Some(&on_pick)),
-                )
-                .into_any_element(),
-            )
-        }
-        _ => None,
-    };
+                None => row.into_any_element(),
+            }
+        })
+        .collect()
+}
 
-    // results-tab.json: pinned right after a divider (the Guide's place).
-    let results = spec.results.then(|| {
-        strip_tab(SharedString::from(RESULTS_TAB.tab.test_ids.tab.clone()), spec.open == StripPick::Results, cx)
-            .child(Icon::new(registry::CHAT_RESULTS).xsmall())
-            .child(SharedString::from(RESULTS_TAB.tab.copy.label.clone()))
-            .on_click(pick(StripPick::Results))
-            .into_any_element()
-    });
-    h_flex()
-        .id(SharedString::from(SESSION_CHAT.test_ids.tabs.clone()))
+/// A tab body's scrolling column (the Issues / Sessions lists).
+pub(crate) fn tab_list(id: &str, lead: Option<AnyElement>, rows: Vec<AnyElement>) -> AnyElement {
+    div()
+        .id(SharedString::from(id.to_string()))
+        .debug_selector({
+            let id = id.to_string();
+            move || id.clone()
+        })
+        .flex_1()
+        .min_h_0()
         .w_full()
-        .min_w_0()
-        .gap_1()
-        .items_center()
-        .children(lead)
-        .when(mode.count > 0, |row| row.child(strip_divider(cx)))
+        .overflow_y_scroll()
         .child(
-            h_flex()
-                .id(SharedString::from(format!("{prefix}-strip")))
-                .flex_1()
-                .min_w_0()
-                .gap_1()
-                .items_center()
-                .overflow_x_hidden()
-                .children(middle),
+            v_flex()
+                .w_full()
+                .px(px(crate::work_header::WORK_GUTTER))
+                .pt_4()
+                .pb_10()
+                .gap_0p5()
+                .children(lead)
+                .children(rows),
         )
-        .when_some(results, |row, results| row.child(strip_divider(cx)).child(results))
         .into_any_element()
 }
 
-/// The strip's vertical divider before Results.
-pub(crate) fn strip_divider(cx: &App) -> AnyElement {
-    div().w(px(1.)).h(px(16.)).mx_1().bg(cx.theme().border).into_any_element()
+/// The Issues tab's `+` (THE Menu: Link an issue › the search list, New
+/// issue), right-aligned over the rows.
+pub(crate) fn issues_add(prefix: &str, target: ChatMenuTarget, cx: &App) -> AnyElement {
+    let trigger = crate::controls::ghost_icon_button(
+        SharedString::from(format!("{prefix}-issues-add")),
+        Icon::new(registry::UI_ADD),
+        cx,
+    )
+    .tooltip(SESSION_SCREEN.copy.link_issue.clone());
+    h_flex()
+        .w_full()
+        .pb_1()
+        .child(div().flex_1())
+        .child(crate::controls::PointerMenu::new(
+            SharedString::from(format!("{prefix}-issues-add-menu")),
+            trigger,
+            move |menu, window, cx| chat_menu(menu, &target, window, cx),
+        ))
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -3062,27 +3095,22 @@ pub(crate) fn chat_not_found(ready: bool, has_root: bool, open_for: Duration) ->
 struct ChatModel {
     root: SessionRow,
     view: SessionChatView,
+    /// #EXP-1732: every issue of the tree (each session's links, in tree
+    /// order, every issue once), by id, and their order.
     issues: HashMap<String, Issue>,
+    issue_order: Vec<String>,
+    /// The ROOT's own links (the Unlink menu, the NEW ring).
     links: Vec<SessionIssueRow>,
     messages: HashMap<String, MessageRow>,
     pulls: Vec<PullRequestRow>,
+    /// #EXP-1732: the whole tree (the root first): the Sessions tab.
+    tree: Vec<SessionRow>,
 }
 
 impl ChatModel {
+    /// Every issue of the tree.
     fn linked_ids(&self) -> Vec<String> {
-        self.view
-            .tabs
-            .iter()
-            .filter_map(|tab| match tab {
-                ChatTab::Issue { issue_id, nested, .. } => Some(
-                    std::iter::once(issue_id.clone())
-                        .chain(nested.iter().map(|item| item.issue_id.clone()))
-                        .collect::<Vec<_>>(),
-                ),
-                _ => None,
-            })
-            .flatten()
-            .collect()
+        self.issue_order.clone()
     }
 
     /// The pull request the Guide reads and merges.
@@ -3097,27 +3125,95 @@ fn chat_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ChatModel>
         crate::session_data::chat_view_and_messages(root_id, focus, crate::session_data::now_ms(), false, cx)?;
     let root = crate::session_data::session(root_id, cx)?;
     let store = Store::try_global(cx)?;
-    let links: Vec<SessionIssueRow> = store
-        .collections()
-        .session_issues
-        .read(cx)
-        .iter()
-        .filter(|link| link.session_id == root_id)
-        .cloned()
-        .collect();
-    let issues = crate::session_data::issues_of_root(root_id, cx)
-        .into_iter()
-        .map(|issue| (issue.id.clone(), issue))
-        .collect();
+    let collections = store.collections();
+    let all_links = collections.session_issues.read(cx);
+    let links: Vec<SessionIssueRow> = all_links.iter().filter(|link| link.session_id == root_id).cloned().collect();
+    let tree = crate::session_data::tree_of_root(root_id, cx);
+    let issue_rows = collections.issues.read(cx);
+    let mut issues: HashMap<String, Issue> = HashMap::new();
+    let mut issue_order = Vec::new();
+    for session in &tree {
+        let mut own_links: Vec<&SessionIssueRow> = all_links.iter().filter(|link| link.session_id == session.id).collect();
+        own_links.sort_by(|a, b| {
+            a.sort_order
+                .unwrap_or(0.0)
+                .total_cmp(&b.sort_order.unwrap_or(0.0))
+                .then_with(|| a.issue_id.cmp(&b.issue_id))
+        });
+        for link in own_links {
+            if issues.contains_key(&link.issue_id) {
+                continue;
+            }
+            if let Some(issue) = issue_rows.get(&link.issue_id) {
+                issue_order.push(issue.id.clone());
+                issues.insert(issue.id.clone(), issue.clone());
+            }
+        }
+    }
     let messages = own.into_iter().map(|message| (message.id.clone(), message)).collect();
     Some(ChatModel {
         root,
         view,
         issues,
+        issue_order,
         links,
         messages,
         pulls: crate::session_data::pull_requests_of_root(root_id, cx),
+        tree,
     })
+}
+
+/// #EXP-1732: the Issues tab's rows: the chat's issue tabs (sub-issues
+/// nested under their parent), else (an agent's tree) every issue of the
+/// tree in order.
+fn screen_issue_items(model: &ChatModel, cx: &App) -> Vec<(TreeItem, usize)> {
+    let item = |issue_id: &str, identifier: &str, depth: usize| {
+        let issue = model.issues.get(issue_id);
+        (
+            TreeItem::Issue {
+                issue_id: issue_id.to_string(),
+                identifier: issue.map(|issue| issue.identifier.clone()).unwrap_or_else(|| identifier.to_string()),
+                title: issue.map(|issue| issue.title.clone()).unwrap_or_default(),
+                status: issue.map(|issue| crate::queries::resolve_issue_status(cx, issue)),
+            },
+            depth,
+        )
+    };
+    let mut out = Vec::new();
+    for tab in &model.view.tabs {
+        if let ChatTab::Issue { issue_id, identifier, nested } = tab {
+            out.push(item(issue_id, identifier, 0));
+            out.extend(nested.iter().map(|nested| item(&nested.issue_id, &nested.identifier, nested.depth)));
+        }
+    }
+    if out.is_empty() {
+        out = model
+            .issue_order
+            .iter()
+            .filter_map(|id| model.issues.get(id))
+            .map(|issue| item(&issue.id, &issue.identifier, 0))
+            .collect();
+    }
+    out
+}
+
+/// #EXP-1732: a chat's header avatar: THE chat lead disc (needs you, then
+/// working, then the PR's glyph, else the chat glyph).
+fn chat_header_lead(model: &ChatModel, cx: &App) -> AnyElement {
+    use domain::chats::ChatLead;
+    let lead = if model.view.needs_you {
+        ChatLead::NeedsYou
+    } else if model.view.busy {
+        ChatLead::Working
+    } else {
+        match domain::session_tree::chat_row_lead_pr(model.pulls.iter().filter_map(|pull| pull.state.as_deref())) {
+            Some(domain::session_tree::PrLead::Open) => ChatLead::Open,
+            Some(domain::session_tree::PrLead::Merged) => ChatLead::Merged,
+            None => ChatLead::Waiting,
+        }
+    };
+    let agent = model.root.cli.as_deref().and_then(coding::CodingAgent::parse);
+    crate::chat_list::chat_lead_disc(lead, agent, false, cx)
 }
 
 /// EXP-1346: how far beyond the viewport the Conversation renders and
@@ -3199,22 +3295,6 @@ fn conversation_agent(model: &ChatModel) -> Option<&str> {
         .flatten()
 }
 
-/// chats.json AGENT CHAT: the chat holds a plan: the one on show, else its tab's.
-fn agent_chat_holds_plan(shown: Option<&SessionChatRow>, model: &ChatModel, kept: Option<&str>) -> bool {
-    shown.is_some() || tab_plan(&model.view.rows, kept).is_some()
-}
-
-/// chats.json AGENT CHAT (`agent_chat_page`): whether an agent's chat keeps `child`.
-fn agent_chat_shows(child: &ChatChildSel, holds_plan: bool) -> bool {
-    let page = match child {
-        ChatChildSel::Conversation => "conversation",
-        ChatChildSel::Issue(_) => "issue",
-        ChatChildSel::Results => "results",
-        ChatChildSel::Plan(_) => "plan",
-    };
-    domain::session_kind::agent_chat_page(page, holds_plan) == page
-}
-
 /// #EXP-1545: the tree's Live (not ended) children with their tab names
 /// (top-level chips and the sessions folded under them). EXP-1686: an agent's
 /// chat has no chips, so its children come straight from the tree.
@@ -3249,7 +3329,17 @@ pub(crate) struct SessionChatScreenView {
     /// runs (the agent header's telephone focuses it).
     call_panel: Entity<etalk_gpui::voice_call::CallPanel>,
     results: ResultsState,
-    child: ChatChildSel,
+    /// #EXP-1732: the header tab on show (session-screen.json `active`).
+    tab: SessionScreenTab,
+    /// #EXP-1732: the item opened over the tab pane (the session open in
+    /// place is `focus`).
+    opened: Option<ChatOpened>,
+    /// The `focus` was opened from the Sessions tab of a tree no route
+    /// hosts in place (an agent's): this view owns its session view.
+    focus_owned: bool,
+    /// THE gear's agent settings page (built on first open) and its scroll.
+    settings: Option<(String, Entity<crate::settings::agent_detail::AgentDetailPane>)>,
+    settings_scroll: gpui::ScrollHandle,
     /// EXP-1346: shared, never deep-cloned per frame.
     model: Option<Rc<ChatModel>>,
     /// Bumped on every [`Self::refresh`]: what [`Self::sync_list`] diffs on.
@@ -3260,7 +3350,7 @@ pub(crate) struct SessionChatScreenView {
     /// changed): the pills' titles moved, so the rows showing them
     /// re-measure ([`conversation_fingerprint`]).
     chip_gen: u64,
-    /// The issue child's detail view (built on first show, re-pointed).
+    /// The opened issue's detail view (built on first show, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
     images: Entity<ImageCache>,
     /// THE session composer, targeting the ROOT: the session view over the
@@ -3288,7 +3378,8 @@ pub(crate) struct SessionChatScreenView {
     focus_handle: FocusHandle,
     _ring_tick: Option<Task<()>>,
     /// EXP-1316 (1b): the session open IN PLACE (`Screen::Session` of this
-    /// tree): its id and the screen view whose transcript the body hosts.
+    /// tree, or a Sessions row): its id and the screen view whose transcript
+    /// the tab pane hosts.
     focus: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _focus_sub: Option<Subscription>,
     /// EXP-1323: the live tail's relay viewer of `view.live_session_id`
@@ -3310,13 +3401,10 @@ pub(crate) struct SessionChatScreenView {
     /// #EXP-1562: a waiting chip's card to scroll to (and ring) once the
     /// Conversation shows.
     reveal: Option<String>,
-    /// #EXP-1662: the plan tab's body state and the plan it last painted (a
-    /// new plan opens from its top).
+    /// #EXP-1662: the opened plan's body state and the plan it last painted
+    /// (a new plan opens from its top).
     plan_state: crate::plan_page::PlanPageState,
     plan_painted: Option<String>,
-    /// #FEED-191 (plan-page.json `kept`): the plan the tab showed during this
-    /// visit of the chat; cleared when the person leaves it ([`Self::leave`]).
-    plan_kept: Option<String>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -3380,7 +3468,11 @@ impl SessionChatScreenView {
             root_id,
             call_panel: cx.new(etalk_gpui::voice_call::CallPanel::new),
             results: ResultsState::default(),
-            child: ChatChildSel::Conversation,
+            tab: SessionScreenTab::Chat,
+            opened: None,
+            focus_owned: false,
+            settings: None,
+            settings_scroll: gpui::ScrollHandle::new(),
             model: None,
             model_gen: 0,
             refresh_queued: false,
@@ -3413,14 +3505,13 @@ impl SessionChatScreenView {
             reveal: None,
             plan_state: Default::default(),
             plan_painted: None,
-            plan_kept: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
         // A capture (and a debug launch) can open a chat on its Results tab.
         if std::env::var("EXP_DEV_CHAT_CHILD").ok().as_deref() == Some("results") {
-            this.child = ChatChildSel::Results;
+            this.tab = SessionScreenTab::Results;
         }
         this
     }
@@ -3446,10 +3537,10 @@ impl SessionChatScreenView {
         let model = chat_model(&self.root_id, focus.as_deref(), cx);
         if let Some(model) = &model {
             self.note_seen(&model.links, cx);
-            // An unlinked issue's child closes.
-            if let ChatChildSel::Issue(issue_id) = &self.child {
+            // An unlinked issue closes.
+            if let Some(ChatOpened::Issue(issue_id)) = &self.opened {
                 if !model.linked_ids().contains(issue_id) {
-                    self.child = ChatChildSel::Conversation;
+                    self.opened = None;
                 }
             }
         }
@@ -3490,15 +3581,9 @@ impl SessionChatScreenView {
         }
     }
 
-    /// Whether the issue link `link_id` still wears its NEW ring.
-    fn ringed(&self, link_id: &str) -> bool {
-        self.first_seen
-            .get(link_id)
-            .is_some_and(|(at, fresh)| *fresh && at.elapsed() < NEW_CHILD_WINDOW)
-    }
-
-    /// The tab closed: an open issue child flushes its edit (EXP-1323: and
-    /// the live tail's viewer lets go of its relay socket).
+    /// The tab closed: an open issue flushes its edit (EXP-1323: and the
+    /// live tail's viewer lets go of its relay socket; a session this view
+    /// opened in the pane goes too).
     pub(crate) fn shutdown(&mut self, cx: &mut App) {
         if let Some((_, view)) = self.tail.take() {
             view.update(cx, |view, cx| view.shutdown(cx));
@@ -3510,7 +3595,20 @@ impl SessionChatScreenView {
         for (_, feed) in self.queue_feeds.drain() {
             feed.view.update(cx, |view, _| view.shutdown());
         }
-        if let (ChatChildSel::Issue(_), Some(view)) = (&self.child, &self.issue_view) {
+        self.flush_issue(cx);
+        if self.focus_owned {
+            if let Some((_, view)) = self.focus.take() {
+                view.update(cx, |view, cx| view.shutdown(cx));
+            }
+            self.focus_owned = false;
+            self._focus_sub = None;
+        }
+    }
+
+    /// An opened issue flushes its pending title / description (the
+    /// close-tab rule).
+    fn flush_issue(&self, cx: &mut App) {
+        if let (Some(ChatOpened::Issue(_)), Some(view)) = (&self.opened, &self.issue_view) {
             view.update(cx, |detail, cx| {
                 detail.flush_title(cx);
                 detail.flush_description(cx);
@@ -3518,13 +3616,15 @@ impl SessionChatScreenView {
         }
     }
 
-    fn set_child(&mut self, child: ChatChildSel, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.child == child {
+    /// #EXP-1732: open `item` over the tab pane (the beside rule shows it
+    /// next to the chat).
+    pub(crate) fn open_item(&mut self, item: ChatOpened, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.focus.is_none() && self.opened.as_ref() == Some(&item) {
             return;
         }
-        // Leaving an issue child flushes its edit (the close-tab rule).
-        self.shutdown(cx);
-        if let ChatChildSel::Issue(issue_id) = &child {
+        self.flush_issue(cx);
+        self.leave_focus(window, cx);
+        if let ChatOpened::Issue(issue_id) = &item {
             let view = self
                 .issue_view
                 .get_or_insert_with(|| {
@@ -3539,17 +3639,91 @@ impl SessionChatScreenView {
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
         }
         self.results.review = false;
-        self.child = child;
+        self.opened = Some(item);
         cx.notify();
     }
 
+    /// #EXP-1732: the opened item's `‹`: back to the tab it came from.
+    pub(crate) fn close_item(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.flush_issue(cx);
+        self.opened = None;
+        self.leave_focus(window, cx);
+        cx.notify();
+    }
+
+    /// Leave the session open in the pane: one this view opened goes, one
+    /// the route opened (`Screen::Session` of this tree) navigates back to
+    /// `Screen::Chat` (the same tab).
+    fn leave_focus(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.focus.is_none() {
+            return;
+        }
+        if self.focus_owned {
+            if let Some((_, view)) = self.focus.take() {
+                view.update(cx, |view, cx| view.shutdown(cx));
+            }
+            self.focus_owned = false;
+            self._focus_sub = None;
+            self.refresh(cx);
+            return;
+        }
+        let session_id = self.root_id.clone();
+        window.defer(cx, move |window, cx| {
+            crate::navigation::navigate(window, cx, Screen::Chat { session_id });
+        });
+    }
+
+    /// #EXP-1732: pick a header tab; an opened item closes.
+    pub(crate) fn set_tab(&mut self, tab: SessionScreenTab, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.opened.is_some() || self.focus.is_some() {
+            self.close_item(window, cx);
+        } else if self.tab == tab {
+            return;
+        }
+        self.tab = tab;
+        self.results.review = false;
+        cx.notify();
+    }
+
+    /// The Sessions tab's row: that session's raw work IN PLACE. A chat's
+    /// session rides the route (`Screen::Session`, the panel focuses it
+    /// here); any other tree's (an agent's) is this view's own.
+    fn open_session_here(&mut self, session_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.focus_id() == Some(session_id.as_str()) {
+            return;
+        }
+        self.flush_issue(cx);
+        self.opened = None;
+        if crate::screens::in_place_root(&session_id, cx).as_deref() == Some(self.root_id.as_str()) {
+            window.defer(cx, move |window, cx| open_session_in_place(session_id, window, cx));
+            cx.notify();
+            return;
+        }
+        if self.focus_owned {
+            if let Some((_, view)) = self.focus.take() {
+                view.update(cx, |view, cx| view.shutdown(cx));
+            }
+        }
+        let id = session_id.clone();
+        let view = cx.new(|cx| crate::session_screen::SessionScreenView::new(id, window, cx));
+        self._focus_sub = Some(cx.observe(&view, |_, _, cx| cx.notify()));
+        self.focus = Some((session_id, view));
+        self.focus_owned = true;
+        self.refresh(cx);
+    }
+
     /// EXP-1316 (1b): show `focus`'s session IN PLACE (the panel calls this
-    /// on a `Screen::Session` of this tree), or the chat again (`None`).
+    /// on a `Screen::Session` of this tree), or none (`Screen::Chat`).
+    /// #EXP-1732: it opens in the tab pane, beside the chat.
     pub(crate) fn set_focus(
         &mut self,
         focus: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
         cx: &mut gpui::Context<Self>,
     ) {
+        // The chat's own route never closes a session this view opened.
+        if focus.is_none() && self.focus_owned {
+            return;
+        }
         let same = match (&self.focus, &focus) {
             (Some((a, view_a)), Some((b, view_b))) => a == b && view_a == view_b,
             (None, None) => true,
@@ -3557,6 +3731,16 @@ impl SessionChatScreenView {
         };
         if same {
             return;
+        }
+        if self.focus_owned {
+            if let Some((_, view)) = self.focus.take() {
+                view.update(cx, |view, cx| view.shutdown(cx));
+            }
+            self.focus_owned = false;
+        }
+        if focus.is_some() {
+            self.flush_issue(cx);
+            self.opened = None;
         }
         self._focus_sub = focus
             .as_ref()
@@ -3570,46 +3754,27 @@ impl SessionChatScreenView {
         self.focus.as_ref().map(|(id, _)| id.as_str())
     }
 
-    /// EXP-1347: the issue ids of this chat's issue tabs (nested ones too).
+    /// EXP-1347: the issue ids of this chat's tree (nested ones too).
     pub(crate) fn issue_tab_ids(&self) -> Vec<String> {
         self.model.as_ref().map(|model| model.linked_ids()).unwrap_or_default()
     }
 
-    /// EXP-1347: an issue pill of one of this chat's issues selects its tab.
+    /// EXP-1347: an issue pill of one of this chat's issues opens it in the
+    /// pane.
     pub(crate) fn open_issue_tab(&mut self, issue_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.select_child(ChatChildSel::Issue(issue_id), window, cx);
+        self.open_item(ChatOpened::Issue(issue_id), window, cx);
     }
 
-    /// A strip chip other than a session: leave the in-place session (back
-    /// to `Screen::Chat`, the same tab) and show `child`.
-    fn select_child(&mut self, child: ChatChildSel, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.focus.is_some() {
-            let session_id = self.root_id.clone();
-            window.defer(cx, move |window, cx| {
-                crate::navigation::navigate(window, cx, Screen::Chat { session_id });
-            });
-        }
-        self.set_child(child, window, cx);
-    }
-
-    /// #EXP-1562: a waiting chip: show the Conversation (another tab
-    /// open), then scroll its card to the centre and ring it
-    /// ([`Self::take_reveal`]).
-    fn select_waiting(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let on_conversation = self.focus.is_none() && self.child == ChatChildSel::Conversation;
-        if !on_conversation {
-            self.select_child(ChatChildSel::Conversation, window, cx);
-        }
+    /// #EXP-1562: a waiting card: scroll it to the centre of the chat and
+    /// ring it ([`Self::take_reveal`]); the chat is always on show.
+    fn select_waiting(&mut self, id: &str, _window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.reveal = Some(id.to_string());
         cx.notify();
     }
 
-    /// #EXP-1562: the pending reveal, once the Conversation is the body:
-    /// THE list's row (the chat) or the ONE session's view (NEW-6).
+    /// #EXP-1562: the pending reveal: THE list's row (the chat) or the ONE
+    /// session's view (NEW-6).
     fn take_reveal(&mut self, model: &ChatModel, cx: &mut gpui::Context<Self>) {
-        if self.focus.is_some() || self.child != ChatChildSel::Conversation {
-            return;
-        }
         let Some(id) = self.reveal.take() else { return };
         if let Some((_, view)) = self.main.clone() {
             let inner = view.read(cx).inner().clone();
@@ -3635,12 +3800,18 @@ impl SessionChatScreenView {
         }
     }
 
-    fn render_header(&mut self, model: &ChatModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        // EXP-1316: the trailing slot on EVERY tab — the PR's pill, then the
-        // Guide `…`. #EXP-1710 (merge-train.json STATUS PILL): the pill is
-        // the PR's merge STATUS (any viewer; a closed PR has none), its tap
-        // the Checks list; approval mode's `Needs approval` is its only
-        // action (members).
+    /// #EXP-1732 THE header (session-screen.json): the lead avatar, the
+    /// title over its subtitle, the merge status pill, an agent's telephone,
+    /// THE gear (agents, the Assistant), the `…`; THE Segmented under it.
+    fn render_header(
+        &mut self,
+        model: &ChatModel,
+        screen: &SessionScreen,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        // #EXP-1710 (merge-train.json STATUS PILL): the PR's merge STATUS
+        // (any viewer; a closed PR has none), its tap the Checks list.
         let member = chat_member(model, cx);
         let merge = model.pull().cloned().and_then(|pull| {
             crate::work_header::merge_status_pill(
@@ -3651,140 +3822,48 @@ impl SessionChatScreenView {
                 cx,
             )
         });
-        // EXP-1686 (chats.json AGENT CHAT): an agent's chat wears THE agent
-        // header (the disc, its NAME, call, the agent menu); the strip only
-        // while it holds a plan.
-        // #FEED-191 (chats.json THE WAY BACK): a session link opened this: the
-        // Back, strip or not; on the plan tab the Conversation tab is the way.
-        let on_plan = self.focus.is_none() && matches!(self.child, ChatChildSel::Plan(_));
-        let back = (!on_plan).then(|| crate::session_screen::session_link_back(window, cx)).flatten();
-        if let Some(agent_id) = conversation_agent(model) {
-            let agent = crate::session_data::agent_def(agent_id, cx);
-            let panel = self.call_panel.read(cx).focus_handle(cx);
-            let strip = agent_chat_holds_plan(self.shown_plan(model, cx).as_ref(), model, self.plan_kept.as_deref()).then(|| self.render_strip(model, window, cx));
-            return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), back, strip, panel, cx);
-        }
-        // EXP-1316: the title is derived, plain text (no rename).
-        let title = title_row(&model.view.title, model.view.private, cx).id("chat-title");
-        // S-3 (owner 2026-10-28): no Stop pill; the composer's stop-turn
-        // is the one stop.
-        let menu = guide_menu(model, cx);
-        // The rule under the strip spans the content card (web `border-b`), so
-        // it meets the plan tab's outline hairline.
-        v_flex()
-            .w_full()
-            .child(
-                v_flex()
-                    .w_full()
-                    .px(px(HEADER_INSET))
-                    .pt_6()
-                    .pb_3()
-                    .gap_4()
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .min_w_0()
-                            .gap_1()
-                            .children(back)
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(div().flex_1().min_w_0().child(title))
-                                    .children(merge)
-                                    .children(menu),
-                            ),
-                    )
-                    .child(self.render_strip(model, window, cx)),
-            )
-            .child(div().w_full().h(px(1.)).bg(cx.theme().border))
-            .into_any_element()
-    }
-
-    /// EXP-1334: THE chat strip ([`chat_strip`]) over the view's tabs.
-    fn render_strip(&mut self, model: &ChatModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let member = chat_member(model, cx);
-        let open = match (self.focus_id(), &self.child) {
-            (Some(focus), _) => StripPick::Session(focus.to_string()),
-            (None, ChatChildSel::Conversation) => StripPick::Conversation,
-            (None, ChatChildSel::Issue(id)) => StripPick::Issue(id.clone()),
-            (None, ChatChildSel::Results) => StripPick::Results,
-            (None, ChatChildSel::Plan(_)) => StripPick::Plan,
-        };
-        let issues: HashMap<String, StripIssue> = model
-            .issues
-            .values()
-            .map(|issue| {
-                let link_id = model
-                    .links
-                    .iter()
-                    .find(|link| link.issue_id == issue.id)
-                    .map(|link| link.id.clone())
-                    .unwrap_or_default();
-                (
-                    issue.id.clone(),
-                    StripIssue {
-                        title: issue.title.clone(),
-                        status: Some(crate::queries::resolve_issue_status(cx, issue)),
-                        ringed: self.ringed(&link_id).then_some(link_id),
-                    },
-                )
-            })
-            .collect();
-        let clis: HashMap<String, Option<String>> = crate::session_data::tree_of_root(&self.root_id, cx)
-            .into_iter()
-            .map(|session| (session.id, session.cli))
-            .collect();
-        // chats.json AGENT CHAT: Conversation and the plan, nothing else.
-        let agent_chat = conversation_agent(model).is_some();
+        // #FEED-191 (chats.json THE WAY BACK): a session link opened this.
+        let back = crate::session_screen::session_link_back(window, cx);
         let this = cx.entity().downgrade();
-        let on_pick: OnStripPick = std::rc::Rc::new(move |pick, window, cx| match pick {
-            StripPick::Session(session_id) => open_session_in_place(session_id, window, cx),
-            other => {
-                let child = match other {
-                    StripPick::Issue(id) => ChatChildSel::Issue(id),
-                    StripPick::Results => ChatChildSel::Results,
-                    StripPick::Plan => ChatChildSel::Plan(None),
-                    _ => ChatChildSel::Conversation,
-                };
-                let _ = this.update(cx, |this, cx| {
-                    // The chip of the open plan tab keeps the plan it shows.
-                    let child = match (&child, &this.child) {
-                        (ChatChildSel::Plan(_), open @ ChatChildSel::Plan(_)) => open.clone(),
-                        _ => child,
-                    };
-                    this.select_child(child, window, cx);
-                });
-            }
+        let on_tab: OnTabPick = Rc::new(move |tab, window, cx| {
+            let _ = this.update(cx, |this, cx| this.set_tab(tab, window, cx));
         });
-        chat_strip(
-            ChatStrip {
-                prefix: "chat",
-                results: !agent_chat,
-                plan: self
-                    .shown_plan(model, cx)
-                    .or_else(|| tab_plan(&model.view.rows, self.plan_kept.as_deref()).cloned())
-                    .as_ref()
-                    .and_then(strip_plan_of),
-                waiting: if agent_chat { Vec::new() } else { crate::waiting_cards::chat_waiting_cards(&model.view.rows) },
-                on_waiting: (!agent_chat).then(|| {
-                    let this = cx.entity().downgrade();
-                    std::rc::Rc::new(move |id: &str, window: &mut Window, cx: &mut App| {
-                        let _ = this.update(cx, |this, cx| this.select_waiting(id, window, cx));
-                    }) as _
-                }),
-                tabs: model.view.tabs.clone(),
-                issues,
-                clis,
-                open,
-                menu: (member && !agent_chat).then(|| self.menu_target(None)),
-                on_pick,
-            },
-            window,
-            cx,
-        )
+        let tabs = screen_tabs(&screen.tabs, screen.active, on_tab, cx);
+        let gear = screen.gear.then(|| {
+            let open = matches!(self.opened, Some(ChatOpened::Settings));
+            let this = cx.entity().downgrade();
+            let on_press: OnPress = Rc::new(move |window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    if open {
+                        this.close_item(window, cx);
+                    } else {
+                        this.open_item(ChatOpened::Settings, window, cx);
+                    }
+                });
+            });
+            (on_press, open)
+        });
+        let (avatar, title, trailing, menu, agent) = match conversation_agent(model) {
+            // An agent's (the Assistant's) conversation: its disc, its NAME,
+            // the telephone, THE agent menu.
+            Some(agent_id) => {
+                let agent = crate::session_data::agent_def(agent_id, cx);
+                let name = agent.as_ref().map(crate::agent_screen::agent_def_name).unwrap_or_default();
+                let panel = self.call_panel.read(cx).focus_handle(cx);
+                let call = agent.as_ref().map(|agent| crate::agent_screen::agent_header_call(&agent.id, &name, panel, cx));
+                let menu = crate::agent_screen::agent_header_menu(agent_id, cx);
+                let avatar = crate::agent_screen::agent_header_disc(agent.as_ref(), cx);
+                let title = title_row(&name, false, cx).id("chat-title").into_any_element();
+                (avatar, title, merge.into_iter().chain(call).collect::<Vec<_>>(), menu, agent)
+            }
+            // EXP-1316: a chat's title is derived, plain text (no rename).
+            None => {
+                let title = title_row(&model.view.title, model.view.private, cx).id("chat-title").into_any_element();
+                (chat_header_lead(model, cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, cx), None)
+            }
+        };
+        let subtitle = screen_subtitle(Some(&model.root), agent.as_ref(), cx);
+        screen_header(ScreenHeader { avatar, title, subtitle, trailing, gear, menu, back, tabs }, cx)
     }
 
     fn render_row(
@@ -4361,41 +4440,26 @@ impl SessionChatScreenView {
         ))
     }
 
-    /// #EXP-1662: the plan the open plan tab shows: the one a row opened (a
-    /// grandchild's card is not among the root's rows), else the tab's target.
-    fn shown_plan(&self, model: &ChatModel, cx: &App) -> Option<SessionChatRow> {
-        let ChatChildSel::Plan(opened) = &self.child else {
-            return None;
-        };
-        let opened = opened.as_deref().and_then(|id| {
-            model.view.rows.iter().find(|row| row.id() == id).cloned().or_else(|| {
-                let store = Store::try_global(cx)?;
-                let message = store.collections().messages.read(cx).get(id).cloned()?;
-                domain::session_tree::ask_card_row(&message).filter(|row| matches!(row, SessionChatRow::Plan { .. }))
-            })
-        });
-        opened.or_else(|| tab_plan(&model.view.rows, self.plan_kept.as_deref()).cloned())
-    }
-
-    /// #FEED-191 (plan-page.json `kept`): the plan the tab showed during THIS
-    /// visit: a plan a row opened, else the tab's target whenever it has one.
-    fn hold_plan(&mut self, model: &ChatModel) {
-        if let ChatChildSel::Plan(Some(opened)) = &self.child {
-            self.plan_kept = Some(opened.clone());
-        }
-        if let Some(target) = tab_plan(&model.view.rows, self.plan_kept.as_deref()) {
-            self.plan_kept = Some(target.id().to_string());
-        }
+    /// The plan card `id` (a grandchild's card is not among the root's
+    /// rows: the synced message's).
+    fn plan_row(&self, model: &ChatModel, id: &str, cx: &App) -> Option<SessionChatRow> {
+        model.view.rows.iter().find(|row| row.id() == id).cloned().or_else(|| {
+            let store = Store::try_global(cx)?;
+            let message = store.collections().messages.read(cx).get(id).cloned()?;
+            domain::session_tree::ask_card_row(&message).filter(|row| matches!(row, SessionChatRow::Plan { .. }))
+        })
     }
 
     /// #FEED-191: the person left this chat (the pane shows another one, or
-    /// none): a decided plan leaves the strip on the next visit.
+    /// none): an opened plan closes, the next visit opens on its tab.
     pub(crate) fn leave(&mut self) {
-        self.plan_kept = None;
+        if matches!(self.opened, Some(ChatOpened::Plan(_))) {
+            self.opened = None;
+        }
     }
 
-    /// #EXP-1662: THE plan tab's body: only the content swaps, on the chat's
-    /// own ground, no composer.
+    /// The plan page (plan-page.json) opened in the pane: only the content,
+    /// on the chat's own ground, no composer.
     fn render_plan_child(&mut self, row: &SessionChatRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         if self.plan_painted.as_deref() != Some(row.id()) {
             self.plan_painted = Some(row.id().to_string());
@@ -4421,6 +4485,146 @@ impl SessionChatScreenView {
             Some(view) => div().flex_1().min_h_0().w_full().child(view.clone()).into_any_element(),
             None => div().flex_1().into_any_element(),
         }
+    }
+
+    /// THE gear's settings: the agent's settings page (agent-settings.json:
+    /// prompt, triggers, defaults; the Assistant's = its own page), built on
+    /// first open.
+    fn render_settings(&mut self, model: &ChatModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let Some(agent_id) = conversation_agent(model).map(str::to_string) else {
+            return div().flex_1().into_any_element();
+        };
+        let existing = self.settings.as_ref().filter(|(id, _)| *id == agent_id).map(|(_, pane)| pane.clone());
+        let pane = match existing {
+            Some(pane) => pane,
+            None => {
+                let nav = crate::navigation::nav_for_window(window, cx);
+                let shared = crate::sidebar::rail_shared_for_window(window, cx);
+                let id = agent_id.clone();
+                let pane = cx.new(|cx| crate::settings::agent_detail::AgentDetailPane::for_agent(id, nav, shared, window, cx));
+                self.settings = Some((agent_id, pane.clone()));
+                pane
+            }
+        };
+        crate::scroll_pane::v_scroll_pane(
+            "session-settings-scroll",
+            &self.settings_scroll,
+            div().w_full().px_6().py_4().child(pane),
+        )
+        .into_any_element()
+    }
+
+    /// The Issues tab: the `+` (members), then THE issue rows of the tree; a
+    /// row opens that issue in place.
+    fn render_issues(&self, model: &ChatModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let items = screen_issue_items(model, cx);
+        let open = match &self.opened {
+            Some(ChatOpened::Issue(id)) => Some(id.clone()),
+            _ => None,
+        };
+        let this = cx.entity().downgrade();
+        let on_pick: OnTreePick = Rc::new(move |item, window, cx| {
+            if let TreeItem::Issue { issue_id, .. } = item {
+                let issue_id = issue_id.clone();
+                let _ = this.update(cx, |this, cx| this.open_item(ChatOpened::Issue(issue_id), window, cx));
+            }
+        });
+        let member = chat_member(model, cx);
+        let linked: HashSet<String> = model.links.iter().map(|link| link.issue_id.clone()).collect();
+        let menu = member.then(|| (self.menu_target(None), linked));
+        let lead = member.then(|| issues_add("chat", self.menu_target(None), cx));
+        let rows = tree_rows(&SESSION_SCREEN.test_ids.issues, &items, open.as_deref(), on_pick, menu, cx);
+        tab_list(&SESSION_SCREEN.test_ids.issues, lead, rows)
+    }
+
+    /// The Sessions tab: THE tree rows of every session under the root; a
+    /// row opens that session in place.
+    fn render_sessions(&self, model: &ChatModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let items = session_tree_items(&self.root_id, &model.tree, cx);
+        let this = cx.entity().downgrade();
+        let on_pick: OnTreePick = Rc::new(move |item, window, cx| {
+            if let TreeItem::Session { session_id, .. } = item {
+                let session_id = session_id.clone();
+                let _ = this.update(cx, |this, cx| this.open_session_here(session_id, window, cx));
+            }
+        });
+        let rows = tree_rows(&SESSION_SCREEN.test_ids.sessions, &items, self.focus_id(), on_pick, None, cx);
+        tab_list(&SESSION_SCREEN.test_ids.sessions, None, rows)
+    }
+
+    /// The tab pane: an opened item (the session in place, an issue, a
+    /// plan, the settings) under its `‹`, else the active tab's body.
+    fn render_pane(
+        &mut self,
+        model: &ChatModel,
+        screen: &SessionScreen,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let label = pane_back_label(screen.active);
+        let this = cx.entity().downgrade();
+        let on_back: OnPress = Rc::new(move |window, cx| {
+            let _ = this.update(cx, |this, cx| this.close_item(window, cx));
+        });
+        if let Some((_, view)) = self.focus.clone() {
+            // #EXP-1736: the view's S-3 origin = the sender of the prompt
+            // that started it (its bubble replaces the `Started by` line).
+            let inner = view.read(cx).inner().clone();
+            let origin = model.view.origin.clone();
+            if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
+                inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
+            }
+            let body = session_pane(&view, cx);
+            return pane_item(&label, on_back, body, cx);
+        }
+        match self.opened.clone() {
+            Some(ChatOpened::Issue(_)) => {
+                let body = self.render_issue_child();
+                pane_item(&label, on_back, body, cx)
+            }
+            Some(ChatOpened::Plan(id)) => {
+                let body = match self.plan_row(model, &id, cx) {
+                    Some(row) => self.render_plan_child(&row, window, cx),
+                    None => div().flex_1().into_any_element(),
+                };
+                pane_item(&label, on_back, body, cx)
+            }
+            Some(ChatOpened::Settings) => {
+                let body = self.render_settings(model, window, cx);
+                pane_item(&label, on_back, body, cx)
+            }
+            None => match screen.active {
+                SessionScreenTab::Issues => self.render_issues(model, cx),
+                SessionScreenTab::Sessions => self.render_sessions(model, cx),
+                SessionScreenTab::Results => self.render_results_child(model, window, cx),
+                _ => div().flex_1().into_any_element(),
+            },
+        }
+    }
+
+    /// #EXP-1732: this screen's `session_screen` (the IDE is WIDE: the
+    /// beside rule always). An app's editor session opened as a chat reads
+    /// as a chat here (the app editor is its own screen).
+    fn screen_of(&self, model: &ChatModel, cx: &mut gpui::Context<Self>) -> SessionScreen {
+        let agent_id = conversation_agent(model);
+        let assistant = agent_id
+            .and_then(|agent_id| crate::session_data::agent_def(agent_id, cx))
+            .is_some_and(|agent| agent.is_assistant());
+        let kind = match session_screen_kind(agent_id, model.root.app_id.as_deref(), assistant) {
+            SessionScreenKind::App => SessionScreenKind::Session,
+            kind => kind,
+        };
+        let open = if self.focus.is_some() {
+            Some(SessionScreenOpen::Session.as_str())
+        } else {
+            self.opened.as_ref().map(ChatOpened::open)
+        };
+        let counts = SessionScreenCounts {
+            issues: screen_issue_items(model, cx).len() as u64,
+            sessions: model.tree.iter().filter(|session| session.id != model.root.id).count() as u64,
+            results: crate::results_tab::results_of_root(&self.root_id, cx).len() as u64,
+        };
+        session_screen(kind.as_str(), true, Some(self.tab.as_str()), open, counts)
     }
 }
 
@@ -4465,30 +4669,23 @@ impl Render for SessionChatScreenView {
                 .pt_6()
                 .child(crate::feedback::skeleton_rows("chat-loading", 3, 36., cx));
         };
-        // EXP-1686 (chats.json AGENT CHAT): an agent's chat shows the conversation
-        // and its plan: a stale Results (or issue) selection falls back.
         let agent_chat = conversation_agent(&model).map(str::to_string);
-        if agent_chat.is_some()
-            && !agent_chat_shows(&self.child, agent_chat_holds_plan(self.shown_plan(&model, cx).as_ref(), &model, self.plan_kept.as_deref()))
-        {
-            self.set_child(ChatChildSel::Conversation, window, cx);
-        }
         self.call_panel.update(cx, |panel, cx| panel.set_agent(agent_chat.clone(), cx));
-        // A new issue filed into this chat lands on its child once its
-        // link has synced.
+        // A new issue filed into this chat opens in the pane once its link
+        // has synced.
         let pending = cx
             .try_global::<PendingChatChild>()
             .and_then(|pending| pending.0.get(&self.root_id).cloned())
             .filter(|issue_id| model.linked_ids().contains(issue_id));
         if let Some(issue_id) = pending {
             cx.global_mut::<PendingChatChild>().0.remove(&self.root_id);
-            self.set_child(ChatChildSel::Issue(issue_id), window, cx);
+            self.open_item(ChatOpened::Issue(issue_id), window, cx);
         }
-        // #EXP-1662: a way in asked for this chat's plan tab on a plan.
+        // #EXP-1662: a way in asked for this chat's plan: it opens beside.
         let pending_plan = cx.try_global::<PendingChatPlan>().and_then(|pending| pending.0.get(&self.root_id).cloned());
         if let Some(message_id) = pending_plan {
             cx.global_mut::<PendingChatPlan>().0.remove(&self.root_id);
-            self.set_child(ChatChildSel::Plan(Some(message_id)), window, cx);
+            self.open_item(ChatOpened::Plan(message_id), window, cx);
         }
         // #FEED-191 (needs-you.json): a Needs you row asked for this chat.
         let opening = cx.try_global::<PendingChatOpening>().and_then(|pending| pending.0.get(&self.root_id).cloned());
@@ -4496,109 +4693,61 @@ impl Render for SessionChatScreenView {
             cx.global_mut::<PendingChatOpening>().0.remove(&self.root_id);
             match opening {
                 ChatOpening::Card(message_id) => self.select_waiting(&message_id, window, cx),
-                ChatOpening::Results if agent_chat.is_none() => self.select_child(ChatChildSel::Results, window, cx),
-                ChatOpening::Results => {}
+                ChatOpening::Results => self.set_tab(SessionScreenTab::Results, window, cx),
             }
         }
-        // #FEED-191 (plan-page.json): a decision taken on the plan tab landed:
-        // back to the Conversation, where the agent works on.
+        // #FEED-191 (plan-page.json): a decision taken on the opened plan
+        // landed: it closes, the agent works on in the chat.
         if cx.try_global::<PlanTabDecisions>().is_some_and(|decisions| decisions.landed.contains(&self.root_id)) {
             cx.global_mut::<PlanTabDecisions>().landed.remove(&self.root_id);
-            if matches!(self.child, ChatChildSel::Plan(_)) {
-                self.set_child(ChatChildSel::Conversation, window, cx);
+            if matches!(self.opened, Some(ChatOpened::Plan(_))) {
+                self.close_item(window, cx);
             }
-        }
-        // #FEED-191: the plan this visit keeps on the strip.
-        self.hold_plan(&model);
-        // Nothing left to show on the plan tab: the Conversation.
-        if matches!(self.child, ChatChildSel::Plan(_)) && self.shown_plan(&model, cx).is_none() {
-            self.set_child(ChatChildSel::Conversation, window, cx);
         }
         // EXP-1346: ONE memoised chip resolver per frame for every text.
         self.text = ChatText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()))
             .answering(self.composer.read(cx).may_message());
-        // NEW-6 (N-1): a chat with ONE session = that session's raw work
-        // in place of the Conversation (its composer, Stop in the header).
-        let on_conversation = self.focus.is_none() && self.child == ChatChildSel::Conversation;
-        // S-3 (chats.json CHAT MODE): an agent conversation always paints
-        // its bubbles, never the root's raw work in place.
+        // NEW-6 (N-1): a chat with ONE session = that session's raw work in
+        // the chat pane (its composer). S-3 (chats.json CHAT MODE): an agent
+        // conversation always paints its bubbles. Never twice: the session
+        // open in the pane wins.
         let bubbles = domain::session_tree::chat_mode(model.root.agent_id.as_deref())
             == domain::session_tree::ChatMode::Bubbles;
-        let main = (on_conversation && !bubbles).then(|| model.view.main_session_id.clone()).flatten();
+        let main = (!bubbles)
+            .then(|| model.view.main_session_id.clone())
+            .flatten()
+            .filter(|id| self.focus_id() != Some(id.as_str()));
         self.sync_main(main.as_deref(), window, cx);
-        let header = self.render_header(&model, window, cx);
-        // EXP-1323: the live tail's viewer rides the Conversation only.
-        let live = (on_conversation && main.is_none())
-            .then(|| model.view.live_session_id.clone())
-            .flatten();
+        // EXP-1323: the live tail's viewer rides the Conversation.
+        let live = main.is_none().then(|| model.view.live_session_id.clone()).flatten();
         self.sync_tail(live.as_deref(), window, cx);
         // #EXP-1545: the Live children's Queues ride the Conversation's Dock.
-        let children = if on_conversation && main.is_none() && self.child == ChatChildSel::Conversation {
-            live_children(&model.view, &model.root, cx)
-        } else {
-            Vec::new()
-        };
+        let children = if main.is_none() { live_children(&model.view, &model.root, cx) } else { Vec::new() };
         self.sync_queue_feeds(children, window, cx);
-        // EXP-1323: what is on screen is read — the chat (the whole tree's
-        // agent replies) or the session open in place (its own).
-        match self.focus_id().map(str::to_string) {
-            Some(focus) => crate::session_data::mark_read_if_unread(&focus, false, cx),
-            None => crate::session_data::mark_read_if_unread(&self.root_id, true, cx),
+        // EXP-1323: what is on screen is read: the chat (the whole tree's
+        // agent replies) and the session open in the pane (its own).
+        crate::session_data::mark_read_if_unread(&self.root_id, true, cx);
+        if let Some(focus) = self.focus_id().map(str::to_string) {
+            crate::session_data::mark_read_if_unread(&focus, false, cx);
         }
-        // EXP-1316 (1b): a session open in place = its raw work under the
-        // chat's own header + strip (no session header of its own).
-        if let Some((_, view)) = self.focus.clone().or_else(|| self.main.clone()) {
-            // #EXP-1562: a chip's reveal on the ONE session's raw work.
-            self.take_reveal(&model, cx);
-            let inner = view.read(cx).inner().clone();
-            // #EXP-1736: the view's S-3 origin = the sender of the prompt
-            // that started it (its bubble replaces the `Started by` line).
-            let origin = model.view.origin.clone();
-            if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
-                inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
+        let screen = self.screen_of(&model, cx);
+        let header = self.render_header(&model, &screen, window, cx);
+        // THE chat body (every layout): the transcript + Dock + composer, or
+        // the ONE session's raw work.
+        let chat = match self.main.clone() {
+            Some((_, view)) => {
+                self.take_reveal(&model, cx);
+                let inner = view.read(cx).inner().clone();
+                let origin = model.view.origin.clone();
+                if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
+                    inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
+                }
+                session_pane(&view, cx)
             }
-            let scrolled = inner.read(cx).body_scrolled();
-            // #VAPP-229: the in-place session's `via <app>` line under the
-            // chat header (which stays caption-free).
-            let via_app = crate::session_screen::via_app_line(inner.read(cx).session_row(), cx)
-                .map(|line| {
-                    div()
-                        .w_full()
-                        .child(
-                            div()
-                                .w_full()
-                                .max_w(px(CONVERSATION_W))
-                                .mx_auto()
-                                .px(px(crate::work_header::WORK_GUTTER))
-                                .pt_1()
-                                .child(line),
-                        )
-                        .into_any_element()
-                });
-            return v_flex()
-                .track_focus(&self.focus_handle)
-                .size_full()
-                .min_h_0()
-                .overflow_hidden()
-                .child(header)
-                .children(via_app)
-                .child(crate::work_header::work_body(
-                    div().flex_1().min_h_0().child(inner).into_any_element(),
-                    false,
-                    scrolled,
-                ));
-        }
-        let child = match self.child.clone() {
-            ChatChildSel::Conversation => self.render_conversation(&model, window, cx),
-            ChatChildSel::Issue(_) => self.render_issue_child(),
-            ChatChildSel::Results => self.render_results_child(&model, window, cx),
-            ChatChildSel::Plan(_) => match self.shown_plan(&model, cx) {
-                Some(row) => self.render_plan_child(&row, window, cx),
-                None => div().flex_1().into_any_element(),
-            },
+            None => self.render_conversation(&model, window, cx),
         };
         // EXP-1686: the call panel covers an agent chat's body while it runs.
-        let child = match agent_chat {
+        let chat = match agent_chat {
             Some(_) => div()
                 .relative()
                 .flex()
@@ -4606,10 +4755,18 @@ impl Render for SessionChatScreenView {
                 .flex_1()
                 .min_h_0()
                 .w_full()
-                .child(child)
+                .child(chat)
                 .child(self.call_panel.clone())
                 .into_any_element(),
-            None => child,
+            None => chat,
+        };
+        // #EXP-1732 (session-screen.json LAYOUT): wide = the beside rule.
+        let body = match screen.layout {
+            SessionScreenLayout::Chat => chat,
+            SessionScreenLayout::Beside | SessionScreenLayout::Tab | SessionScreenLayout::Item => {
+                let pane = self.render_pane(&model, &screen, window, cx);
+                screen_beside(chat, pane, cx)
+            }
         };
         v_flex()
             .track_focus(&self.focus_handle)
@@ -4617,43 +4774,13 @@ impl Render for SessionChatScreenView {
             .min_h_0()
             .overflow_hidden()
             .child(header)
-            .child(child)
+            .child(body)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The "+" offers Link an issue and New issue; an issue chip adds its
-    /// Unlink after a separator. No "start a session" row any more.
-    fn plan_row_of(id: &str, decision: Option<&str>) -> SessionChatRow {
-        SessionChatRow::Plan {
-            id: id.into(),
-            session_id: "s".into(),
-            plan: format!("# {id}"),
-            questions: Vec::new(),
-            surface: None,
-            decision: decision.map(Into::into),
-            fresh: false,
-            answers: None,
-            feedback: None,
-            surface_data: None,
-        }
-    }
-
-    /// chats.json AGENT CHAT: the bug of #EXP-1686 × #EXP-1662: the fallback sent
-    /// the open plan tab back to the Conversation on the next frame.
-    #[test]
-    fn an_agent_chat_keeps_its_plan_tab_open() {
-        assert!(agent_chat_shows(&ChatChildSel::Plan(None), true));
-        assert!(agent_chat_shows(&ChatChildSel::Plan(Some("m1".into())), true));
-        assert!(agent_chat_shows(&ChatChildSel::Conversation, true));
-        assert!(agent_chat_shows(&ChatChildSel::Conversation, false));
-        assert!(!agent_chat_shows(&ChatChildSel::Plan(None), false));
-        assert!(!agent_chat_shows(&ChatChildSel::Results, true));
-        assert!(!agent_chat_shows(&ChatChildSel::Issue("i".into()), true));
-    }
 
     /// plan-page.json #FEED-191: a tab decision lands only when it succeeds; a
     /// decision from the Conversation never enters.
@@ -4673,11 +4800,12 @@ mod tests {
         });
     }
 
-    /// chats.json AGENT CHAT, the whole path: an agent posts a plan, a way in
-    /// opens it: the tab stays open across frames with the strip up, the person
-    /// switches back and forth, a decision keeps it, a superseded plan leaves.
+    /// #EXP-1732 (session-screen.json), an agent's chat the whole path: THE
+    /// tabs and the gear in its header, the chat full width on Chat; a way in
+    /// opens the plan BESIDE the chat, across frames and a decision; its `‹`
+    /// closes it; any other tab opens the pane beside the chat too.
     #[gpui::test]
-    fn an_agent_chats_plan_stays_open_with_its_strip(cx: &mut gpui::TestAppContext) {
+    fn an_agent_chats_plan_opens_beside_the_chat(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         fn seed_plan(decision: Option<&str>, cx: &mut App) {
             let message: MessageRow = serde_json::from_value(serde_json::json!({
@@ -4731,7 +4859,7 @@ mod tests {
             seed_plan(None, cx);
         });
         let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
-        let tab: &'static str = domain::plan_page::PLAN_PAGE.test_ids.tab.as_str();
+        let beside: &'static str = SESSION_SCREEN.test_ids.beside.as_str();
         let draw = |cx: &mut gpui::VisualTestContext| {
             for _ in 0..3 {
                 cx.update(|window, cx| window.draw(cx).clear(cx));
@@ -4739,41 +4867,36 @@ mod tests {
             }
         };
         draw(cx);
-        // The Conversation first, the strip already up: there is a plan to switch to.
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Conversation));
-        assert!(cx.debug_bounds(tab).is_some(), "the strip holds the plan tab");
+        // The chat full width, THE tabs over it; no strip, no plan tab.
+        view.read_with(cx, |view, _| assert_eq!((view.tab, view.opened.clone()), (SessionScreenTab::Chat, None)));
+        assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.tabs.as_str()).is_some(), "THE Segmented");
+        assert!(cx.debug_bounds(beside).is_none(), "Chat alone = the chat full width");
+        assert!(cx.debug_bounds(domain::plan_page::PLAN_PAGE.test_ids.tab.as_str()).is_none(), "no plan tab");
 
-        // A way in opens it, and it stays.
+        // A way in opens the plan beside the chat, and it stays.
         cx.update(|_, cx| request_chat_plan("r1", "m1", cx));
         cx.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
         draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Plan(Some("m1".into()))));
-        assert!(cx.debug_bounds(tab).is_some());
+        view.read_with(cx, |view, _| assert_eq!(view.opened, Some(ChatOpened::Plan("m1".into()))));
+        assert!(cx.debug_bounds(beside).is_some());
+        assert!(cx.debug_bounds(SESSION_CHAT.test_ids.conversation.as_str()).is_some(), "the chat stays beside");
 
-        // Back to the Conversation and into the plan again.
-        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ChatChildSel::Conversation, window, cx)));
-        draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Conversation));
-        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ChatChildSel::Plan(None), window, cx)));
-        draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Plan(None)));
-
-        // Answering keeps the plan on show, its tab still there.
+        // Answering keeps it open.
         cx.update(|_, cx| seed_plan(Some("approved"), cx));
         draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Plan(None)));
-        assert!(cx.debug_bounds(tab).is_some());
+        view.read_with(cx, |view, _| assert_eq!(view.opened, Some(ChatOpened::Plan("m1".into()))));
 
-        // Superseded: nothing to switch to, the Conversation and no strip.
-        cx.update(|_, cx| seed_plan(Some("superseded"), cx));
+        // Its back closes it: the chat full width again.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.close_item(window, cx)));
         draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Conversation));
-        assert!(cx.debug_bounds(tab).is_none());
+        view.read_with(cx, |view, _| assert_eq!(view.opened, None));
+        assert!(cx.debug_bounds(beside).is_none());
 
-        // A stale Results selection never survives in an agent's chat.
-        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ChatChildSel::Results, window, cx)));
+        // Results (an agent's chat has one now) opens beside the chat.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.set_tab(SessionScreenTab::Results, window, cx)));
         draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.child, ChatChildSel::Conversation));
+        view.read_with(cx, |view, _| assert_eq!(view.tab, SessionScreenTab::Results));
+        assert!(cx.debug_bounds(beside).is_some());
     }
 
     /// One agent chat ("r1") holding one agent message `body`.
@@ -4914,8 +5037,8 @@ mod tests {
         assert!(!all.contains('\u{a0}'), "no placeholder spaces: {all:?}");
     }
 
-    /// chats.json THE WAY BACK, the desktop's whole path: an agent's chat (no
-    /// plan, so no strip), a card opening a chat it started and one opening
+    /// chats.json THE WAY BACK, the desktop's whole path: an agent's chat, a
+    /// card opening a chat it started and one opening
     /// its own child: each lands with a Back to the chat; the same screens
     /// reached another way wear none, nor does a session opened in place.
     #[gpui::test]
@@ -5015,7 +5138,7 @@ mod tests {
         cx.update(|window, cx| assert_eq!(crate::navigation::session_back_screen(window, cx), None));
         cx.update(|window, cx| crate::navigation::go_back(window, cx));
 
-        // The plan tab's way back is the Conversation tab.
+        // An opened plan keeps the link's Back and wears its own `‹`.
         cx.update(|window, cx| crate::navigation::go_back(window, cx));
         assert_eq!(screen_on_show(cx), Some(chat.clone()));
         cx.update(|window, cx| open_session_card("plain-chat", window, cx));
@@ -5046,16 +5169,18 @@ mod tests {
             });
         });
         draw(cx);
-        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ChatChildSel::Plan(None), window, cx)));
+        cx.update(|window, cx| view.update(cx, |view, cx| view.open_item(ChatOpened::Plan("m1".into()), window, cx)));
         draw(cx);
-        assert!(cx.debug_bounds(domain::plan_page::PLAN_PAGE.test_ids.tab.as_str()).is_some());
-        assert!(cx.debug_bounds(BACK).is_none(), "the plan tab: no Back");
-        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ChatChildSel::Conversation, window, cx)));
+        assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.beside.as_str()).is_some(), "the plan opens beside");
+        assert!(cx.debug_bounds("session-pane-back").is_some(), "the opened plan's back");
+        assert!(cx.debug_bounds(BACK).is_some());
+        cx.update(|window, cx| view.update(cx, |view, cx| view.close_item(window, cx)));
         draw(cx);
+        assert!(cx.debug_bounds("session-pane-back").is_none());
         assert!(cx.debug_bounds(BACK).is_some());
     }
 
-    /// chats.json THE WAY BACK: a chat with no strip, reached through a link
+    /// chats.json THE WAY BACK: an agent's chat reached through a link
     /// (a cross-session bubble, #EXP-1736), wears the Back in THE agent header.
     #[gpui::test]
     fn an_agent_chat_without_a_strip_wears_the_links_back(cx: &mut gpui::TestAppContext) {
@@ -5102,34 +5227,13 @@ mod tests {
         };
         draw(cx);
         assert!(cx.debug_bounds("chat-back-link").is_none(), "nothing to return to");
-        assert!(cx.debug_bounds(domain::plan_page::PLAN_PAGE.test_ids.tab.as_str()).is_none(), "no strip");
         cx.update(|window, cx| {
             crate::navigation::nav_for_window(window, cx);
             crate::navigation::navigate(window, cx, Screen::Chat { session_id: "other".into() });
             crate::navigation::open_session_link("chat", window, cx);
         });
         draw(cx);
-        assert!(cx.debug_bounds("chat-back-link").is_some(), "the Back with no strip");
-    }
-
-    /// #EXP-1662: the chip targets `plan_tab_target` over the chat's rows and
-    /// wears the dot while that plan waits.
-    #[test]
-    fn the_plan_chip_follows_the_tab_target() {
-        let rows = [plan_row_of("old", Some("approved")), plan_row_of("new", None), plan_row_of("done", Some("rejected"))];
-        let target = tab_plan(&rows, None).unwrap();
-        assert_eq!(target.id(), "new");
-        let chip = strip_plan_of(target).unwrap();
-        assert_eq!(chip.label, "Plan: new");
-        assert!(chip.waiting);
-        assert_eq!(chip.glyph.icon, "coding-plan");
-        assert!(tab_plan(&[plan_row_of("gone", Some("superseded"))], Some("gone")).is_none());
-        // #FEED-191: a decided plan leaves the strip unless this visit keeps it,
-        // and an approved one leads with the check.
-        let decided = [plan_row_of("old", Some("approved"))];
-        assert!(tab_plan(&decided, None).is_none());
-        let kept = strip_plan_of(tab_plan(&decided, Some("old")).unwrap()).unwrap();
-        assert_eq!((kept.glyph.icon, kept.glyph.tone, kept.waiting), ("ui-check", "approved", false));
+        assert!(cx.debug_bounds("chat-back-link").is_some(), "the link's Back");
     }
 
     #[test]

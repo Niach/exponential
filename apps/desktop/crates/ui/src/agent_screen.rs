@@ -1,9 +1,12 @@
 //! EXP-1294 / NEW-6 — an AGENT's page ([`Screen::Agent`], web
 //! `agents/$agentId.tsx`): the screen id IS the `agents` row; the page shows
 //! the CALLER's own conversation with it (a root session with that
-//! `agent_id` and `user_id` = me). No conversation yet = the same screen,
-//! empty, whose composer opens one with `sessions.send({agentId})`. The
-//! header is the `agents` row's tinted icon and name; the conversation is
+//! `agent_id` and `user_id` = me). #EXP-1732: once it exists the page IS THE
+//! session screen ([`crate::session_chat::SessionChatScreenView`]); before,
+//! the same chrome (THE header with the gear, THE Segmented, the beside rule)
+//! over an empty chat whose composer opens one with
+//! `sessions.send({agentId})`. The header is the `agents` row's tinted icon
+//! and name; the conversation is
 //! its messages on THE chat's painters (web `ChatConversation`: a
 //! person's bubble right with `name · HH:MM`, the agent's plain prose; an
 //! agent conversation = the chat bubbles), every `thread_started` (wire kind) / `session` card THE session
@@ -24,12 +27,13 @@
 //! composer focused with `draftPlaceholder`.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
-    Focusable, FollowMode, FontWeight, InteractiveElement as _, IntoElement, ListAlignment, ListState,
+    Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
     ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, TextareaState};
@@ -37,6 +41,10 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, S
 use sync::Store;
 
 use domain::rows::{AgentDefRow, AppRow, MessageRow, SessionRow};
+use domain::session_screen::{
+    session_screen, session_screen_kind, SessionScreen, SessionScreenCounts, SessionScreenLayout, SessionScreenOpen,
+    SessionScreenTab,
+};
 use domain::session_tree::SessionChatRow;
 
 use crate::composer_images::{self, PendingImages};
@@ -98,7 +106,7 @@ pub(crate) fn agent_def_icon(agent: Option<&AgentDefRow>) -> Icon {
 
 /// The header's lead disc (web `disc(`size-8`, `size-4`)`): the agent's
 /// avatar on bg muted; the Assistant = the brand mark.
-fn agent_header_disc(agent: Option<&AgentDefRow>, cx: &App) -> AnyElement {
+pub(crate) fn agent_header_disc(agent: Option<&AgentDefRow>, cx: &App) -> AnyElement {
     let glyph = match agent {
         Some(agent) if agent.is_assistant() => Icon::from(crate::icons::ExpIcon::Logo)
             .with_size(px(HEADER_GLYPH_PX))
@@ -119,7 +127,7 @@ fn agent_header_disc(agent: Option<&AgentDefRow>, cx: &App) -> AnyElement {
 }
 
 /// The agent's `…` (`agentMenuEntries`); none without entries.
-fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
+pub(crate) fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
     if crate::chat_actions::agent_entries(agent_id, cx).is_empty() {
         return None;
     }
@@ -142,7 +150,7 @@ fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
 /// call this client does not run). S-3: while THIS client runs the call with
 /// this agent it stays enabled and focuses the call panel; a new call focuses
 /// it too (Esc there ends it).
-fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -> AnyElement {
+pub(crate) fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -> AnyElement {
     let copy = &etalk::call::VOICE_CALL.copy;
     let here = etalk_gpui::voice_call::runs_for(agent_id, cx);
     let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(cx)).flatten();
@@ -162,67 +170,6 @@ fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -
         window.focus(&panel, cx);
     });
     div().flex_shrink_0().child(button).into_any_element()
-}
-
-/// EXP-1686 (chats.json AGENT CHAT): THE agent chat header, conversation or
-/// not yet: the lead disc, the agent's NAME, then `merge` (a conversation's
-/// open PR), the call button and the agent menu; `back` over it when a session
-/// link opened the chat (chats.json THE WAY BACK); `strip` only while the chat
-/// holds a plan.
-pub(crate) fn agent_header(
-    agent: Option<&AgentDefRow>,
-    merge: Option<AnyElement>,
-    back: Option<AnyElement>,
-    strip: Option<AnyElement>,
-    call_panel: FocusHandle,
-    cx: &App,
-) -> AnyElement {
-    let theme = cx.theme();
-    let name = agent.map(agent_def_name).unwrap_or_default();
-    let call = agent.map(|agent| agent_header_call(&agent.id, &name, call_panel, cx));
-    let menu = agent.and_then(|agent| agent_header_menu(&agent.id, cx));
-    // The rule spans the content card (web `border-b`), like the chat's.
-    v_flex()
-        .w_full()
-        .child(
-            v_flex()
-                .w_full()
-                .px(px(HEADER_INSET))
-                .pt_6()
-                .pb_3()
-                .gap_4()
-                .child(
-                    v_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_1()
-                        .children(back)
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .min_w_0()
-                                .gap_3()
-                                .items_center()
-                                .child(agent_header_disc(agent, cx))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_2xl()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme.foreground)
-                                        .child(SharedString::from(name)),
-                                )
-                                .children(merge)
-                                .children(call)
-                                .children(menu),
-                        ),
-                )
-                .children(strip),
-        )
-        .child(div().w_full().h(px(1.)).bg(theme.border))
-        .into_any_element()
 }
 
 /// NEW-6: the `agents` row an [`crate::navigation::Screen::Agent`] id names.
@@ -324,6 +271,12 @@ pub struct AgentScreenView {
     /// #EXP-1714: the window's navigation, whose ACTIVE team scopes a global
     /// Assistant's prompts, issue refs and mentions.
     nav: Entity<crate::navigation::Navigation>,
+    /// #EXP-1732: before the conversation exists: the header tab on show,
+    /// THE gear's settings open, its page (built on first open) and scroll.
+    tab: SessionScreenTab,
+    settings_open: bool,
+    settings: Option<Entity<crate::settings::agent_detail::AgentDetailPane>>,
+    settings_scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -419,6 +372,10 @@ impl AgentScreenView {
             focus_handle: cx.focus_handle(),
             call_panel: cx.new(etalk_gpui::voice_call::CallPanel::new),
             nav: crate::navigation::nav_for_window(window, cx),
+            tab: SessionScreenTab::Chat,
+            settings_open: false,
+            settings: None,
+            settings_scroll: gpui::ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -1086,13 +1043,99 @@ impl AgentScreenView {
         crate::session_chat::sender_row(layout, content, cx)
     }
 
-    /// Session 58cb32df (chats.json `agentMenuCases`): the agent chat
-    /// header's `…` = THE agent menu (Compact conversation, New
-    /// conversation, Stop while busy, Agent settings for owners).
-    fn render_header(&self, window: &Window, cx: &App) -> AnyElement {
+    /// #EXP-1732: THE session screen of an agent with no conversation yet
+    /// (no counts, the IDE is wide).
+    fn screen(&self) -> SessionScreen {
+        let agent = self.agent.as_ref();
+        let assistant = agent.is_some_and(AgentDefRow::is_assistant);
+        let kind = session_screen_kind(agent.map(|agent| agent.id.as_str()), None, assistant);
+        let open = self.settings_open.then_some(SessionScreenOpen::Settings.as_str());
+        session_screen(kind.as_str(), true, Some(self.tab.as_str()), open, SessionScreenCounts::default())
+    }
+
+    /// #EXP-1732 THE header (session-screen.json), the chat's own: the
+    /// agent's disc, its NAME over the subtitle, the telephone, THE gear,
+    /// THE agent menu (Session 58cb32df, chats.json `agentMenuCases`), THE
+    /// Segmented under it.
+    fn render_header(&self, screen: &SessionScreen, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        use crate::session_chat::{screen_header, screen_tabs, OnPress, OnTabPick, ScreenHeader};
         let panel = self.call_panel.read(cx).focus_handle(cx);
         let back = crate::session_screen::session_link_back(window, cx);
-        agent_header(self.agent.as_ref(), None, back, None, panel, cx)
+        let agent = self.agent.as_ref();
+        let name = agent.map(agent_def_name).unwrap_or_default();
+        let call = agent.map(|agent| agent_header_call(&agent.id, &name, panel, cx));
+        let menu = agent.and_then(|agent| agent_header_menu(&agent.id, cx));
+        let this = cx.entity().downgrade();
+        let on_tab: OnTabPick = Rc::new(move |tab, _window, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.settings_open = false;
+                this.tab = tab;
+                cx.notify();
+            });
+        });
+        let tabs = screen_tabs(&screen.tabs, screen.active, on_tab, cx);
+        let gear = screen.gear.then(|| {
+            let open = self.settings_open;
+            let this = cx.entity().downgrade();
+            let on_press: OnPress = Rc::new(move |_window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.settings_open = !open;
+                    cx.notify();
+                });
+            });
+            (on_press, open)
+        });
+        let title = crate::session_chat::title_row(&name, false, cx).into_any_element();
+        let subtitle = crate::session_chat::screen_subtitle(None, agent, cx);
+        screen_header(
+            ScreenHeader {
+                avatar: agent_header_disc(agent, cx),
+                title,
+                subtitle,
+                trailing: call.into_iter().collect(),
+                gear,
+                menu,
+                back,
+                tabs,
+            },
+            cx,
+        )
+    }
+
+    /// #EXP-1732: the tab pane before the conversation exists: THE gear's
+    /// settings (the agent's settings page) under its `‹`; the tabs have
+    /// nothing to list yet.
+    fn render_pane(&mut self, screen: &SessionScreen, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        if screen.open != Some(SessionScreenOpen::Settings) {
+            return div().flex_1().into_any_element();
+        }
+        let Some(agent_id) = self.agent.as_ref().map(|agent| agent.id.clone()) else {
+            return div().flex_1().into_any_element();
+        };
+        let pane = match self.settings.clone() {
+            Some(pane) => pane,
+            None => {
+                let nav = self.nav.clone();
+                let shared = crate::sidebar::rail_shared_for_window(window, cx);
+                let pane = cx.new(|cx| crate::settings::agent_detail::AgentDetailPane::for_agent(agent_id, nav, shared, window, cx));
+                self.settings = Some(pane.clone());
+                pane
+            }
+        };
+        let this = cx.entity().downgrade();
+        let on_back: crate::session_chat::OnPress = Rc::new(move |_window, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.settings_open = false;
+                cx.notify();
+            });
+        });
+        let body = crate::scroll_pane::v_scroll_pane(
+            "agent-settings-scroll",
+            &self.settings_scroll,
+            div().w_full().px_6().py_4().child(pane),
+        )
+        .into_any_element();
+        crate::session_chat::pane_item(&crate::session_chat::pane_back_label(screen.active), on_back, body, cx)
     }
 }
 
@@ -1247,14 +1290,7 @@ impl Render for AgentScreenView {
                     .into_any_element()
             }
         };
-        v_flex()
-            .track_focus(&self.focus_handle)
-            .size_full()
-            .min_h_0()
-            .overflow_hidden()
-            .when(!editor, |this| this.child(self.render_header(window, cx)))
-            .child(
-                div()
+        let chat = div()
                     .id(if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" })
                     .relative()
                     .flex()
@@ -1274,8 +1310,29 @@ impl Render for AgentScreenView {
                     ))
                     .children(sheet)
                     // S-3: the call panel covers the body while the call runs.
-                    .child(self.call_panel.clone()),
-            )
+                    .child(self.call_panel.clone())
+                    .into_any_element();
+        // VAPP-110: an editor's chat is the app editor's chat pane, headerless.
+        if editor {
+            return v_flex().track_focus(&self.focus_handle).size_full().min_h_0().overflow_hidden().child(chat);
+        }
+        // #EXP-1732: THE session screen's chrome over the empty chat.
+        let screen = self.screen();
+        let header = self.render_header(&screen, window, cx);
+        let body = match screen.layout {
+            SessionScreenLayout::Chat => chat,
+            _ => {
+                let pane = self.render_pane(&screen, window, cx);
+                crate::session_chat::screen_beside(chat, pane, cx)
+            }
+        };
+        v_flex()
+            .track_focus(&self.focus_handle)
+            .size_full()
+            .min_h_0()
+            .overflow_hidden()
+            .child(header)
+            .child(body)
     }
 }
 

@@ -69,26 +69,6 @@ pub fn agent_forward_text(text: &str, identifiers: &[String]) -> String {
     }
 }
 
-/// chats.json AGENT CHAT (`agentChat.tabCases`): an agent's chat's tabs: the
-/// conversation, plus the plan tab while it holds a plan.
-pub fn agent_chat_tabs(holds_plan: bool) -> &'static [&'static str] {
-    if holds_plan {
-        &["conversation", "plan"]
-    } else {
-        &["conversation"]
-    }
-}
-
-/// chats.json AGENT CHAT (`agentChat.pageCases`): what a selection shows in an
-/// agent's chat: only a page of its tabs survives.
-pub fn agent_chat_page(selected: &str, holds_plan: bool) -> &str {
-    if agent_chat_tabs(holds_plan).contains(&selected) {
-        selected
-    } else {
-        "conversation"
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,25 +108,6 @@ mod tests {
             assert_eq!(session_kind_of(agent_id), expected, "{case}");
             assert_eq!(is_persistent(agent_id), expected == SESSION_KIND_AGENT, "{case}");
             assert_eq!(links_issues(agent_id), expected != SESSION_KIND_AGENT, "{case}");
-        }
-    }
-
-    /// chats.json `agentChat`: an agent posted a plan: the tab stays open and
-    /// the strip holds Conversation + the plan.
-    #[test]
-    fn every_agent_chat_case_matches() {
-        let fixture: Value =
-            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/chats.json")).unwrap();
-        let block = &fixture["agentChat"];
-        assert_eq!(agent_chat_tabs(false), block["tabs"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect::<Vec<_>>());
-        assert_eq!(agent_chat_tabs(true), block["planTabs"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect::<Vec<_>>());
-        for case in block["tabCases"].as_array().unwrap() {
-            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
-            assert_eq!(agent_chat_tabs(case["holdsPlan"].as_bool().unwrap()), expected, "{}", case["name"]);
-        }
-        for case in block["pageCases"].as_array().unwrap() {
-            let got = agent_chat_page(case["selected"].as_str().unwrap(), case["holdsPlan"].as_bool().unwrap());
-            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 
