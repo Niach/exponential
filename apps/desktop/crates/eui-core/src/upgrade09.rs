@@ -44,7 +44,7 @@ fn upgrade_catalog_id(id: &Value) -> Value {
 /// `surfaces`: per surface, every id seen so far → its 1.0 id (kept ids map
 /// to themselves). `catalogs`: the catalog a `createSurface` named, so a
 /// later `updateComponents` of a basic surface gets the basic rules.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Upgrade09State {
     #[serde(default)]
     pub surfaces: IndexMap<String, IndexMap<String, String>>,
@@ -56,6 +56,13 @@ pub struct Upgrade09State {
     /// size disagrees with the map's (a deserialized state).
     #[serde(skip)]
     owners: HashMap<String, HashMap<String, String>>,
+}
+
+/// The cache is never shown (the fixture replays compare `Debug` forms).
+impl std::fmt::Debug for Upgrade09State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Upgrade09State").field("surfaces", &self.surfaces).field("catalogs", &self.catalogs).finish()
+    }
 }
 
 impl PartialEq for Upgrade09State {
