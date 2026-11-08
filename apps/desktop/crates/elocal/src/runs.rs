@@ -52,6 +52,46 @@ pub trait Runner: Send + Sync {
     fn start(&self, brief: Brief, grant: HubGrant, sink: Arc<dyn EventSink>) -> Result<Box<dyn Run>, String>;
 }
 
+/// #EXP-1727: the working copy a session runs in: its root's linked issue's
+/// board's linked folder, as a git worktree of its own under the desktop
+/// (`worktrees/<root>`, branch `exp/<first 8 of the root>`), made once and
+/// reused by every session of the tree. `None` = no linked folder (the run
+/// takes the desktop's default directory).
+pub fn worktree_for(desktop: &LocalDesktop, session_id: &str) -> Option<(PathBuf, crate::LocalRepository, String)> {
+    let session = desktop.store.row("sessions", session_id).ok().flatten()?;
+    let root = session.get("root_id").and_then(Value::as_str).filter(|r| !r.is_empty()).unwrap_or(session_id).to_string();
+    let issue = [root.as_str(), session_id].iter().find_map(|id| {
+        desktop.store.rows_where("session_issues", "session_id", id).ok()?.into_iter().find_map(|l| l.get("issue_id").and_then(Value::as_str).map(str::to_string))
+    })?;
+    let board = desktop.store.row("issues", &issue).ok().flatten()?.get("board_id").and_then(Value::as_str)?.to_string();
+    let repo = desktop.executor.board_repository(&board)?;
+    let short: String = root.chars().take(8).collect();
+    let branch = format!("exp/{short}");
+    let dir = desktop.dir.join("worktrees").join(&root);
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(dir.parent()?);
+        let made = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo.path)
+            .args(["worktree", "add", "-b", &branch])
+            .arg(&dir)
+            .arg(&repo.default_branch)
+            .output();
+        match made {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                log::warn!("worktree for {root}: {}", String::from_utf8_lossy(&out.stderr).trim());
+                return Some((repo.path.clone(), repo, branch));
+            }
+            Err(e) => {
+                log::warn!("worktree for {root}: {e}");
+                return Some((repo.path.clone(), repo, branch));
+            }
+        }
+    }
+    Some((dir, repo, branch))
+}
+
 /// The person's own CLI over ACP ([`AcpAgent`]).
 pub struct AcpRunner {
     agent: AcpAgent,
@@ -451,6 +491,10 @@ impl LocalRuns {
 
     /// Starts the CLI for `session_id` with `text` as its first prompt.
     fn launch(&self, session_id: &str, text: &str) {
+        let (cwd, worktree_note) = match worktree_for(&self.desktop, session_id) {
+            Some((dir, repo, branch)) => (dir, Some(format!("You work in a git worktree of {} on the branch {branch}; commit there, nothing pushes.", repo.name))),
+            None => (self.cwd.clone(), None),
+        };
         let Ok(sid) = SessionId::new(session_id) else { return };
         let token = self.server.grant(&sid, "local");
         let endpoint = format!("{}", self.server.url());
@@ -461,7 +505,11 @@ impl LocalRuns {
             system.push(' ');
             system.push_str(note);
         }
-        let brief = Brief::new(sid, text).cwd(self.cwd.clone()).system_append(&system);
+        if let Some(note) = &worktree_note {
+            system.push(' ');
+            system.push_str(note);
+        }
+        let brief = Brief::new(sid, text).cwd(cwd).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
         match self.runner.start(brief, grant, sink) {
             Ok(run) => {
