@@ -88,21 +88,22 @@ mod surface {
         s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true })
     }
 
-    fn index(s: &Surface, id: &str) -> u32 {
+    fn index(s: &mut Surface, id: &str) -> u32 {
         s.nodes().iter().find(|n| n.id == id).unwrap_or_else(|| panic!("{id}")).index
     }
 
-    fn shown(s: &Surface, out: &LayoutOutput, id: &str) -> bool {
+    fn shown(s: &mut Surface, out: &LayoutOutput, id: &str) -> bool {
         s.nodes().iter().find(|n| n.id == id).is_some_and(|n| out.frames.iter().any(|f| f.index == n.index))
     }
 
-    fn dx(s: &Surface, id: &str) -> f32 {
+    fn dx(s: &mut Surface, id: &str) -> f32 {
         let i = index(s, id);
         s.visual(i).and_then(|v| v.transform.clone()).unwrap_or_default().iter().find_map(|op| if let TransformOp::Translate { x, .. } = op { Some(*x) } else { None }).unwrap_or(0.0)
     }
 
-    fn animated(s: &Surface, id: &str) -> bool {
-        s.visual(index(s, id)).and_then(|v| v.transition.clone()).is_some_and(|t| t.duration_ms > 0.0)
+    fn animated(s: &mut Surface, id: &str) -> bool {
+        let i = index(s, id);
+        s.visual(i).and_then(|v| v.transition.clone()).is_some_and(|t| t.duration_ms > 0.0)
     }
 
     fn swipe(s: &mut Surface, phase: &str, offset: f32, velocity: f32) -> Vec<OutEvent> {
@@ -110,66 +111,67 @@ mod surface {
         s.event(i, "swipe", Some(json!({"phase": phase, "offset": offset, "velocity": velocity})))
     }
 
-    fn tab_x(s: &Surface, out: &LayoutOutput, id: &str) -> f32 {
-        let list = out.frames.iter().find(|f| f.index == index(s, "tabs.list")).unwrap();
-        out.frames.iter().find(|f| f.index == index(s, id)).unwrap().x - list.x
+    fn tab_x(s: &mut Surface, out: &LayoutOutput, id: &str) -> f32 {
+        let (l, t) = (index(s, "tabs.list"), index(s, id));
+        let list = out.frames.iter().find(|f| f.index == l).unwrap();
+        out.frames.iter().find(|f| f.index == t).unwrap().x - list.x
     }
 
     #[test]
     fn the_neighbours_wait_one_width_aside_and_the_thumb_sits_on_the_active_tab() {
-        let (s, out) = lay_out("pill", "ltr");
-        assert!(shown(&s, &out, "p0") && shown(&s, &out, "p1") && shown(&s, &out, "p2") && !shown(&s, &out, "p3"));
-        let width = out.frames.iter().find(|f| f.index == index(&s, "tabs.content")).unwrap().w;
+        let (mut s, out) = lay_out("pill", "ltr");
+        assert!(shown(&mut s, &out, "p0") && shown(&mut s, &out, "p1") && shown(&mut s, &out, "p2") && !shown(&mut s, &out, "p3"));
+        let width = out.frames.iter().find(|f| f.index == index(&mut s, "tabs.content")).unwrap().w;
         assert!(width > 300.0, "{width}");
-        assert_eq!((dx(&s, "p0"), dx(&s, "p1"), dx(&s, "p2")), (-width, 0.0, width));
-        assert!((dx(&s, "tabs.thumb") - tab_x(&s, &out, "tabs.tab.1")).abs() < 0.01);
+        assert_eq!((dx(&mut s, "p0"), dx(&mut s, "p1"), dx(&mut s, "p2")), (-width, 0.0, width));
+        assert!((dx(&mut s, "tabs.thumb") - tab_x(&mut s, &out, "tabs.tab.1")).abs() < 0.01);
     }
 
     #[test]
     fn a_swipe_follows_the_finger_then_settles_on_the_next_tab() {
         let (mut s, out) = lay_out("pill", "ltr");
-        let width = out.frames.iter().find(|f| f.index == index(&s, "tabs.content")).unwrap().w;
-        let (t1, t2) = (tab_x(&s, &out, "tabs.tab.1"), tab_x(&s, &out, "tabs.tab.2"));
+        let width = out.frames.iter().find(|f| f.index == index(&mut s, "tabs.content")).unwrap().w;
+        let (t1, t2) = (tab_x(&mut s, &out, "tabs.tab.1"), tab_x(&mut s, &out, "tabs.tab.2"));
         assert_eq!(swipe(&mut s, "move", -width / 4.0, 0.0), vec![OutEvent::Relayout]);
         relayout(&mut s);
-        assert_eq!(dx(&s, "p1"), -width / 4.0);
-        assert_eq!(dx(&s, "p2"), width * 0.75);
-        assert!(!animated(&s, "p1"), "no transition under the finger");
-        assert!((dx(&s, "tabs.thumb") - (t1 + (t2 - t1) * 0.25)).abs() < 0.01);
+        assert_eq!(dx(&mut s, "p1"), -width / 4.0);
+        assert_eq!(dx(&mut s, "p2"), width * 0.75);
+        assert!(!animated(&mut s, "p1"), "no transition under the finger");
+        assert!((dx(&mut s, "tabs.thumb") - (t1 + (t2 - t1) * 0.25)).abs() < 0.01);
         let out_events = swipe(&mut s, "end", -width / 4.0, -0.6);
         assert!(out_events.iter().any(|e| matches!(e, OutEvent::Action { event, context, .. } if event == "change" && context["value"] == "t2")), "{out_events:?}");
         let out = relayout(&mut s);
-        assert_eq!((dx(&s, "p1"), dx(&s, "p2"), dx(&s, "p3")), (-width, 0.0, width));
-        assert!(!shown(&s, &out, "p0"));
-        assert!(animated(&s, "p2"), "the settle animates");
-        assert!((dx(&s, "tabs.thumb") - t2).abs() < 0.01);
+        assert_eq!((dx(&mut s, "p1"), dx(&mut s, "p2"), dx(&mut s, "p3")), (-width, 0.0, width));
+        assert!(!shown(&mut s, &out, "p0"));
+        assert!(animated(&mut s, "p2"), "the settle animates");
+        assert!((dx(&mut s, "tabs.thumb") - t2).abs() < 0.01);
     }
 
     #[test]
     fn a_short_slow_swipe_springs_back_and_the_first_page_resists() {
         let (mut s, out) = lay_out("strip", "ltr");
-        let width = out.frames.iter().find(|f| f.index == index(&s, "tabs.content")).unwrap().w;
+        let width = out.frames.iter().find(|f| f.index == index(&mut s, "tabs.content")).unwrap().w;
         let events = swipe(&mut s, "end", -width / 4.0, -0.1);
         assert!(!events.iter().any(|e| matches!(e, OutEvent::Action { .. })));
         relayout(&mut s);
-        assert_eq!(dx(&s, "p1"), 0.0);
+        assert_eq!(dx(&mut s, "p1"), 0.0);
         // Page 0, dragged right: no neighbour there.
         swipe(&mut s, "end", width, 1.0);
         relayout(&mut s);
-        assert_eq!(dx(&s, "p0"), -width);
-        let i = index(&s, "tabs.tab.0");
+        assert_eq!(dx(&mut s, "p0"), -width);
+        let i = index(&mut s, "tabs.tab.0");
         s.event(i, "press", None);
         relayout(&mut s);
         swipe(&mut s, "move", 100.0, 0.0);
         relayout(&mut s);
-        assert!((dx(&s, "p0") - 30.0).abs() < 0.01);
+        assert!((dx(&mut s, "p0") - 30.0).abs() < 0.01);
     }
 
     #[test]
     fn rtl_reveals_the_next_tab_to_the_left() {
         let (mut s, out) = lay_out("pill", "rtl");
-        let width = out.frames.iter().find(|f| f.index == index(&s, "tabs.content")).unwrap().w;
-        assert_eq!((dx(&s, "p0"), dx(&s, "p2")), (width, -width));
+        let width = out.frames.iter().find(|f| f.index == index(&mut s, "tabs.content")).unwrap().w;
+        assert_eq!((dx(&mut s, "p0"), dx(&mut s, "p2")), (width, -width));
         let events = swipe(&mut s, "end", width * 0.6, 0.0);
         assert!(events.iter().any(|e| matches!(e, OutEvent::Action { context, .. } if context["value"] == "t2")));
     }
