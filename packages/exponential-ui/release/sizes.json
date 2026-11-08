@@ -43,8 +43,8 @@
           "gzip": 14365
         },
         "@exponential_app/eui/prompt": {
-          "bytes": 224744,
-          "gzip": 51545,
+          "bytes": 224682,
+          "gzip": 51521,
           "parts": {
             "entries/prompt.js": 8203,
             "chunks/index-bg70sphr.js": 150578,
@@ -53,8 +53,8 @@
           }
         },
         "@exponential_app/eui/schema": {
-          "bytes": 272092,
-          "gzip": 64627,
+          "bytes": 272030,
+          "gzip": 64605,
           "parts": {
             "entries/schema.js": 44375,
             "chunks/index-bg70sphr.js": 150578,
@@ -90,8 +90,8 @@
           }
         },
         "@exponential_app/eui/web": {
-          "bytes": 180888,
-          "gzip": 55577,
+          "bytes": 180812,
+          "gzip": 55560,
           "parts": {
             "web/index.js": 125399,
             "chunks/index-04yw3re8.js": 38107,
@@ -147,8 +147,8 @@
           }
         },
         "@exponential_app/eui-element/standalone.js": {
-          "bytes": 1127178,
-          "gzip": 318248
+          "bytes": 1127102,
+          "gzip": 318229
         },
         "@exponential_app/eui/host/query": {
           "bytes": 284641,

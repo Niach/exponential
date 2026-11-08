@@ -4546,7 +4546,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Rows (a query's `groups`) for `categoryField` and series `field`s."
+          "description": "A query's `groups`; series read their `field`."
         },
         {
           "name": "categoryField",
@@ -4554,7 +4554,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The row field naming each category."
+          "description": "The rows' category field."
         },
         {
           "name": "title",
@@ -4611,7 +4611,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Ticks, tooltip and values as number, currency, percent (ratio) or compact (12K)."
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         {
           "name": "showAxes",

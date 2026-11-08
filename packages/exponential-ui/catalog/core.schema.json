@@ -9799,11 +9799,11 @@
         },
         "rows": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "Rows (a query's `groups`) for `categoryField` and series `field`s."
+          "description": "A query's `groups`; series read their `field`."
         },
         "categoryField": {
           "type": "string",
-          "description": "The row field naming each category."
+          "description": "The rows' category field."
         },
         "title": {
           "type": "string",
@@ -9832,7 +9832,7 @@
         },
         "valueFormat": {
           "$ref": "#/$defs/valueFormat",
-          "description": "Ticks, tooltip and values as number, currency, percent (ratio) or compact (12K)."
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         "showAxes": {
           "type": "boolean",
