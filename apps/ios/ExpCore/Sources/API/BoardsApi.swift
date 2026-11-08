@@ -254,10 +254,6 @@ public struct PutAwayBoard: Decodable, Sendable, Equatable, Identifiable {
     }
 }
 
-private struct TeamIdInput: Encodable, Sendable {
-    let teamId: String
-}
-
 private struct BoardIdInput: Encodable, Sendable {
     let boardId: String
 }
