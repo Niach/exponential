@@ -376,7 +376,7 @@ impl StoragePane {
     /// board's issues are out of sync and widget screenshots have no
     /// uploader, so those cells read a dash (web parity).
     fn project(&self, team: bool, cx: &App) -> Value {
-        let mut out = json!({"noTeam": !team, "loading": false, "failed": false, "ready": false, "busy": self.busy, "empty": false, "rows": [], "meter": Value::Null, "summary": "", "candidates": 0});
+        let mut out = json!({"noTeam": !team, "loading": false, "failed": false, "ready": false, "busy": self.busy, "empty": false, "rows": [], "hasMeter": false, "meter": Value::Null, "summary": "", "candidates": 0});
         if !team {
             return out;
         }
@@ -397,6 +397,7 @@ impl StoragePane {
                         None => format!("{current} / unlimited"),
                     };
                     let fraction = plan.limits.storage_mb.filter(|limit| *limit > 0.).map(|limit| (plan.usage.storage_mb / limit).clamp(0., 1.));
+                    out["hasMeter"] = json!(true);
                     out["meter"] = json!({"amount": amount, "track": fraction.is_some(), "width": format!("{}%", fraction.unwrap_or(0.) * 100.)});
                 }
                 let rows = &list.attachments;
@@ -521,7 +522,7 @@ fn document(ink: &Ink, track: &str, list_hover: &str) -> Value {
 
     // Web `UsageBar` (`settings::usage_bar`): label left, "current / limit"
     // right (`gap_1` over a 6px capsule track).
-    let meter = json!({"id": "meter", "component": "Box", "visible": path("/pane/meter"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25)},
+    let meter = json!({"id": "meter", "component": "Box", "visible": path("/pane/hasMeter"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25)},
         "children": [
             {"id": "meter_head", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "space-between"},
                 "children": [ink.text("meter_label", json!("Attachment storage"), SM, &ink.foreground), ink.text("meter_amount", path("/pane/meter/amount"), XS, &ink.muted)]},
