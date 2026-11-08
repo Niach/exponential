@@ -152,6 +152,7 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     mark(&mut value["boards"]["rows"]);
     // #EXP-1741: the corner is the person's Assistant (its chat on a press).
     value["assistant"] = assistant.map(|(id, name)| json!({"id": id, "name": name})).unwrap_or(Value::Null);
+    value["computer"] = json!("ide:computer");
     value["boards"]["emptyText"] = json!(crate::empty_state_copy::BOARD_SWITCHER);
     for row in value["active"].as_array_mut().into_iter().flatten() {
         let device = format!("ide:device:{}", row["id"].as_str().unwrap_or_default());
@@ -176,6 +177,8 @@ pub(crate) struct SidebarRegion {
     shown: Option<Value>,
     /// The person's Assistant as the active team lists it: `(id, name)`.
     assistant: Option<(String, String)>,
+    /// #EXP-1741: the Computer button's state (the corner paints it).
+    computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
     frozen: bool,
@@ -186,7 +189,8 @@ impl SidebarRegion {
         cx.new(|cx: &mut gpui::Context<Self>| {
             let glyphs = Rc::new(RefCell::new(HashMap::new()));
             let hover = Rc::new(RefCell::new(None));
-            let host = Rc::new(RegionHost { glyphs: glyphs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
+            let computer = Rc::new(RefCell::new(None));
+            let host = Rc::new(RegionHost { computer: computer.clone(), glyphs: glyphs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
             let mut doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
             uicore_gpui::inline::without(&mut doc, PRUNED);
             // #EXP-1741: the IDE's sidebar never folds (eDE's is the rail).
@@ -200,6 +204,7 @@ impl SidebarRegion {
                 input: IdeSidebarInput::default(),
                 shown: None,
                 assistant: None,
+                computer,
                 #[cfg(test)]
                 frozen: false,
             }
@@ -226,6 +231,14 @@ impl SidebarRegion {
     pub(crate) fn show(&mut self, input: IdeSidebarInput, hover: Option<&str>, cx: &mut gpui::Context<Self>) {
         self.frozen = true;
         self.assistant = Some(("a0".into(), "Assistant".into()));
+        // A trunk that needs a person: the warning rides the Computer button.
+        *self.computer.borrow_mut() = Some(crate::sidebar::ComputerState {
+            files: true,
+            source_control: true,
+            tooltip: "Source Control: local commits".into(),
+            badge: Some(crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning)),
+            active: false,
+        });
         self.input = input;
         *self.hover.borrow_mut() = hover.map(str::to_string);
         self.push(cx);
@@ -243,6 +256,15 @@ impl SidebarRegion {
             let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
             let _ = view.set_data("/shell/ide", Some(value), cx);
         });
+    }
+
+    /// #EXP-1741: the Computer button's state, from the rail's render.
+    pub(crate) fn set_computer(&mut self, state: crate::sidebar::ComputerState) {
+        #[cfg(test)]
+        if self.frozen {
+            return;
+        }
+        *self.computer.borrow_mut() = Some(state);
     }
 
     /// The row under the pointer, for the context menu.
@@ -266,6 +288,7 @@ impl Render for SidebarRegion {
 }
 
 struct RegionHost {
+    computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
     window: AnyWindowHandle,
@@ -351,6 +374,9 @@ impl HostPlugin for RegionHost {
         if let Some(tone) = name.strip_prefix("ide:dot:") {
             let dot = serde_json::from_value::<IdeDot>(json!(tone)).ok()?;
             return Some(crate::sidebar::rail_dot(dot_color(dot, cx)).into_any_element());
+        }
+        if name == "ide:computer" {
+            return self.computer.borrow().as_ref().map(|state| crate::sidebar::computer_button(state, cx));
         }
         if let Some(state) = name.strip_prefix("ide:trunk:") {
             let badge = if state == "error" { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_ERROR, cx.theme().danger) } else { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning) };
