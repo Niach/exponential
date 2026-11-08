@@ -57,6 +57,8 @@ export const SESSION_COLUMNS = [
   // VAPP-229: the app that started it ("via <app>", via-app.json; NOT
   // `app_id`, an editor session's app).
   `via_app_id`,
+  // #EXP-1731: non-null = a CLI subagent row the device writes (subagents.json).
+  `subagent_key`,
   `created_at`,
   `updated_at`,
 ]
