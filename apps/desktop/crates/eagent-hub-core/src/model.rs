@@ -297,8 +297,10 @@ pub struct HubAgent {
     pub owner_id: String,
     pub team_id: String,
     pub role: AgentRole,
-    /// The owner's conversation session with the agent (where firings land).
-    pub conversation_id: String,
+    /// #EXP-1730: the agent's ONE root session, its persistent chat (where firings land; its runs are
+    /// child sessions). Phase A: the owner's conversation with it. `conversationId` = the old name.
+    #[serde(alias = "conversationId")]
+    pub root_session_id: String,
     pub triggers: Vec<Trigger>,
     /// triggerId → the due minute it last fired for.
     pub fired_at: BTreeMap<String, i64>,
