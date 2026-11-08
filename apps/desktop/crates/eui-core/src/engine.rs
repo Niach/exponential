@@ -144,6 +144,9 @@ pub struct LeafAnswer {
 #[derive(Debug, Clone)]
 struct ENode {
     style: Style,
+    /// EXP-1629: the style taffy lays out while pixel snapping is on (its
+    /// absolute lengths on the device-pixel grid); `None` = `style`.
+    laid: Option<Style>,
     cache: Cache,
     unrounded: Layout,
     rounded: Layout,
@@ -159,6 +162,7 @@ impl Default for ENode {
     fn default() -> Self {
         ENode {
             style: Style::default(),
+            laid: None,
             cache: Cache::default(),
             unrounded: Layout::with_order(0),
             rounded: Layout::with_order(0),
@@ -170,11 +174,62 @@ impl Default for ENode {
     }
 }
 
+impl ENode {
+    fn laid_style(&self) -> &Style {
+        self.laid.as_ref().unwrap_or(&self.style)
+    }
+}
+
+/// gpui's midpoint rule: half a device pixel rounds toward zero (a 1 px
+/// line at 150 % paints 1 dp, not 2).
+fn round_half_toward_zero(v: f32) -> f32 {
+    (v.abs() - 0.5).ceil().copysign(v)
+}
+
+/// A style's absolute lengths on the device-pixel grid at `scale`, the way
+/// gpui's `to_taffy` hands them to taffy: lengths round to the nearest
+/// device pixel, a non-zero border to at least one; percentages, `auto`
+/// and grid tracks stay as they are.
+fn snap_style(style: &Style, scale: f32) -> Style {
+    let len = |v: f32| round_half_toward_zero(v * scale) / scale;
+    let stroke = |v: f32| if v == 0.0 { 0.0 } else { round_half_toward_zero(v.max(0.0) * scale).max(1.0) / scale };
+    let lp = |v: LengthPercentage, f: &dyn Fn(f32) -> f32| {
+        let raw = v.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG { LengthPercentage::length(f(raw.value())) } else { v }
+    };
+    let lpa = |v: LengthPercentageAuto| {
+        let raw = v.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG { LengthPercentageAuto::length(len(raw.value())) } else { v }
+    };
+    let dim = |v: Dimension| {
+        let raw = v.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG { Dimension::length(len(raw.value())) } else { v }
+    };
+    let size = |s: Size<Dimension>| Size { width: dim(s.width), height: dim(s.height) };
+    let rect = |r: Rect<LengthPercentage>, f: &dyn Fn(f32) -> f32| Rect { left: lp(r.left, f), right: lp(r.right, f), top: lp(r.top, f), bottom: lp(r.bottom, f) };
+    let rect_auto = |r: Rect<LengthPercentageAuto>| Rect { left: lpa(r.left), right: lpa(r.right), top: lpa(r.top), bottom: lpa(r.bottom) };
+    Style {
+        inset: rect_auto(style.inset),
+        size: size(style.size),
+        min_size: size(style.min_size),
+        max_size: size(style.max_size),
+        margin: rect_auto(style.margin),
+        padding: rect(style.padding, &len),
+        border: rect(style.border, &stroke),
+        gap: Size { width: lp(style.gap.width, &len), height: lp(style.gap.height, &len) },
+        flex_basis: dim(style.flex_basis),
+        scrollbar_width: len(style.scrollbar_width),
+        ..style.clone()
+    }
+}
+
 /// One tree of slots; several roots (the main tree, every overlay layer).
 #[derive(Debug, Clone, Default)]
 pub struct Engine {
     nodes: Vec<ENode>,
     rounding: bool,
+    /// EXP-1629: gpui's pixel snapping at this scale factor (`None` = off).
+    snap: Option<f32>,
     /// Tests only: every request misses (the differential reference).
     #[cfg(test)]
     no_cache: bool,
@@ -230,7 +285,7 @@ impl taffy::LayoutPartialTree for View<'_, '_> {
     type CustomIdent = String;
 
     fn get_core_container_style(&self, node: NodeId) -> Self::CoreContainerStyle<'_> {
-        &self.engine.nodes[slot(node)].style
+        self.engine.nodes[slot(node)].laid_style()
     }
 
     fn set_unrounded_layout(&mut self, node: NodeId, layout: &Layout) {
@@ -253,7 +308,7 @@ impl View<'_, '_> {
         }
         compute_cached_layout(self, node, inputs, |view, node, inputs| {
             let n = &view.engine.nodes[slot(node)];
-            let display = n.style.display;
+            let display = n.laid_style().display;
             let has_children = !n.children.is_empty();
             match (display, has_children) {
                 (Display::None, _) => compute_hidden_layout(view, node),
@@ -266,8 +321,9 @@ impl View<'_, '_> {
                     let n = &engine.nodes[slot(node)];
                     let measured = n.measured;
                     let ratio = n.style.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
+                    let snap = engine.snap;
                     let mut baseline = None;
-                    let mut output = compute_leaf_layout(inputs, &n.style, |_, _| 0.0, |known, available| {
+                    let mut output = compute_leaf_layout(inputs, n.laid_style(), |_, _| 0.0, |known, available| {
                         // Round 2 §7: an aspect-ratio box whose width is known
                         // (stretched, flexed) takes height = width / ratio, as
                         // CSS transfers it (taffy only does for SIZED axes).
@@ -279,7 +335,11 @@ impl View<'_, '_> {
                         }
                         let answer = measure(index, known, available);
                         baseline = answer.baseline;
-                        answer.size
+                        // gpui rounds a measured size UP to whole device pixels.
+                        match snap {
+                            Some(s) => answer.size.map(|d| (d.max(0.0) * s).ceil() / s),
+                            None => answer.size,
+                        }
                     });
                     if let Some(b) = baseline {
                         output.first_baselines.y = Some(b);
@@ -322,11 +382,11 @@ impl taffy::LayoutFlexboxContainer for View<'_, '_> {
         Self: 'a;
 
     fn get_flexbox_container_style(&self, node: NodeId) -> Self::FlexboxContainerStyle<'_> {
-        &self.engine.nodes[slot(node)].style
+        self.engine.nodes[slot(node)].laid_style()
     }
 
     fn get_flexbox_child_style(&self, child: NodeId) -> Self::FlexboxItemStyle<'_> {
-        &self.engine.nodes[slot(child)].style
+        self.engine.nodes[slot(child)].laid_style()
     }
 }
 
@@ -341,11 +401,11 @@ impl taffy::LayoutGridContainer for View<'_, '_> {
         Self: 'a;
 
     fn get_grid_container_style(&self, node: NodeId) -> Self::GridContainerStyle<'_> {
-        &self.engine.nodes[slot(node)].style
+        self.engine.nodes[slot(node)].laid_style()
     }
 
     fn get_grid_child_style(&self, child: NodeId) -> Self::GridItemStyle<'_> {
-        &self.engine.nodes[slot(child)].style
+        self.engine.nodes[slot(child)].laid_style()
     }
 }
 
@@ -360,11 +420,11 @@ impl taffy::LayoutBlockContainer for View<'_, '_> {
         Self: 'a;
 
     fn get_block_container_style(&self, node: NodeId) -> Self::BlockContainerStyle<'_> {
-        &self.engine.nodes[slot(node)].style
+        self.engine.nodes[slot(node)].laid_style()
     }
 
     fn get_block_child_style(&self, child: NodeId) -> Self::BlockItemStyle<'_> {
-        &self.engine.nodes[slot(child)].style
+        self.engine.nodes[slot(child)].laid_style()
     }
 }
 
@@ -386,6 +446,27 @@ impl Engine {
     /// Off = fractional frames (the default).
     pub fn set_rounding(&mut self, on: bool) {
         self.rounding = on;
+    }
+
+    /// EXP-1629: snap like gpui's own layout at `scale` device pixels per
+    /// unit (`None` = off): absolute lengths round to the device-pixel grid
+    /// before layout, measured sizes round UP to it, and after layout every
+    /// box's outer edges round in absolute coordinates (so coincident edges
+    /// close), half a pixel toward zero.
+    pub fn set_pixel_snap(&mut self, scale: Option<f32>) {
+        let scale = scale.filter(|s| s.is_finite() && *s > 0.0);
+        if self.snap == scale {
+            return;
+        }
+        self.snap = scale;
+        for n in &mut self.nodes {
+            n.laid = scale.map(|s| snap_style(&n.style, s));
+        }
+        self.mark_all_dirty();
+    }
+
+    pub fn pixel_snap(&self) -> Option<f32> {
+        self.snap
     }
 
     pub fn len(&self) -> usize {
@@ -412,6 +493,7 @@ impl Engine {
             return false;
         }
         self.nodes[i as usize].percent = percent_sensitive(&style);
+        self.nodes[i as usize].laid = self.snap.map(|s| snap_style(&style, s));
         self.nodes[i as usize].style = style;
         self.mark_dirty(i);
         true
@@ -467,18 +549,41 @@ impl Engine {
 
     /// Lay out the tree under `root` against the available space.
     pub fn compute(&mut self, root: u32, available: Size<AvailableSpace>, measure: &mut MeasureFn) {
-        let rounding = self.rounding;
+        let (rounding, snap) = (self.rounding, self.snap);
         let mut view = View { engine: self, measure };
         compute_root_layout(&mut view, NodeId::from(root as usize), available);
-        if rounding {
+        if let Some(scale) = snap {
+            self.snap_edges(root, (0.0, 0.0), (0.0, 0.0), scale);
+        } else if rounding {
             round_layout(&mut view, NodeId::from(root as usize));
         }
+    }
+
+    /// gpui's post-layout snapping: a box's outer corners round in ABSOLUTE
+    /// device pixels (`abs` = the parent's unrounded origin, `snapped` =
+    /// its rounded one); border, padding and content size keep their
+    /// pre-layout values.
+    fn snap_edges(&mut self, i: u32, abs: (f32, f32), snapped: (f32, f32), scale: f32) {
+        let px = |v: f32| round_half_toward_zero(v * scale) / scale;
+        let n = &mut self.nodes[i as usize];
+        let u = n.unrounded;
+        let (x, y) = (abs.0 + u.location.x, abs.1 + u.location.y);
+        let (sx, sy) = (px(x), px(y));
+        let mut r = u;
+        r.location = taffy::Point { x: sx - snapped.0, y: sy - snapped.1 };
+        r.size = Size { width: px(x + u.size.width) - sx, height: px(y + u.size.height) - sy };
+        n.rounded = r;
+        let children = std::mem::take(&mut n.children);
+        for &c in &children {
+            crate::deep(|| self.snap_edges(c, (x, y), (sx, sy), scale));
+        }
+        self.nodes[i as usize].children = children;
     }
 
     /// The final layout of a slot (relative to its parent).
     pub fn layout(&self, i: u32) -> &Layout {
         let n = &self.nodes[i as usize];
-        if self.rounding {
+        if self.rounding || self.snap.is_some() {
             &n.rounded
         } else {
             &n.unrounded
@@ -515,6 +620,45 @@ mod tests {
         e.mark_all_dirty();
         e.compute(0, Size { width: AvailableSpace::Definite(300.0), height: AvailableSpace::MaxContent }, &mut bottoms);
         assert_eq!(e.layout(2).location.y, 20.0);
+    }
+
+    #[test]
+    fn pixel_snapping_follows_gpui() {
+        // Half a device pixel rounds toward zero.
+        assert_eq!(round_half_toward_zero(0.5), 0.0);
+        assert_eq!(round_half_toward_zero(1.5), 1.0);
+        assert_eq!(round_half_toward_zero(1.6), 2.0);
+        let mut e = Engine::new();
+        e.resize(6);
+        let lp = LengthPercentage::length;
+        // The root's width 100.3 lands on 100.5 (a length, snapped before layout).
+        e.set_style(0, Style { display: Display::Flex, flex_direction: FlexDirection::Column, size: Size { width: Dimension::length(100.3), height: Dimension::auto() }, ..Style::default() });
+        e.set_style(1, Style { padding: Rect { left: lp(3.3), right: lp(3.3), top: lp(3.3), bottom: lp(3.3) }, border: Rect { left: lp(0.2), right: lp(0.2), top: lp(0.2), bottom: lp(0.2) }, ..Style::default() });
+        e.set_style(2, Style { display: Display::Flex, ..Style::default() });
+        for i in 3..6 {
+            e.set_style(i, Style { flex_grow: 1.0, size: Size { width: Dimension::length(0.0), height: Dimension::length(4.0) }, ..Style::default() });
+        }
+        e.set_children(0, &[1, 2]);
+        e.set_children(1, &[]);
+        e.set_children(2, &[3, 4, 5]);
+        e.set_measured(1, true);
+        e.set_pixel_snap(Some(2.0));
+        let mut measure = |_: u32, _k: Size<Option<f32>>, _a: Size<AvailableSpace>| LeafAnswer { size: Size { width: 20.0, height: 10.3 }, baseline: None };
+        e.compute(0, Size { width: AvailableSpace::Definite(100.3), height: AvailableSpace::MaxContent }, &mut measure);
+        // Padding 3.3 → 3.5, border 0.2 → one device pixel, the measured
+        // 10.3 rounds UP to 10.5: 0.5 + 3.5 + 10.5 + 3.5 + 0.5.
+        assert_eq!(e.layout(1).size.height, 18.5);
+        assert_eq!(e.layout(2).location.y, 18.5);
+        // Three equal shares of 100.5: outer edges round in absolute device
+        // pixels, so neighbours close and the last ends on the row's edge.
+        let xs: Vec<f32> = (3..6).map(|i| e.layout(i).location.x).collect();
+        assert_eq!(xs, vec![0.0, 33.5, 67.0]);
+        assert_eq!(e.layout(5).location.x + e.layout(5).size.width, e.layout(2).size.width);
+        assert_eq!(e.layout(2).size.width, 100.5);
+        // Off again: the fractional frames come back.
+        e.set_pixel_snap(None);
+        e.compute(0, Size { width: AvailableSpace::Definite(100.3), height: AvailableSpace::MaxContent }, &mut measure);
+        assert!((e.layout(1).size.height - 17.3).abs() < 1e-4);
     }
 
     #[test]
