@@ -466,7 +466,13 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert_eq!(geo, Rectangle::new((480, 280).into(), (320, 240).into()), "centred like a Wayland window");
-    assert!(h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())), "it has keyboard focus");
+    // The focus follows the map asynchronously (the X11 WM handshake), so
+    // wait for it instead of racing it: CI runners lost the race.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+        assert!(Instant::now() < deadline, "it has keyboard focus");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     // Xwayland draws the background pixel once the frame commits.
     let deadline = Instant::now() + Duration::from_secs(30);
