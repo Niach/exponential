@@ -320,6 +320,8 @@ struct Shell {
     chat_team: Option<team_chat::TeamChat>,
     /// The team chat's opener over the app's keyring (its account's).
     chat_opener: Option<(String, Arc<sync::sealed::Opener>)>,
+    /// The team's agents' glyphs (the hosts paint `ide:agent:<id>` from it).
+    chat_glyphs: AgentGlyphs,
     /// The chat document's literal composer props (placeholder, busy) as drawn.
     chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
@@ -353,7 +355,11 @@ struct Host {
     /// The hosted-popups hook fires inside a view update, while the shell
     /// may be borrowed: it reports over its own channel, never through the shell.
     hosted_tx: mpsc::Sender<HostedReport>,
+    /// The agents' glyphs the chat's icons name (shared with the shell).
+    glyphs: AgentGlyphs,
 }
+
+type AgentGlyphs = Rc<RefCell<HashMap<String, team_chat::AgentGlyph>>>;
 
 /// Does `document`'s header list `function`? (Tier C: a document grants no
 /// privileges; `exponential-ui` refuses such a document already, this is the
@@ -407,8 +413,17 @@ impl HostPlugin for Host {
         assets::icon_path(name)
     }
 
-    /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark, its dot).
+    /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
+    /// its dot), and lane I: a team agent's icon in its colour by the IDE
+    /// rail's own name (`ide:agent:<id>`, its `shell_regions` glyphs), which
+    /// the host owns and paints from its glyph map.
     fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
+        use gpui::{prelude::*, px, svg};
+        let glyph = self.glyphs.try_borrow().ok().and_then(|g| g.get(name).cloned());
+        if let Some(glyph) = glyph {
+            let path = assets::icon_path(&glyph.icon)?;
+            return Some(svg().path(path).size(px(size)).text_color(gpui::rgb(glyph.color)).into_any_element());
+        }
         uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path)
     }
 
@@ -1777,9 +1792,15 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
         let s = shell.borrow();
         match (demo, s.chat_local.as_ref().filter(|_| local), team) {
             (true, _, _) if on_local(shell) => (local_runs::demo_input(), false),
-            (true, _, _) => (team_chat::demo_input(), false),
+            (true, _, _) => {
+                *s.chat_glyphs.borrow_mut() = team_chat::demo_glyphs();
+                (team_chat::demo_input(), false)
+            }
             (false, Some(chat), _) => (chat.input(), chat.agent.is_empty()),
-            (false, None, Some((chat, rows))) => (team_chat::input(&rows, &chat, now_ms()), false),
+            (false, None, Some((chat, rows))) => {
+                *s.chat_glyphs.borrow_mut() = team_chat::glyphs(&rows.account, &chat.team_id);
+                (team_chat::input(&rows, &chat, now_ms()), false)
+            }
             _ => (local_runs::assistant_home(), false),
         }
     };
@@ -2675,8 +2696,13 @@ fn main() {
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
-        // The goldens: the sample conversation (a demo starts on a Local desktop).
-        let chat = if demo { local_runs::demo_input() } else { local_runs::assistant_home() };
+        // The goldens: the sample conversation (Local, or a demo team's).
+        let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
+        let chat = match (demo, on_team) {
+            (true, false) => local_runs::demo_input(),
+            (true, true) => team_chat::demo_input(),
+            _ => local_runs::assistant_home(),
+        };
         feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
@@ -2726,12 +2752,17 @@ fn main() {
         feed.set("/applets", applets);
 
         let shell_cell: Rc<RefCell<Option<SharedShell>>> = Rc::new(RefCell::new(None));
+        // The agents' glyphs, shared by the shell and every host (a host is
+        // made while the shell is borrowed: it never borrows the shell for them).
+        let chat_glyphs: AgentGlyphs = Rc::new(RefCell::new(if demo { team_chat::demo_glyphs() } else { HashMap::new() }));
         let plugin_for: uicore_gpui::PluginFor = {
             let cell = shell_cell.clone();
             let hosted_tx = hosted_tx.clone();
+            let chat_glyphs = chat_glyphs.clone();
             Rc::new(move |document: &str| {
                 let shell = cell.borrow().clone().expect("the shell exists before a surface opens");
-                Rc::new(Host { shell, document: document.to_string(), hosted_tx: hosted_tx.clone() }) as Rc<dyn HostPlugin>
+                let glyphs = chat_glyphs.clone();
+                Rc::new(Host { shell, document: document.to_string(), hosted_tx: hosted_tx.clone(), glyphs }) as Rc<dyn HostPlugin>
             })
         };
         let on_frame: uicore_gpui::OnFrame = Rc::new(|name, digest| println!("{}", FrameLine::line_for_digest(name, digest)));
@@ -2784,6 +2815,7 @@ fn main() {
             chat_agent: None,
             chat_team: None,
             chat_opener: None,
+            chat_glyphs,
             chat_composer: Value::Null,
             engine: None,
             launches: system::LaunchGuard::default(),
