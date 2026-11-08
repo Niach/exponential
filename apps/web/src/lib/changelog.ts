@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-ios-crash-reports`,
+    date: `2026-11-09`,
+    title: `Crash reports from iPhone`,
+    summary: `The iPhone app sends crash, hang and performance diagnostics only through our own servers; turn it off with Send diagnostics in Settings → Account → Privacy.`,
+    body: `- **Crash and hang reports**: the iPhone app reports crashes, freezes and slow screens so we can fix them, sent only through our own servers and deleted after 30 days.
+- **Only your user id**: reports carry no email, name or IP, and passwords, tokens and cookies are removed before anything leaves your phone.
+- **Send diagnostics**: on by default, turn it off in Settings → Account → Privacy.`,
+  },
+  {
     id: `2026-11-08-install-claude-code-in-the-app`,
     date: `2026-11-08`,
     title: `Install Claude Code from the app`,
