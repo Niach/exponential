@@ -62,6 +62,16 @@ struct RecordOutboxGlobal(Entity<RecordOutbox>);
 impl gpui::Global for RecordOutboxGlobal {}
 
 /// The outbox entity (`None` before [`install_record_outbox`]: tests).
+/// #EXP-1727: a Local desktop reopened has a new executor: its queue must
+/// not keep flushing through the old one.
+pub(crate) fn forget_account(account_id: &str, cx: &mut App) {
+    if let Some(outbox) = record_outbox(cx) {
+        outbox.update(cx, |o, _| {
+            o.accounts.remove(account_id);
+        });
+    }
+}
+
 pub(crate) fn record_outbox(cx: &App) -> Option<Entity<RecordOutbox>> {
     cx.try_global::<RecordOutboxGlobal>().map(|g| g.0.clone())
 }
@@ -74,10 +84,9 @@ pub(crate) fn account_records(account_id: &str, cx: &mut App) -> Option<AccountR
         return Some(records.clone());
     }
     let manager = sync::Store::try_global(cx)?.manager();
-    let auth = cx.try_global::<crate::session::AuthContext>()?;
-    let account = auth.auth.account(account_id)?;
-    let provider: Arc<dyn api::TokenProvider> = auth.auth.token_provider(&account.id);
-    let trpc = api::TrpcClient::new(&account.instance_url, provider);
+    // #EXP-1727: a Local desktop's queue flushes into its executor.
+    let account = crate::local_desktops::account(account_id, cx).or_else(|| cx.try_global::<crate::session::AuthContext>()?.auth.account(account_id))?;
+    let trpc = crate::queries::client_for(&account, cx)?;
     let errors: Arc<Mutex<HashMap<String, api::ApiError>>> = Arc::default();
     let published = outbox.read(cx).published.clone();
     let transport = Arc::new(TrpcTransport::new(trpc, published, errors.clone()));

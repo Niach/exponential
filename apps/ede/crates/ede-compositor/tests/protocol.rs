@@ -431,9 +431,11 @@ fn outputs_take_a_scale_and_a_mode() {
     let mut ipc = h.ipc();
     let out = &ipc.outputs().unwrap()[0];
     assert_eq!((out.scale, out.width, out.height), (2.0, 400, 300), "the logical size is the mode over the scale");
-    assert_eq!(out.modes.len(), 1);
-    assert!(out.modes[0].current && out.modes[0].preferred);
-    assert_eq!((out.modes[0].width, out.modes[0].height, out.modes[0].refresh), (800, 600, 60_000));
+    let current: Vec<_> = out.modes.iter().filter(|m| m.current).collect();
+    assert_eq!(current.len(), 1);
+    assert!(current[0].preferred);
+    assert_eq!((current[0].width, current[0].height, current[0].refresh), (800, 600, 60_000));
+    assert_eq!(out.modes.len(), 4, "its own size and the virtual GPU's three");
 
     // A window opened on a 2× output hears the preferred scale.
     let mut app = Session::connect(h.connect());
@@ -445,6 +447,10 @@ fn outputs_take_a_scale_and_a_mode() {
     let out = &ipc.outputs().unwrap()[0];
     assert_eq!((out.scale, out.x, out.y, out.width), (1.5, 10, 20, 534), "800 / 1.5, rounded up");
     assert_eq!(code(ipc.set_output("HEADLESS-1", Some("1234x999"), None, None).unwrap_err()), ErrorCode::Invalid, "a mode the output does not offer");
+    // #EDE-65: a mode change (a VM window resized) reaches the logical size.
+    ipc.set_output("HEADLESS-1", Some("1600x900"), Some(1.0), None).unwrap();
+    let out = &ipc.outputs().unwrap()[0];
+    assert_eq!((out.width, out.height), (1600, 900));
     assert_eq!(code(ipc.set_output("HEADLESS-1", Some("wide"), None, None).unwrap_err()), ErrorCode::Invalid);
     assert_eq!(code(ipc.set_output("DP-9", None, Some(1.0), None).unwrap_err()), ErrorCode::Invalid);
     // Only the system capability changes outputs.

@@ -56,6 +56,17 @@ pub struct Account {
     // write.
 }
 
+impl Account {
+    /// #EXP-1727: a Local desktop of the IDE: no instance, no token; its
+    /// calls go to the desktop's executor, nothing leaves the machine.
+    pub fn is_local(&self) -> bool {
+        self.instance_url.starts_with(LOCAL_SCHEME)
+    }
+}
+
+/// The instance URL scheme a Local desktop's account carries.
+pub const LOCAL_SCHEME: &str = "local://";
+
 /// Derive the stable, filesystem-safe account id for (instance URL, user id).
 /// E.g. `app.exponential.at-8Jk3…` — readable in `accounts/` and unique per
 /// server+user (the same user on two instances is two accounts, like iOS).

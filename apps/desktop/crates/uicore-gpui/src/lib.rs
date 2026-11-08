@@ -462,6 +462,26 @@ impl Surfaces {
         true
     }
 
+    /// An open layer document at its header's new size and exclusive zone
+    /// (the output changed under it, the rail): the same window resized in
+    /// place, so the bar never leaves the screen for a frame (#EDE-65).
+    pub fn resize_layer(&mut self, doc: &Document, feed: &Feed, cx: &mut App) -> bool {
+        let Some(region) = self.open.get(&doc.name).cloned() else { return false };
+        let SurfaceHeader::Layer { exclusive_zone, .. } = &doc.surface else { return false };
+        let zone = *exclusive_zone;
+        let bounds = layer_bounds(&doc.surface);
+        let feed = feed.clone();
+        let doc = doc.clone();
+        let _ = region.handle.update(cx, |_, window, cx| {
+            window.resize(bounds.size);
+            if zone != 0 {
+                window.set_exclusive_zone(px(zone as f32));
+            }
+            region.view.update(cx, |v, cx| load(v, &doc, &feed, cx));
+        });
+        true
+    }
+
     /// Pushes the feed into every open view.
     pub fn feed_all(&self, feed: &Feed, cx: &mut App) {
         for region in self.open.values() {
