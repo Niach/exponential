@@ -270,6 +270,19 @@ pub fn team_deep_link(team_id: &str) -> String {
     format!("{}://team/{team_id}", api::login::OAUTH_CALLBACK_SCHEME)
 }
 
+/// #EDE-65: the rail's chat on a team: the Exponential app opens the session.
+pub fn session_deep_link(session_id: &str) -> String {
+    format!("{}://session/{session_id}", api::login::OAUTH_CALLBACK_SCHEME)
+}
+
+/// #EDE-65: the new-issue button: the Exponential app's new issue, on the team when one is current.
+pub fn new_issue_deep_link(team_id: Option<&str>) -> String {
+    match team_id {
+        Some(team) => format!("{}://new-issue/{team}", api::login::OAUTH_CALLBACK_SCHEME),
+        None => format!("{}://new-issue", api::login::OAUTH_CALLBACK_SCHEME),
+    }
+}
+
 /// #EDE-65: the deep link that brings the Exponential app onto a Local
 /// desktop (the machine's one index, so the app knows the id).
 pub fn local_deep_link(desktop_id: &str) -> String {
@@ -344,5 +357,17 @@ mod tests {
     fn the_team_link_is_the_one_the_app_parses() {
         assert_eq!(team_deep_link("e891ab20"), "exponential://team/e891ab20");
         assert_eq!(local_deep_link("87858284"), "exponential://local/87858284");
+    }
+
+    #[test]
+    fn the_hand_off_links_are_the_ones_the_app_parses() {
+        assert_eq!(session_deep_link("s1"), "exponential://session/s1");
+        assert_eq!(new_issue_deep_link(Some("t1")), "exponential://new-issue/t1");
+        assert_eq!(new_issue_deep_link(None), "exponential://new-issue");
+    }
+
+    #[test]
+    fn the_chats_sync_with_the_teams() {
+        assert!(SHAPES.contains(&"sessions"));
     }
 }

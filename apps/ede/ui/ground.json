@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory ground (#EDE-42, #EDE-44): the IDE look's frame. A background layer surface over the whole output: the IDE's ground (flat here: a gradient would seam against the sidebar's and the taskbar's flat fill), and the grey rounded panel the focused window sits on (radius 12, a hairline border, the IDE's panel fill), inset by the sidebar (272, or the 56 px rail: /shell/rail) and the taskbar (48) plus the 10 px panel margin the compositor keeps windows inside ([windows] panel_margin). The numbers are packages/uicore/fixtures/shell-layout.json.",
+  "$comment": "Exponential Desktop's factory ground (#EDE-42, #EDE-44): the IDE look's frame. A background layer surface over the whole output: the IDE's ground (flat here: a gradient would seam against the sidebar's and the taskbar's flat fill), and the grey rounded panel the focused window sits on (radius 12, a hairline border, the IDE's panel fill), inset by the sidebar (the 56 px icon rail for good, #EDE-65) and the taskbar (48) plus the 10 px panel margin the compositor keeps windows inside ([windows] panel_margin). The numbers are packages/uicore/fixtures/shell-layout.json.",
   "surface": {
     "layer": "background",
     "anchor": [
@@ -22,44 +22,11 @@
     },
     "children": [
       {
-        "id": "left_full",
-        "component": "Box",
-        "style": {
-          "width": 272,
-          "flexShrink": 0
-        },
-        "visible": {
-          "@call": "not",
-          "args": {
-            "value": {
-              "@call": "cond",
-              "args": {
-                "if": {
-                  "@path": "/shell/rail"
-                },
-                "then": true,
-                "else": false
-              }
-            }
-          }
-        }
-      },
-      {
         "id": "left_rail",
         "component": "Box",
         "style": {
           "width": 56,
           "flexShrink": 0
-        },
-        "visible": {
-          "@call": "cond",
-          "args": {
-            "if": {
-              "@path": "/shell/rail"
-            },
-            "then": true,
-            "else": false
-          }
         }
       },
       {
@@ -90,10 +57,5 @@
         ]
       }
     ]
-  },
-  "data": {
-    "shell": {
-      "rail": false
-    }
   }
 }
