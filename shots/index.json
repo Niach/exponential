@@ -161,8 +161,8 @@
         "file": "shots/app/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 94594,
-        "sha256": "d524753c42ef3585261aaf7c5f544167c310de44dd50079eaaeba6ddac8f2dc4"
+        "bytes": 94364,
+        "sha256": "07677f021d8636cd9158314b02dbec35001d9375f5df0ba057aa735bca70757d"
       },
       "ios": {
         "file": "shots/app/ios.webp",
@@ -383,8 +383,8 @@
         "file": "shots/app-draft/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 36784,
-        "sha256": "6445e26cc148f3bcff54284796c692105a4f3473436f493155b56787f68aa464"
+        "bytes": 44034,
+        "sha256": "1f4eea94f9b43c1256a4866dd3e29c74069fcaa0ae5b13dc8a3528bbd33e56d6"
       },
       "ios": {
         "file": "shots/app-draft/ios.webp",
@@ -5071,6 +5071,36 @@
         "height": 1200,
         "bytes": 20366,
         "sha256": "5d4348583b28c7359fcf48b91b4805225249298fff7b22d44d4da03a8017e84b"
+      }
+    },
+    "exponential-ui-window": {
+      "android": {
+        "file": "shots/exponential-ui-window/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 13340,
+        "sha256": "8b6b1798a0e0436206768d899ef0c4fde1b66fef3f71967d7b31abe304ddcae7"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-window/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 33346,
+        "sha256": "1ffd6fb6924a4090aff93206ba7222e4898759ab9c92844619d7d75fa57db3b5"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-window/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 13882,
+        "sha256": "5d47e8086d5a0016c72bbca9a09cf7cbb1ccc2ac068fcc4df1e2b7de9d63c81e"
+      },
+      "web": {
+        "file": "shots/exponential-ui-window/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 10042,
+        "sha256": "17610036572868603badb5eefbb408bb607f9692149c86c2163d499971467fe4"
       }
     },
     "exponential-ui-zoomable-image": {
