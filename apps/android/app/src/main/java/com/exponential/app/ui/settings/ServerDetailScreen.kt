@@ -5,6 +5,9 @@ import com.exponential.app.domain.Voice
 import androidx.compose.ui.platform.testTag
 import com.exponential.app.ui.components.Blocking
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.Observability
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -645,6 +648,10 @@ fun ServerDetailScreen(
                 SignInMethodsSection(accountId = accountId, viewModel = viewModel)
             }
 
+            // #LOGS-2: web's Account › Privacy, per device (not per account).
+            val sendDiagnostics by Observability.sendDiagnostics.collectAsStateWithLifecycle()
+            PrivacySection(sendDiagnostics, Observability::setSendDiagnostics)
+
             // Actions card.
             Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                 if (account?.token != null) {
@@ -732,6 +739,22 @@ fun ServerDetailScreen(
 
 // One tappable action row inside a glass section: leading icon + title (iOS
 // settingsRow, same pattern as SettingsScreen).
+/** #LOGS-2: Account › Privacy, the device's "Send diagnostics" toggle. */
+@Composable
+internal fun PrivacySection(sendDiagnostics: Boolean, onSendDiagnosticsChange: (Boolean) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        SectionHeader("Privacy")
+        Column(Modifier.fillMaxWidth().glassGroup()) {
+            SwitchRow(
+                title = "Send diagnostics",
+                checked = sendDiagnostics,
+                onCheckedChange = onSendDiagnosticsChange,
+                modifier = Modifier.testTag("send-diagnostics"),
+            )
+        }
+    }
+}
+
 @Composable
 private fun ActionRow(
     icon: ImageVector,

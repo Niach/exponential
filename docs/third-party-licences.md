@@ -580,3 +580,19 @@ Its licence is the MIT/X11 family (permissive, notice-preserving), and the
 links only noble's own system libraries, which come in through the .deb's
 Depends and are never copied into it. xorgproto is used at build time only:
 it is headers, and nothing of it ships.
+
+## Android crash reporting: the Sentry SDK (#LOGS-2)
+
+### What we ship (2026-11-09)
+
+The Android app links `io.sentry:sentry-android-core`, `-ndk`, `-navigation`,
+`sentry-okhttp` and `sentry` 8.63.0 plus `sentry-native-ndk` 0.17.6 (all MIT,
+Copyright (c) Sentry) and `com.abovevacant:epitaph` 0.2.0 (MIT). The NDK
+module ships `libsentry.so` (sentry-native, MIT) per ABI. Everything sits in
+`collect:android`'s inventory except `sentry-android-core`, which the licence
+report leaves out; its terms (MIT) and copyright holder are those of the
+`io.sentry:sentry` row, so the notice already covers it.
+
+No session replay (`sentry-android-replay`) and no Sentry Gradle plugin are
+linked. Events leave only through the signed-in server's `/api/monitoring`
+tunnel, never to a Sentry or GlitchTip host directly.

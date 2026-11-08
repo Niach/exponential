@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-android-diagnostics",
+    date: "2026-11-09",
+    title: "Android diagnostics, opt-out in Settings",
+    summary: "Android sends crash, ANR and performance diagnostics only through our own servers, with your user id only; turn it off with Send diagnostics.",
+    body: r#"- **Crash and performance diagnostics**: the Android app reports crashes, ANRs and performance through our own servers only, never straight to a third party, with your user id and nothing else, deleted after 30 days.
+- **Send diagnostics**: on by default, off in Settings → Account → Privacy, per device."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_232: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-install-claude-code-in-the-app",
     date: "2026-11-08",
     title: "Install Claude Code from the app",

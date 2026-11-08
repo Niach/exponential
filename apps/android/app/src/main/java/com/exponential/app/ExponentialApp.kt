@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import com.exponential.app.data.auth.AccountDeduplicator
@@ -20,6 +21,10 @@ import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.data.steer.SteerConnectionStore
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import io.ktor.client.HttpClient
 
 private const val KEY_PERUSER_DB_CLEANUP = "peruser_db_cleanup_v1"
 
@@ -32,6 +37,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var timezoneClaimer: TimezoneClaimer
     @Inject lateinit var imageLoader: ImageLoader
     @Inject lateinit var auth: AuthRepository
+    @Inject lateinit var httpClient: HttpClient
     @Inject lateinit var databaseHolder: DatabaseHolder
     @Inject lateinit var secureStore: SecureStore
     @Inject lateinit var accountDeduplicator: AccountDeduplicator
@@ -40,6 +46,8 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var systemSearchIndexer: com.exponential.app.data.search.SystemSearchIndexer
 
     override fun onCreate() {
+        // #LOGS-2: before Hilt injects, so a crash building the graph is reported.
+        Observability.start(this)
         super.onCreate()
         createIssueNotificationChannel()
         cleanupLegacyAccountDatabases()
@@ -56,6 +64,13 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
             }
         }
         syncManager.start()
+        // #LOGS-2: the active server's monitoring config + user id.
+        ProcessLifecycleOwner.get().lifecycleScope.launch {
+            auth.userId.collect(Observability::setUser)
+        }
+        ProcessLifecycleOwner.get().lifecycleScope.launch(Dispatchers.IO) {
+            auth.instanceUrl.collectLatest { Observability.refresh(httpClient, it) }
+        }
         // EXP-1635: the system share sheet's rows follow the synced agents + chats.
         directShareShortcuts.start()
         // #EXP-1642: issues and chats in the phone's own search (AppSearch).

@@ -31,7 +31,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-222 third-party components are distributed as part of this build. They are
+228 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -248,8 +248,8 @@ Applies to the following 214 components:
   org.jetbrains.kotlin:kotlin-parcelize-runtime 1.9.22
   org.jetbrains.kotlin:kotlin-stdlib 2.4.0
   org.jetbrains.kotlin:kotlin-stdlib-common 2.4.0
-  org.jetbrains.kotlin:kotlin-stdlib-jdk7 1.9.0
-  org.jetbrains.kotlin:kotlin-stdlib-jdk8 1.8.22
+  org.jetbrains.kotlin:kotlin-stdlib-jdk7 1.9.24
+  org.jetbrains.kotlin:kotlin-stdlib-jdk8 1.9.24
   org.jetbrains.kotlinx:kotlinx-coroutines-android 1.11.0
   org.jetbrains.kotlinx:kotlinx-coroutines-bom 1.11.0
   org.jetbrains.kotlinx:kotlinx-coroutines-core 1.11.0
@@ -340,6 +340,45 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 8 components:
+
+  com.abovevacant:epitaph 0.2.0
+  io.sentry:sentry 8.63.0
+  io.sentry:sentry-android-navigation 8.63.0
+  io.sentry:sentry-android-ndk 8.63.0
+  io.sentry:sentry-native-ndk 0.17.6
+  io.sentry:sentry-okhttp 8.63.0
+  org.checkerframework:checker-qual 3.43.0
+    Copyright 2004-present by the Checker Framework developers
+  org.slf4j:slf4j-api 2.0.18
+    Copyright (c) 2004-2022 QOS.ch Sarl (Switzerland)
+
+..............................................................................
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -455,39 +494,6 @@ Redistribution and use in source and binary forms, with or without modification,
 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 2 components:
-
-  org.checkerframework:checker-qual 3.43.0
-    Copyright 2004-present by the Checker Framework developers
-  org.slf4j:slf4j-api 2.0.18
-    Copyright (c) 2004-2022 QOS.ch Sarl (Switzerland)
-
-..............................................................................
-
-MIT License
-
-Copyright (c) <year> <copyright holders>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-associated documentation files (the "Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
-following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial
-portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
-EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 ==============================================================================
