@@ -1796,7 +1796,10 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
                 *s.chat_glyphs.borrow_mut() = team_chat::demo_glyphs();
                 (team_chat::demo_input(), false)
             }
-            (false, Some(chat), _) => (chat.input(), chat.agent.is_empty()),
+            (false, Some(chat), _) => {
+                *s.chat_glyphs.borrow_mut() = chat.agents().1;
+                (chat.input(), chat.agent.is_empty())
+            }
             (false, None, Some((chat, rows))) => {
                 *s.chat_glyphs.borrow_mut() = team_chat::glyphs(&rows.account, &chat.team_id);
                 (team_chat::input(&rows, &chat, now_ms()), false)
@@ -1882,7 +1885,8 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
 /// picked agent; the chat then shows the session the server names.
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if chat_local(shell) {
-        let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
+        let picked = shell.borrow().chat_agent.clone();
+        let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send_to(text, picked.as_deref())).unwrap_or(Ok(()));
         match sent {
             Ok(()) => chat_clear_draft(shell, cx),
             Err(e) => failed_action(shell, "send", "the message", &e, cx),

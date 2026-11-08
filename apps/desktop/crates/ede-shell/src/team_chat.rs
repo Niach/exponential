@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use domain::rows::{MessageRow, SessionRow, User};
+use domain::rows::{AgentDefRow, MessageRow, SessionRow, User};
 use uicore_model::chat::{ChatAgentInput, ChatInput};
 
 use crate::inbox::AccountRows;
@@ -35,7 +35,7 @@ pub struct TeamRows {
 pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents", "users", "session_issues", "pull_requests"];
 
 /// The brand mark: the viewer's Assistant (the IDE's agent row draws it).
-const ASSISTANT_ICON: &str = "brand-exponential";
+pub const ASSISTANT_ICON: &str = "brand-exponential";
 
 /// An agent's icon as the documents name it: the IDE rail's name
 /// (`ide:agent:<id>`, #EXP-1725 `shell_regions`), painted by the host from
@@ -66,9 +66,13 @@ pub fn agent_glyph(icon: Option<&str>, color: Option<&str>) -> AgentGlyph {
 /// The team's agents' glyphs by their icon name (the Assistant is the
 /// brand mark, no glyph).
 pub fn glyphs(rows: &AccountRows, team_id: &str) -> HashMap<String, AgentGlyph> {
-    let me = Some(rows.user_id.as_str());
     let team_ids: Vec<&str> = rows.teams.iter().map(|t| t.id.as_str()).collect();
-    domain::agent_settings::agents_in_team(rows.agents.iter(), team_id, &team_ids, me)
+    agent_glyphs(&rows.agents, team_id, &team_ids, &rows.user_id)
+}
+
+/// [`glyphs`] over any agent rows (a team's, a Local desktop's).
+pub fn agent_glyphs(agents: &[AgentDefRow], team_id: &str, team_ids: &[&str], me: &str) -> HashMap<String, AgentGlyph> {
+    domain::agent_settings::agents_in_team(agents.iter(), team_id, team_ids, Some(me))
         .into_iter()
         .filter(|a| !a.is_assistant())
         .map(|a| (agent_icon(&a.id), agent_glyph(a.icon.as_deref(), a.color.as_deref())))
@@ -83,9 +87,14 @@ fn hex(color: &str) -> Option<u32> {
 /// The team's agents as the IDE's agent row lists them (`agents_in_team`,
 /// `orderedAgents`: the viewer's Assistant first).
 pub fn agents(rows: &AccountRows, team_id: &str) -> Vec<ChatAgentInput> {
-    let me = Some(rows.user_id.as_str());
     let team_ids: Vec<&str> = rows.teams.iter().map(|t| t.id.as_str()).collect();
-    let listed = domain::agent_settings::agents_in_team(rows.agents.iter(), team_id, &team_ids, me);
+    agent_inputs(&rows.agents, team_id, &team_ids, &rows.user_id)
+}
+
+/// [`agents`] over any agent rows (a team's, a Local desktop's).
+pub fn agent_inputs(agents: &[AgentDefRow], team_id: &str, team_ids: &[&str], me: &str) -> Vec<ChatAgentInput> {
+    let me = Some(me);
+    let listed = domain::agent_settings::agents_in_team(agents.iter(), team_id, team_ids, me);
     domain::agent_settings::ordered_agents(listed, me)
         .into_iter()
         .map(|a| ChatAgentInput {
