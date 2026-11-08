@@ -68,6 +68,6 @@ describe(`shell.json selectors`, () => {
   }
   for (const c of fixture.selectors.startMenuIssues) {
     const args = (c as { args?: { issues?: StartMenuIssue[] } }).args ?? {}
-    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected))
+    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected as ReturnType<typeof startMenuIssues>))
   }
 })
