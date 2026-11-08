@@ -1,10 +1,10 @@
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
-use crate::ThemeStyled as _;
 use crate::{
     ActiveTheme, AxisExt, Sizable, Size, StyledExt, checkbox::checkbox_check_icon, h_flex,
     text::Text, tooltip::ComponentTooltip, v_flex,
 };
+use crate::{StyleSized as _, ThemeStyled as _};
 use gpui::{
     AnyElement, App, Axis, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
@@ -21,6 +21,8 @@ pub struct Radio {
     style: StyleRefinement,
     id: ElementId,
     label: Option<Text>,
+    /// The announced name, when the visible label is not it.
+    accessibility_label: Option<SharedString>,
     children: Vec<AnyElement>,
     checked: bool,
     disabled: bool,
@@ -43,6 +45,7 @@ impl Radio {
             id,
             style: StyleRefinement::default(),
             label: None,
+            accessibility_label: None,
             children: Vec::new(),
             checked: false,
             disabled: false,
@@ -63,9 +66,27 @@ impl Radio {
         self
     }
 
+    /// Overrides how long the pointer must rest before the tooltip shows.
+    ///
+    /// Defaults to [`gpui_base::TooltipDefaults::show_delay`].
+    pub fn tooltip_show_delay(mut self, delay: Duration) -> Self {
+        self.tooltip.show_delay = Some(delay);
+        self
+    }
+
     /// Set the label of the Radio element.
     pub fn label(mut self, label: impl Into<Text>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Set the name a screen reader announces, when the visible label is not
+    /// it.
+    ///
+    /// A radio's name comes from its [`label`](Self::label) by default. Setting
+    /// this replaces the announced name without changing what is displayed.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -93,10 +114,18 @@ impl Radio {
         self
     }
 
-    /// Add on_click handler when the Radio is clicked.
+    /// Alias for [`Self::on_change`]. The last callback registered with either name wins.
+    pub fn on_click(self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
+        self.on_change(handler)
+    }
+
+    /// Handle a requested checked value from pointer or keyboard activation.
     ///
-    /// The `&bool` parameter is the **new checked state**.
-    pub fn on_click(mut self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
+    /// This is a controlled value: the owner must write the requested value and
+    /// call `cx.notify()` to render it. Disabled controls do not call the handler.
+    /// This and [`Self::on_click`] share one callback; chaining them replaces
+    /// the previous handler instead of calling both.
+    pub fn on_change(mut self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(handler));
         self
     }
@@ -143,12 +172,23 @@ impl ParentElement for Radio {
 impl RenderOnce for Radio {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let checked = self.checked;
+        let has_content = self.label.is_some() || !self.children.is_empty();
+        let indicator_size = rems(match self.size {
+            Size::XSmall => 0.75,
+            Size::Small => 0.875,
+            Size::Large => 1.125,
+            _ => 1.,
+        });
         let focus_handle = window
             .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
             .read(cx)
             .clone();
         let is_focused = focus_handle.is_focused(window);
         let disabled = self.disabled;
+        let accessibility_label = self
+            .accessibility_label
+            .clone()
+            .or_else(|| self.label.as_ref().map(|label| label.get_text(cx)));
 
         let (border_color, bg) = if checked {
             (cx.theme().primary, cx.theme().primary)
@@ -168,10 +208,9 @@ impl RenderOnce for Radio {
             .track_focus(&focus_handle)
             .tab_stop(self.tab_stop)
             .tab_index(self.tab_index)
-            .when_some(
-                self.label.as_ref().map(|l| l.get_text(cx)),
-                |this, label| this.accessibility_label(label),
-            )
+            .when_some(accessibility_label, |this, label| {
+                this.accessibility_label(label)
+            })
             .when_some(
                 self.position_in_set.zip(self.size_of_set),
                 |this, (position, size)| this.set_position(position, size),
@@ -186,25 +225,18 @@ impl RenderOnce for Radio {
                 this.focus_ring_style(window, cx)
             })
             .map(|this| match self.size {
-                Size::XSmall => this.text_xs(),
-                Size::Small => this.text_sm(),
-                Size::Medium => this.text_base(),
-                Size::Large => this.text_lg(),
-                _ => this,
+                Size::Size(_) => this,
+                size => this.input_text_size(size),
             })
             .refine_style(&self.style)
             .child(
                 div()
                     .relative()
-                    .map(|this| match self.size {
-                        Size::XSmall => this.size_3(),
-                        Size::Small => this.size_3p5(),
-                        Size::Medium => this.size_4(),
-                        Size::Large => this.size(rems(1.125)),
-                        _ => this.size_4(),
-                    })
+                    .size(indicator_size)
+                    // Center on the first 1.25em line, including when the label wraps.
+                    .when(has_content, |this| this.mt(indicator_size * 0.125))
                     .flex_shrink_0()
-                    .rounded_full()
+                    .rounded_full_style(cx)
                     .border_1()
                     .border_color(border_color)
                     .map(|this| match self.checked {
@@ -220,13 +252,12 @@ impl RenderOnce for Radio {
                 this.child(
                     v_flex()
                         .w_full()
-                        .line_height(relative(1.2))
+                        .line_height(relative(1.25))
                         .gap_1()
                         .when_some(self.label, |this, label| {
                             this.child(
                                 div()
                                     .size_full()
-                                    .line_height(relative(1.))
                                     .when(self.disabled, |this| {
                                         this.text_color(cx.theme().muted_foreground)
                                     })
@@ -262,7 +293,8 @@ pub struct RadioGroup {
 }
 
 impl RadioGroup {
-    fn new(id: impl Into<ElementId>) -> Self {
+    /// Creates a radio group with vertical layout and no selected item.
+    pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
             style: StyleRefinement::default().flex_1(),
@@ -290,10 +322,18 @@ impl RadioGroup {
         self
     }
 
-    // Add on_click handler when selected index changes.
-    //
-    // The `&usize` parameter is the selected index.
-    pub fn on_click(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
+    /// Alias for [`Self::on_change`]. The last callback registered with either name wins.
+    pub fn on_click(self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_change(handler)
+    }
+
+    /// Handle a requested selected index from pointer or keyboard activation.
+    ///
+    /// This is a controlled value: the owner must write the requested value and
+    /// call `cx.notify()` to render it. Disabled controls do not call the handler.
+    /// This and [`Self::on_click`] share one callback; chaining them replaces
+    /// the previous handler instead of calling both.
+    pub fn on_change(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(handler));
         self
     }
@@ -371,13 +411,45 @@ impl RenderOnce for RadioGroup {
                         radio.id = ix.into();
                         radio.position_in_set = Some(ix + 1);
                         radio.size_of_set = Some(total);
-                        radio.disabled(disabled).checked(checked).when_some(
-                            on_click.clone(),
-                            |this, on_click| {
+                        let item_disabled = radio.disabled;
+                        radio
+                            .disabled(disabled || item_disabled)
+                            .checked(checked)
+                            .when_some(on_click.clone(), |this, on_click| {
                                 this.on_click(move |_, window, cx| on_click(&ix, window, cx))
-                            },
-                        )
+                            })
                     })),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_explicit_accessibility_label_replaces_the_visible_one() {
+        let plain = Radio::new("automatic").label("Automatic");
+        assert_eq!(plain.accessibility_label, None);
+        assert!(matches!(
+            &plain.label,
+            Some(Text::String(label)) if label.as_ref() == "Automatic"
+        ));
+
+        let named = Radio::new("automatic")
+            .label("Automatic")
+            .accessibility_label("Choose automatic mode");
+        assert_eq!(
+            named.accessibility_label.as_deref(),
+            Some("Choose automatic mode"),
+            "an explicit name must win over the visible label"
+        );
+        assert!(
+            matches!(
+                &named.label,
+                Some(Text::String(label)) if label.as_ref() == "Automatic"
+            ),
+            "and must not change what is drawn"
+        );
     }
 }

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://github.com/longbridge/gpui-component/raw/refs/heads/main/.theme-schema.json",
+  "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
   "name": "Default",
   "author": "shadcn",
   "url": "https://ui.shadcn.com",
@@ -18,13 +18,14 @@
         "group_box.background": "#f5f5f5",
         "group_box.foreground": "#171717",
         "caret": "#0a0a0a",
-        "chart_1": "#93c5fd",
-        "chart_2": "#3b82f6",
-        "chart_3": "#2563eb",
-        "chart_4": "#1d4ed8",
-        "chart_5": "#1e40af",
-        "chart_bullish": "green-600",
-        "chart_bearish": "red-600",
+        "chart.1": "#93c5fd",
+        "chart.2": "#3b82f6",
+        "chart.3": "#2563eb",
+        "chart.4": "#1d4ed8",
+        "chart.5": "#1e40af",
+        "chart.bullish": "green-600",
+        "chart.bearish": "red-600",
+        "chart.grid": "neutral-200/60",
         "danger.background": "red-500",
         "danger.foreground": "neutral-50",
         "description_list_label.foreground": "#171717",
@@ -88,7 +89,6 @@
         "table.head.foreground": "#737373",
         "table.hover.background": "#f5f5f5",
         "table.row.border": "#e5e5e5b3",
-        "tiles.background": "#fafafa",
         "title_bar.background": "#F8F8F8",
         "title_bar.border": "#e5e5e5",
         "status_bar.background": "#F8F8F8",
@@ -118,10 +118,11 @@
         "editor.active_line_number": "#000000",
         "editor.invisible": "#73737366",
         "conflict": "#C5060B",
-        "created": "#1642FF",
+        "created": "#16a34a",
+        "deleted": "#dc2626",
         "hidden": "#6D6D6D",
         "hint": "#9e5dff",
-        "modified": "#9e7008",
+        "modified": "#ca8a04",
         "predictive": "#A4ABB6",
         "warning": "#C99401",
         "syntax": {
@@ -224,13 +225,14 @@
         "group_box.background": "neutral-950",
         "group_box.foreground": "neutral-50",
         "caret": "#fafafa",
-        "chart_1": "#93c5fd",
-        "chart_2": "#3b82f6",
-        "chart_3": "#2563eb",
-        "chart_4": "#1d4ed8",
-        "chart_5": "#1e40af",
-        "chart_bullish": "green-600",
-        "chart_bearish": "red-600",
+        "chart.1": "#93c5fd",
+        "chart.2": "#3b82f6",
+        "chart.3": "#2563eb",
+        "chart.4": "#1d4ed8",
+        "chart.5": "#1e40af",
+        "chart.bullish": "green-600",
+        "chart.bearish": "red-600",
+        "chart.grid": "neutral-800/60",
         "danger.background": "red-400",
         "danger.foreground": "red-600",
         "description_list_label.background": "#171717",
@@ -289,7 +291,6 @@
         "table.background": "#0a0a0a",
         "table.head.foreground": "#525252",
         "table.row.border": "#262626b3",
-        "tiles.background": "#171717",
         "title_bar.background": "#171717",
         "title_bar.border": "#262626",
         "status_bar.background": "#171717",
@@ -319,18 +320,19 @@
         "editor.active_line_number": "#DDDDDD",
         "editor.invisible": "#73737366",
         "conflict": "#D2602D",
-        "created": "#3f72e2",
+        "created": "#4ade80",
         "created.background": "#0C4619",
+        "deleted": "#f87171",
         "deleted.background": "#46190C",
         "error.background": "#46190C",
-        "error.border": "#802207",
+        "error.border": "#E44A4F",
         "hidden": "#9E9E9E",
         "hint": "#b283f8",
         "hint.background": "#250c4b",
         "hint.border": "#3f0891",
         "info.background": "#0059D1",
         "info.border": "#0059D1",
-        "modified": "#B0A878",
+        "modified": "#facc15",
         "modified.background": "#3A310E",
         "predictive": "#5D5945",
         "success.background": "#0C4619",
@@ -338,22 +340,22 @@
         "warning.border": "#7B6508",
         "syntax": {
           "attribute": {
-            "color": "#e7cb8f"
+            "color": "#7FAEF9"
           },
           "boolean": {
-            "color": "#E1D797"
+            "color": "#CC9E00"
           },
           "comment": {
-            "color": "#9E9E9E"
+            "color": "#9D9D9D"
           },
           "comment.doc": {
-            "color": "#9E9E9E"
+            "color": "#9D9D9D"
           },
           "constant": {
-            "color": "#E1D797"
+            "color": "#CC9E00"
           },
           "constructor": {
-            "color": "#b5af9a"
+            "color": "#CBA6F7"
           },
           "embedded": {
             "color": "#CACCCA"
@@ -365,13 +367,13 @@
             "font_weight": 700
           },
           "function": {
-            "color": "#fdd888"
+            "color": "#B3C5F3"
           },
           "keyword": {
-            "color": "#c28b12"
+            "color": "#87B1F6"
           },
           "link_text": {
-            "color": "#307BF6",
+            "color": "#419CFF",
             "font_style": "normal"
           },
           "link_uri": {
@@ -379,44 +381,44 @@
             "font_style": "italic"
           },
           "number": {
-            "color": "#E1D797"
+            "color": "#CC9E00"
           },
           "string": {
-            "color": "#62BA46"
+            "color": "#A3E09F"
           },
           "string.escape": {
-            "color": "#62BA46"
+            "color": "#68DC7C"
           },
           "string.regex": {
-            "color": "#62BA46"
+            "color": "#68DC7C"
           },
           "string.special": {
-            "color": "#E1D797"
+            "color": "#A3E09F"
           },
           "string.special.symbol": {
-            "color": "#E1D797"
+            "color": "#A3E09F"
           },
           "tag": {
-            "color": "#b5af9a"
+            "color": "#419CFF"
           },
           "text.literal": {
-            "color": "#E1D797"
+            "color": "#A3E09F"
           },
           "text.code.span": {
-            "color": "#E1D797"
+            "color": "#A3E09F"
           },
           "title": {
-            "color": "#fdd888",
+            "color": "#CC9E00",
             "font_weight": 600
           },
           "type": {
-            "color": "#c75828"
+            "color": "#CBA6F7"
           },
           "property": {
-            "color": "#CACCCA"
+            "color": "#BCC4E0"
           },
           "variable.special": {
-            "color": "#E19773"
+            "color": "#419CFF"
           }
         }
       }

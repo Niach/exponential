@@ -1,20 +1,24 @@
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
-use crate::ThemeStyled as _;
 use crate::{
-    ActiveTheme, Colorize as _, Disableable, Icon, RoleOverride, Selectable, Sizable, Size,
-    StyleSized, StyledExt,
+    ActiveTheme, Colorize as _, Disableable, Icon, Placement, RoleOverride, Selectable, Sizable,
+    Size, StyleSized, StyledExt,
     button::ButtonIcon,
     h_flex,
     select::Caret,
+    styled::{FocusLine, focus_style},
     tooltip::{ManagedTooltipExt as _, Tooltip},
 };
 use gpui::{
-    AnyElement, App, Background, ClickEvent, Corners, Edges, ElementId, Hsla, InteractiveElement,
-    Interactivity, IntoElement, MouseButton, ParentElement, Pixels, RenderOnce, Role, SharedString,
-    StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
+    AnyElement, App, Background, ClickEvent, Corners, Edges, ElementId, FocusHandle, Hsla,
+    InteractiveElement, Interactivity, IntoElement, MouseButton, ParentElement, Pixels, RenderOnce,
+    Role, SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
     prelude::FluentBuilder as _, relative, transparent_white,
 };
+
+/// Ink of the focus line a filled button draws inside its fill: its own
+/// foreground, which the theme already keeps legible against that fill.
+const FOCUS_LINE_OPACITY: f32 = 0.6;
 
 #[derive(Default, Clone, Copy)]
 pub enum ButtonRounded {
@@ -188,10 +192,15 @@ pub struct Button {
     base: gpui_base::Button,
     icon: Option<ButtonIcon>,
     label: Option<SharedString>,
+    /// The announced name, when the visible content is not it.
     accessibility_label: Option<SharedString>,
     children: Vec<AnyElement>,
     disabled: bool,
     pub(crate) selected: bool,
+    /// Held by the popover, menu or dropdown this button triggers, for as long
+    /// as it is open. Kept apart from `selected` because the two states mean
+    /// different things, even though they paint the same today.
+    open: bool,
     toggled: Option<bool>,
     role: RoleOverride,
     variant: ButtonVariant,
@@ -200,18 +209,25 @@ pub struct Button {
     border_corners: Corners<bool>,
     border_edges: Edges<bool>,
     dropdown_caret: bool,
+    hover_group: Option<SharedString>,
+    hover_group_held: bool,
     size: Size,
+    content_style: StyleRefinement,
+    icon_size: Option<Size>,
     compact: bool,
     tooltip: Option<(
         SharedString,
         Option<(Rc<Box<dyn gpui::Action>>, Option<SharedString>)>,
     )>,
+    tooltip_placement: Option<Placement>,
+    tooltip_show_delay: Option<Duration>,
     tooltip_builder: Option<Rc<dyn Fn(&mut Window, &mut App) -> gpui::AnyView>>,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
     on_hover: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
     loading: bool,
     loading_icon: Option<Icon>,
     focus_ring_enabled: bool,
+    focus_handle: Option<FocusHandle>,
 
     tab_index: isize,
     tab_stop: bool,
@@ -236,6 +252,7 @@ impl Button {
             children: Vec::new(),
             disabled: false,
             selected: false,
+            open: false,
             toggled: None,
             role: RoleOverride::default(),
             variant: ButtonVariant::default(),
@@ -248,19 +265,66 @@ impl Button {
             },
             border_edges: Edges::all(true),
             size: Size::Medium,
+            content_style: StyleRefinement::default(),
+            icon_size: None,
             tooltip: None,
+            tooltip_placement: None,
+            tooltip_show_delay: None,
             tooltip_builder: None,
             on_click: None,
             focus_ring_enabled: true,
+            focus_handle: None,
             on_hover: None,
             loading: false,
             compact: false,
             outline: false,
             loading_icon: None,
             dropdown_caret: false,
+            hover_group: None,
+            hover_group_held: false,
             tab_index: 0,
             tab_stop: true,
         }
+    }
+
+    /// Uses a behavior primitive supplied by a compound Base control.
+    pub(crate) fn with_base(mut self, base: gpui_base::Button) -> Self {
+        self.base = base;
+        self
+    }
+
+    pub(crate) fn variant(&self) -> ButtonVariant {
+        self.variant
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_compact(&self) -> bool {
+        self.compact
+    }
+
+    /// Presentation supplied by a styled compound control. Standalone buttons
+    /// retain their normal size-derived content style.
+    pub(crate) fn content_style(mut self, style: StyleRefinement, icon_size: Size) -> Self {
+        self.content_style = style;
+        self.icon_size = Some(icon_size);
+        self
+    }
+
+    pub(super) fn button_size(&self) -> Size {
+        self.size
+    }
+
+    pub(crate) fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    pub(crate) fn is_outline(&self) -> bool {
+        self.outline
+    }
+
+    /// Whether the button shows only its icon.
+    pub(crate) fn is_icon_only(&self) -> bool {
+        self.icon.is_some() && self.label.is_none() && self.children.is_empty()
     }
 
     pub fn role(mut self, role: impl Into<RoleOverride>) -> Self {
@@ -292,24 +356,44 @@ impl Button {
         self
     }
 
+    /// Join a hover group: while any member is hovered, an idle member shows
+    /// its hover surface at half strength, so a composite such as a split
+    /// button reads as one control with the hovered part emphasized.
+    pub(crate) fn hover_group(mut self, group: impl Into<SharedString>) -> Self {
+        self.hover_group = Some(group.into());
+        self
+    }
+
+    /// Keep the hover group's idle surface up without a pointer, for as long as
+    /// the group is held engaged, such as while a sibling's menu is open.
+    pub(crate) fn hover_group_held(mut self, held: bool) -> Self {
+        self.hover_group_held = held;
+        self
+    }
+
     /// Set label to the Button, if no label is set, the button will be in Icon Button mode.
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = Some(label.into());
         self
     }
 
-    /// Set the name assistive technology announces (Exponential, #EXP-1488).
-    /// Without one the button is named by its label, else by its tooltip
-    /// text: an icon button whose words only live in its children or nowhere
-    /// says them here.
-    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.accessibility_label = Some(label.into());
-        self
-    }
-
     /// Set the developer-assigned identifier exposed to accessibility clients.
     pub fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
         self.base = self.base.accessibility_id(id);
+        self
+    }
+
+    /// Set the name a screen reader announces, when the visible content is not
+    /// it.
+    ///
+    /// A button's name comes from its [`label`](Self::label) by default, which
+    /// is right for the ordinary case and wrong for two: an icon-only button has
+    /// no label to read, and a button whose content is a row of cells — a table
+    /// row that is also a control — would be read out cell by cell with no
+    /// statement of what pressing it does. Setting this replaces the announced
+    /// name without adding anything to the screen.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -322,6 +406,23 @@ impl Button {
     /// Set the tooltip of the button.
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip = Some((tooltip.into(), None));
+        self
+    }
+
+    /// Prefer a side for the tooltip, falling back when it does not fit.
+    ///
+    /// Applies to [`Self::tooltip`] and [`Self::tooltip_with_action`].
+    /// Omitting placement keeps automatic positioning.
+    pub fn tooltip_placement(mut self, placement: Placement) -> Self {
+        self.tooltip_placement = Some(placement);
+        self
+    }
+
+    /// Overrides how long the pointer must rest before the tooltip shows.
+    ///
+    /// Defaults to [`gpui_base::TooltipDefaults::show_delay`].
+    pub fn tooltip_show_delay(mut self, delay: Duration) -> Self {
+        self.tooltip_show_delay = Some(delay);
         self
     }
 
@@ -377,6 +478,16 @@ impl Button {
         self
     }
 
+    /// Use a caller-owned focus handle instead of the one the button keeps for
+    /// itself, so the application can focus the button and restore focus to it.
+    ///
+    /// The handle drives the focus ring, Enter and Space activation and the
+    /// accessibility focus state alike.
+    pub fn track_focus(mut self, focus_handle: &FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle.clone());
+        self
+    }
+
     /// Set the tab index of the button, it will be used to focus the button by tab key.
     ///
     /// Default is 0.
@@ -408,6 +519,13 @@ impl Button {
     pub fn toggled(mut self, toggled: bool) -> Self {
         self.toggled = Some(toggled);
         self
+    }
+
+    /// Whether the button paints its selected styling, which is what both a
+    /// caller-set selection and an open popup look like today.
+    #[inline]
+    fn shows_selected_style(&self) -> bool {
+        self.selected || self.open
     }
 
     /// Whether the button responds to the pointer at all.
@@ -452,12 +570,25 @@ impl Selectable for Button {
     fn is_selected(&self) -> bool {
         self.selected
     }
+
+    fn open(mut self, open: bool) -> Self {
+        self.open = open;
+        self
+    }
+
+    fn is_open(&self) -> bool {
+        self.open
+    }
 }
 
 impl Sizable for Button {
     fn with_size(mut self, size: impl Into<Size>) -> Self {
         self.size = size.into();
         self
+    }
+
+    fn prepare_for_toolbar(self) -> Self {
+        self.ghost().compact()
     }
 }
 
@@ -492,23 +623,38 @@ impl RenderOnce for Button {
         let interactive = self.interactive();
         let hoverable = self.hoverable();
         let disabled = self.disabled;
+        let selected = self.shows_selected_style();
         let loading = self.loading;
+        let tooltip_placement = self.tooltip_placement;
+        let tooltip_show_delay = self.tooltip_show_delay;
+        let hover_group = self.hover_group;
+        let hover_group_held = self.hover_group_held;
         let mut base = self.base;
         let children = self.children;
         let instance_style = base.style().clone();
         let normal_style = style.normal(self.outline, cx);
         let selected_style = style.selected(self.outline, cx);
         let disabled_style = style.disabled(self.outline, cx);
-        let icon_size = match self.size {
+        let icon_size = self.icon_size.unwrap_or_else(|| match self.size {
             Size::Size(v) => Size::Size(v * 0.75),
             _ => self.size,
-        };
+        });
         let has_content = self.icon.is_some() || self.label.is_some() || !children.is_empty();
+        // Only borderless variants use this; the others tint their border.
+        let focus_line = if style.no_padding() {
+            FocusLine::Outside
+        } else if style.is_ghost() {
+            FocusLine::Edge
+        } else {
+            FocusLine::Inside(normal_style.fg.opacity(FOCUS_LINE_OPACITY))
+        };
 
-        let focus_handle = window
-            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
-            .read(cx)
-            .clone();
+        let focus_handle = self.focus_handle.clone().unwrap_or_else(|| {
+            window
+                .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+                .read(cx)
+                .clone()
+        });
         let is_focused = focus_handle.is_focused(window);
 
         let rounding = match self.rounded {
@@ -581,7 +727,7 @@ impl RenderOnce for Button {
                     .when(self.border_edges.top, |this| this.border_t_1())
                     .when(self.border_edges.bottom, |this| this.border_b_1())
             })
-            .when(!self.disabled && !self.selected, |this| {
+            .when(!self.disabled && !selected, |this| {
                 this.border_color(normal_style.border)
                     .bg(normal_style.bg)
                     .text_color(normal_style.fg)
@@ -589,32 +735,55 @@ impl RenderOnce for Button {
                     // A loading button keeps its normal colors, but must not react
                     // to the pointer, it is not waiting for another click.
                     .when(interactive, |this| {
-                        this.hover(|this| {
-                            let hover_style = style.hovered(self.outline, cx);
-                            this.bg(hover_style.bg)
-                                .border_color(hover_style.border)
-                                .text_color(hover_style.fg)
-                        })
-                        .active(|this| {
+                        this.active(|this| {
                             let active_style = style.active(self.outline, cx);
                             this.bg(active_style.bg)
                                 .border_color(active_style.border)
                                 .text_color(active_style.fg)
                         })
+                        .when_some(hover_group, |this, group| {
+                            let idle_bg = style.hovered(self.outline, cx).bg.opacity(0.5);
+                            this.when(hover_group_held, |this| this.bg(idle_bg))
+                                .group_hover(group, |this| this.bg(idle_bg))
+                        })
                     })
             })
+            .hover(|this| {
+                // Always register the hover style: GPUI only refreshes the cached
+                // hover state while one is present. If a selected button skipped it,
+                // the stale state would keep hover colors after unselecting.
+                if !interactive || selected {
+                    return this;
+                }
+                let hover_style = style.hovered(self.outline, cx);
+                this.bg(hover_style.bg)
+                    .border_color(hover_style.border)
+                    .text_color(hover_style.fg)
+            })
+            .line_height(relative(1.25))
             .refine_style(&instance_style);
 
-        // #EXP-1488: explicit name, else the label, else the tooltip's words
-        // (the web's icon buttons carry the same string as aria-label).
+        // The explicit name wins: it exists precisely for the cases where the
+        // visible content is not what a listener needs to hear.
+        let tooltip = self.tooltip.as_ref().map(|(tooltip, _)| tooltip.clone());
+        // Exponential patch (#EXP-1488): with neither, the tooltip's words name
+        // the button (the web's icon buttons carry the same string as
+        // aria-label), so no icon button is an unnamed node.
+        let named_by_tooltip = self.accessibility_label.is_none() && self.label.is_none();
         let accessibility_label = self
             .accessibility_label
             .clone()
             .or_else(|| self.label.clone())
-            .or_else(|| self.tooltip.as_ref().map(|(tooltip, _)| tooltip.clone()));
+            .or_else(|| tooltip.clone());
+        // Like an HTML `title`, the tooltip describes the button (unless it
+        // is already its name).
+        let description = tooltip.filter(|_| !named_by_tooltip);
         let content = h_flex()
             .id("label")
             .size_full()
+            .min_w_0()
+            .overflow_hidden()
+            .whitespace_nowrap()
             .items_center()
             .justify_center()
             .button_text_size(self.size)
@@ -623,6 +792,7 @@ impl RenderOnce for Button {
                 Size::Small => this.gap_1(),
                 _ => this.gap_2(),
             })
+            .refine_style(&self.content_style)
             .when_some(self.icon, |this, icon| {
                 this.child(
                     icon.loading_icon(self.loading_icon)
@@ -631,7 +801,13 @@ impl RenderOnce for Button {
                 )
             })
             .when_some(self.label, |this, label| {
-                this.child(div().flex_none().line_height(relative(1.)).child(label))
+                this.child(
+                    div()
+                        .min_w_0()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(label),
+                )
             })
             .children(children)
             .when(self.dropdown_caret, |this| {
@@ -645,7 +821,7 @@ impl RenderOnce for Button {
                 Role::Button
             }
         }))
-        .selected(self.selected)
+        .selected(selected)
         .disabled(disabled)
         // Base layers semantic states over the builder chain, so the caller's
         // own style is replayed inside each state to keep it the closest layer.
@@ -669,6 +845,9 @@ impl RenderOnce for Button {
         })
         .when_some(accessibility_label, |this, label| {
             this.accessibility_label(label)
+        })
+        .when_some(description, |this, description| {
+            this.aria_description(description)
         })
         .when_some(self.toggled, |this, toggled| {
             this.aria_toggled(if toggled {
@@ -711,6 +890,9 @@ impl RenderOnce for Button {
                 on_click(event, window, cx);
             })
         })
+        .when(loading, |this| {
+            this.on_click(|_, _, cx| cx.stop_propagation())
+        })
         .when_some(self.on_hover.filter(|_| hoverable), |this, on_hover| {
             this.on_hover(move |hovered, window, cx| {
                 on_hover(hovered, window, cx);
@@ -718,24 +900,32 @@ impl RenderOnce for Button {
         })
         .map(|this| {
             if let Some(builder) = self.tooltip_builder {
-                this.managed_tooltip(move |window, cx| builder(window, cx))
+                this.managed_tooltip_with(
+                    tooltip_placement,
+                    tooltip_show_delay,
+                    move |window, cx| builder(window, cx),
+                )
             } else if let Some((tooltip, action)) = self.tooltip {
-                this.managed_tooltip(move |window, cx| {
-                    Tooltip::new(tooltip.clone())
-                        .when_some(action.clone(), |this, (action, context)| {
-                            this.action(
-                                action.boxed_clone().as_ref(),
-                                context.as_ref().map(|c| c.as_ref()),
-                            )
-                        })
-                        .build(window, cx)
-                })
+                this.managed_tooltip_with(
+                    tooltip_placement,
+                    tooltip_show_delay,
+                    move |window, cx| {
+                        Tooltip::new(tooltip.clone())
+                            .when_some(action.clone(), |this, (action, context)| {
+                                this.action(
+                                    action.boxed_clone().as_ref(),
+                                    context.as_ref().map(|c| c.as_ref()),
+                                )
+                            })
+                            .build(window, cx)
+                    },
+                )
             } else {
                 this
             }
         })
         .when(is_focused && self.focus_ring_enabled, |this| {
-            this.focus_ring_style(window, cx)
+            focus_style(this, focus_line, window, cx)
         })
     }
 }
@@ -1024,12 +1214,14 @@ impl ButtonVariant {
                 }
             }
             Self::Custom(colors) => colors.hover.into(),
-            Self::Ghost => if cx.theme().mode.is_dark() {
-                cx.theme().secondary.lighten(0.1).opacity(0.8)
-            } else {
-                cx.theme().secondary.darken(0.1).opacity(0.8)
+            Self::Ghost => {
+                let accent: Background = cx.theme().tokens.accent.into();
+                if cx.theme().mode.is_dark() {
+                    accent.opacity(0.5)
+                } else {
+                    accent
+                }
             }
-            .into(),
             Self::Link => cx.theme().transparent.into(),
             Self::Text => cx.theme().transparent.into(),
         };
@@ -1038,6 +1230,7 @@ impl ButtonVariant {
         let fg = match self {
             Self::Link => cx.theme().link_hover,
             Self::Text => cx.theme().foreground,
+            Self::Ghost => cx.theme().accent_foreground,
             _ => self.text_color(outline, cx),
         };
 
@@ -1076,12 +1269,7 @@ impl ButtonVariant {
                     cx.theme().tokens.button_secondary_active.into()
                 }
             }
-            Self::Ghost => if cx.theme().mode.is_dark() {
-                cx.theme().secondary.lighten(0.2).opacity(0.8)
-            } else {
-                cx.theme().secondary.darken(0.2).opacity(0.8)
-            }
-            .into(),
+            Self::Ghost => cx.theme().tokens.button_active.into(),
             Self::Danger => {
                 if outline {
                     self.outline_background(ButtonStyleState::Active, cx)
@@ -1175,11 +1363,12 @@ impl ButtonVariant {
     }
 
     fn disabled(&self, outline: bool, cx: &mut App) -> ButtonVariantStyle {
-        // EXP-1676: a disabled primary = web's `disabled:opacity-50`, the one
-        // disabled look ×4. CSS fades the button as a GROUP; gpui's `opacity`
-        // multiplies each paint (the label would wash out over its own faded
-        // fill), so the fill goes to half and the dark label stays solid: on a
-        // half fill that lands on the same pixels as web's.
+        // Exponential patch (EXP-1676): a disabled primary = web's
+        // `disabled:opacity-50`, the one disabled look ×4. CSS fades the button
+        // as a GROUP; gpui's `opacity` multiplies each paint (the label would
+        // wash out over its own faded fill), so the fill goes to half and the
+        // dark label stays solid: on a half fill that lands on the same pixels
+        // as web's.
         if !outline && matches!(self, Self::Primary) {
             let normal = self.normal(false, cx);
             return ButtonVariantStyle {
@@ -1243,6 +1432,29 @@ mod tests {
     use super::*;
     use crate::IconName;
     use gpui::{linear_color_stop, linear_gradient, px};
+
+    /// A button's announced name is its label, unless it was given one — which
+    /// is the case an icon-only button and a row-shaped button both need.
+    #[test]
+    fn an_explicit_accessibility_label_replaces_the_visible_one() {
+        let plain = Button::new("save").label("Save");
+        assert_eq!(plain.accessibility_label, None);
+        assert_eq!(plain.label.as_deref(), Some("Save"));
+
+        let named = Button::new("row")
+            .label("Save")
+            .accessibility_label("Save the current document");
+        assert_eq!(
+            named.accessibility_label.as_deref(),
+            Some("Save the current document"),
+            "an explicit name must win over the visible label"
+        );
+        assert_eq!(
+            named.label.as_deref(),
+            Some("Save"),
+            "and must not change what is drawn"
+        );
+    }
 
     #[gpui::test]
     fn disabled_legacy_button_keeps_existing_pointer_blocking(cx: &mut gpui::TestAppContext) {
@@ -1344,6 +1556,65 @@ mod tests {
         assert_eq!(keyboard_clicks.get(), 2);
     }
 
+    /// A button keeps the application's focus handle, so focus the application
+    /// gives it shows on the button and activates it from the keyboard.
+    #[cfg(feature = "test-support")]
+    #[gpui::test]
+    fn caller_owned_focus_handle_drives_focus_and_keyboard_activation(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::{cell::Cell, rc::Rc};
+
+        use gpui::{Context, KeyDownEvent, KeyUpEvent, Keystroke, Render};
+
+        struct Harness {
+            focus_handle: FocusHandle,
+            clicks: Rc<Cell<usize>>,
+        }
+
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let clicks = self.clicks.clone();
+                div().size(px(100.)).child(
+                    Button::new("details")
+                        .label("Details")
+                        .track_focus(&self.focus_handle)
+                        .on_click(move |_, _, _| clicks.set(clicks.get() + 1)),
+                )
+            }
+        }
+
+        cx.update(crate::init);
+        let clicks = Rc::new(Cell::new(0));
+        let (view, cx) = cx.add_window_view({
+            let clicks = clicks.clone();
+            move |_, cx| Harness {
+                focus_handle: cx.focus_handle(),
+                clicks,
+            }
+        });
+        let focus_handle = cx.update(|_, cx| view.read(cx).focus_handle.clone());
+        cx.update(|window, cx| {
+            focus_handle.focus(window, cx);
+            window.draw(cx).clear(cx);
+        });
+
+        let button = cx.update(|window, _| {
+            gpui_base::test_support::find(window, &[], &ElementId::from("details"))
+                .expect("button is painted")
+        });
+        assert_eq!(button.focused(), Some(true));
+
+        let keystroke = Keystroke::parse("enter").unwrap();
+        cx.simulate_event(KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(KeyUpEvent { keystroke });
+        assert_eq!(clicks.get(), 1);
+    }
+
     #[gpui::test]
     fn loading_button_keeps_existing_pointer_blocking(cx: &mut gpui::TestAppContext) {
         use std::{cell::Cell, rc::Rc};
@@ -1430,6 +1701,54 @@ mod tests {
     }
 
     #[gpui::test]
+    fn base_activation_is_preserved_and_blocked_while_loading(cx: &mut gpui::TestAppContext) {
+        use gpui::{Context, Render, point};
+        use std::{cell::Cell, rc::Rc};
+
+        struct Harness {
+            clicks: Rc<Cell<usize>>,
+            loading: bool,
+        }
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let clicks = self.clicks.clone();
+                div().tab_group().child(
+                    Button::new("close")
+                        .with_base(
+                            gpui_base::Button::new("close")
+                                .on_click(move |_, _, _| clicks.set(clicks.get() + 1)),
+                        )
+                        .loading(self.loading)
+                        .size(px(100.)),
+                )
+            }
+        }
+
+        cx.update(crate::init);
+        let clicks = Rc::new(Cell::new(0));
+        let (view, cx) = cx.add_window_view({
+            let clicks = clicks.clone();
+            move |_, _| Harness {
+                clicks,
+                loading: false,
+            }
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_click(point(px(10.), px(10.)), Default::default());
+        assert_eq!(clicks.get(), 1);
+
+        view.update(cx, |view, cx| {
+            view.loading = true;
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_click(point(px(10.), px(10.)), Default::default());
+        cx.update(|window, cx| window.focus_next(cx));
+        cx.simulate_keystrokes("enter space");
+        assert_eq!(clicks.get(), 1);
+    }
+
+    #[gpui::test]
     fn test_button_builder(_cx: &mut gpui::TestAppContext) {
         let button = Button::new("complex-button")
             .label("Save Changes")
@@ -1437,6 +1756,7 @@ mod tests {
             .outline()
             .large()
             .tooltip("Click to save")
+            .tooltip_show_delay(Duration::from_millis(100))
             .compact()
             .loading(false)
             .disabled(false)
@@ -1452,15 +1772,35 @@ mod tests {
         assert!(button.outline);
         assert_eq!(button.size, Size::Large);
         assert!(button.tooltip.is_some());
+        assert_eq!(button.tooltip_show_delay, Some(Duration::from_millis(100)));
         assert!(button.compact);
         assert!(!button.loading);
         assert!(!button.disabled);
         assert!(!button.selected);
         assert_eq!(button.toggled, None);
+        assert!(button.focus_handle.is_none());
         assert_eq!(button.tab_index, 1);
         assert!(button.tab_stop);
         assert!(!button.dropdown_caret);
         assert!(matches!(button.rounded, ButtonRounded::Medium));
+    }
+
+    /// A button paints an open popup the way it paints a selection, but the
+    /// two states are stored apart, so a caller can read back which one it set
+    /// and a later design can tell them apart visually.
+    #[test]
+    fn an_open_trigger_is_stored_apart_from_a_selected_one() {
+        let open = Button::new("trigger").open(true);
+        assert!(open.is_open());
+        assert!(!open.is_selected());
+        assert!(open.shows_selected_style());
+
+        let selected = Button::new("trigger").selected(true);
+        assert!(selected.is_selected());
+        assert!(!selected.is_open());
+        assert!(selected.shows_selected_style());
+
+        assert!(!Button::new("trigger").shows_selected_style());
     }
 
     #[test]

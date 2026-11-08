@@ -41,7 +41,7 @@ gpui.workspace = true
 # Wayland only (#EDE-51): the shell is a layer-shell client of exponential-compositor; the
 # IDE's workspace line adds `x11`, which this crate never needs (`-p ede-shell` resolves
 # its own features; a `--workspace` build unifies them, which is fine).
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "wayland", "runtime_shaders"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["font-kit", "wayland", "runtime_shaders"] }
 gpui-component.workspace = true
 gpui-component-assets.workspace = true
 serde.workspace = true

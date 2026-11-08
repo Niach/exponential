@@ -14,7 +14,8 @@
 //!   and calls `on_lost` once its bounds change, it is clipped out of view or
 //!   its record is gone. The returned [`AnchorGuard`] unregisters on drop:
 //!   close the overlay, drop the guard.
-//! - **Sweep:** `Root` mounts [`sweep_layer`] after the window's content; it
+//! - **Sweep:** the window-state layer gpui-base's `Root` mounts after the
+//!   window's content carries [`sweep_layer`] (`root.rs`); it
 //!   defers one check per frame past the draw, when this frame's bounds are
 //!   in and a removed source's record has been dropped.
 //! - **Text:** a menu opened at a point (a right click on chat text) anchors
@@ -182,7 +183,7 @@ fn sweep(window: &mut Window, cx: &mut App) {
     }
 }
 
-/// The per-frame sweep, mounted by `Root` after the window's content: once
+/// The per-frame sweep, mounted by the window-state layer after the window's content: once
 /// the frame is drawn (sources reported, removed ones dropped) the lost
 /// overlays close.
 pub fn sweep_layer() -> impl IntoElement {

@@ -1,49 +1,62 @@
 use gpui::{
-    App, EventEmitter, FocusHandle, Focusable, ParentElement as _, Render, SharedString,
-    Styled as _, Window,
+    App, Context, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement as _, Render,
+    Styled as _, Window, div,
 };
+use gpui_base::dock::{PanelEvent, PanelState};
+use rust_i18n::t;
 
-use crate::ActiveTheme as _;
+use crate::{ActiveTheme as _, dock::Panel};
 
-use super::{Panel, PanelEvent, PanelState};
-
+/// Stands in for a panel this build cannot construct — one whose
+/// `panel_name` no [`PanelRegistry`](gpui_base::dock::PanelRegistry) builder
+/// answers to.
+///
+/// It reports the original [`PanelState`] from
+/// [`dump`](gpui_base::dock::Panel::dump), so a layout written by a build that
+/// knows the panel survives a load and a save here rather than losing it.
 pub(crate) struct InvalidPanel {
-    name: SharedString,
     focus_handle: FocusHandle,
     old_state: PanelState,
 }
 
 impl InvalidPanel {
-    pub(crate) fn new(name: &str, state: PanelState, _: &mut Window, cx: &mut App) -> Self {
+    /// The type name goes to the log rather than the screen: it means
+    /// nothing to the person looking at the panel.
+    pub(crate) fn new(state: PanelState, cx: &mut Context<Self>) -> Self {
+        tracing::warn!(
+            "the `{}` panel type is not registered in PanelRegistry",
+            state.panel_name
+        );
         Self {
             focus_handle: cx.focus_handle(),
-            name: SharedString::from(name.to_owned()),
             old_state: state,
         }
     }
 }
-impl Panel for InvalidPanel {
+
+impl gpui_base::dock::Panel for InvalidPanel {
     fn panel_name(&self) -> &'static str {
         "InvalidPanel"
     }
 
-    fn dump(&self, _cx: &App) -> super::PanelState {
+    fn dump(&self, _: &App) -> PanelState {
         self.old_state.clone()
     }
 }
+
+impl Panel for InvalidPanel {}
+
 impl EventEmitter<PanelEvent> for InvalidPanel {}
+
 impl Focusable for InvalidPanel {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
+
 impl Render for InvalidPanel {
-    fn render(
-        &mut self,
-        _: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl gpui::IntoElement {
-        gpui::div()
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
             .size_full()
             .my_6()
             .flex()
@@ -51,9 +64,6 @@ impl Render for InvalidPanel {
             .items_center()
             .justify_center()
             .text_color(cx.theme().muted_foreground)
-            .child(format!(
-                "The `{}` panel type is not registered in PanelRegistry.",
-                self.name.clone()
-            ))
+            .child(t!("Dock.Unavailable Panel"))
     }
 }

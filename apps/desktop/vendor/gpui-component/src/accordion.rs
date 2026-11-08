@@ -1,24 +1,17 @@
-use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc, time::Duration};
+use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
 
 use gpui::{
-    AnyElement, App, AvailableSpace, Bounds, ContentMask, Element, ElementId, GlobalElementId,
-    InspectorElementId, InteractiveElement as _, IntoElement, LayoutId, ParentElement, Pixels,
-    RenderOnce, SharedString, StatefulInteractiveElement as _, Style, StyleRefinement, Styled,
-    Window, div, percentage, prelude::FluentBuilder as _, px, relative, rems, size,
+    AnyElement, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
+    SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
+    percentage, prelude::FluentBuilder as _, rems,
 };
 
-use crate::{
-    ActiveTheme as _, Icon, IconName, Sizable, Size, StyledExt as _, animation::ease_out_cubic,
-    h_flex,
-};
+use crate::{ActiveTheme as _, Icon, IconName, Sizable, Size, StyledExt as _, h_flex};
 use gpui_base::{
     Accordion as BaseAccordion, AccordionHeader as BaseAccordionHeader,
     AccordionItem as BaseAccordionItem, AccordionPanel as BaseAccordionPanel, AccordionTrigger,
-    Transition, transition,
+    MotionReveal, spring,
 };
-
-/// Duration of the expand/collapse animation.
-const ANIMATION_DURATION: Duration = Duration::from_millis(200);
 
 /// Accordion element.
 #[derive(IntoElement)]
@@ -30,7 +23,7 @@ pub struct Accordion {
     bordered: bool,
     disabled: bool,
     children: Vec<AccordionItem>,
-    on_toggle_click: Option<Arc<dyn Fn(&[usize], &mut Window, &mut App) + Send + Sync>>,
+    on_toggle_click: Option<Rc<dyn Fn(&[usize], &mut Window, &mut App)>>,
 }
 
 impl Accordion {
@@ -81,9 +74,9 @@ impl Accordion {
     /// The first argument `Vec<usize>` is the indices of the open accordions.
     pub fn on_toggle_click(
         mut self,
-        on_toggle_click: impl Fn(&[usize], &mut Window, &mut App) + Send + Sync + 'static,
+        on_toggle_click: impl Fn(&[usize], &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_toggle_click = Some(Arc::new(on_toggle_click));
+        self.on_toggle_click = Some(Rc::new(on_toggle_click));
         self
     }
 }
@@ -127,12 +120,13 @@ impl RenderOnce for Accordion {
                         if accordion.open {
                             open_indices.borrow_mut().insert(ix);
                         }
+                        let disabled = self.disabled || accordion.disabled;
 
                         accordion
                             .index(ix)
                             .last(ix == last_ix)
                             .with_size(self.size)
-                            .disabled(self.disabled)
+                            .disabled(disabled)
                             .on_toggle_click({
                                 let open_indices = open_indices.clone();
                                 move |open, _, _| {
@@ -159,133 +153,6 @@ impl RenderOnce for Accordion {
                     })
                 },
             )
-    }
-}
-
-/// The content of an [`AccordionItem`], animating its height on toggle.
-///
-/// It stays in the tree while closed, clipped to zero height, to be able to
-/// animate the collapse and to keep its natural height measured.
-struct AnimatedAccordionPanel {
-    id: ElementId,
-    progress: f32,
-    child: AnyElement,
-}
-
-#[derive(Clone, Copy, Default)]
-struct AnimatedAccordionPanelState {
-    /// The natural height measured in the last prepaint.
-    height: Option<Pixels>,
-}
-
-impl AnimatedAccordionPanel {
-    fn new(id: impl Into<ElementId>, progress: f32, child: AnyElement) -> Self {
-        Self {
-            id: id.into(),
-            progress,
-            child,
-        }
-    }
-}
-
-impl IntoElement for AnimatedAccordionPanel {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
-impl Element for AnimatedAccordionPanel {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-
-    fn id(&self) -> Option<ElementId> {
-        Some(self.id.clone())
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        global_id: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, Self::RequestLayoutState) {
-        let height = window.with_element_state(
-            global_id.expect("AnimatedAccordionPanel must have an id"),
-            |state: Option<AnimatedAccordionPanelState>, _| {
-                let state = state.unwrap_or_default();
-                (state.height, state)
-            },
-        );
-
-        let mut style = Style::default();
-        style.size.width = relative(1.).into();
-        match height {
-            // Not measured yet, let the content lay itself out.
-            None if self.progress > 0. => {}
-            None => style.size.height = px(0.).into(),
-            Some(height) => style.size.height = (height * self.progress).into(),
-        }
-
-        (window.request_layout(style, None, cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        global_id: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Self::PrepaintState {
-        // Lay out at the natural height, `bounds` clips the visible part.
-        let available = size(
-            AvailableSpace::Definite(bounds.size.width),
-            AvailableSpace::MinContent,
-        );
-        let measured = self.child.layout_as_root(available, window, cx);
-
-        let changed = window.with_element_state(
-            global_id.expect("AnimatedAccordionPanel must have an id"),
-            |state: Option<AnimatedAccordionPanelState>, _| {
-                let mut state = state.unwrap_or_default();
-                let changed = state.height != Some(measured.height);
-                state.height = Some(measured.height);
-                (changed, state)
-            },
-        );
-
-        // The measured height is only used by the next `request_layout`, ask
-        // for that frame, or the new height never gets painted.
-        if changed {
-            window.request_animation_frame();
-        }
-
-        // Masked here too, so the hidden content takes no mouse events.
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            self.child.prepaint_at(bounds.origin, window, cx);
-        });
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
-        _: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            self.child.paint(window, cx);
-        });
     }
 }
 
@@ -412,14 +279,14 @@ impl Styled for AccordionItem {
 impl RenderOnce for AccordionItem {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let text_size = match self.size {
-            Size::XSmall => rems(0.8125),
+            Size::XSmall => rems(0.75),
             Size::Large => rems(1.0),
             _ => rems(0.875),
         };
-        let progress = transition(
+        let progress = spring(
             (self.index, "accordion-panel"),
             if self.open { 1. } else { 0. },
-            Transition::new(ANIMATION_DURATION).ease(ease_out_cubic),
+            cx.theme().motion_tokens().spring_control,
             window,
             cx,
         );
@@ -483,9 +350,15 @@ impl RenderOnce for AccordionItem {
                     BaseAccordionPanel::new()
                         .id(("panel", self.index))
                         .open(self.open)
-                        .keep_mounted(true)
+                        // Mounted while the reveal moves; a settled closed panel
+                        // unmounts, so its content costs no layout or paint. A
+                        // settled spring returns exactly 0, and `!=` keeps a
+                        // bouncy theme spring mounted while it dips below 0.
+                        // Reduced motion reopens straight to full progress, which
+                        // needs the reveal's height from a mounted frame.
+                        .keep_mounted(progress != 0. || cx.reduce_motion())
                         .w_full()
-                        .child(AnimatedAccordionPanel::new(
+                        .child(MotionReveal::new(
                             ("content", self.index),
                             progress,
                             div()
@@ -515,7 +388,9 @@ impl RenderOnce for AccordionItem {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Context, InteractiveElement as _, Render, TestAppContext, div, px};
+    use std::time::Duration;
+
+    use gpui::{Context, Render, TestAppContext, div, px};
 
     use super::*;
 
@@ -552,5 +427,59 @@ mod tests {
         let second = cx.debug_bounds("second-title").unwrap();
         assert!(first.origin.y < content.origin.y);
         assert!(content.origin.y + content.size.height <= second.origin.y);
+    }
+
+    struct Toggle(bool);
+
+    impl Render for Toggle {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            Accordion::new("accordion-toggle")
+                .w(px(240.))
+                .item(|item| {
+                    item.open(self.0)
+                        .title("Item")
+                        .child(div().debug_selector(|| "toggle-content".into()).h(px(60.)))
+                })
+                .item(|item| item.title("Next"))
+        }
+    }
+
+    fn content_height(cx: &mut gpui::VisualTestContext) -> Option<gpui::Pixels> {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.debug_bounds("toggle-content")
+            .map(|bounds| bounds.size.height)
+    }
+
+    #[gpui::test]
+    fn settled_closed_panel_unmounts_its_content(cx: &mut TestAppContext) {
+        cx.update(crate::theme::init);
+        let (view, cx) = cx.add_window_view(|_, _| Toggle(false));
+        assert_eq!(content_height(cx), None);
+
+        view.update(cx, |view, cx| {
+            view.0 = true;
+            cx.notify();
+        });
+        assert_eq!(content_height(cx), Some(px(60.)));
+        for _ in 0..100 {
+            cx.executor().advance_clock(Duration::from_millis(16));
+            assert_eq!(content_height(cx), Some(px(60.)));
+        }
+
+        // The closing reveal keeps the content until the spring settles.
+        view.update(cx, |view, cx| {
+            view.0 = false;
+            cx.notify();
+        });
+        let mut closing_frames = 0;
+        while content_height(cx).is_some() {
+            closing_frames += 1;
+            assert!(closing_frames < 100, "closed content stayed mounted");
+            cx.executor().advance_clock(Duration::from_millis(16));
+        }
+        assert!(
+            closing_frames > 1,
+            "content unmounted before the reveal ran"
+        );
     }
 }
