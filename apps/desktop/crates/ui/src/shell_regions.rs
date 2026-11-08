@@ -30,8 +30,9 @@ use crate::settings::SettingsSection;
 /// (#EDE-65); the IDE lists its chats under Chats.
 const PRUNED: &[&str] = &["header", "switcher_menu", "header_rail", "chats"];
 
-/// The start menu without what only a desktop session has.
-const MENU_PRUNED: &[&str] = &["lock", "power"];
+/// The start menu without what only a desktop session has (the switcher:
+/// the IDE's sidebar header has its own).
+const MENU_PRUNED: &[&str] = &["lock", "power", "switcher", "switcher_menu"];
 
 const TERMINAL: &str = "ide.terminal";
 const FILES: &str = "ide.files";

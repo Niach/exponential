@@ -35,7 +35,15 @@ mod windows_integration;
 /// (`packages/shots/src/capture-desktop.ts` `assertBinaryFromCheckout`).
 const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
 
+/// #EDE-64: set by eDE's `exponential-device.service`: this launch is the
+/// session's device, resident and windowless until the person opens it.
+const SESSION_DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
+
 fn main() {
+    // Read once and cleared before any thread starts, so the terminals and
+    // agents this app spawns don't inherit it.
+    let session_device = std::env::var_os(SESSION_DEVICE_ENV).is_some_and(|v| v == "1");
+    std::env::remove_var(SESSION_DEVICE_ENV);
     // EXP-1287: code mode's script worker (`__codemode-worker`, one
     // child per `exec`): the engine and nothing else, killable by its host.
     if coding::codemode::worker::requested() {
@@ -257,8 +265,12 @@ fn main() {
         })
         .detach();
 
-        cx.activate(true);
-        windows::open_shell_window(cx);
+        if session_device {
+            ui::set_resident_device(cx);
+        } else {
+            cx.activate(true);
+            windows::open_shell_window(cx);
+        }
 
         // DEV-ONLY (EXP-633): with EXP_DEV_READY_FILE set, signal the capture
         // pipeline once the window, the session and (signed in) every shape

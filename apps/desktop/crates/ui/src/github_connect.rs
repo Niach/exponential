@@ -549,6 +549,9 @@ pub(crate) mod copy {
         to grant more.";
     pub const MANAGE: &str = "Manage";
     pub const NO_REPOSITORIES: &str = "No repositories yet";
+    /// #EXP-1727: a Local desktop's repositories are folders on this machine.
+    pub const LINK_FOLDER: &str = "Link a folder";
+    pub const NO_LOCAL_FOLDERS: &str = "No linked folders yet";
 
     /// `Connected as octocat`.
     pub fn connected_as(login: &str) -> String {

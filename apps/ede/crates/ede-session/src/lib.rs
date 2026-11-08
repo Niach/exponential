@@ -131,6 +131,11 @@ pub enum DeviceStart {
     Nothing,
 }
 
+/// What tells the Exponential app it runs as the session's device: it
+/// starts without a window and stays up when its last window closes
+/// (#EDE-64; the app's `SESSION_DEVICE_ENV`).
+pub const DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
+
 /// The launcher entries that make a machine a device, in order.
 pub const DEVICE_DESKTOP_ENTRIES: &[&str] = &["at.exponential.desktop", "at.exponential.staging.desktop"];
 /// The CLI daemon's unit, under `$XDG_CONFIG_HOME/systemd/user`.

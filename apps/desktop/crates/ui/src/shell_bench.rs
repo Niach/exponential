@@ -74,6 +74,42 @@ fn shell_header() {
 
 #[test]
 #[ignore]
+fn shell_local_repositories() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("desktops");
+    let folder = root.path().join("my-app");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::write(folder.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        crate::local_desktops::install(path, cx);
+        assert!(crate::local_desktops::enter_current(cx));
+        let trpc = crate::queries::trpc_client(cx).unwrap();
+        api::repositories::link_folder(&trpc, folder.to_str().unwrap(), None).unwrap();
+    });
+    let handle = cx
+        .open_window(size(px(720.), px(260.)), |window: &mut Window, cx| {
+            let nav = nav_for_window(window, cx);
+            cx.new(|cx| crate::settings::repositories::RepositoriesPane::new(nav, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join("ide-local-repositories.png")).expect("the PNG");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+
+#[test]
+#[ignore]
 fn shell_tab_bar_frames() {
     let mut cx = headless();
     cx.update(seeded);

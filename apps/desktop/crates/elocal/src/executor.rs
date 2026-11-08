@@ -61,6 +61,12 @@ fn text<'a>(input: &'a Row, key: &str) -> Option<&'a str> {
     input.get(key).and_then(Value::as_str)
 }
 
+/// The branch `HEAD` names in a working copy (`ref: refs/heads/<branch>`).
+fn head_branch(repo: &std::path::Path) -> Option<String> {
+    let head = std::fs::read_to_string(repo.join(".git").join("HEAD")).ok()?;
+    head.trim().strip_prefix("ref: refs/heads/").map(str::to_string)
+}
+
 fn need<'a>(input: &'a Row, key: &str) -> Result<&'a str, Refusal> {
     text(input, key).filter(|s| !s.is_empty()).ok_or_else(|| bad(format!("{key} is required")))
 }
@@ -112,6 +118,17 @@ impl LocalExecutor {
             }
         }
         out
+    }
+
+    /// #EXP-1727: the linked folder `id` names.
+    pub fn repository(&self, id: &str) -> Option<crate::desktops::LocalRepository> {
+        self.meta.lock().expect("meta").repositories.iter().find(|r| r.id == id).cloned()
+    }
+
+    /// The repository of `board_id`'s row, if it links one.
+    pub fn board_repository(&self, board_id: &str) -> Option<crate::desktops::LocalRepository> {
+        let board = self.row("boards", board_id).ok().flatten()?;
+        self.repository(text(&board, "repository_id")?)
     }
 
     fn txid(&self) -> i64 {
@@ -237,6 +254,9 @@ impl LocalExecutor {
             "apps.records.delete" => self.records_delete(input),
             "apps.records.batch" => self.records_batch(input),
             "apps.records.history" => Ok(json!({"events": []})),
+            "repositories.linkFolder" => self.repositories_link_folder(input),
+            "repositories.listLocal" => Ok(json!({"repositories": self.meta.lock().expect("meta").repositories.iter().map(Self::repository_out).collect::<Vec<_>>()})),
+            "repositories.forIssue" => self.repositories_for_issue(input),
             other => Err(Refusal(501, parity::refusal(other))),
         }
     }
@@ -300,13 +320,54 @@ impl LocalExecutor {
     fn boards_update(&self, input: Row) -> Out {
         let id = need(&input, "boardId")?;
         let mut patch = Row::new();
-        for (key, column) in [("name", "name"), ("color", "color"), ("icon", "icon")] {
+        if let Some(repo) = input.get("repositoryId") {
+            if let Some(repo) = repo.as_str().filter(|r| self.repository(r).is_none()) {
+                return Err(not_found(&format!("Repository {repo}")));
+            }
+        }
+        for (key, column) in [("name", "name"), ("color", "color"), ("icon", "icon"), ("repositoryId", "repository_id")] {
             if let Some(v) = input.get(key) {
                 patch.insert(column.into(), v.clone());
             }
         }
         let row = self.patch_row("boards", id, "Board", patch)?;
         Ok(json!({"board": Self::board_out(&row), "txid": self.txid()}))
+    }
+
+    // -- repositories (#EXP-1727) ------------------------------------------
+
+    fn repository_out(repo: &crate::desktops::LocalRepository) -> Value {
+        json!({"id": repo.id, "fullName": repo.name, "defaultBranch": repo.default_branch, "path": repo.path})
+    }
+
+    /// Links a git working copy on this machine; `boardId` points that board at it.
+    fn repositories_link_folder(&self, input: Row) -> Out {
+        let path = std::path::PathBuf::from(need(&input, "path")?);
+        if !path.join(".git").exists() {
+            return Err(bad("That folder is not a git repository"));
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("repository").to_string();
+        let default_branch = head_branch(&path).unwrap_or_else(|| "main".into());
+        let repo = self.with_meta(|meta| match meta.repositories.iter().find(|r| r.path == path) {
+            Some(existing) => existing.clone(),
+            None => {
+                let repo = crate::desktops::LocalRepository { id: uuid::Uuid::new_v4().to_string(), name, path: path.clone(), default_branch };
+                meta.repositories.push(repo.clone());
+                repo
+            }
+        });
+        if let Some(board) = text(&input, "boardId") {
+            let mut patch = Row::new();
+            patch.insert("repository_id".into(), json!(repo.id));
+            self.patch_row("boards", board, "Board", patch)?;
+        }
+        Ok(json!({"repository": Self::repository_out(&repo), "txid": self.txid()}))
+    }
+
+    fn repositories_for_issue(&self, input: Row) -> Out {
+        let issue = self.row("issues", need(&input, "issueId")?)?.ok_or_else(|| not_found("Issue"))?;
+        let repo = text(&issue, "board_id").and_then(|b| self.board_repository(b));
+        Ok(repo.map(|r| json!({"repositoryId": r.id, "fullName": r.name, "defaultBranch": r.default_branch})).unwrap_or(Value::Null))
     }
 
     /// A trashed or archived board leaves the local store with its issues
