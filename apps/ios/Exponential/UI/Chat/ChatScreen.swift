@@ -20,11 +20,11 @@ import SwiftUI
 /// * Under it on the same band THE segmented control (`SessionScreenTabs`):
 ///   Chat · Issues · Sessions · Results (an app: Chat · Preview · Data ·
 ///   Versions · Sessions · Results), each count muted after its label.
-/// * Chat = `ChatConversationView` over `buildSessionChat` (#EXP-1736 THE
-///   transcript for every kind), THE Dock and THE session composer under it
-///   (`ChatComposer` → `SessionComposerCard`), sending
-///   `sessions.send({sessionId: root})`. Plans and questions stay inline; a
-///   plan row opens the plan page as an opened item.
+/// * Chat = the ROOT's own session view (`AgentSessionView`, embedded):
+///   its raw-work feed (#EXP-1736's transcript with the agent's traces), its
+///   cards inline, THE Dock and THE composer posting to the root — the same
+///   view a Sessions row pushes for a child. A plan opens the plan page as
+///   an opened item.
 /// * Issues = the tree's issue rows led by the `+` (THE Menu's sheet: Link
 ///   an issue → `sessions.linkIssues` · New issue filing into this root); a
 ///   row opens the issue page EMBEDDED (EXP-1316), a long press adds Unlink
@@ -37,13 +37,8 @@ import SwiftUI
 ///
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 ///
-/// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
-/// & co. (its ⋯ = THE Menu's sheet, `SuggestionOptionsSheet`); N-12: while
-/// any item is open the card rides THE Dock and opens as its sheet (S-3: a
-/// waiting plan or question never does; it stays inline); the
-/// live root's relay state draws THE bottom strip (Tasks + status lines,
-/// the session view's own) above the composer; opening the screen stamps
-/// the viewer's read of the root (`sessions.markRead`).
+/// Opening the screen stamps the viewer's read of the root
+/// (`sessions.markRead`).
 struct ChatScreen: View {
     let rootId: String
     let initialPage: ChatPage
@@ -85,26 +80,11 @@ struct ChatScreen: View {
     /// #FEED-191 (needs-you.json): the card a way in named, focused once the
     /// chat has loaded.
     @State private var pendingCard: String?
-    /// #EXP-1562: the scroll a waiting card asks for and the lit card.
+    /// #EXP-1562: the scroll a waiting card asks for (the root's session
+    /// view scrolls to it and lights it).
     @State private var waitingFocus: WaitingFocus?
-    @State private var highlightId: String?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
-    /// N-12: THE Dock's open sheet (a card id).
-    @State private var dockOpenId: String?
-    /// The Conversation follows its newest row (EXP-1316 1n).
-    @State private var atBottom = true
-    /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
-    @State private var pinOnInset = false
-    /// The floating composer's measured height = the conversation's bottom
-    /// inset; a pinned conversation re-pins whenever it changes.
-    @State private var composerHeight: CGFloat = 0
-    /// The composer's top edge and the newest row's bottom anchor (global):
-    /// what the scroll view's inset leaves under the open composer while the
-    /// keyboard is up is measured and padded out (`insetCorrection`).
-    @State private var composerTop: CGFloat = 0
-    @State private var anchorBottom: CGFloat = 0
-    @State private var insetCorrection: CGFloat = 0
     // The chat PR (`guidePullRequest`)
     @State private var mergeState = WorkMergeState()
     /// EXP-1307: the chat PR awaiting the Close PR confirm.
@@ -113,30 +93,6 @@ struct ChatScreen: View {
     @State private var mergeNowTarget: MergeNowTarget?
     /// #EXP-1710: the status pill's tap opens the menu sheet ON its Checks.
     @State private var chatMenuChecks = false
-    // EXP-1323: suggested tasks
-    /// In-flight suggestion actions (`ChatSuggestionActions.key`).
-    @State private var suggestionPending: Set<String> = []
-    /// EXP-1323: the live tail's claim on the root's socket owner
-    /// (`attachSteerModel`, paired with `steerSessions.detach`).
-    @State private var liveModel: AgentSessionModel?
-    @State private var liveClaimId: String?
-    /// #EXP-1545: the claims on the tree's Live children's socket owners
-    /// (their per-session relay slots: THE Queue for the chat's ONE tasks
-    /// card), keyed by session id; released once a child ends or the screen
-    /// goes.
-    @State private var childModels: [String: AgentSessionModel] = [:]
-    /// #EXP-1623: when each child claim was taken: a child whose Queue is
-    /// still unread `childProbeDeadline` later reads closed for the probe,
-    /// so an unreachable host never pins it; the tick re-asks the probe then.
-    @State private var childAttachedAt: [String: Date] = [:]
-    @State private var childProbeTick = 0
-    /// #EXP-1623: claims are taken only while the screen is on screen; a
-    /// covered screen still observes its inputs.
-    @State private var onScreen = false
-    private static let childProbeDeadline = TimeInterval(Dock.probeDeadlineMs) / 1000
-    /// EXP-1343: the open session item's model (its embedded view's claim);
-    /// nil while no session is open.
-    @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
     /// EXP-1347: the innermost outlet for issue pills inside this chat.
     @State private var issueOutlet = ChatIssueOutlet()
     /// #EXP-1662: a plan's ways in inside this chat open its plan page.
@@ -264,7 +220,7 @@ struct ChatScreen: View {
                 ZStack {
                     // The Chat stays mounted under every other tab (its draft
                     // and scroll survive a tab switch).
-                    conversationPage(rows: rows, view: view)
+                    chatPage(rows: rows)
                         .opacity(shown.active == .chat ? 1 : 0)
                         .allowsHitTesting(shown.active == .chat)
                         .accessibilityHidden(shown.active != .chat)
@@ -407,16 +363,6 @@ struct ChatScreen: View {
         }
         // EXP-1154: a new chat PR starts with no merge in flight.
         .onChange(of: rows?.guidePullRequest?.id) { _, _ in mergeState = WorkMergeState() }
-        // EXP-1323: the live tail follows the root while it is not ended.
-        .onChange(of: model?.view?.liveSessionId, initial: true) { _, _ in syncLiveTail() }
-        // #EXP-1545/#EXP-1623: the ONE Live child's relay slots follow the
-        // tree and what is known of each child's Queue (its own scope: the
-        // probe reads the attached child's slots).
-        .background {
-            BodySlice {
-                Color.clear.onChange(of: childProbeInput, initial: true) { _, _ in syncChildModels() }
-            }
-        }
         // A newer agent message read here is read: re-stamp the root.
         .onChange(of: newestAgentMessageAt) { _, newest in
             if newest != nil { markRead() }
@@ -628,284 +574,20 @@ struct ChatScreen: View {
             ?? session.title ?? SessionTitle.Copy.untitled
     }
 
-    /// EXP-1316 (1n): the Conversation scrolls like the session feed — it
-    /// opens on the newest row, stays pinned while rows land unless the
-    /// reader scrolled up, and THE jump-to-bottom button re-pins (the
-    /// session view's `FollowPinTracker`).
-    private func conversationPage(rows: ChatRows, view: SessionChatView) -> some View {
-        GeometryReader { geo in
-            ScrollViewReader { scroller in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ChatConversationView(
-                            rows: rows,
-                            view: view,
-                            onOpenSession: { sessionId in openSession(sessionId) },
-                            onOpenSender: { sessionId in pushRoute(rows.sessionRoute(sessionId, accountId: accountId)) },
-                            onSubmit: submitAnswer,
-                            onUnqueue: unqueue,
-                            viewerId: deps.auth.userId,
-                            answeringId: answeringId,
-                            canAnswer: canEdit,
-                            highlightId: highlightId,
-                            suggestions: suggestionActions,
-                            // EXP-1323/1324: THE Queue + the status line off
-                            // the live root, as the Conversation's last row.
-                            liveTail: liveModel.map { live in
-                                ChatLiveTail(
-                                    model: live,
-                                    agent: view.liveSessionId.flatMap { rows.session(id: $0)?.cli }
-                                )
-                            },
-                            onReply: { text in reply(text, sessionId: view.composer.sessionId) },
-                            onLoadEarlier: { anchor in
-                                // The widened window lays out first; then the
-                                // row the reader saw on top stays on top.
-                                DispatchQueue.main.async { scroller.scrollTo(anchor, anchor: .top) }
-                            }
-                        )
-                        .padding(.vertical, 12)
-                        .transcriptColumn()
-                        Color.clear
-                            .frame(height: insetCorrection)
-                        Color.clear
-                            .frame(height: 1)
-                            .id(Self.bottomId)
-                            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
-                                anchorBottom = bottom
-                            }
-                    }
-                    // #EXP-1380: the content-frame preference only feeds the
-                    // pre-iOS-18 pin path; on 18+ the scroll geometry does,
-                    // and the lazy rows are never measured as a whole.
-                    .modifier(LegacyFeedOverflow(viewport: geo.size.height, space: Self.coordSpace))
-                }
-                .coordinateSpace(name: Self.coordSpace)
-                .scrollDismissesKeyboard(.interactively)
-                .modifier(FollowPinTracker(
-                    atBottom: $atBottom,
-                    // chats.json FOLLOW ×4: `transcript.followSlack`.
-                    slack: CGFloat(Chats.Transcript.followSlack),
-                    repin: { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                ))
-                // #EXP-1562: a waiting pick scrolls here and lights the card.
-                .modifier(WaitingFocusScroll(
-                    focus: waitingFocus, proxy: scroller, highlight: $highlightId, onScroll: { atBottom = false }
-                ))
-                .onAppear {
-                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                    // Lazy rows can still be sizing on the first pass.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(50))
-                        if atBottom { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                    }
-                }
-                .onChange(of: view.rows.count) { _, _ in
-                    guard atBottom else { return }
-                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                }
-                // EXP-1316: the composer expanding and the keyboard rising
-                // shrink the viewport from below — a reader on the newest row
-                // stays on it (Android parity), re-pinned once the inset lands.
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    guard pinOnInset || atBottom else { return }
-                    pinOnInset = false
-                    atBottom = true
-                    repin(scroller)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
-                    insetCorrection = 0
-                    guard atBottom else { return }
-                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                }
-                // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"):
-                // the run view's jump button, placed the run view's way
-                // (AgentSessionView.feedBody): an overlay on the SCROLL VIEW
-                // inside the Dock's safe-area inset (spacing 0), centred 12pt
-                // above the Dock's top edge, only while scrolled away from
-                // the newest row of a non-empty transcript.
-                .overlay(alignment: .bottom) {
-                    ZStack {
-                        if !atBottom, !view.rows.isEmpty {
-                            JumpToBottomButton {
-                                atBottom = true
-                                withAnimation(motion.standard) {
-                                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                                }
-                            }
-                            .jumpToBottomTransition(motion)
-                            .padding(.bottom, JumpToBottomButton.bottomGap)
-                            .accessibilityIdentifier(Chats.TestIds.jumpToBottom)
-                        }
-                    }
-                    .animation(motion.standard, value: atBottom)
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    // N-12: THE Dock over the Conversation's bottom edge: the
-                    // suggested tasks, the live root's Queue, queued
-                    // messages and banners, then THE composer (always).
-                    // #EXP-1623: THE Dock is its own observation scope. Built
-                    // inline, every live model's slots it reads (the root's
-                    // and the Live child's) were tracked by this screen's
-                    // body, so their frames re-rendered the whole chat.
-                    BodySlice {
-                        let dockRows = conversationDockRows(rows: rows, view: view)
-                        DockView(
-                            rows: dockRows,
-                            openId: $dockOpenId,
-                            renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
-                            renderAction: { row in
-                                row.id == "banner:closed"
-                                    ? liveModel.map(SessionDock.reconnect)
-                                    : SessionDock.agentHintAction(row) { text in reply(text, sessionId: rows.root.id) }
-                            }
-                        ) {
-                            // EXP-1211: the agent's quick replies, directly above
-                            // the composer.
-                            SessionComposerReplies(sessionId: view.composer.sessionId)
-                            ChatComposer(
-                                sessionId: view.composer.sessionId,
-                                root: rows.root,
-                                placeholder: rows.composerPlaceholder(view),
-                                busySessionIds: rows.sessions
-                                    .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                                    .map(\.id),
-                                agentRow: rows.agent,
-                                editorDevice: editor?.device,
-                                editorMove: editor?.appMove,
-                                onExpand: {
-                                    // Remember the pin BEFORE the inset moves it.
-                                    pinOnInset = atBottom
-                                }
-                            )
-                        }
-                        .floatingBarEdge(!dockRows.isEmpty)
-                    }
-                    // EXP-1316 (Android 247c806b33): the floating composer's
-                    // MEASURED height (capsule or open card, + its edge) is
-                    // the conversation's bottom inset; a pinned conversation
-                    // re-pins whenever it changes — expansion, keyboard,
-                    // late layout — so the newest row never hides under it.
-                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
-                        composerTop = frame.minY
-                        guard frame.height != composerHeight else { return }
-                        if frame.height < composerHeight { insetCorrection = 0 }
-                        composerHeight = frame.height
-                        guard pinOnInset || atBottom else { return }
-                        atBottom = true
-                        repin(scroller)
-                    }
-                }
-            }
-        }
-    }
-
-    private static let coordSpace = "chat-conversation-scroll"
-
-    /// N-12: the Conversation's DockCards: the suggested tasks with an open
-    /// item, then the live root's own (`SessionDock`). S-3 (dock.json): a
-    /// waiting plan or question is never a DockCard; it stays
-    /// inline in the transcript, answerable.
-    private func conversationDockRows(rows: ChatRows, view: SessionChatView) -> [Dock.Row] {
-        guard canEdit else { return [] }
-        let live = liveModel.map { SessionDock.sources($0, session: rows.root, tasks: false) } ?? []
-        // #EXP-1545: the ONE tasks card, the root's else a Live child's.
-        let tasks = chatQueue(rows: rows, view: view).map { pick -> Dock.Source in
-            .tasks(pick.model.taskQueue(now: Date()).map(Dock.QueueSummary.init), sessionName: pick.sessionName)
-        }
-        // #EXP-1383: the agent chat's "Instructions changed" banner.
-        let hint = SessionDock.agentHint(root: rows.root, agent: rows.agent).map { [$0] } ?? []
-        return Dock.rows(Dock.suggestionSources(view.rows) + live + (tasks.map { [$0] } ?? []) + hint)
-    }
-
-    /// #EXP-1545 (dock.json CHAT QUEUE): whose Queue the chat's Dock
-    /// shows (`Dock.chatDockQueue`) over the root's and every Live child's
-    /// relay slots (LOCAL FIRST: the store seeds a fresh model with the
-    /// last-known ones); its model draws the card and its sheet's Trace.
-    private func chatQueue(
-        rows: ChatRows, view: SessionChatView
-    ) -> (model: AgentSessionModel, sessionName: String?)? {
-        let names = Dictionary(
-            items(view).sessions.map { ($0.sessionId, $0.name) },
-            uniquingKeysWith: { first, _ in first }
+    /// #EXP-1732 (the owner's correction): THE Chat tab = the ROOT's own
+    /// session view, every kind — its raw-work feed (#EXP-1736's transcript
+    /// with the agent's traces), its cards inline, THE Dock and THE composer
+    /// posting to the root (an app editor's: the "+" Device row too). The
+    /// same view a Sessions row pushes for a child.
+    private func chatPage(rows: ChatRows) -> some View {
+        AgentSessionView(
+            accountId: accountId,
+            session: rows.root,
+            embedded: true,
+            editorDevice: editor?.device
         )
-        let now = Date()
-        var models: [String: AgentSessionModel] = childModels
-        if let liveModel, let liveClaimId { models[liveClaimId] = liveModel }
-        let candidates = models.compactMap { id, model -> Dock.ChatQueueCandidate? in
-            guard let session = rows.session(id: id) else { return nil }
-            return Dock.ChatQueueCandidate(
-                sessionId: id,
-                name: names[id] ?? session.title ?? "",
-                root: session.parentId == nil,
-                ended: session.status == DomainContract.sessionStatusEnded || model.isOver,
-                activeAt: SessionTree.ms(session.lastTurnAt) ?? SessionTree.ms(session.startedAt),
-                open: !(model.taskQueue(now: now)?.todo.items.isEmpty ?? true)
-            )
-        }
-        guard let pick = Dock.chatDockQueue(candidates), let model = models[pick.sessionId] else { return nil }
-        return (model, pick.sessionName)
+        .id(rows.root.id)
     }
-
-    /// A card's sheet: the suggested tasks' sheet, the root's Queue and
-    /// queued messages their lists.
-    private func conversationDockSheet(
-        _ row: Dock.Row, rows: ChatRows, view: SessionChatView, close: @escaping () -> Void
-    ) -> AnyView? {
-        if case let .suggestions(id, _, _, startAll, items)? = view.rows.first(where: { $0.id == row.id }) {
-            return AnyView(ChatSuggestionsSheet(
-                row: row,
-                rowId: id,
-                startAll: startAll,
-                items: items,
-                actions: suggestionActions,
-                onOpenSession: { sessionId in
-                    close()
-                    openSession(sessionId)
-                },
-                onOpenIssue: { [deps, accountId, issueOutlet] issueId in
-                    close()
-                    openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
-                },
-                onClose: close
-            ))
-        }
-        // #EXP-1545: the tasks card opens ITS session's Trace.
-        if row.kind == .tasks, let pick = chatQueue(rows: rows, view: view) {
-            return SessionDock.sheet(row, model: pick.model, close: close)
-        }
-        return liveModel.flatMap { SessionDock.sheet(row, model: $0, close: close) }
-    }
-
-    /// EXP-1316: pin the newest row above the floating composer — now, after
-    /// the next layout pass (the safe-area inset lands one pass late) and
-    /// once the card's open animation and the keyboard have settled.
-    private func repin(_ scroller: ScrollViewProxy) {
-        scroller.scrollTo(Self.bottomId, anchor: .bottom)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard atBottom else { return }
-            scroller.scrollTo(Self.bottomId, anchor: .bottom)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Motion.Duration.standard + 0.2) {
-            guard atBottom else { return }
-            scroller.scrollTo(Self.bottomId, anchor: .bottom)
-            // Settled: with the keyboard up the scroll view's inset falls
-            // short of the composer by the bottom safe area it swallowed
-            // (34pt on a home-indicator phone). The anchor always lands on
-            // the scroll view's own bottom, so the shortfall is measured
-            // against it once and padded out above the anchor; a later pass
-            // measures the same gap and changes nothing.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                let shortfall = anchorBottom - composerTop - insetCorrection
-                guard atBottom, composerTop > 0, shortfall > 0.5, shortfall < 200 else { return }
-                insetCorrection += shortfall
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                }
-            }
-        }
-    }
-    private static let bottomId = "chat-conversation-bottom"
 
     @ViewBuilder
     private func issuePage(_ issueId: String) -> some View {
@@ -929,14 +611,7 @@ struct ChatScreen: View {
             AgentSessionView(
                 accountId: accountId,
                 session: session,
-                embedded: true,
-                onModel: { id, model in
-                    if let model {
-                        sessionPageModel = (id, model)
-                    } else if sessionPageModel?.id == id {
-                        sessionPageModel = nil
-                    }
-                }
+                embedded: true
             )
             .id(sessionId)
         } else {
@@ -1029,218 +704,6 @@ struct ChatScreen: View {
             }
             answeringId = nil
         }
-    }
-
-    /// EXP-1317: revoke the viewer's own queued message (`sessions.unqueue`);
-    /// the Electric echo drops the row, a refusal toasts.
-    private func unqueue(_ messageId: String) {
-        let api = deps.sessionsApi
-        let accountId = accountId
-        Task {
-            do {
-                try await api.unqueue(accountId: accountId, messageId: messageId)
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "remove", thing: "the message"),
-                    description: error.userFacingMessage
-                )
-            }
-        }
-    }
-
-    // MARK: - Suggested tasks (EXP-1323)
-
-    private var suggestionActions: ChatSuggestionActions {
-        ChatSuggestionActions(
-            onStart: { rowId, itemId in startSuggestion(rowId, itemId, where: .child) },
-            onStartAll: { rowId in
-                runSuggestion(ChatSuggestionActions.key(rowId), verb: "start", thing: "the tasks") { api, accountId in
-                    try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
-                }
-            },
-            onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
-            devices: { [teamId = rows?.root.teamId] in await loadSuggestionDevices(teamId: teamId) },
-            pending: suggestionPending
-        )
-    }
-
-    private func startSuggestion(
-        _ rowId: String, _ itemId: String, where target: SuggestionStartWhere,
-        deviceId: String? = nil, model: String? = nil
-    ) {
-        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "start", thing: "the task") { api, accountId in
-            try await api.startSuggestion(
-                accountId: accountId, messageId: rowId, itemId: itemId, where: target,
-                deviceId: deviceId, model: model
-            )
-        }
-    }
-
-    private func dismissSuggestion(_ rowId: String, _ itemId: String) {
-        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "dismiss", thing: "the task") { api, accountId in
-            try await api.dismissSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
-        }
-    }
-
-    /// One suggestion call: its key waits while it is out (the Electric echo
-    /// moves the item), a refusal toasts `Couldn't <verb> <thing>`.
-    private func runSuggestion(
-        _ key: String, verb: String, thing: String,
-        _ call: @escaping @Sendable (SessionsApi, String) async throws -> Void
-    ) {
-        guard !suggestionPending.contains(key) else { return }
-        suggestionPending.insert(key)
-        let api = deps.sessionsApi
-        let accountId = accountId
-        Task {
-            do {
-                try await call(api, accountId)
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: verb, thing: thing),
-                    description: error.userFacingMessage
-                )
-            }
-            suggestionPending.remove(key)
-        }
-    }
-
-    /// A pick of the item's ⋯ menu (run once its sheet has dismissed).
-    private func runSuggestionMenu(_ rowId: String, _ itemId: String, _ action: SuggestionOptionsSheet.Action) {
-        switch action {
-        case .here:
-            startSuggestion(rowId, itemId, where: .here)
-        case let .startOn(deviceId):
-            startSuggestion(rowId, itemId, where: .child, deviceId: deviceId)
-        case let .startWith(model):
-            startSuggestion(rowId, itemId, where: .child, model: model)
-        case .file:
-            runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
-                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
-            }
-        case .dismiss:
-            dismissSuggestion(rowId, itemId)
-        }
-    }
-
-    /// Start on…'s rows: the machines a start can reach right now with an
-    /// agent to run (the composer's pool).
-    private func loadSuggestionDevices(teamId: String?) async -> [SuggestionOptionsSheet.Device] {
-        let devices = await DeviceQueries.onlineStartTargets(
-            db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
-        )
-        return devices.filter(\.hasRunnableAgent).map {
-            SuggestionOptionsSheet.Device(
-                id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
-            )
-        }
-    }
-
-    // MARK: - Live tail + read marks (EXP-1323)
-
-    /// Claim the live root's socket owner while it is not ended; release it
-    /// once it ends or the screen goes.
-    private func syncLiveTail() {
-        let wanted = model?.view?.liveSessionId
-        guard wanted != liveClaimId else { return }
-        releaseLiveTail()
-        guard let wanted, let root = rows?.session(id: wanted) else { return }
-        liveClaimId = wanted
-        liveModel = deps.attachSteerModel(accountId: accountId, session: root)
-    }
-
-    /// #EXP-1545: the tree's not-ended children (any depth).
-    private var liveChildren: [SessionEntity] {
-        (rows?.sessions ?? [])
-            .filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded }
-            .sorted { $0.id < $1.id }
-    }
-
-    /// #EXP-1623: each Live child as the probe sees it: when it was last
-    /// active and what is known of its Queue without opening its stream.
-    private var childProbes: [Dock.ChatQueueProbe] {
-        liveChildren.map { session in
-            let activeAt = SessionTree.ms(session.lastTurnAt) ?? SessionTree.ms(session.startedAt)
-            return Dock.ChatQueueProbe(
-                sessionId: session.id, activeAt: activeAt,
-                state: childQueueState(session.id, activeAt: activeAt)
-            )
-        }
-    }
-
-    private struct ChildProbeInput: Equatable {
-        let rootOpen: Bool
-        let probes: [Dock.ChatQueueProbe]
-        let tick: Int
-    }
-
-    private var childProbeInput: ChildProbeInput {
-        ChildProbeInput(rootOpen: liveModel.map(Self.queueOpen) ?? false, probes: childProbes, tick: childProbeTick)
-    }
-
-    private func childQueueState(_ id: String, activeAt: Double?) -> Dock.ChildQueueState {
-        let store = deps.steerSessions
-        let model = childModels[id] ?? store.peek(accountId: accountId, sessionId: id)
-        if let model, Self.queueOpen(model) { return .open }
-        if store.queueReadClosed(accountId: accountId, sessionId: id, activeAt: activeAt) { return .closed }
-        if let model {
-            // No device feeds it (`starting`): nothing to read there yet, so
-            // the next child in line is; it is read again once it turns.
-            if model.phase == .starting { return .closed }
-            if case .closed = model.phase { return .closed }
-            if model.replayed || model.isOver { return .closed }
-            if let at = childAttachedAt[id], Date().timeIntervalSince(at) >= Self.childProbeDeadline {
-                return .closed
-            }
-            return .unknown
-        }
-        return .unknown
-    }
-
-    private static func queueOpen(_ model: AgentSessionModel) -> Bool {
-        !(model.taskQueue(now: Date())?.todo.items.isEmpty ?? true)
-    }
-
-    /// #EXP-1623 (was #EXP-1545's one claim per Live child: a stream and a
-    /// full join replay for every child on open): ONE claim, on the child
-    /// `Dock.chatQueueProbe` names; a child read closed is released and
-    /// remembered as closed until it is active again.
-    private func syncChildModels() {
-        guard onScreen else { return }
-        let input = childProbeInput
-        let probes = input.probes
-        let wanted = Dock.chatQueueProbe(rootOpen: input.rootOpen, children: probes)
-        for probe in probes where probe.state == .closed {
-            deps.steerSessions.noteQueueClosed(accountId: accountId, sessionId: probe.sessionId, activeAt: probe.activeAt)
-        }
-        for id in childModels.keys where id != wanted {
-            childModels[id] = nil
-            childAttachedAt[id] = nil
-            deps.steerSessions.detach(accountId: accountId, sessionId: id)
-        }
-        if let wanted, childModels[wanted] == nil, let session = rows?.session(id: wanted) {
-            childModels[wanted] = deps.attachSteerModel(accountId: accountId, session: session)
-            childAttachedAt[wanted] = Date()
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(Self.childProbeDeadline))
-                childProbeTick &+= 1
-            }
-        }
-    }
-
-    private func releaseChildModels() {
-        for id in childModels.keys {
-            deps.steerSessions.detach(accountId: accountId, sessionId: id)
-        }
-        childModels = [:]
-        childAttachedAt = [:]
-    }
-
-    private func releaseLiveTail() {
-        guard let claimed = liveClaimId else { return }
-        liveClaimId = nil
-        liveModel = nil
-        deps.steerSessions.detach(accountId: accountId, sessionId: claimed)
     }
 
     /// The tree's newest agent-authored message (the unread rule's input).
@@ -1474,9 +937,6 @@ struct ChatScreen: View {
         }
         model?.start()
         syncIssueModels()
-        syncLiveTail()
-        onScreen = true
-        syncChildModels()
         markRead()
     }
 
@@ -1484,9 +944,6 @@ struct ChatScreen: View {
         UIApplication.endEditing()
         model?.stop()
         stopIssueModel()
-        releaseLiveTail()
-        onScreen = false
-        releaseChildModels()
     }
 
     /// EXP-1288: ONE issue model observes at a time — the open issue
@@ -1636,29 +1093,6 @@ enum ChatOpenedItem: Hashable {
         case .session: .session
         case .plan: .plan
         case .settings: .settings
-        }
-    }
-}
-
-/// #EXP-1380: the pre-iOS-18 `FollowPinTracker` input (the content's
-/// overflow below the viewport); iOS 18+ reads the scroll geometry and
-/// skips the GeometryReader entirely.
-private struct LegacyFeedOverflow: ViewModifier {
-    let viewport: CGFloat
-    let space: String
-
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content
-        } else {
-            content.background(
-                GeometryReader { frame in
-                    Color.clear.preference(
-                        key: FeedBottomOverflowKey.self,
-                        value: frame.frame(in: .named(space)).maxY - viewport
-                    )
-                }
-            )
         }
     }
 }

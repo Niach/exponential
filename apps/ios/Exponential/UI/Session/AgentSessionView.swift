@@ -117,6 +117,10 @@ struct AgentSessionView: View {
     /// EXP-1343: the claimed model, handed to the host (nil once the page
     /// left), keyed by this session's id.
     var onModel: ((String, AgentSessionModel?) -> Void)? = nil
+    /// #EXP-1732 / #FEED-204: an app editor's Chat tab (its root's session
+    /// view): the composer "+" Device row; a pick on a live root also moves
+    /// it (`moveDevice`). nil = no Device row.
+    var editorDevice: SessionComposerFooter.DeviceMenu? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -2062,7 +2066,14 @@ struct AgentSessionView: View {
                     }
                 },
                 // #EXP-1535: the "+" Account page = the usage wall's switch.
-                account: model.composerAccountMenu
+                account: model.composerAccountMenu,
+                device: editorDevice.map { menu in
+                    SessionComposerFooter.DeviceMenu(devices: menu.devices, current: menu.current) { picked in
+                        menu.onPick(picked)
+                        guard model.session?.isLive == true else { return }
+                        Task { await model.moveDevice(to: picked) }
+                    }
+                }
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits

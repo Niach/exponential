@@ -1757,22 +1757,15 @@ final class StyleguideScreenshots: XCTestCase {
         let chatSegment = anyElement(app, identified: "session-tabs-chat")
         expect(chatSegment, within: Wait.sync, "The session screen drew no Chat tab")
         XCTAssertTrue(chatSegment.isHittable, "The Chat tab is off screen")
-        // EXP-1558: the Conversation at its newest rows, as every other
-        // client photographs it: the pending question and the child's plan
-        // row in view (#EXP-1662: a plan is ONE row here, its buttons live on
-        // the Plan tab). The jump-to-bottom button re-pins a list that opened
-        // scrolled up.
+        // #EXP-1732 (owner): the Chat tab = the ROOT's own session view
+        // (its raw-work feed, its cards, THE Dock, THE composer); a child's
+        // plan and question live in that child's session (the Sessions tab).
         let jump = anyElement(app, identified: "jump-to-bottom")
         if jump.waitForExistence(timeout: 2), jump.isHittable { jump.tap() }
         expect(
-            anyElement(app, containing: "Plan: lazy-load"),
+            app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
             within: Wait.sync,
-            "The cold-start chat drew no plan row — reseed with `bun run seed:screenshots`"
-        )
-        expect(
-            anyElement(app, containing: "Cold start is at 740"),
-            within: Wait.nav,
-            "The cold-start chat drew no pending question"
+            "The cold-start chat's Chat tab drew no session feed"
         )
         snapshot("sg_chat-screen", settle: 2)
         guard sessionShots.contains(where: ScreenshotShots.isWanted) else {
@@ -1784,28 +1777,25 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_session: that session's page in the chat (DEMO_SESSION_ID) ─
         // The relay stub's feed ends on an UNANSWERED question, whose card
         // waits in THE Dock (N-12). Nothing is answered.
-        // #EXP-1732: its Chat card opens the session as an item pushed over
-        // the tab (the Sessions tab's rows open the same page).
-        let sessionCard = app.descendants(matching: .any)
-            .matching(identifier: "session-card")
-            .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
+        // #EXP-1732: the Sessions tab's row opens the child's session as an
+        // item pushed over the tab.
+        let sessionsTab = anyElement(app, identified: "session-tabs-sessions")
+        expect(sessionsTab, within: Wait.nav, "The session screen drew no Sessions tab")
+        sessionsTab.tap()
+        let sessionRow = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "session-sessions-row-", Self.sessionTitle
+            ))
             .firstMatch
-        // NEW-16: scroll the card BELOW the strip, then tap its centre: a
-        // card scrolled under the floating header still reads hittable, and
-        // XCUITest would tap the header's back button instead.
-        revealAndTap(
-            app,
-            sessionCard,
-            below: anyElement(app, identified: "session-tabs"),
-            "The cold-start chat drew no \"\(Self.sessionTitle)\" card"
-        )
+        expect(sessionRow, within: Wait.sync, "The Sessions tab listed no \"\(Self.sessionTitle)\" row")
+        sessionRow.tap()
         // NEW-16: a tap that missed the card lands on the header's back
         // button and pops to the Chats list; say so instead of waiting a
         // minute for a Dock that can never draw.
         settle(1)
         if !anyElement(app, identified: "session-item-title").exists,
            chatRow(app, containing: Self.coldStartChatTitle).exists {
-            XCTFail("Opening \"\(Self.sessionTitle)\" popped the chat back to the Chats list: the tap missed the card (header or status bar)")
+            XCTFail("Opening \"\(Self.sessionTitle)\" popped the chat back to the Chats list: the tap missed the row")
             return
         }
         // EXP-1343: a session chip of THIS chat opens as its page under
