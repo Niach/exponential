@@ -110,7 +110,7 @@ object DomainContract {
     const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L
     const val codingSessionIdleReleaseMs: Long = 1800000L
-    val codingSessionLaunchKeys: List<String> = listOf("agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse")
+    val codingSessionLaunchKeys: List<String> = listOf("agent", "model", "effort", "ultracode", "mcpServerIds", "account", "computerUse")
     const val codingSessionComputerUseCap: String = "computer-use-run"
     const val deviceOnlineWindowMs: Long = 90000L
     const val sessionsSendTextMax: Int = 16384
@@ -122,11 +122,8 @@ object DomainContract {
     const val sessionsSendAgentInstructionsMaxBytes: Int = 16384
     const val sessionsSendTreeMaxDepth: Int = 3
     const val sessionsSendTreeMaxSessions: Int = 10
-    const val deviceAgentDefaultsModel: String = "fable"
-    const val deviceAgentDefaultsSubagentModel: String = "opus"
-    const val deviceAgentDefaultsThreadModel: String = "haiku"
+    const val deviceAgentDefaultsModel: String = "opus"
     const val deviceAgentDefaultsCodexModel: String = "gpt-5.6-sol"
-    const val deviceAgentDefaultsCodexThreadModel: String = "gpt-5.6-luna"
     const val deviceComputerUseDefaultsModel: String = "haiku"
     const val startPromptMaxLength: Int = 16384
     const val startPromptMaxImages: Int = 4
