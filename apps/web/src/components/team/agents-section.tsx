@@ -306,10 +306,10 @@ export function AgentSettingsPage({
     setName(agent?.name ?? ``)
     setIcon(((agent?.icon as BoardIcon | null) ?? DEFAULT_AGENT_ICON))
     setColor(agent?.color ?? DEFAULT_AGENT_COLOR)
-    setDeviceId(agent?.deviceId ?? null)
+    setDeviceId(agent?.defaults?.deviceId ?? null)
     setSkillIds(agent?.skillIds ?? [])
-    setPin({ agent: agent?.cli ?? ``, account: agent?.account ?? `` })
-    setModel(agent?.model ?? null)
+    setPin({ agent: agent?.defaults?.cli ?? ``, account: agent?.defaults?.account ?? `` })
+    setModel(agent?.defaults?.model ?? null)
     setTriggers(readTriggers(agent?.triggers))
     setErrors([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,7 +318,7 @@ export function AgentSettingsPage({
   // Remote edits to the pickers and the trigger list land as they sync.
   const syncedIcon = agent?.icon
   const syncedColor = agent?.color
-  const syncedDevice = agent?.deviceId
+  const syncedDevice = agent?.defaults?.deviceId
   const syncedTriggers = agent?.triggers
   useEffect(() => {
     if (syncedIcon) setIcon(syncedIcon as BoardIcon)
@@ -370,7 +370,7 @@ export function AgentSettingsPage({
   // ── Account ──
   // An existing agent's CLI stays put (the page never re-picks it), so its
   // Account picker offers only that CLI's logins; no stored CLI = all.
-  const lockedCli = creating ? null : (agent?.cli ?? null)
+  const lockedCli = creating ? null : (agent?.defaults?.cli ?? null)
   // EXP-1306: only logins the machine reports (a profile id); the stand-in
   // row named after the agent never reads as an account.
   const accountOptions = useMemo(
