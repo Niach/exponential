@@ -381,7 +381,7 @@ struct ChatScreen: View {
             if let editor {
                 // #EXP-1729: the editor's title block carries its own
                 // subtitle (apps.json `editorHeader`: why nothing starts).
-                editor.title
+                editor.title(ChatHeaderTitle.status(rows: rows))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ChatHeaderTitle(
@@ -1760,7 +1760,7 @@ private struct AgentChatEmpty: View {
 
     private var subtitle: String {
         SessionScreen.subtitle(
-            status: SessionState.idle.word,
+            status: SessionScreen.status([]),
             device: nil,
             trigger: AgentTrigger.parseList(agent.triggers).first(where: \.enabled).map { AgentSettings.triggerSummary($0) }
         )

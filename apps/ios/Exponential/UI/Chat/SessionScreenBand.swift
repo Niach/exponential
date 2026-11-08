@@ -131,22 +131,23 @@ struct ChatTreeItems: Equatable {
 /// #EXP-1732: THE header tabs under the chat header, on every kind: THE
 /// segmented control (`GlassSegmentedControl`), its options the screen's
 /// `tabs` in order, each the label followed by its count as a muted number
-/// (none at 0). Labels only, never icons; past the phone's width it scrolls
-/// sideways (never wraps, never icon-only).
+/// (none at 0). Labels only, never icons; each segment sized to its label;
+/// past the phone's width it scrolls sideways (never wraps, never icon-only).
 struct SessionScreenTabs: View {
     let tabs: [SessionScreen.TabEntry]
     let selection: SessionScreen.Tab
     let onSelect: (SessionScreen.Tab) -> Void
 
+    /// TAB SIZING ×4: every segment HUGS its label (+ count), never equal
+    /// widths and never squeezed; the strip leads and scrolls sideways once
+    /// it overflows (no bounce while it fits).
     var body: some View {
-        ViewThatFits(in: .horizontal) {
+        ScrollView(.horizontal, showsIndicators: false) {
             control
-            ScrollView(.horizontal, showsIndicators: false) {
-                control
-                    .fixedSize(horizontal: true, vertical: false)
-            }
+                .padding(.horizontal, 16)
         }
-        .padding(.horizontal, 16)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionScreen.TestIds.tabs)
@@ -176,6 +177,7 @@ struct SessionScreenTabs: View {
             spokenLabel: { id in
                 entry(id).flatMap { tab in tab.count.map { "\(tab.label) \($0)" } }
             },
+            hugging: true,
             onSelect: onSelect
         )
     }

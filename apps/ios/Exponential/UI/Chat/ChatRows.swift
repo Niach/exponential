@@ -32,7 +32,8 @@ enum ChatPage: Hashable {
 /// Versions bodies, the gear's settings page and the header's `…` (Export,
 /// Delete).
 struct ChatEditorSlot {
-    let title: AnyView
+    /// The title block over the TREE's status word (`ChatHeaderTitle.status`).
+    let title: (String) -> AnyView
     let tab: Binding<SessionScreen.Tab>
     /// The app tab's body (preview, data, versions); nil = not the editor's.
     let pane: (SessionScreen.Tab) -> AnyView?

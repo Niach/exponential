@@ -47,6 +47,11 @@ final class SessionScreenTests: XCTestCase {
         XCTAssertEqual(copy["back"] as? String, SessionScreen.Copy.back)
         XCTAssertEqual(copy["separator"] as? String, SessionScreen.Copy.separator)
         XCTAssertEqual(copy["linkIssue"] as? String, SessionScreen.Copy.linkIssue)
+        XCTAssertEqual(copy["status"] as? [String: String], [
+            "needsInput": SessionScreen.Copy.Status.needsInput, "working": SessionScreen.Copy.Status.working,
+            "queued": SessionScreen.Copy.Status.queued, "done": SessionScreen.Copy.Status.done,
+            "idle": SessionScreen.Copy.Status.idle,
+        ])
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "tabs": SessionScreen.TestIds.tabs, "gear": SessionScreen.TestIds.gear,
             "beside": SessionScreen.TestIds.beside, "pane": SessionScreen.TestIds.pane,
@@ -109,6 +114,22 @@ final class SessionScreenTests: XCTestCase {
                 status: string(input["status"]), device: string(input["device"]), trigger: string(input["trigger"])
             )
             XCTAssertEqual(subtitle, string(testCase["expected"]), name)
+        }
+    }
+
+    func testReplaysEveryStatusCase() throws {
+        for testCase in try cases("statusCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [[String: Any]], name)
+            let sessions = try input.map { raw in
+                SessionScreen.StatusInput(
+                    status: try XCTUnwrap(string(raw["status"]), name),
+                    busy: try XCTUnwrap(raw["busy"] as? Bool, name),
+                    needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
+                    root: try XCTUnwrap(raw["root"] as? Bool, name)
+                )
+            }
+            XCTAssertEqual(SessionScreen.status(sessions), string(testCase["expected"]), name)
         }
     }
 }

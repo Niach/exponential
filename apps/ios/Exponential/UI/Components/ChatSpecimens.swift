@@ -462,7 +462,7 @@ struct ChatHeaderSpecimens: View {
             ChatHeader {
                 ChatHeaderTitle(
                     title: "Reduce cold start",
-                    subtitle: SessionScreen.subtitle(status: ChatRowWord.needsInput.text, device: "Alex's MacBook", trigger: nil),
+                    subtitle: SessionScreen.subtitle(status: SessionScreen.Copy.Status.needsInput, device: "Alex's MacBook", trigger: nil),
                     subtitleTone: .needsYou,
                     cli: "claude",
                     mark: .needsYou
@@ -481,7 +481,7 @@ struct ChatHeaderSpecimens: View {
             ChatHeader {
                 ChatHeaderTitle(
                     title: "A title long enough that it truncates on one line",
-                    subtitle: Chats.Copy.Preview.working,
+                    subtitle: SessionScreen.Copy.Status.working,
                     subtitleTone: .working,
                     cli: "claude",
                     mark: .working
@@ -493,7 +493,7 @@ struct ChatHeaderSpecimens: View {
             ChatHeader {
                 ChatHeaderTitle(
                     title: "Triage",
-                    subtitle: SessionScreen.subtitle(status: SessionState.idle.word, device: "Alex's MacBook", trigger: "every 30 min"),
+                    subtitle: SessionScreen.subtitle(status: SessionScreen.Copy.Status.idle, device: "Alex's MacBook", trigger: "every 30 min"),
                     agentIcon: BoardTypeDisplay.iconName(for: "bug"),
                     agentColor: "#a855f7"
                 )

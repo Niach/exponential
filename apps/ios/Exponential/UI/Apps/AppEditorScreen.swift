@@ -104,7 +104,7 @@ struct AppEditorScreen: View {
                         .id(rootId)
                 } else {
                     AppEditorShell(
-                        title: title(app),
+                        title: title(app, status: SessionScreen.status([])),
                         tab: tab,
                         onSelect: { tab = $0 },
                         pane: tab == .chat ? nil : pane(app, tab),
@@ -244,7 +244,7 @@ struct AppEditorScreen: View {
 
     private func slot(_ app: AppListEntry) -> ChatEditorSlot {
         ChatEditorSlot(
-            title: AnyView(title(app)),
+            title: { status in AnyView(title(app, status: status)) },
             tab: $tab,
             pane: { tab in pane(app, tab) },
             settings: AnyView(settingsPage),
@@ -290,29 +290,26 @@ struct AppEditorScreen: View {
         }
     }
 
-    /// #EXP-1732 / #EXP-1729 (apps.json `editorHeader`): THE header's title
-    /// block: the app's glyph + name + the version pill over ONE subtitle
-    /// line, `status · device` in its tone (why nothing starts).
-    private func title(_ app: AppListEntry) -> some View {
+    /// #EXP-1732 / #EXP-1729 (apps.json `editorHeader`): THE chat header's
+    /// title block for an app: the BoardGlyph IN the lead disc, the name and
+    /// the version pill right after it, over ONE subtitle line = the TREE's
+    /// word (`SessionScreen.status`, never dropped) · `editorHeader`'s device
+    /// part, in its tone.
+    private func title(_ app: AppListEntry, status: String) -> some View {
         let header = model.header
         let tone: ChatHeaderTitle.Tone = switch header.tone {
         case .attention: .needsYou
         case .active: .working
         case .muted: .muted
         }
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
-                Text(app.name)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .accessibilityAddTraits(.isHeader)
-                AppVersionPill(app: app)
-            }
-            ChatHeaderSubtitle(text: header.subtitle, tone: tone)
-        }
+        return ChatHeaderTitle(
+            title: app.name,
+            subtitle: SessionScreen.subtitle(status: status, device: model.headerDevice, trigger: nil),
+            subtitleTone: tone,
+            agentIcon: BoardTypeDisplay.iconName(for: app.glyph) ?? SessionTree.ListCopy.agentDefaultIcon,
+            agentColor: app.color ?? AppGlyph.neutralColor,
+            titleAccessory: AnyView(AppVersionPill(app: app))
+        )
     }
 
     /// The app tab's body (Preview, Data, Versions); nil = not the editor's.

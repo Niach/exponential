@@ -6,7 +6,7 @@ import Foundation
 /// a chat, a team agent's or the Assistant's conversation and an app's editor
 /// session — the header tabs per kind, the gear and the layout rule (phones
 /// are always NARROW: `chat` | `tab` | `item`). `SessionScreenTests` replays
-/// `cases`, `kindCases` and `subtitleCases` whole.
+/// `cases`, `kindCases`, `subtitleCases` and `statusCases` whole.
 public enum SessionScreen {
     // MARK: - Fixture constants
 
@@ -24,6 +24,14 @@ public enum SessionScreen {
         public static let back = "Back"
         public static let separator = " · "
         public static let linkIssue = "Link or file an issue"
+        /// The subtitle's lowercase status words (`status(_:)`).
+        public enum Status {
+            public static let needsInput = "needs input"
+            public static let working = "working"
+            public static let queued = "queued"
+            public static let done = "done"
+            public static let idle = "idle"
+        }
     }
 
     public enum TestIds {
@@ -179,7 +187,16 @@ public enum SessionScreen {
         var opened = open.flatMap(Open.init(rawValue:))
         if opened == nil, req == "settings" { opened = .settings }
         if opened == .settings, !spec.gear { opened = nil }
-        let active: Tab = if let req, let tab = Tab(rawValue: req), spec.tabs.contains(tab) {
+        // ACTIVE FOLLOWS THE OPENED ITEM: a session → Sessions, an issue →
+        // Issues, when the kind has that tab (a plan and settings keep it).
+        let follows: Tab? = switch opened {
+        case .session?: .sessions
+        case .issue?: .issues
+        default: nil
+        }
+        let active: Tab = if let follows, spec.tabs.contains(follows) {
+            follows
+        } else if let req, let tab = Tab(rawValue: req), spec.tabs.contains(tab) {
             tab
         } else {
             wide ? spec.wideDefault : .chat
@@ -192,6 +209,34 @@ public enum SessionScreen {
             active == .chat ? .chat : .tab
         }
         return Screen(tabs: tabs, active: active, gear: spec.gear, open: opened, layout: layout)
+    }
+
+    /// One session of the tree, as `status(_:)` reads it.
+    public struct StatusInput: Equatable, Sendable {
+        public var status: String
+        public var busy: Bool
+        public var needsInput: Bool
+        /// The tree's root.
+        public var root: Bool
+
+        public init(status: String, busy: Bool, needsInput: Bool, root: Bool) {
+            self.status = status
+            self.busy = busy
+            self.needsInput = needsInput
+            self.root = root
+        }
+    }
+
+    /// THE tree's status word (`statusCases`, lowercase, never dropped):
+    /// needs input > working > queued (the root) > done (the root ended) > idle.
+    public static func status(_ sessions: [StatusInput]) -> String {
+        let live = sessions.filter { $0.status != "ended" }
+        let root = sessions.first { $0.root }
+        if live.contains(where: \.needsInput) { return Copy.Status.needsInput }
+        if live.contains(where: \.busy) { return Copy.Status.working }
+        if root?.status == "queued" { return Copy.Status.queued }
+        if root?.status == "ended" { return Copy.Status.done }
+        return Copy.Status.idle
     }
 
     /// The typed overload a phone screen calls.

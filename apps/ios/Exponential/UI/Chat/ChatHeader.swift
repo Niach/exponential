@@ -93,6 +93,9 @@ struct ChatHeaderTitle: View {
     /// The root's PR states: the lead's PR glyph while nothing works.
     var prStates: [String] = []
     var mark: ChatRowMark = .waiting
+    /// #EXP-1732 APP LEAD: what follows the name on its line (an app's
+    /// version pill).
+    var titleAccessory: AnyView?
 
     /// EXP-1552: THE chat lead ×4 (web `ChatLeadDisc`, Android
     /// `chatLeadOf`, the Chats list's `ChatLeadMark`): the mark first, then
@@ -140,6 +143,7 @@ struct ChatHeaderTitle: View {
                             .accessibilityLabel("Private")
                             .accessibilityIdentifier("chat-private")
                     }
+                    if let titleAccessory { titleAccessory }
                 }
                 if let subtitle {
                     ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
@@ -155,24 +159,29 @@ struct ChatHeaderTitle: View {
         rows.sessions.filter { $0.rootId == rows.root.id && $0.status != DomainContract.sessionStatusEnded }
     }
 
-    /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·
-    /// trigger` for every kind — the tree's state word, the root's device,
-    /// an agent's first enabled trigger (`triggerSummary`).
-    static func subtitle(rows: ChatRows) -> String {
-        let live = live(rows)
-        let state: String = if live.contains(where: \.needsInput) {
-            ChatRowWord.needsInput.text ?? ""
-        } else if live.contains(where: \.busy) {
-            Chats.Copy.Preview.working
-        } else if rows.root.status == DomainContract.sessionStatusEnded {
-            SessionState.done.word
-        } else {
-            SessionState.idle.word
+    /// #EXP-1732 STATUS WORD (session-screen.json `statusCases`): THE
+    /// tree's lowercase word (`SessionScreen.status`, never dropped) over
+    /// every session of the tree, the root included.
+    static func status(rows: ChatRows) -> String {
+        let tree = rows.sessions.filter { $0.rootId == rows.root.id || $0.id == rows.root.id }
+        var inputs = tree.map {
+            SessionScreen.StatusInput(status: $0.status, busy: $0.busy, needsInput: $0.needsInput, root: $0.id == rows.root.id)
         }
+        if !tree.contains(where: { $0.id == rows.root.id }) {
+            let root = rows.root
+            inputs.insert(SessionScreen.StatusInput(status: root.status, busy: root.busy, needsInput: root.needsInput, root: true), at: 0)
+        }
+        return SessionScreen.status(inputs)
+    }
+
+    /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·
+    /// trigger` for every kind — the tree's word, the root's device, an
+    /// agent's first enabled trigger (`triggerSummary`).
+    static func subtitle(rows: ChatRows) -> String {
         let trigger = rows.agent.flatMap { agent in
             AgentTrigger.parseList(agent.triggers).first(where: \.enabled).map { AgentSettings.triggerSummary($0) }
         }
-        return SessionScreen.subtitle(status: state, device: rows.rootDevice?.label, trigger: trigger)
+        return SessionScreen.subtitle(status: status(rows: rows), device: rows.rootDevice?.label, trigger: trigger)
     }
 
     static func tone(rows: ChatRows) -> Tone {
