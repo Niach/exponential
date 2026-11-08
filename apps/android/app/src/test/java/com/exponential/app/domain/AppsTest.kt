@@ -68,6 +68,43 @@ class AppsTest {
         }
     }
 
+    // #EXP-1729: `editorHeader` replays `editorHeaderCases` (the whole value)
+    // and locks its copy.
+    @Test
+    fun `editorHeaderCases replay`() {
+        val copy = fixture["editorHeader"]!!.jsonObject["copy"]!!.jsonObject
+        mapOf(
+            "queued" to Apps.EditorHeader.QUEUED,
+            "needsInput" to Apps.EditorHeader.NEEDS_INPUT,
+            "working" to Apps.EditorHeader.WORKING,
+            "noDeviceOnline" to Apps.EditorHeader.NO_DEVICE_ONLINE,
+        ).forEach { (key, value) -> assertEquals(key, copy[key]!!.jsonPrimitive.content, value) }
+        val cases = fixture["editorHeaderCases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val root = case["root"]!!.let { if (it is JsonNull) null else it.jsonObject }
+            val device = case["device"]!!.let { if (it is JsonNull) null else it.jsonObject }
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                Apps.EditorHeaderValue(
+                    expected["subtitle"]!!.jsonPrimitive.content,
+                    Apps.EditorHeaderTone.entries.first { it.wire == expected["tone"]!!.jsonPrimitive.content },
+                ),
+                Apps.editorHeader(
+                    root?.let {
+                        Apps.EditorHeaderRoot(
+                            it["status"]!!.jsonPrimitive.content,
+                            it["busy"]!!.jsonPrimitive.boolean,
+                            it["needsInput"]!!.jsonPrimitive.boolean,
+                        )
+                    },
+                    device?.let { Apps.EditorHeaderDevice(it["name"]!!.jsonPrimitive.content, it["online"]!!.jsonPrimitive.boolean) },
+                ),
+            )
+        }
+    }
+
     // #VAPP-256: rollbackWarns replays `rollbackCases`.
     @Test
     fun `rollbackCases replay`() {

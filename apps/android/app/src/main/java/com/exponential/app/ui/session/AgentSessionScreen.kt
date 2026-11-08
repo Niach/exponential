@@ -4782,6 +4782,11 @@ internal fun SessionComposer(
     surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
     /** #FEED-204: an app editor's Device › row; null = every other composer. */
     deviceMenu: SessionComposerDevice? = null,
+    /** #EXP-1729: an app editor's ENDED root: Account › / Model › = the
+     *  picks its next send carries (they replace the session's own rows);
+     *  null = the session's own (a live root: its account / model switch). */
+    accountMenu: SessionComposerAccount? = null,
+    modelMenu: SessionComposerModel? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -4879,7 +4884,7 @@ internal fun SessionComposer(
         switchError?.let { com.exponential.app.ui.components.FailedAction("switch", "the account", it.ifBlank { null }) },
         onShown = viewModel::clearSwitchError,
     )
-    val composerAccount = session?.let { row ->
+    val composerAccount = accountMenu ?: session?.let { row ->
         val canSteer = SessionDeviceMove.canSteer(row.shared, row.userId, viewerId)
         // No login reported for the session's agent = no row (web, desktop).
         if (row.isEnded || !accountSwitch.deviceOnline || !canSteer || accountSwitch.options.isEmpty()) return@let null
@@ -5326,14 +5331,14 @@ internal fun SessionComposer(
                     val command = viewModel.pendingSlashCommand()
                     if (command?.confirm == true && pendingImages.isEmpty()) slashConfirm = command else viewModel.sendDraft()
                 },
-                model = composerModel(
+                model = modelMenu?.value ?: composerModel(
                     config = sessionConfig,
                     rowModel = session?.model,
                     cli = session?.cli,
                     launchDefaults = hostLaunchDefaults,
                 ),
-                modelPickable = catalogAgent == DEFAULT_AGENT,
-                onPickModel = { alias -> viewModel.sendCommand("/model $alias") },
+                modelPickable = modelMenu != null || catalogAgent == DEFAULT_AGENT,
+                onPickModel = modelMenu?.onPick ?: { alias -> viewModel.sendCommand("/model $alias"); Unit },
                 contextPercent = contextPercent,
                 hasUsage = hasUsage,
                 onOpenUsage = { onOpenUsage?.invoke() },
@@ -5561,6 +5566,14 @@ internal data class SessionComposerDevice(
  * ([AgentSessionViewModel.switchAccount]: `sessions.send {sessionId,
  * account}`, no text).
  */
+/** #EXP-1729: an app editor's Model › (an ended root's pick for its next
+ *  send): the model shown and the pick. */
+@Immutable
+internal data class SessionComposerModel(
+    val value: String,
+    val onPick: (String) -> Unit,
+)
+
 @Immutable
 internal data class SessionComposerAccount(
     val options: List<com.exponential.app.ui.components.picker.AccountPickerOption>,

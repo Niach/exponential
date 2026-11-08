@@ -465,6 +465,60 @@ public enum Apps {
         return EditorDeviceChoice(deviceId: deviceId, move: rootStatus != nil && deviceId != rootDeviceId)
     }
 
+    /// #EXP-1729 (fixture `editorHeader`): the editor header's subtitle words.
+    public enum EditorHeaderCopy {
+        public static let queued = "queued"
+        public static let needsInput = "needs input"
+        public static let working = "working…"
+        public static let noDeviceOnline = "no device online"
+    }
+
+    /// #EXP-1729: the subtitle's colour: `attention` = the needs-input amber,
+    /// `active` = the foreground, `muted` = the chat header's default.
+    public enum EditorHeaderTone: String, Sendable {
+        case attention, active, muted
+    }
+
+    public struct EditorHeader: Equatable, Sendable {
+        public let subtitle: String
+        public let tone: EditorHeaderTone
+
+        public init(subtitle: String, tone: EditorHeaderTone) {
+            self.subtitle = subtitle
+            self.tone = tone
+        }
+    }
+
+    /// TS `editorHeader` (`editorHeaderCases`): the editor header's
+    /// `status · device` subtitle and its tone. `root` = my editor root (nil =
+    /// none); `device` = the device the composer shows (`editorDevice`), named,
+    /// online or not (nil = none).
+    public static func editorHeader(
+        root: (status: String, busy: Bool, needsInput: Bool)?,
+        device: (name: String, online: Bool)?
+    ) -> EditorHeader {
+        let live = root.map { $0.status != DomainContract.sessionStatusEnded } ?? false
+        let word: String? = if let root, live {
+            root.needsInput ? EditorHeaderCopy.needsInput
+                : root.busy ? EditorHeaderCopy.working
+                : root.status == DomainContract.sessionStatusQueued ? EditorHeaderCopy.queued
+                : nil
+        } else {
+            nil
+        }
+        let offline = !(device?.online ?? false)
+        let place = offline ? EditorHeaderCopy.noDeviceOnline : (device?.name ?? "")
+        let subtitle = [word, place].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        let tone: EditorHeaderTone = if (live && root?.needsInput == true) || offline {
+            .attention
+        } else if live, let root, root.busy || root.status == DomainContract.sessionStatusQueued {
+            .active
+        } else {
+            .muted
+        }
+        return EditorHeader(subtitle: subtitle, tone: tone)
+    }
+
     /// The tab on screen and, on phones, the menu sheet over it.
     public struct EditorTabTarget: Equatable, Sendable {
         public let tab: String

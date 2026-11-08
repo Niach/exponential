@@ -1248,10 +1248,16 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
                 try {
                     val move = appMove
+                    // #EXP-1729: an ended app editor root's Account / Model
+                    // picks ride its next send (the revive takes them).
+                    val picks = appPicks?.takeIf { session.value?.isEnded == true }
+                    fun SessionsSendInput.withPicks() = if (picks == null) this else copy(account = picks.account, model = picks.model)
                     sessionsApi.send(
                         accountId,
                         if (move != null) {
-                            SessionsSendInput.toApp(move.appId, text, move.deviceId, ids)
+                            SessionsSendInput.toApp(move.appId, text, move.deviceId, ids).withPicks()
+                        } else if (picks != null) {
+                            SessionsSendInput.message(codingSessionId, text, ids.takeIf { it.isNotEmpty() }).withPicks()
                         } else {
                             SessionsSendInput.message(
                                 codingSessionId,
@@ -1363,6 +1369,13 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     @Volatile
     var appMove: AppMove? = null
+
+    /** #EXP-1729: an ENDED app editor root's Account › / Model › picks
+     *  (apps.json `editorHeader`), riding its next send; null = none. */
+    data class AppPicks(val account: String?, val model: String?)
+
+    @Volatile
+    var appPicks: AppPicks? = null
 
     /** EXP-1291: revoke one of the viewer's held messages (`sessions.unqueue`). */
     fun unqueueMessage(messageId: String) {
