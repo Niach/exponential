@@ -50,6 +50,34 @@
       "command": "bun run --filter @exp/icons generate"
     },
     {
+      "name": "eUI catalog and skills",
+      "paths": [
+        "packages/exponential-ui/src/catalog.generated.ts",
+        "packages/exponential-ui/generated/**",
+        "packages/exponential-ui/docs/*.generated.json",
+        "packages/exponential-ui/catalog/*.schema.json",
+        "packages/exponential-ui/conformance/manifest.json",
+        "packages/exponential-ui/skills/**",
+        "apps/desktop/crates/eui-core/src/generated/**",
+        "packages/exponential-ui/fixtures/catalog-components.json",
+        "packages/exponential-ui/fixtures/catalog-macros.json",
+        "packages/exponential-ui/fixtures/catalog-basic-map.json",
+        "packages/exponential-ui/fixtures/catalog-extension.json",
+        "packages/exponential-ui/fixtures/kitchen-sink.expanded.json",
+        "packages/exponential-ui/fixtures/prompt-budget.json",
+        "packages/exponential-ui/fixtures/bind-time.json",
+        "packages/exponential-ui/fixtures/style-conditions.json",
+        "packages/exponential-ui/fixtures/code-tokens.json",
+        "packages/exponential-ui/fixtures/text-shimmer.json",
+        "packages/exponential-ui/fixtures/voice-wave.json",
+        "packages/exponential-ui/fixtures/qr-code.json",
+        "packages/exponential-ui/fixtures/zoom.json",
+        "packages/exponential-ui/fixtures/specimens.json"
+      ],
+      "strategy": "regenerate",
+      "command": "bun run --filter @exponential_app/eui generate && bun run --filter @exponential_app/eui generate:skills"
+    },
+    {
       "name": "lockfiles",
       "paths": [
         "bun.lock",

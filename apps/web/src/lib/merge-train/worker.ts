@@ -432,7 +432,10 @@ async function pollRun(repo: RepoRow, run: RunRow, forge: Forge, now: Date): Pro
   for (const c of decision.conflicts) {
     for (const id of c.unit) {
       conflicts[String(prs.get(id)?.number ?? id)] = c.files
-      await stepPullRequest(id, { type: `train_conflict` }, { base: run.base, now, files: c.files })
+      // #EXP-1711: only an unlanded sibling of this batch is in the way:
+      // back to the queue, no bounce, no post; it composes after it lands.
+      if (c.against === `batch`) await requeue([id], run.base, now)
+      else await stepPullRequest(id, { type: `train_conflict` }, { base: run.base, now, files: c.files })
     }
   }
   const failing = decision.failing.length > 0 ? failingAt(checks, required) : []
