@@ -1,6 +1,6 @@
 //! #EDE-10 / #EDE-11 / #EDE-12 / #EDE-42: eDE's factory shell documents
 //! (apps/ede/ui) under the gpui painter, the way exponential-shell draws them on
-//! exponential-compositor: the IDE look (the ground, the sidebar and its rail,
+//! exponential-compositor: the IDE look (the ground, the sidebar as the icon rail,
 //! Mint's taskbar, the start menu, the chat) and the overlays (the shots
 //! `ede-*` are the compositor's own captures). The `surface` header (where
 //! the shell puts a document, which host functions it may call) is not part
@@ -16,7 +16,6 @@ pub(crate) const ID: &str = "ede-panel";
 pub(crate) const OWNER: &str = "EDE-42";
 
 const GROUND: &str = include_str!("../../../../../../ede/ui/ground.json");
-const SIDEBAR: &str = include_str!("../../../../../../ede/ui/sidebar.json");
 const TASKBAR: &str = include_str!("../../../../../../ede/ui/taskbar.json");
 const START_MENU: &str = include_str!("../../../../../../ede/ui/start-menu.json");
 const CHAT: &str = include_str!("../../../../../../ede/ui/chat.json");
@@ -41,7 +40,7 @@ fn document(source: &str) -> (Value, Value) {
 }
 
 /// The shell model as the documents read it (`/shell`), the sample the goldens use.
-fn sample_shell(rail: bool) -> Value {
+fn sample_shell() -> Value {
     let apps = json!([
         {"id": "org.gnome.Calculator", "name": "Calculator", "comment": "Perform arithmetic, scientific or financial calculations", "icon": "", "category": "accessories"},
         {"id": "at.exponential", "name": "Exponential", "comment": "Your team, agents and boards", "icon": "", "category": "exponential"},
@@ -50,10 +49,15 @@ fn sample_shell(rail: bool) -> Value {
         {"id": "terminal", "name": "Terminal", "comment": "Use the command line", "icon": "", "category": "administration"}
     ]);
     json!({
-        "rail": rail,
+        // #EDE-65: the sidebar is the icon rail for good, listing the chats.
+        "rail": true,
         "switcher": {"current": {"kind": "local", "id": "local", "name": "Local"}, "entries": [{"kind": "local", "id": "local", "name": "Local", "current": true}]},
-        "sidebar": {"pinnedOpen": true, "workspacesOpen": true, "sessionsOpen": true, "pinned": [{"app": "firefox", "name": "Firefox", "icon": "", "focused": false}, {"app": "nemo", "name": "Files", "icon": "", "focused": false}], "workspaces": [{"index": 0, "label": "Workspace 1", "active": true, "count": 3, "countText": "3"}, {"index": 1, "label": "Workspace 2", "active": false, "count": 1, "countText": "1"}]},
-        "sessions": [],
+        "chats": [
+            {"id": "c1", "title": "Plan the printer setup", "glyph": "ide:badge:dot:amber|agent:claude"},
+            {"id": "c2", "title": "Back up the photos", "glyph": "ide:badge:dot:green|agent:codex"},
+            {"id": "c3", "title": "Fix the Wi-Fi drop-outs", "glyph": "ide:badge:dot:primary|agent:claude"},
+            {"id": "c4", "title": "Sort the downloads folder", "glyph": "agent:claude"}
+        ],
         "taskbar": {"pinned": ["firefox", "nemo"], "hover": null, "previews": null, "menu": null, "buttons": [
             {"app": "firefox", "name": "Firefox", "icon": "", "pinned": true, "windows": ["w1", "w4"], "focused": false, "minimized": false, "running": true},
             {"app": "nemo", "name": "Files", "icon": "", "pinned": true, "windows": ["w3"], "focused": false, "minimized": false, "running": true},
@@ -82,11 +86,16 @@ fn applet_services() -> Value {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let (ground, _) = document(GROUND);
-    let (sidebar, _) = document(SIDEBAR);
+    // #EDE-65: the rail as eDE draws it (on its own ground), without the IDE's header and corners.
+    let sidebar = {
+        let mut doc = uicore_gpui::inline::popup(uicore_docs::doc("sidebar").expect("the factory sidebar"));
+        uicore_gpui::inline::without(&mut doc, uicore_gpui::inline::EDE_SIDEBAR_PRUNED);
+        uicore_gpui::inline::root_json(&doc).expect("the sidebar is a nested document")
+    };
     let (taskbar, mut taskbar_data) = document(TASKBAR);
     if let Some(data) = taskbar_data.as_object_mut() {
         data.insert("time".into(), json!("12:00"));
-        data.insert("shell".into(), sample_shell(false));
+        data.insert("shell".into(), sample_shell());
         data.insert("tray".into(), json!([{"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}]));
         data.insert("notifications".into(), json!({"count": 2}));
         data.insert("applets".into(), json!({"network": {"icon": "ede-wifi"}, "sound": {"icon": "media-volume-up"}, "bluetooth": {"show": true}, "battery": {"show": true, "icon": "ede-battery"}}));
@@ -148,7 +157,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             "windows": {"edge_tiling": true, "snap_threshold": 12, "edge_tiling_px": 4, "corner_px": 120, "panel_margin": 10, "titleBar": "Maximize", "altTab": "Most recent first"},
             "mouse": {"speedText": "Default", "naturalText": "Off", "tapText": "Off", "scrollText": "Two fingers"}
         }));
-        d.insert("shell".into(), json!({"switcher": {"current": {"kind": "local", "id": "local", "name": "Local"}, "entries": [{"kind": "local", "id": "local", "name": "Local", "current": true}]}, "sidebar": {"workspaces": [{"index": 0, "label": "Workspace 1", "active": true, "countText": "4"}, {"index": 1, "label": "Workspace 2", "active": false, "countText": ""}]}}));
+        d.insert("shell".into(), json!({"switcher": {"current": {"kind": "local", "id": "local", "name": "Local"}, "entries": [{"kind": "local", "id": "local", "name": "Local", "current": true}]}, "workspaces": {"rows": [{"index": 0, "label": "Workspace 1", "active": true, "countText": "4"}, {"index": 1, "label": "Workspace 2", "active": false, "countText": ""}]}}));
         d.insert("notifications".into(), json!({"count": 2}));
         d.insert("date".into(), json!("2026-11-06"));
     }
@@ -167,15 +176,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     ]}});
     v_flex()
         .gap_3()
-        .child(div().w(px(640.0)).h(px(360.0)).child(styleguide_surface_in("sg-ede-ground", ground, None, Some(json!({"shell": sample_shell(false)})), window, cx)))
-        .child(
-            gpui_component::h_flex()
-                .gap_3()
-                .child(div().w(px(272.0)).h(px(560.0)).child(styleguide_surface_in("sg-ede-sidebar", sidebar.clone(), None, Some(json!({"shell": sample_shell(false)})), window, cx)))
-                .child(div().w(px(56.0)).h(px(560.0)).child(styleguide_surface_in("sg-ede-rail", sidebar, None, Some(json!({"shell": sample_shell(true)})), window, cx))),
-        )
+        .child(div().w(px(640.0)).h(px(360.0)).child(styleguide_surface_in("sg-ede-ground", ground, None, Some(json!({"shell": sample_shell()})), window, cx)))
+        .child(div().w(px(56.0)).h(px(560.0)).child(styleguide_surface_in("sg-ede-rail", sidebar, None, Some(json!({"shell": sample_shell()})), window, cx)))
         .child(div().w(px(1008.0)).child(styleguide_surface_in("sg-ede-taskbar", taskbar, None, Some(taskbar_data), window, cx)))
-        .child(div().w(px(760.0)).child(styleguide_surface_in("sg-ede-start-menu", start_menu, None, Some(json!({"user": {"name": "Danny", "host": "ubuntu-wayland"}, "shell": sample_shell(false)})), window, cx)))
+        .child(div().w(px(760.0)).child(styleguide_surface_in("sg-ede-start-menu", start_menu, None, Some(json!({"user": {"name": "Danny", "host": "ubuntu-wayland"}, "shell": sample_shell()})), window, cx)))
         .child(div().w(px(720.0)).child(styleguide_surface_in("sg-ede-chat", chat, None, Some(json!({"chat": {"draft": ""}})), window, cx)))
         .child(div().w(px(1040.0)).child(styleguide_surface_in("sg-ede-expo", expo, None, Some(expo_data), window, cx)))
         .child(div().w(px(1040.0)).child(styleguide_surface_in("sg-ede-scale", scale, None, Some(scale_data), window, cx)))

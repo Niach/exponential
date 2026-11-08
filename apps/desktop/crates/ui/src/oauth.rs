@@ -182,6 +182,14 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             open_team_deep_link(team_id, cx);
             continue;
         }
+        if let Some(session_id) = parse_session_deep_link(&url) {
+            open_session_deep_link(session_id, cx);
+            continue;
+        }
+        if let Some(team_id) = parse_new_issue_deep_link(&url) {
+            open_new_issue_deep_link(team_id, cx);
+            continue;
+        }
         log::info!("[ui] open-urls: unhandled URL {url}");
     }
 }
@@ -206,6 +214,62 @@ pub(crate) fn parse_team_deep_link(url: &str) -> Option<String> {
     let rest = url.strip_prefix(prefix.as_str())?;
     let id = rest.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
     (!id.is_empty()).then(|| id.to_string())
+}
+
+/// #EDE-65 `exponential://session/<id>` → `Some(id)`: a chat of eDE's rail.
+pub(crate) fn parse_session_deep_link(url: &str) -> Option<String> {
+    let prefix = format!("{}://session/", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?;
+    let id = rest.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// #EDE-65 `exponential://new-issue[/<team id>]` → `Some(team)`: eDE's
+/// new-issue button (`None` = the window's own team).
+pub(crate) fn parse_new_issue_deep_link(url: &str) -> Option<Option<String>> {
+    let prefix = format!("{}://new-issue", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?;
+    if !(rest.is_empty() || rest.starts_with(['/', '?', '#'])) {
+        return None;
+    }
+    let team = rest.trim_start_matches('/').split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
+    Some((!team.is_empty()).then(|| team.to_string()))
+}
+
+/// The session's chat on its team; a session this app has not synced is
+/// ignored like an unknown issue link.
+fn open_session_deep_link(session_id: String, cx: &mut App) {
+    let team = Store::global(cx).collections().sessions.read(cx).get(&session_id).map(|s| s.team_id.clone());
+    let Some(team) = team else {
+        log::info!("[ui] open-urls: session deep link {session_id} matches no synced session — ignored");
+        return;
+    };
+    if let Some(window) = crate::navigation::active_or_primary_window(cx) {
+        let _ = window.update(cx, |_, window, cx| {
+            if let Some(team) = team {
+                crate::navigation::switch_team(window, cx, team);
+            }
+            crate::navigation::open_session_link(&session_id, window, cx);
+        });
+    }
+}
+
+/// A new issue on the team's board (the window's active one), as the
+/// sidebar's new button opens it.
+fn open_new_issue_deep_link(team_id: Option<String>, cx: &mut App) {
+    let team_id = team_id.filter(|id| Store::global(cx).collections().teams.read(cx).get(id).is_some());
+    if let Some(window) = crate::navigation::active_or_primary_window(cx) {
+        let _ = window.update(cx, |_, window, cx| {
+            if let Some(team) = team_id {
+                crate::navigation::switch_team(window, cx, team);
+            }
+            let nav = crate::navigation::nav_for_window(window, cx);
+            match crate::navigation::active_board_id(&nav, cx) {
+                Some(board) => crate::issue_draft_screen::open_new_from_rail(window, cx, board),
+                None => log::info!("[ui] open-urls: new-issue deep link with no board — ignored"),
+            }
+        });
+    }
 }
 
 /// The window switches to the team (a resident app without a window opens
@@ -459,6 +523,24 @@ mod tests {
         assert_eq!(parse_team_deep_link("exponential://issue/EXP-1"), None);
         assert!(api::login::parse_oauth_callback(url).is_none());
         assert_eq!(parse_issue_deep_link(url), None);
+    }
+
+    /// #EDE-65: eDE's rail opens a chat with `exponential://session/<id>`
+    /// and its new-issue button sends `exponential://new-issue[/<team>]`.
+    #[test]
+    fn the_rails_hand_off_links_parse() {
+        assert_eq!(parse_session_deep_link("exponential://session/s1").as_deref(), Some("s1"));
+        assert_eq!(parse_session_deep_link("exponential://session/s1/?x=1").as_deref(), Some("s1"));
+        assert_eq!(parse_session_deep_link("exponential://session/"), None);
+        assert_eq!(parse_new_issue_deep_link("exponential://new-issue"), Some(None));
+        assert_eq!(parse_new_issue_deep_link("exponential://new-issue/t1"), Some(Some("t1".into())));
+        assert_eq!(parse_new_issue_deep_link("exponential://new-issues"), None);
+        assert_eq!(parse_new_issue_deep_link("exponential://team/t1"), None);
+        for url in ["exponential://session/s1", "exponential://new-issue/t1"] {
+            assert!(api::login::parse_oauth_callback(url).is_none(), "{url}");
+            assert_eq!(parse_team_deep_link(url), None);
+            assert_eq!(parse_issue_deep_link(url), None);
+        }
     }
 
     #[test]

@@ -76,3 +76,22 @@ fn every_selector_case_replays() {
     }
     assert!(total >= 40, "{total} selector cases");
 }
+
+/// #EDE-65: the rail's chats.
+#[test]
+fn every_chats_case_replays() {
+    let f = fixture();
+    let cases = f["chats"].as_array().expect("chats cases");
+    assert!(cases.len() >= 8, "{} chats cases", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap_or("?");
+        let chats: Vec<chats::ChatInput> = serde_json::from_value(case["chats"].clone()).unwrap_or_else(|e| panic!("{name}: chats: {e}"));
+        assert_eq!(json!(chats::chat_rows(&chats)), case["expected"], "{name}");
+    }
+}
+
+#[test]
+fn the_state_has_no_rail_and_no_folded_sections() {
+    let f = fixture();
+    assert!(f["initial"].get("rail").is_none() && f["initial"].get("sidebar").is_none());
+}

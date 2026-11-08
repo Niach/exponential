@@ -35,11 +35,7 @@ export interface ShellWindow {
   minimized: boolean
 }
 
-export type SidebarSection = `pinned` | `workspaces` | `sessions`
-
 export interface ShellState {
-  rail: boolean
-  sidebar: { pinnedOpen: boolean; workspacesOpen: boolean; sessionsOpen: boolean }
   switcher: { current: SwitcherEntry; entries: SwitcherEntry[] }
   windows: ShellWindow[]
   mru: string[]
@@ -51,8 +47,6 @@ export interface ShellState {
 }
 
 export type ShellEvent =
-  | { kind: `rail.toggle` }
-  | { kind: `sidebar.toggle`; section: SidebarSection }
   | { kind: `switcher.pick`; entryKind: SwitcherKind; id: string }
   | { kind: `switcher.set`; entries: SwitcherEntry[] }
   | { kind: `window.opened`; id: string; app: string; title: string; workspace: number }
@@ -115,14 +109,6 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
   const s = clone(given)
   const e = event as Record<string, unknown> & { kind: string }
   switch (e.kind) {
-    case `rail.toggle`:
-      s.rail = !s.rail
-      break
-    case `sidebar.toggle`: {
-      const key = `${e.section as string}Open` as keyof ShellState[`sidebar`]
-      if (key in s.sidebar) s.sidebar[key] = !s.sidebar[key]
-      break
-    }
     case `switcher.pick`: {
       const hit = s.switcher.entries.find((x) => x.kind === e.entryKind && x.id === e.id)
       if (hit) s.switcher.current = { ...hit }
@@ -460,4 +446,47 @@ export function startMenuCategories(apps: StartMenuApp[], favourites: string[] =
     if (g.id === `all` || g.id === `favourites` || count > 0) out.push({ id: g.id, label: g.label, count })
   }
   return out
+}
+
+/** #EDE-65: one chat the host knows (a root session of the current team or Local desktop). */
+export interface ChatInput {
+  id: string
+  title: string
+  agent?: string | null
+  needsYou: boolean
+  busy: boolean
+  unread: boolean
+  /** The last activity, ISO 8601. */
+  at: string
+}
+
+export type ChatDot = `amber` | `green` | `primary`
+
+export interface ChatRow {
+  id: string
+  title: string
+  icon: string
+  dot: ChatDot | null
+}
+
+/** The rail keeps this many chats. */
+export const CHATS_MAX = 20
+
+const chatIcon = (agent: string | null | undefined): string => {
+  const id = (agent ?? ``).trim()
+  if (id === `` || id === `claude`) return `agent:claude`
+  return id === `codex` ? `agent:codex` : `settings-agents`
+}
+
+/** #EDE-65: the rail's chats: the most recent first (ties by id), at most CHATS_MAX, the IDE's dots. */
+export function chatRows(chats: ChatInput[]): ChatRow[] {
+  return [...chats]
+    .sort((a, b) => (a.at === b.at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.at < b.at ? 1 : -1))
+    .slice(0, CHATS_MAX)
+    .map((c) => ({
+      id: c.id,
+      title: c.title.trim() || `Untitled`,
+      icon: chatIcon(c.agent),
+      dot: c.needsYou ? `amber` : c.busy ? `green` : c.unread ? `primary` : null,
+    }))
 }

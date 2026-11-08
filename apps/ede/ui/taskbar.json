@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the bottom edge, to the right of the sidebar (the shell opens the sidebar first, so its exclusive zone takes the left edge). Left: one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, the bell (notification-center.json) and the clock.",
+  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu, start-menu.json anchored here), the chat button (chat.json) and the new-issue button right of it (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, the bell (notification-center.json) and the clock.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -17,7 +17,10 @@
       "ede_previews",
       "ede_focus",
       "ede_close",
-      "ede_tray"
+      "ede_tray",
+      "ede_start_menu",
+      "ede_chat",
+      "ede_launch"
     ]
   },
   "root": {
@@ -35,306 +38,178 @@
     },
     "children": [
       {
-        "id": "buttons",
+        "id": "left",
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "xs",
+          "gap": "sm",
           "align": "center"
-        },
-        "template": {
-          "component": "group",
-          "path": "/shell/taskbar/buttons",
-          "key": "app"
         },
         "children": [
           {
-            "id": "group",
-            "component": "Menu",
+            "id": "corner",
+            "component": "Stack",
             "props": {
-              "openOn": "contextmenu",
-              "side": "top",
-              "align": "start",
-              "items": [
-                {
-                  "label": "Pin to the taskbar",
-                  "value": "pin",
-                  "icon": "ui-pin"
-                },
-                {
-                  "label": "Unpin from the taskbar",
-                  "value": "unpin",
-                  "icon": "ui-unpin"
-                },
-                {
-                  "kind": "separator"
-                },
-                {
-                  "label": "Close",
-                  "value": "close",
-                  "icon": "ui-close"
-                }
-              ]
+              "direction": "horizontal",
+              "gap": "xs",
+              "align": "center"
             },
-            "on": {
-              "select": {
-                "functionCall": {
-                  "@call": "ede_taskbar_menu",
-                  "args": {
-                    "app": {
-                      "@path": "app"
-                    },
-                    "value": {
-                      "@path": "value"
+            "children": [
+              {
+                "id": "start",
+                "component": "Button",
+                "props": {
+                  "icon": "brand-exponential",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Start"
+                },
+                "style": {
+                  "width": 40,
+                  "height": 40
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_start_menu",
+                      "args": {
+                        "toggle": true
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "chat",
+                "component": "Button",
+                "props": {
+                  "icon": "action-chat",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Chat"
+                },
+                "style": {
+                  "width": 40,
+                  "height": 40
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_chat"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "new",
+                "component": "Button",
+                "props": {
+                  "icon": "nav-create-issue",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "New issue"
+                },
+                "style": {
+                  "width": 40,
+                  "height": 40
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_launch",
+                      "args": {
+                        "new": "issue"
+                      }
                     }
                   }
                 }
               }
+            ]
+          },
+          {
+            "id": "buttons",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "xs",
+              "align": "center"
+            },
+            "template": {
+              "component": "group",
+              "path": "/shell/taskbar/buttons",
+              "key": "app"
             },
             "children": [
               {
-                "id": "previews",
-                "component": "Popover",
+                "id": "group",
+                "component": "Menu",
                 "props": {
-                  "openOn": "hover",
+                  "openOn": "contextmenu",
                   "side": "top",
-                  "align": "center"
+                  "align": "start",
+                  "items": [
+                    {
+                      "label": "Pin to the taskbar",
+                      "value": "pin",
+                      "icon": "ui-pin"
+                    },
+                    {
+                      "label": "Unpin from the taskbar",
+                      "value": "unpin",
+                      "icon": "ui-unpin"
+                    },
+                    {
+                      "kind": "separator"
+                    },
+                    {
+                      "label": "Close",
+                      "value": "close",
+                      "icon": "ui-close"
+                    }
+                  ]
                 },
                 "on": {
-                  "change": {
+                  "select": {
                     "functionCall": {
-                      "@call": "ede_previews",
+                      "@call": "ede_taskbar_menu",
                       "args": {
                         "app": {
                           "@path": "app"
                         },
-                        "open": {
-                          "@path": "open"
+                        "value": {
+                          "@path": "value"
                         }
                       }
                     }
                   }
                 },
-                "slots": {
-                  "trigger": {
-                    "id": "button",
-                    "component": "Box",
+                "children": [
+                  {
+                    "id": "previews",
+                    "component": "Popover",
                     "props": {
-                      "pressable": true
-                    },
-                    "style": {
-                      "position": "relative",
-                      "display": "flex",
-                      "flexDirection": "column",
-                      "alignItems": "center",
-                      "justifyContent": "center",
-                      "width": 40,
-                      "height": 40,
-                      "borderRadius": "$radius.md"
+                      "openOn": "hover",
+                      "side": "top",
+                      "align": "center"
                     },
                     "on": {
-                      "press": {
+                      "change": {
                         "functionCall": {
-                          "@call": "ede_taskbar",
+                          "@call": "ede_previews",
                           "args": {
                             "app": {
                               "@path": "app"
+                            },
+                            "open": {
+                              "@path": "open"
                             }
                           }
                         }
                       }
                     },
-                    "children": [
-                      {
-                        "id": "focus_bg",
-                        "component": "Box",
-                        "style": {
-                          "position": "absolute",
-                          "inset": 0,
-                          "borderRadius": "$radius.md",
-                          "backgroundColor": "$color.accent"
-                        },
-                        "visible": {
-                          "@call": "cond",
-                          "args": {
-                            "if": {
-                              "@path": "focused"
-                            },
-                            "then": true,
-                            "else": false
-                          }
-                        }
-                      },
-                      {
-                        "id": "button_icon",
-                        "component": "Image",
-                        "props": {
-                          "src": {
-                            "@path": "icon"
-                          },
-                          "alt": {
-                            "@path": "name"
-                          },
-                          "width": 24,
-                          "height": 24,
-                          "fit": "contain",
-                          "fallback": "nav-apps"
-                        },
-                        "visible": {
-                          "@call": "not",
-                          "args": {
-                            "value": {
-                              "@call": "cond",
-                              "args": {
-                                "if": {
-                                  "@path": "minimized"
-                                },
-                                "then": true,
-                                "else": false
-                              }
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "id": "button_icon_dim",
-                        "component": "Image",
-                        "props": {
-                          "src": {
-                            "@path": "icon"
-                          },
-                          "alt": {
-                            "@path": "name"
-                          },
-                          "width": 24,
-                          "height": 24,
-                          "fit": "contain",
-                          "fallback": "nav-apps"
-                        },
-                        "style": {
-                          "opacity": 0.5
-                        },
-                        "visible": {
-                          "@call": "cond",
-                          "args": {
-                            "if": {
-                              "@path": "minimized"
-                            },
-                            "then": true,
-                            "else": false
-                          }
-                        }
-                      },
-                      {
-                        "id": "running_focused",
-                        "component": "Box",
-                        "style": {
-                          "height": 2,
-                          "width": 20,
-                          "marginTop": 3,
-                          "borderRadius": "$radius.full",
-                          "backgroundColor": "$color.primary"
-                        },
-                        "visible": {
-                          "@call": "cond",
-                          "args": {
-                            "if": {
-                              "@path": "focused"
-                            },
-                            "then": true,
-                            "else": false
-                          }
-                        }
-                      },
-                      {
-                        "id": "running",
-                        "component": "Box",
-                        "style": {
-                          "height": 2,
-                          "width": 8,
-                          "marginTop": 3,
-                          "borderRadius": "$radius.full",
-                          "backgroundColor": "$color.mutedForeground"
-                        },
-                        "visible": {
-                          "@call": "and",
-                          "args": {
-                            "values": [
-                              {
-                                "@call": "cond",
-                                "args": {
-                                  "if": {
-                                    "@path": "running"
-                                  },
-                                  "then": true,
-                                  "else": false
-                                }
-                              },
-                              {
-                                "@call": "not",
-                                "args": {
-                                  "value": {
-                                    "@call": "cond",
-                                    "args": {
-                                      "if": {
-                                        "@path": "focused"
-                                      },
-                                      "then": true,
-                                      "else": false
-                                    }
-                                  }
-                                }
-                              }
-                            ]
-                          }
-                        }
-                      },
-                      {
-                        "id": "not_running",
-                        "component": "Box",
-                        "style": {
-                          "height": 2,
-                          "marginTop": 3
-                        },
-                        "visible": {
-                          "@call": "not",
-                          "args": {
-                            "value": {
-                              "@call": "cond",
-                              "args": {
-                                "if": {
-                                  "@path": "running"
-                                },
-                                "then": true,
-                                "else": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    ]
-                  }
-                },
-                "children": [
-                  {
-                    "id": "previews_box",
-                    "component": "Stack",
-                    "props": {
-                      "direction": "horizontal",
-                      "gap": "sm",
-                      "align": "start"
-                    },
-                    "style": {
-                      "padding": "$spacing.sm"
-                    },
-                    "template": {
-                      "component": "preview",
-                      "path": "/previews/windows",
-                      "key": "id"
-                    },
-                    "children": [
-                      {
-                        "id": "preview",
+                    "slots": {
+                      "trigger": {
+                        "id": "button",
                         "component": "Box",
                         "props": {
                           "pressable": true
@@ -343,18 +218,19 @@
                           "position": "relative",
                           "display": "flex",
                           "flexDirection": "column",
-                          "gap": "$spacing.xs",
-                          "padding": "$spacing.xs",
-                          "width": 200,
+                          "alignItems": "center",
+                          "justifyContent": "center",
+                          "width": 40,
+                          "height": 40,
                           "borderRadius": "$radius.md"
                         },
                         "on": {
                           "press": {
                             "functionCall": {
-                              "@call": "ede_focus",
+                              "@call": "ede_taskbar",
                               "args": {
-                                "window": {
-                                  "@path": "id"
+                                "app": {
+                                  "@path": "app"
                                 }
                               }
                             }
@@ -362,7 +238,7 @@
                         },
                         "children": [
                           {
-                            "id": "preview_bg",
+                            "id": "focus_bg",
                             "component": "Box",
                             "style": {
                               "position": "absolute",
@@ -382,68 +258,286 @@
                             }
                           },
                           {
-                            "id": "preview_head",
-                            "component": "Stack",
+                            "id": "button_icon",
+                            "component": "Image",
                             "props": {
-                              "direction": "horizontal",
-                              "gap": "xs",
-                              "align": "center"
-                            },
-                            "children": [
-                              {
-                                "id": "preview_title",
-                                "component": "Text",
-                                "props": {
-                                  "text": {
-                                    "@path": "title"
-                                  },
-                                  "variant": "caption",
-                                  "lines": 1
-                                },
-                                "style": {
-                                  "flexGrow": 1,
-                                  "minWidth": 0
-                                }
+                              "src": {
+                                "@path": "icon"
                               },
-                              {
-                                "id": "preview_close",
-                                "component": "Button",
-                                "props": {
-                                  "icon": "ui-close",
-                                  "variant": "ghost",
-                                  "size": "icon",
-                                  "label": "Close"
+                              "alt": {
+                                "@path": "name"
+                              },
+                              "width": 24,
+                              "height": 24,
+                              "fit": "contain",
+                              "fallback": "nav-apps"
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "minimized"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "button_icon_dim",
+                            "component": "Image",
+                            "props": {
+                              "src": {
+                                "@path": "icon"
+                              },
+                              "alt": {
+                                "@path": "name"
+                              },
+                              "width": 24,
+                              "height": 24,
+                              "fit": "contain",
+                              "fallback": "nav-apps"
+                            },
+                            "style": {
+                              "opacity": 0.5
+                            },
+                            "visible": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "minimized"
                                 },
-                                "on": {
-                                  "press": {
-                                    "functionCall": {
-                                      "@call": "ede_close",
-                                      "args": {
-                                        "window": {
-                                          "@path": "id"
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          },
+                          {
+                            "id": "running_focused",
+                            "component": "Box",
+                            "style": {
+                              "height": 2,
+                              "width": 20,
+                              "marginTop": 3,
+                              "borderRadius": "$radius.full",
+                              "backgroundColor": "$color.primary"
+                            },
+                            "visible": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "focused"
+                                },
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          },
+                          {
+                            "id": "running",
+                            "component": "Box",
+                            "style": {
+                              "height": 2,
+                              "width": 8,
+                              "marginTop": 3,
+                              "borderRadius": "$radius.full",
+                              "backgroundColor": "$color.mutedForeground"
+                            },
+                            "visible": {
+                              "@call": "and",
+                              "args": {
+                                "values": [
+                                  {
+                                    "@call": "cond",
+                                    "args": {
+                                      "if": {
+                                        "@path": "running"
+                                      },
+                                      "then": true,
+                                      "else": false
+                                    }
+                                  },
+                                  {
+                                    "@call": "not",
+                                    "args": {
+                                      "value": {
+                                        "@call": "cond",
+                                        "args": {
+                                          "if": {
+                                            "@path": "focused"
+                                          },
+                                          "then": true,
+                                          "else": false
                                         }
                                       }
                                     }
                                   }
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "id": "not_running",
+                            "component": "Box",
+                            "style": {
+                              "height": 2,
+                              "marginTop": 3
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "running"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "children": [
+                      {
+                        "id": "previews_box",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "horizontal",
+                          "gap": "sm",
+                          "align": "start"
+                        },
+                        "style": {
+                          "padding": "$spacing.sm"
+                        },
+                        "template": {
+                          "component": "preview",
+                          "path": "/previews/windows",
+                          "key": "id"
+                        },
+                        "children": [
+                          {
+                            "id": "preview",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "style": {
+                              "position": "relative",
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "gap": "$spacing.xs",
+                              "padding": "$spacing.xs",
+                              "width": 200,
+                              "borderRadius": "$radius.md"
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "@call": "ede_focus",
+                                  "args": {
+                                    "window": {
+                                      "@path": "id"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "children": [
+                              {
+                                "id": "preview_bg",
+                                "component": "Box",
+                                "style": {
+                                  "position": "absolute",
+                                  "inset": 0,
+                                  "borderRadius": "$radius.md",
+                                  "backgroundColor": "$color.accent"
+                                },
+                                "visible": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "focused"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              },
+                              {
+                                "id": "preview_head",
+                                "component": "Stack",
+                                "props": {
+                                  "direction": "horizontal",
+                                  "gap": "xs",
+                                  "align": "center"
+                                },
+                                "children": [
+                                  {
+                                    "id": "preview_title",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": {
+                                        "@path": "title"
+                                      },
+                                      "variant": "caption",
+                                      "lines": 1
+                                    },
+                                    "style": {
+                                      "flexGrow": 1,
+                                      "minWidth": 0
+                                    }
+                                  },
+                                  {
+                                    "id": "preview_close",
+                                    "component": "Button",
+                                    "props": {
+                                      "icon": "ui-close",
+                                      "variant": "ghost",
+                                      "size": "icon",
+                                      "label": "Close"
+                                    },
+                                    "on": {
+                                      "press": {
+                                        "functionCall": {
+                                          "@call": "ede_close",
+                                          "args": {
+                                            "window": {
+                                              "@path": "id"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "preview_thumb",
+                                "component": "Image",
+                                "props": {
+                                  "src": {
+                                    "@path": "thumbnail"
+                                  },
+                                  "alt": {
+                                    "@path": "title"
+                                  },
+                                  "width": 184,
+                                  "height": 110,
+                                  "fit": "contain",
+                                  "fallback": "ede-window"
                                 }
                               }
                             ]
-                          },
-                          {
-                            "id": "preview_thumb",
-                            "component": "Image",
-                            "props": {
-                              "src": {
-                                "@path": "thumbnail"
-                              },
-                              "alt": {
-                                "@path": "title"
-                              },
-                              "width": 184,
-                              "height": 110,
-                              "fit": "contain",
-                              "fallback": "ede-window"
-                            }
                           }
                         ]
                       }

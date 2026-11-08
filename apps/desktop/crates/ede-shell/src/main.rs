@@ -4,7 +4,7 @@
 //! crash never takes the session down and the compositor never links gpui.
 //!
 //! Since #EDE-50 the shell is `compositor + uicore`: the pure shell model
-//! (`uicore-model`: rail, the taskbar's groups and pins, the start menu,
+//! (`uicore-model`: the taskbar's groups and pins, the start menu,
 //! Alt-Tab), what the documents bind (`uicore-data`: the [`Feed`], the
 //! desktop entries, the window list as reducer events) and the gpui host
 //! (`uicore-gpui`: [`Surfaces`], one layer-shell surface per document, popup
@@ -23,8 +23,8 @@
 //! supervisor knows an edit reached the screen. The data every document may
 //! bind: `/time` + `/date` + `/dateText` (local), `/windows` (the active workspace's
 //! windows over ede-protocol: id, title, app, focused, minimized), `/shell`
-//! (the model: rail, taskbar buttons, workspaces, the start menu's categories
-//! and apps, chat, Alt-Tab), `/apps` + `/query` (the launcher), `/switcher`
+//! (the model: taskbar buttons, workspaces, the start menu's categories
+//! and apps, chat, Alt-Tab; #EDE-65: `/shell/chats`, the rail's chats), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
 //! thumbnails), `/osd`, `/notifications`, `/tray`, `/traymenu`,
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
@@ -37,11 +37,11 @@
 //! {name}`, `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
 //! {page, key, value}` (#EDE-47: the pages `/pages` feeds), and the
-//! shell model's: `ede_rail` (toggle), `ede_pin {app}` / `ede_unpin {app}`,
+//! shell model's: `ede_pin {app}` / `ede_unpin {app}`,
 //! `ede_taskbar {app}` (Mint's click), `ede_taskbar_scroll {app, direction}`,
 //! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
-//! query?, category?}`, `ede_chat` (toggle), `ede_workspace {index}`,
-//! `ede_sidebar {section}` (fold a section); #EDE-56: `ede_switcher {action:
+//! query?, category?}`, `ede_chat` (toggle; #EDE-65: `{action: open, id}`
+//! opens a chat of the rail), `ede_workspace {index}`; #EDE-56: `ede_switcher {action:
 //! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
 //! accounts' teams, `/shell/switcher/sections`), `ede_connect {action:
 //! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
@@ -56,11 +56,16 @@
 //!   --popup NAME  open a popup document right away (the goldens; `all` = every one)
 //!   --open NAME   open an on-demand layer document right away (the goldens)
 //!   --exit-after  quit after this many milliseconds (the headless check)
-//! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, windows) instead of the
-//! machine's, so a golden never depends on what is installed;
-//! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail.
+//! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, windows, chats) instead
+//! of the machine's, so a golden never depends on what is installed. Since
+//! #EDE-65 the sidebar is the IDE's 56 px icon rail for good (no 272 px
+//! column, no toggle): the chats only, standing on the taskbar, which holds
+//! the start, chat and new-issue buttons; `ede_launch {new: issue}` and a
+//! team's chat hand off to the Exponential app (`exponential://new-issue`,
+//! `exponential://session/<id>`) until the chat moves into eDE.
 
 mod accounts;
+mod chats;
 mod engine;
 mod assets;
 mod connect;
@@ -185,8 +190,10 @@ struct Shell {
     surfaces: Surfaces,
     /// What every document binds.
     feed: Feed,
-    /// The shell model (#EDE-50): the taskbar, the start menu, the rail, Alt-Tab.
+    /// The shell model (#EDE-50): the taskbar, the start menu, Alt-Tab.
     model: ShellState,
+    /// #EDE-65: the rail's chats (the current team's or Local desktop's).
+    chats: Vec<uicore_model::chats::ChatInput>,
     ede: Option<ede_protocol::Client>,
     /// The installed applications, scanned at start (the launcher, the start menu).
     apps: Vec<apps::App>,
@@ -218,6 +225,8 @@ struct Shell {
     pending_pick: Option<String>,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
+    /// #EDE-65: the current Local desktop's store changes (its chats).
+    local_sessions: Option<flume::Receiver<elocal::LocalDelta>>,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
     /// The installed packages (the factory and the person's directories).
@@ -278,12 +287,27 @@ fn minimize(ede: &mut ede_protocol::Client, id: ede_protocol::WindowId) -> Resul
 }
 
 fn document(shell: &Shell, name: &str) -> Option<Document> {
-    shell.ui.lock().unwrap_or_else(|p| p.into_inner()).document(name).cloned()
+    let mut doc = shell.ui.lock().unwrap_or_else(|p| p.into_inner()).document(name).cloned()?;
+    drawn(&mut doc);
+    Some(doc)
+}
+
+/// A document as eDE draws it: the shared sidebar without the IDE's parts
+/// (#EDE-65).
+fn drawn(doc: &mut Document) {
+    if doc.name == "sidebar" {
+        uicore_gpui::inline::without(doc, uicore_gpui::inline::EDE_SIDEBAR_PRUNED);
+    }
 }
 
 impl HostPlugin for Host {
     fn icon(&self, name: &str) -> Option<gpui::SharedString> {
         assets::icon_path(name)
+    }
+
+    /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark, its dot).
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
+        uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path)
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
@@ -299,13 +323,6 @@ impl HostPlugin for Host {
                 }
             });
         }
-        // The sidebar's sections fold on their own change event (the
-        // component id names the section: pinned, workspaces, sessions).
-        if event.name == "sidebar" {
-            let section = event.component_id.trim_end_matches("-head").to_string();
-            let shell = self.shell.clone();
-            cx.defer(move |cx| dispatch(&shell, ShellEvent::SidebarToggle { section }, cx));
-        }
     }
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
@@ -318,7 +335,9 @@ impl HostPlugin for Host {
         let shell = self.shell.clone();
         match name {
             "ede_launch" => {
-                if let Some(command) = args.get("command").and_then(Value::as_str) {
+                if args.get("new").and_then(Value::as_str) == Some("issue") {
+                    new_issue(&self.shell.borrow());
+                } else if let Some(command) = args.get("command").and_then(Value::as_str) {
                     system::launch(command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
                     let engine_app = self.shell.borrow().engine.as_ref().is_some_and(|e| e.borrow().has(app));
@@ -490,7 +509,9 @@ impl HostPlugin for Host {
                 }
             }
             // The shell model (#EDE-50).
-            "ede_rail" => cx.defer(move |cx| rail_toggle(&shell, cx)),
+            // The IDE's rail toggle in the header it shares (#EXP-1725); eDE's
+            // sidebar is the rail for good (#EDE-65) and prunes that header.
+            "ede_rail" => {}
             "ede_pin" | "ede_unpin" => {
                 if let Some(app) = args.get("app").and_then(Value::as_str).map(String::from) {
                     let pin = name == "ede_pin";
@@ -657,6 +678,7 @@ impl HostPlugin for Host {
                 let args = args.clone();
                 cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
                     Some("send") => chat_send(&shell, args.get("text").and_then(Value::as_str).unwrap_or(""), cx),
+                    Some("open") => chat_open(&shell, args.get("id").and_then(Value::as_str).unwrap_or(""), cx),
                     _ => chat_toggle(&shell, cx),
                 });
             }
@@ -666,11 +688,6 @@ impl HostPlugin for Host {
                 }
                 if event.surface_id == "expo" {
                     cx.defer(move |cx| overlay_close(&shell, "expo", cx));
-                }
-            }
-            "ede_sidebar" => {
-                if let Some(section) = args.get("section").and_then(Value::as_str).map(String::from) {
-                    cx.defer(move |cx| dispatch(&shell, ShellEvent::SidebarToggle { section }, cx));
                 }
             }
             other => tracing::warn!(function = other, "unknown host function"),
@@ -842,7 +859,7 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
     let eng = engine::boot(apps, &stores, cx);
     eng.borrow_mut().window_max = {
         let s = shell.borrow();
-        engine::window_max(output_size(&s), s.model.rail)
+        engine::window_max(output_size(&s))
     };
     engine::open_widgets(&eng, cx);
     if let Some(team) = &stores.synced {
@@ -972,6 +989,7 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         shell.borrow_mut().local = None;
     }
     chatting_changed(shell, cx);
+    chats_refresh(shell, cx);
     // #VAPP-273: the apps follow the desktop (local records or the team's).
     engine_boot(shell, cx);
 }
@@ -1019,7 +1037,7 @@ fn category_icon(id: &str) -> &'static str {
 }
 
 /// What the documents need on top of the reducer's `/shell`: names and
-/// icons for apps, the sidebar's lists, the start menu's favourites.
+/// icons for apps, the rail's chats, the start menu's favourites.
 fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
     if let Some(buttons) = value["taskbar"]["buttons"].as_array_mut() {
         for b in buttons {
@@ -1028,20 +1046,13 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
             b["icon"] = json!(app_icon(shell, &app));
         }
     }
-    let pinned: Vec<Value> = shell
-        .model
-        .taskbar
-        .pinned
-        .iter()
-        .map(|app| json!({"app": app, "name": app_name(shell, app), "icon": app_icon(shell, app), "focused": shell.model.windows.iter().any(|w| &w.app == app && w.focused)}))
-        .collect();
-    value["sidebar"]["pinned"] = Value::Array(pinned);
+    value["chats"] = chats::chats_json(&shell.chats);
+    // Settings' Workspaces page lists them.
     let workspaces: Vec<Value> = uicore_model::workspace_badges(&shell.model)
         .into_iter()
         .map(|b| json!({"index": b.index, "label": format!("Workspace {}", b.index + 1), "active": b.active, "count": b.count, "countText": if b.count == 0 { String::new() } else { b.count.to_string() }}))
         .collect();
-    value["sidebar"]["workspaces"] = Value::Array(workspaces);
-    value["sessions"] = json!([]);
+    value["workspaces"]["rows"] = Value::Array(workspaces);
     // #EDE-65: Connect only without an account, Share as a team only on a Local desktop.
     value["switcher"]["connection"] = accounts::connection_json(&shell.model.switcher.current, &shell.workspaces.signed_in());
     if let Some(entries) = value["switcher"]["entries"].as_array_mut() {
@@ -1139,29 +1150,29 @@ fn output_size(shell: &Shell) -> (u32, u32) {
         .unwrap_or((1280, 720))
 }
 
-/// The sidebar's header for the model's `rail` (the width and exclusive
-/// zone of `shell-layout.json`), and a stretched axis (anchored to both
-/// of its edges) sized to the output, since the window takes the size it
-/// asks for; any other document's as written.
+/// A stretched axis (anchored to both of its edges) sized to the output,
+/// since the window takes the size it asks for; the sidebar the rail's
+/// width and exclusive zone (`shell-layout.json`), standing on the taskbar
+/// (#EDE-65); any other document's as written.
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
-    layer_header(doc, output_size(shell), shell.model.rail)
+    layer_header(doc, output_size(shell))
 }
 
 /// [`header_for`] on an output of `(out_w, out_h)` logical px.
-fn layer_header(doc: &Document, (out_w, out_h): (u32, u32), rail: bool) -> SurfaceHeader {
+fn layer_header(doc: &Document, (out_w, out_h): (u32, u32)) -> SurfaceHeader {
     let mut header = doc.surface.clone();
     if let SurfaceHeader::Layer { size, exclusive_zone, anchor, .. } = &mut header {
-        let sidebar = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
+        let layout = shell_layout();
         if anchor.contains(&ede_ui::surface::Edge::Left) && anchor.contains(&ede_ui::surface::Edge::Right) {
-            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { sidebar } else { 0 }).max(1));
+            size.width = Some(out_w.max(1));
         }
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
-            size.height = Some(out_h.max(1));
+            size.height = Some(out_h.saturating_sub(if doc.name == "sidebar" { layout.taskbar_height } else { 0 }).max(1));
         }
         if doc.name == "sidebar" {
-            size.width = Some(sidebar);
+            size.width = Some(layout.rail_width);
             if *exclusive_zone > 0 {
-                *exclusive_zone = sidebar as i32;
+                *exclusive_zone = layout.rail_width as i32;
             }
         }
     }
@@ -1183,16 +1194,16 @@ fn size_root(doc: &mut Document, header: &SurfaceHeader) {
     }
 }
 
-/// The order layer documents open in: the ground first, then the sidebar
-/// (its exclusive zone takes the left edge), then the taskbar (the rest of
-/// the bottom edge), then the others by name. smithay arranges layer
-/// surfaces in the order they were mapped.
+/// The order layer documents open in: the ground first, then the taskbar
+/// (its exclusive zone takes the whole bottom edge, #EDE-65), then the
+/// sidebar (the rail on the left edge above it), then the others by name.
+/// smithay arranges layer surfaces in the order they were mapped.
 fn layer_rank(doc: &Document) -> (u8, String) {
     let rank = match (&doc.surface, doc.name.as_str()) {
         (SurfaceHeader::Layer { layer: DocLayer::Background, .. }, _) => 0,
-        (_, "sidebar") => 1,
-        (_, "taskbar") => 2,
-        (_, "panel") => 2,
+        (_, "taskbar") => 1,
+        (_, "panel") => 1,
+        (_, "sidebar") => 2,
         _ => 3,
     };
     (rank, doc.name.clone())
@@ -1204,6 +1215,7 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
         (header_for(&s, doc), s.feed.clone())
     };
     let mut doc = doc.clone();
+    drawn(&mut doc);
     size_root(&mut doc, &header);
     doc.surface = header;
     shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
@@ -1300,18 +1312,8 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
     model_changed(shell, cx);
 }
 
-/// The sidebar as the rail or the full column: the sidebar and the
-/// taskbar take their new widths in place (#EDE-65: re-opening them
-/// dropped both bars for a frame).
-fn rail_toggle(shell: &SharedShell, cx: &mut App) {
-    dispatch(shell, ShellEvent::RailToggle, cx);
-    relayout(shell, cx);
-    let rail = shell.borrow().model.rail;
-    settings::persist_shell(json!({"rail": rail}));
-}
-
 /// Every open layer document at the size its header asks for now (the
-/// output changed, the rail): resized in place, never re-opened (#EDE-65:
+/// output changed): resized in place, never re-opened (#EDE-65:
 /// after a VM window resize the taskbar kept its old width, centred, its
 /// first button floating mid-bar, and the ground and sidebar kept theirs).
 fn relayout(shell: &SharedShell, cx: &mut App) {
@@ -1404,6 +1406,91 @@ fn chat_toggle(shell: &SharedShell, cx: &mut App) {
     }
 }
 
+fn demo() -> bool {
+    std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// #EDE-65: the rail's chats from the current entry's sessions: the team's
+/// synced store or the Local desktop's (whose changes it then watches).
+fn chats_refresh(shell: &SharedShell, cx: &mut App) {
+    if demo() {
+        return;
+    }
+    let current = shell.borrow().model.switcher.current.clone();
+    let chats = if current.kind == uicore_model::SwitcherKind::Local {
+        shell.borrow_mut().local_sessions = None;
+        local_desktop(shell)
+            .map(|d| {
+                shell.borrow_mut().local_sessions = Some(d.store.subscribe());
+                chats::chat_inputs(&chats::sessions(d.store.rows("sessions").unwrap_or_default()), d.executor.team_id())
+            })
+            .unwrap_or_default()
+    } else {
+        shell.borrow_mut().local_sessions = None;
+        let store = current.account.as_deref().and_then(|a| shell.borrow().workspaces.store(a));
+        let spec = sync::shapes::shape_by_name("sessions");
+        match (store, spec) {
+            (Some(store), Some(spec)) => chats::chat_inputs(&chats::sessions(store.read_all(spec).unwrap_or_default()), &current.id),
+            _ => Vec::new(),
+        }
+    };
+    if shell.borrow().chats != chats {
+        shell.borrow_mut().chats = chats;
+        model_changed(shell, cx);
+    }
+}
+
+/// #EDE-65: a chat of the rail: on a Local desktop eDE's chat on that
+/// session; on a team the Exponential app opens it (until the chat moves
+/// into eDE).
+fn chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
+    if id.is_empty() {
+        return;
+    }
+    if !on_local(shell) {
+        hand_off(&shell.borrow(), &accounts::session_deep_link(id));
+        return;
+    }
+    if !demo() && chat_local(shell) {
+        if let Some(chat) = shell.borrow_mut().chat_local.as_mut() {
+            chat.session_id = Some(id.to_string());
+        }
+    }
+    if shell.borrow().model.chat.open {
+        chatting_changed(shell, cx);
+    } else {
+        chat_toggle(shell, cx);
+    }
+}
+
+/// #EDE-65: the new-issue button: the Exponential app's new issue (on the
+/// current team), until issues come into eDE.
+fn new_issue(shell: &Shell) {
+    let current = &shell.model.switcher.current;
+    let team = (current.kind == uicore_model::SwitcherKind::Team).then_some(current.id.as_str());
+    hand_off(shell, &accounts::new_issue_deep_link(team));
+}
+
+/// A deep link to the Exponential app: the running one, else a new one
+/// started with it (its single-instance guard reads the link off argv).
+fn hand_off(shell: &Shell, url: &str) {
+    if demo() {
+        tracing::info!(url, "hand-off (demo: not sent)");
+        return;
+    }
+    if accounts::ide_send(url) {
+        tracing::info!(url, "handed to the Exponential app");
+        return;
+    }
+    match app_entry(shell, EXPONENTIAL_APP) {
+        Some(app) => system::launch(&format!("{} '{url}'", app.exec)),
+        None => tracing::warn!(url, "no Exponential app to hand off to"),
+    }
+}
+
+/// The Exponential app's desktop entry.
+const EXPONENTIAL_APP: &str = "at.exponential";
+
 /// Is the switcher on a Local desktop?
 fn on_local(shell: &SharedShell) -> bool {
     shell.borrow().model.switcher.current.kind == uicore_model::SwitcherKind::Local
@@ -1445,7 +1532,7 @@ fn chat_local(shell: &SharedShell) -> bool {
 
 /// `/chatting` into the views: the local conversation, or the app's Assistant.
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
-    if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
+    if demo() {
         // The goldens: the sample conversation on a Local desktop, the app's on a team.
         let feed = if on_local(shell) { local_runs::demo_feed() } else { remote_feed(&shell.borrow()) };
         shell.borrow_mut().feed.set("/chatting", feed);
@@ -1468,7 +1555,7 @@ fn remote_feed(shell: &Shell) -> Value {
 /// The composer's text to the desktop's agent (#EDE-58).
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if !chat_local(shell) {
-        launch_app(&shell.borrow(), "at.exponential");
+        launch_app(&shell.borrow(), EXPONENTIAL_APP);
         return;
     }
     let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
@@ -1984,7 +2071,8 @@ fn main() {
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
-        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        // #EDE-65: the IDE's colours: the sidebar on the ground, no Sidebar fill.
+        let theme = uicore_gpui::inline::theme(&eui_core::themes::builtin_theme("exponential").expect("the exponential theme"));
         let mut feed = Feed::new();
         feed.set("/time", json!(clock::time()));
         feed.set("/date", json!(clock::date()));
@@ -2028,15 +2116,11 @@ fn main() {
             feed.set("/services", json!({}));
             feed.set("/outputs", json!([]));
         }
-        // The model: the pins and the rail from the shell's own file (the demo: fixed pins).
+        // The model: the pins from the shell's own file (the demo: fixed pins).
         let mut model = ShellState::default();
         let saved = if demo { json!({"pinned": ["firefox", "nemo", "org.gnome.Calculator"]}) } else { settings::shell_json() };
         for app in saved.get("pinned").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
             model = reduce(&model, &ShellEvent::TaskbarPin { app: app.into() });
-        }
-        let rail = std::env::var_os("EDE_SHELL_RAIL").is_some_and(|v| !v.is_empty() && v != "0") || saved.get("rail").and_then(Value::as_bool).unwrap_or(false);
-        if rail {
-            model = reduce(&model, &ShellEvent::RailToggle);
         }
         // The switcher: the Local desktops and the accounts' teams, the
         // index's current desktop selected.
@@ -2072,6 +2156,7 @@ fn main() {
             surfaces,
             feed,
             model,
+            chats: if demo { chats::demo_chats() } else { Vec::new() },
             ede: ede_protocol::Client::connect_env().ok(),
             apps: installed,
             menu_apps,
@@ -2091,6 +2176,7 @@ fn main() {
             // #EDE-65: the team picked last, once its account's teams are listed.
             pending_pick: saved_team,
             chat_local: None,
+            local_sessions: None,
             engine: None,
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
@@ -2098,6 +2184,7 @@ fn main() {
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
+        chats_refresh(&shell, cx);
         history_refresh(&shell);
         overlays_refresh(&shell);
         model_changed(&shell, cx);
@@ -2190,10 +2277,13 @@ fn main() {
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
                 let mut records_changed = false;
+                let mut chats_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
                     if let sync::ShapeDelta::Applied { shape, account_id, .. } = &delta {
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
+                            // #EDE-65: the current team's chats.
+                            "sessions" => chats_changed |= s.borrow().model.switcher.current.account.as_ref() == Some(account_id),
                             // #VAPP-273: the connected team's apps and records.
                             "apps" | "app_records" => {
                                 if s.borrow().team_stores.as_ref().is_some_and(|t| &t.account_id == account_id) {
@@ -2242,6 +2332,10 @@ fn main() {
                 let chat_changed = s.borrow().chat_local.as_ref().and_then(|c| c.changes.as_ref()).map(|rx| rx.drain().count() > 0).unwrap_or(false);
                 if chat_changed {
                     cx.update(|cx| chatting_changed(&s, cx));
+                }
+                chats_changed |= s.borrow().local_sessions.as_ref().is_some_and(|rx| rx.drain().any(|d| d.table == "sessions"));
+                if chats_changed {
+                    cx.update(|cx| chats_refresh(&s, cx));
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if !expired.is_empty() {
@@ -2352,18 +2446,39 @@ mod layer_sizes {
     }
 
     /// #EDE-65: the stretched bars follow the output: a VM window resized
-    /// to 1920×1080 gives the taskbar the width right of the sidebar, the
-    /// ground and the sidebar the full height (eDE 0.2.6 kept the sizes of
-    /// the start, so the taskbar sat centred with its first button mid-bar).
+    /// to 1920×1080 gives the taskbar the whole bottom edge, the sidebar the
+    /// rail's 56 px standing on it, the ground the full output (eDE 0.2.6
+    /// kept the sizes of the start, so the taskbar sat centred with its
+    /// first button mid-bar). The rail is the sidebar for good: no 272.
     #[test]
     fn the_bars_take_the_outputs_size() {
         let (taskbar, sidebar, ground) = (factory("taskbar"), factory("sidebar"), factory("ground"));
-        for (out, rail) in [((1280, 720), false), ((1920, 1080), false), ((1920, 1080), true)] {
-            let side = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
-            assert_eq!(size(&layer_header(&taskbar, out, rail)), (Some(out.0 - side), Some(48), 48), "{out:?} rail {rail}");
-            assert_eq!(size(&layer_header(&sidebar, out, rail)), (Some(side), Some(out.1), side as i32), "{out:?} rail {rail}");
-            assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
+        for out in [(1280, 720), (1920, 1080)] {
+            assert_eq!(size(&layer_header(&taskbar, out)), (Some(out.0), Some(48), 48), "{out:?}");
+            assert_eq!(size(&layer_header(&sidebar, out)), (Some(56), Some(out.1 - 48), 56), "{out:?}");
+            assert_eq!(size(&layer_header(&ground, out)), (Some(out.0), Some(out.1), -1), "{out:?}");
         }
-        assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
+        assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
+    }
+
+    /// The taskbar opens before the sidebar: its exclusive zone takes the
+    /// whole bottom edge, the rail stands on it.
+    #[test]
+    fn the_taskbar_maps_before_the_rail() {
+        assert!(layer_rank(&factory("taskbar")) < layer_rank(&factory("sidebar")));
+    }
+
+    /// eDE draws the rail of the shared sidebar: the chats, none of the
+    /// IDE's header, nav or corners (#EDE-65).
+    #[test]
+    fn the_sidebar_is_the_chats_rail() {
+        let mut doc = factory("sidebar");
+        drawn(&mut doc);
+        let ede_ui::Body::Nested(tree) = &doc.body else { panic!("a nested sidebar") };
+        let text = serde_json::to_string(tree).unwrap();
+        for id in uicore_gpui::inline::EDE_SIDEBAR_PRUNED {
+            assert!(!text.contains(&format!("\"id\":\"{id}\"")), "{id} is drawn");
+        }
+        assert!(text.contains("\"id\":\"chat_row\""));
     }
 }

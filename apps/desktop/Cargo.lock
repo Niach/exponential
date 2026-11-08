@@ -12279,6 +12279,7 @@ dependencies = [
  "image",
  "rust-embed",
  "serde_json",
+ "theme",
  "tracing",
  "uicore-data",
  "uicore-docs",

@@ -27,7 +27,8 @@ pub struct Workspaces {
 /// The shapes the shell syncs per account: the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
 /// published packages) and their records, for a connected desktop.
-const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records"];
+/// #EDE-65: the sessions, the rail's chats.
+const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records", "sessions"];
 
 impl Workspaces {
     /// Opens the desktops index under `config_dir` and the shared accounts.
@@ -194,17 +195,41 @@ pub fn team_deep_link(team_id: &str) -> String {
     format!("{}://team/{team_id}", api::login::OAUTH_CALLBACK_SCHEME)
 }
 
-/// #EDE-65: the Exponential app follows the switcher: the team link goes to
-/// the running app's single-instance socket (`exp-desktop.sock`); nothing
-/// runs = nothing to tell (it opens on its own last team, which this sets).
-pub fn ide_follow_team(team_id: &str) {
+/// #EDE-65: the rail's chat on a team: the Exponential app opens the session.
+pub fn session_deep_link(session_id: &str) -> String {
+    format!("{}://session/{session_id}", api::login::OAUTH_CALLBACK_SCHEME)
+}
+
+/// #EDE-65: the new-issue button: the Exponential app's new issue, on the team when one is current.
+pub fn new_issue_deep_link(team_id: Option<&str>) -> String {
+    match team_id {
+        Some(team) => format!("{}://new-issue/{team}", api::login::OAUTH_CALLBACK_SCHEME),
+        None => format!("{}://new-issue", api::login::OAUTH_CALLBACK_SCHEME),
+    }
+}
+
+/// A deep link to the running Exponential app's single-instance socket
+/// (`exp-desktop.sock`); false when none runs.
+pub fn ide_send(url: &str) -> bool {
     let sock = api::default_data_dir().join("exp-desktop.sock");
-    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return };
-    if socket.connect(&sock).is_ok() {
-        match socket.send(team_deep_link(team_id).as_bytes()) {
-            Ok(_) => tracing::info!(team = team_id, "the Exponential app follows the team"),
-            Err(e) => tracing::warn!("exp-desktop.sock: {e}"),
+    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return false };
+    if socket.connect(&sock).is_err() {
+        return false;
+    }
+    match socket.send(url.as_bytes()) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("exp-desktop.sock: {e}");
+            false
         }
+    }
+}
+
+/// #EDE-65: the Exponential app follows the switcher: nothing runs =
+/// nothing to tell (it opens on its own last team, which this sets).
+pub fn ide_follow_team(team_id: &str) {
+    if ide_send(&team_deep_link(team_id)) {
+        tracing::info!(team = team_id, "the Exponential app follows the team");
     }
 }
 
@@ -252,5 +277,17 @@ mod tests {
     #[test]
     fn the_team_link_is_the_one_the_app_parses() {
         assert_eq!(team_deep_link("e891ab20"), "exponential://team/e891ab20");
+    }
+
+    #[test]
+    fn the_hand_off_links_are_the_ones_the_app_parses() {
+        assert_eq!(session_deep_link("s1"), "exponential://session/s1");
+        assert_eq!(new_issue_deep_link(Some("t1")), "exponential://new-issue/t1");
+        assert_eq!(new_issue_deep_link(None), "exponential://new-issue");
+    }
+
+    #[test]
+    fn the_chats_sync_with_the_teams() {
+        assert!(SHAPES.contains(&"sessions"));
     }
 }

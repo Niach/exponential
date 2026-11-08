@@ -11,8 +11,10 @@
 //! redraws a document after an edit. The host plugin (actions, host
 //! functions, icons) stays the application's: it is handed in per surface.
 //! [`inline`] mounts a document in place inside a host's own window instead
-//! (the IDE's regions, #EXP-1725).
+//! (the IDE's regions, #EXP-1725); [`glyphs`] paints the rail's glyphs both
+//! hosts share (#EDE-65).
 
+pub mod glyphs;
 pub mod inline;
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};

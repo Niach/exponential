@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod chats;
 pub mod ide;
 pub mod layout;
 
@@ -82,14 +83,6 @@ pub struct ShellWindow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Sidebar {
-    pub pinned_open: bool,
-    pub workspaces_open: bool,
-    pub sessions_open: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspaces {
     pub active: usize,
     pub count: usize,
@@ -125,8 +118,6 @@ pub struct AltTab {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellState {
-    pub rail: bool,
-    pub sidebar: Sidebar,
     pub switcher: Switcher,
     pub windows: Vec<ShellWindow>,
     pub mru: Vec<String>,
@@ -141,8 +132,6 @@ impl Default for ShellState {
     /// The fixture's `initial`: one local desktop, no windows, one workspace.
     fn default() -> Self {
         Self {
-            rail: false,
-            sidebar: Sidebar { pinned_open: true, workspaces_open: true, sessions_open: true },
             switcher: Switcher {
                 current: SwitcherEntry::local("local", "Local"),
                 entries: vec![SwitcherEntry::local("local", "Local")],
@@ -170,11 +159,6 @@ pub enum ScrollDirection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum ShellEvent {
-    #[serde(rename = "rail.toggle")]
-    RailToggle,
-    /// `section` = `pinned`, `workspaces` or `sessions`; anything else changes nothing.
-    #[serde(rename = "sidebar.toggle")]
-    SidebarToggle { section: String },
     #[serde(rename = "switcher.pick")]
     SwitcherPick {
         #[serde(rename = "entryKind")]
@@ -271,18 +255,11 @@ fn open_start_menu(s: &mut ShellState) {
     s.taskbar.menu = None;
 }
 
-/// `reduce(state, event) -> state`: pure; an unknown id, section or
+/// `reduce(state, event) -> state`: pure; an unknown id or
 /// workspace leaves the state as it was.
 pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
     let mut s = given.clone();
     match event {
-        ShellEvent::RailToggle => s.rail = !s.rail,
-        ShellEvent::SidebarToggle { section } => match section.as_str() {
-            "pinned" => s.sidebar.pinned_open = !s.sidebar.pinned_open,
-            "workspaces" => s.sidebar.workspaces_open = !s.sidebar.workspaces_open,
-            "sessions" => s.sidebar.sessions_open = !s.sidebar.sessions_open,
-            _ => {}
-        },
         ShellEvent::SwitcherPick { entry_kind, id } => {
             if let Some(hit) = s.switcher.entries.iter().find(|x| &x.kind == entry_kind && &x.id == id) {
                 s.switcher.current = hit.clone();
