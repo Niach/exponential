@@ -71,7 +71,7 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
   try {
     const closedCutoff = new Date(now.getTime() - CLOSED_PR_RECHECK_WINDOW_MS)
     // EXP-1291: every tracked PR is a `pull_requests` row (an issue's, a
-    // thread's, an adopted one): live ones, plus recently closed ones (a
+    // chat's, an adopted one): live ones, plus recently closed ones (a
     // reopen, and the merge that may follow it, must be seen at all).
     const rows = await db
       .select({

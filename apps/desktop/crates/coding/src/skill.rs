@@ -1,5 +1,5 @@
 //! EXP-763 — the run playbook: how Exponential works, loaded into EVERY
-//! coding session's system prompt at start (thread sessions, team agents,
+//! coding session's system prompt at start (chats, team agents,
 //! children, every resume, the agent shell; claude and codex).
 //!
 //! Why a system-prompt append and not a bigger launch prompt or a skill file:
@@ -13,7 +13,7 @@
 //! app-server). Both take TEXT, so nothing
 //! new is written into the user's repo, scratch dir or agent home.
 //!
-//! EXP-1292: the playbook is `runbook.md` (the Threads v2 session tree), and
+//! EXP-1292: the playbook is `runbook.md` (the session tree), and
 //! the layers after it come from `sessions.brief`: the team prompt, then a
 //! team agent's own instructions ([`system_append_layers`]).
 //!
@@ -123,7 +123,7 @@ pub struct Extras {
     /// The launch wired the `codemode` server.
     pub code_mode: bool,
     /// An agent's conversation session, the persistent kind
-    /// ([`crate::launcher::dispatches`]); NEW-1: no thread root dispatches.
+    /// ([`crate::launcher::dispatches`]); NEW-1: no chat root dispatches.
     pub dispatch: bool,
 }
 
@@ -187,7 +187,7 @@ pub fn system_append_with(team_prompt: Option<&str>, extras: &Extras) -> String 
 /// EXP-1292 — the whole append of ONE session launch, off its
 /// `sessions.brief`: the playbook and the extras' sections, the team prompt
 /// under [`TEAM_PROMPT_HEADING`], then a team agent's instructions under
-/// [`AGENT_INSTRUCTIONS_HEADING`]. Blank layers are left out, so a thread
+/// [`AGENT_INSTRUCTIONS_HEADING`]. Blank layers are left out, so a chat
 /// session of a team without a prompt still gets the playbook verbatim.
 /// Both server layers count as `team` in the context layout
 /// ([`crate::context_layout::team_bytes`]).
@@ -332,7 +332,7 @@ run `bun test`.\n"
     fn the_playbook_teaches_the_session_tree_tools_by_exact_name() {
         // EXP-763: the whole point — the tools a run never discovered on its
         // own, spelled the way tool search finds them. EXP-1292: the v2
-        // session tree (send, link, guide) replaced start/message/threads.
+        // session tree (send, link, guide) replaced start/message/get.
         let tools = mentioned_tools(RUN_SKILL);
         for name in [
             "exponential_sessions",
@@ -427,7 +427,7 @@ run `bun test`.\n"
             "`exponential_sessions_send {teamId, deviceId, issueIds?, text}`",
             "no `parentId`",
             "self-contained brief",
-            "Reuse a recent thread",
+            "Reuse a recent session",
             "update your card",
             "Never wait for a child",
         ] {

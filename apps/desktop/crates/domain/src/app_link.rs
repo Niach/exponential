@@ -1,5 +1,5 @@
 //! EXP-1188 — what a clicked markdown link in agent prose (narration, the
-//! Guide, the thread) opens. Web `lib/app-link.ts`'s twin, byte-locked ×4 by
+//! Guide, the chat) opens. Web `lib/app-link.ts`'s twin, byte-locked ×4 by
 //! `packages/domain-contract/fixtures/app-link.json` (its `description` is the
 //! rule). Hand-parsed on purpose: a URL crate's normalisation would drift
 //! from the other three clients. #EXP-1674: one link system: the team
@@ -29,10 +29,8 @@ pub enum AppLink {
         session_id: String,
         message_id: String,
     },
-    /// EXP-1284: a thread on THIS instance — open it in the app.
-    Thread { team_slug: String, thread_id: String },
     /// #EXP-1674: the chats list.
-    Threads { team_slug: String },
+    Chats { team_slug: String },
     /// #EXP-1674: one agent's page.
     Agent { team_slug: String, agent_id: String },
     /// #EXP-1674: the team's agent page.
@@ -193,11 +191,7 @@ fn route(team: &str, rest: &[&str], path: &str) -> Option<AppLink> {
             team_slug,
             session_id: session.to_string(),
         },
-        ["threads", thread] => AppLink::Thread {
-            team_slug,
-            thread_id: thread.to_string(),
-        },
-        ["threads"] => AppLink::Threads { team_slug },
+        ["chats"] => AppLink::Chats { team_slug },
         ["agents", agent] => AppLink::Agent {
             team_slug,
             agent_id: agent.to_string(),
@@ -380,7 +374,6 @@ mod tests {
         identifier: Option<String>,
         session_id: Option<String>,
         message_id: Option<String>,
-        thread_id: Option<String>,
         agent_id: Option<String>,
         section: Option<String>,
         app_slug: Option<String>,
@@ -413,11 +406,7 @@ mod tests {
                     session_id: self.session_id.unwrap(),
                     message_id: self.message_id.unwrap(),
                 },
-                "thread" => AppLink::Thread {
-                    team_slug: self.team_slug.unwrap(),
-                    thread_id: self.thread_id.unwrap(),
-                },
-                "threads" => AppLink::Threads { team_slug: self.team_slug.unwrap() },
+                "chats" => AppLink::Chats { team_slug: self.team_slug.unwrap() },
                 "agent" => AppLink::Agent {
                     team_slug: self.team_slug.unwrap(),
                     agent_id: self.agent_id.unwrap(),

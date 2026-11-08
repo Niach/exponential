@@ -19,7 +19,7 @@
 //! EXP-916 took the pane's own `Changes +N −M · K files · branch · state` bar
 //! away: the pane IS the changes, and everything that bar said about the PR
 //! (its branch, its state, the merge and the GitHub link) belongs to the
-//! header ABOVE the pane (EXP-1294: the thread's Guide). What is left here is the diff and
+//! header ABOVE the pane (EXP-1294: the chat's Guide). What is left here is the diff and
 //! the way around it: the file TREE
 //! ([`domain::diff_tree::diff_file_tree`], hand-mirrored ×4) over a
 //! `Filter files` field.

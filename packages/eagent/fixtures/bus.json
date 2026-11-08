@@ -1,5 +1,5 @@
 {
-  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns, unless S is a thread that agent started (#FEED-194: `startedByAgentId` = its agent: it asked for the work, so each turn reply wakes it)), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn) until a message revives it (tree.json, #FEED-206). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused. #EXP-1735 THE TEAM LEAD (`teams.lead_assistant_id`, `leadOf`): a session working in a team whose lead is ANOTHER member's Assistant than the one acting for its tree (the member's Assistant's children and the threads it started; never that Assistant's own conversation root, never a team agent's tree, never the lead's own work) also reports to the lead: its ask (question/plan mirror) and its END report reach the lead's conversation (its root session) after every other listener, once (a lead that already listens hears it once), waking, under the same PRIVACY rule (the lead is another member: a private session reaches it as the neutral line). Its turns, walls and PRs do not. A team without a lead reports as before.",
+  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns, unless S is a root session that agent started (#FEED-194: `startedByAgentId` = its agent: it asked for the work, so each turn reply wakes it)), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn) until a message revives it (tree.json, #FEED-206). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused. #EXP-1735 THE TEAM LEAD (`teams.lead_assistant_id`, `leadOf`): a session working in a team whose lead is ANOTHER member's Assistant than the one acting for its tree (the member's Assistant's children and the root sessions it started; never that Assistant's own conversation root, never a team agent's tree, never the lead's own work) also reports to the lead: its ask (question/plan mirror) and its END report reach the lead's conversation (its root session) after every other listener, once (a lead that already listens hears it once), waking, under the same PRIVACY rule (the lead is another member: a private session reaches it as the neutral line). Its turns, walls and PRs do not. A team without a lead reports as before.",
   "cases": [
     {
       "name": "a child's turn reply wakes its parent as the child's own message",
@@ -201,7 +201,7 @@
       ]
     },
     {
-      "name": "#FEED-194: the team agent that started a thread hears each turn; another agent's watching conversation and a child's turn do not reach it",
+      "name": "#FEED-194: the team agent that started a root session hears each turn; another agent's watching conversation and a child's turn do not reach it",
       "given": {
         "sessions": [
           {
@@ -378,7 +378,7 @@
       ]
     },
     {
-      "name": "a private thread's reply reaches a shared watcher as the neutral line, its owner's own watcher in full",
+      "name": "a private root session's reply reaches a shared watcher as the neutral line, its owner's own watcher in full",
       "given": {
         "sessions": [
           {
@@ -1940,7 +1940,7 @@
       ]
     },
     {
-      "name": "#EXP-1735: a member's Assistant's thread in a team reports its question and its end to the team's lead; its turns and PR do not",
+      "name": "#EXP-1735: a member's Assistant's root session in a team reports its question and its end to the team's lead; its turns and PR do not",
       "given": {
         "sessions": [
           {
@@ -2467,7 +2467,7 @@
       ]
     },
     {
-      "name": "#EXP-1735: a team agent's thread and work in a team without a lead report as before",
+      "name": "#EXP-1735: a team agent's root session and work in a team without a lead report as before",
       "given": {
         "sessions": [
           {

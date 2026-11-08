@@ -183,7 +183,7 @@ pub(crate) fn claude_writing_frame(delta: f32) -> usize {
 /// with the EXP-850 opacity pulse. `size` square. A live element — gpui
 /// animates by repainting — so draw it only while the agent works.
 ///
-/// EXP-1325: this mark lives in the sidebar, the tabs and the thread rows
+/// EXP-1325: this mark lives in the sidebar, the tabs and the chat rows
 /// for as long as a session works, and gpui repaints the WHOLE window for
 /// every animation frame, at the monitor's rate while focused — so both
 /// faces are STEPPED (`with_stepped_animation`): the spark repaints only
@@ -238,7 +238,7 @@ pub(crate) fn run_badge_color(state: domain::session_tree::SessionState) -> Opti
 }
 
 /// EXP-923/EXP-1162/EXP-1184: a live run's LEAD — wherever a run is named
-/// (the rail's Running rows, the Threads rows) it reads the same:
+/// (the rail's Running rows, the Chats rows) it reads the same:
 /// the agent's working mark ([`agent_working_mark`]) while it works, else its
 /// brand mark (the generic agents concept for an unknown agent, `None`),
 /// `size` square, with a `badge`-wide state dot ([`run_badge_color`]) on its

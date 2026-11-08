@@ -11,7 +11,7 @@ import { bundleFixture } from "@/lib/import/fixtures"
 // EXP-630: the pure row planner. Timestamps pass through, completedAt
 // follows our rule, the status dual-write uses the target row's anchor, an
 // unmapped comment author becomes the importer + an attribution line,
-// threads re-root, fetched assets rewrite to the canonical URL, history
+// replies re-root, fetched assets rewrite to the canonical URL, history
 // becomes events only when opted in.
 
 const IMPORTER = `importer-id`
@@ -132,8 +132,8 @@ describe(`planIssueWrite`, () => {
     expect(reply).toMatchObject({ id: `id-c-2`, authorId: `member-hannes`, parentId: `id-c-1`, body: `Reply` })
   })
 
-  it(`re-roots a reply to a reply under the thread root and orders roots first`, () => {
-    const threaded = {
+  it(`re-roots a reply to a reply under the top-level comment and orders roots first`, () => {
+    const nested = {
       ...issue,
       comments: [
         { key: `c-3`, authorKey: `u-h`, body: `Deep`, createdAt: `2025-01-01T00:00:00.000Z`, parentKey: `c-2` },
@@ -141,7 +141,7 @@ describe(`planIssueWrite`, () => {
       ],
     }
     const planned = planIssueWrite(
-      threaded,
+      nested,
       context(),
       { ...ids(), commentIds: new Map([...ids().commentIds, [`c-3`, `id-c-3`]]) },
       { availableAssetKeys: new Set(), canonicalAvailable: false }

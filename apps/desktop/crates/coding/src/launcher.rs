@@ -1,7 +1,7 @@
 //! The Start-coding launcher (masterplan-v3 §7.1, DC-1) — ONE prepare
-//! sequence for every session ([`PrepareRequest::Session`]): a thread
+//! sequence for every session ([`PrepareRequest::Session`]): a chat
 //! session, a team agent's channel, a child an agent started. A local start
-//! and a remote one are the same thing now (EXP-1292, Threads v2): a
+//! and a remote one are the same thing now (EXP-1292): a
 //! `queued` `sessions` row naming this device, picked up off the shape by
 //! the host ([`crate::pickup`]), which CLAIMS it (`sessions.claim`) and
 //! fetches its `sessions.brief` BEFORE calling [`prepare`]. The launcher
@@ -1858,7 +1858,7 @@ struct LastUsedStamp {
     account: Option<String>,
 }
 
-/// EXP-1292: a person starts a thread ROOT (`sessions.send` from a
+/// EXP-1292: a person starts a chat ROOT (`sessions.send` from a
 /// composer); a child is an agent's doing and an agent root's channel wakes
 /// on its triggers, so neither stamps. A resume keeps its recorded account.
 fn last_used_stamp(req: &PrepareRequest, options: &LaunchOptions) -> Option<LastUsedStamp> {
@@ -1925,7 +1925,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionKeyScope {
     /// The device's hidden agent key (`users::ensure_personal_key`): every
-    /// thread's sessions.
+    /// chat's sessions.
     Device,
     /// The agent key confined to this team (`users::ensure_agent_team_key`,
     /// MCP only): every session of an agent's conversation tree.
@@ -2183,7 +2183,7 @@ fn prepare_session(
             launch_hold = Some(crate::launch_gate::hold(&clone));
             {
                 let mut branch = session_branch(row, own_issues, &deps.settings.branch_prefix, parent_branch);
-                // EXP-1292: an issue sits in any number of threads; a second one
+                // EXP-1292: an issue sits in any number of chats; a second one
                 // starting while another LIVE session on this machine holds the
                 // issue's branch takes its own instead of sharing the checkout.
                 if row.branch.as_deref().is_none_or(|own| own.trim().is_empty())
@@ -2266,7 +2266,7 @@ fn prepare_session(
                         }
                         picked
                     }
-                    // EXP-1542 (review): a moved ROOT (an ended thread revived
+                    // EXP-1542 (review): a moved ROOT (an ended chat revived
                     // on this device) tries its parked work too.
                     None if !moved_bases.is_empty() => {
                         let mut wanted = moved_bases.clone();
@@ -2408,9 +2408,9 @@ fn prepare_session(
             issues: own_issues.to_vec(),
             // EXP-1134/1292/1341: only a REAL name — the row's stored title
             // (`domain::session_title`'s first rung). Blank stays `None`,
-            // which is what asks the agent CLI to name a thread
+            // which is what asks the agent CLI to name a chat
             // (`engine::session::record_wants_name`): children and issue
-            // threads included; NEW-8: an agent's conversation never asks.
+            // chats included; NEW-8: an agent's conversation never asks.
             title: named_text(&row.title),
             cwd: cwd.clone(),
             clone: workspace.as_ref().map(|workspace| workspace.clone.clone()),
@@ -2895,7 +2895,7 @@ fn prepare_resume(
                     cwd = worktree;
                 } else if let Some(carried) = carried_branch(&cwd, reported_branch(row, branch)) {
                     // The run stands on another branch than the ROW says: the
-                    // row follows, so the thread's PR opens from where the
+                    // row follows, so the chat's PR opens from where the
                     // commits are. FEED-170: compared with the row's branch,
                     // not the record's, so a switch BACK is reported too.
                     log::info!(
@@ -2973,7 +2973,7 @@ fn prepare_resume(
         })
         .flatten();
     // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
-    // session id — `session/load` replays the WHOLE thread, so it is as
+    // session id — `session/load` replays the WHOLE conversation, so it is as
     // native a resume as the handles above.
     let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp() && !fresh);
     let native_resume =
@@ -3638,7 +3638,7 @@ pub fn set_session_end_observer(observer: SessionEndObserver) {
     let _ = SESSION_END_OBSERVER.set(observer);
 }
 
-/// EXP-1292 — a THREAD session's agent process is gone:
+/// EXP-1292 — a CHAT session's agent process is gone:
 /// `sessions.report{status: ended}`, with the outcome reported to the
 /// [`SessionEndObserver`]. Every end this crate issues goes through here so
 /// the host's registry sees each outcome exactly where it happens. A team
@@ -3739,7 +3739,7 @@ mod tests {
 
     const SESSION_ID: &str = "5ECB3C42-1f2e-4c7a-9d1b-0a7b6c5d4e3f";
 
-    /// A claimed THREAD row (EXP-1292) — the runner pickers the dialog
+    /// A claimed CHAT row (EXP-1292) — the runner pickers the dialog
     /// defaults used to carry: claude, fable, plan mode ON.
     fn row(id: &str, repository_id: Option<&str>) -> SessionRow {
         serde_json::from_value(serde_json::json!({
@@ -4249,8 +4249,8 @@ mod tests {
     /// conversation session (the persistent kind).
     #[test]
     fn only_agent_conversations_read_the_agents_playbook() {
-        let thread = row("t-1", None);
-        assert!(!dispatches(&thread));
+        let chat = row("t-1", None);
+        assert!(!dispatches(&chat));
         let mut agent = row("a-1", None);
         agent.agent_id = Some("ag-1".to_string());
         assert!(dispatches(&agent));
@@ -4297,25 +4297,25 @@ mod tests {
     #[test]
     fn the_label_is_the_session_title() {
         let brief = "## Request\n\n![shot](/api/attachments/x)\nSpeed it up\n\n## Issues\n\n- EXP-42 Cold start is slow\n- EXP-43 Lag";
-        let mut thread = row("s-1", None);
-        assert_eq!(session_label(&thread, &["EXP-42".to_string()], brief), "Code review");
-        thread.title = None;
+        let mut chat = row("s-1", None);
+        assert_eq!(session_label(&chat, &["EXP-42".to_string()], brief), "Code review");
+        chat.title = None;
         assert_eq!(
-            session_label(&thread, &["EXP-42".to_string()], brief),
+            session_label(&chat, &["EXP-42".to_string()], brief),
             "#EXP-42 Cold start is slow"
         );
         assert_eq!(
             session_label(
-                &thread,
+                &chat,
                 &["EXP-42".to_string(), "EXP-43".to_string(), "EXP-44".to_string()],
                 brief
             ),
             "#EXP-42 Cold start is slow + 2"
         );
         // An issue the brief does not title reads by its identifier alone.
-        assert_eq!(session_label(&thread, &["EXP-9".to_string(), "EXP-42".to_string()], ""), "#EXP-9 + 1");
-        assert_eq!(session_label(&thread, &[], brief), "Speed it up");
-        assert_eq!(session_label(&thread, &[], "## Issues\n\n- not-an-id"), "Untitled");
+        assert_eq!(session_label(&chat, &["EXP-9".to_string(), "EXP-42".to_string()], ""), "#EXP-9 + 1");
+        assert_eq!(session_label(&chat, &[], brief), "Speed it up");
+        assert_eq!(session_label(&chat, &[], "## Issues\n\n- not-an-id"), "Untitled");
         let mut agent = row("a-1", None);
         agent.agent_id = Some("ag-1".to_string());
         agent.title = Some("Inbox watcher".to_string());
@@ -4751,11 +4751,11 @@ mod tests {
         assert_eq!(record.issues, vec!["EXP-42".to_string()]);
     }
 
-    /// EXP-1292: an issue sits in many threads — a second one starting while
+    /// EXP-1292: an issue sits in many chats — a second one starting while
     /// a LIVE session here holds the issue's branch takes its own branch
     /// instead of sharing the checkout.
     #[test]
-    fn a_second_thread_on_a_held_issue_branch_takes_its_own() {
+    fn a_second_chat_on_a_held_issue_branch_takes_its_own() {
         let dir = temp_dir("session-held-branch");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
@@ -4893,7 +4893,7 @@ mod tests {
     }
 
     /// #EXP-1383: who gets which key — an agent's root, a session the brief
-    /// places in an agent's tree, a recorded agent run: the team's; a thread
+    /// places in an agent's tree, a recorded agent run: the team's; a chat
     /// (root or child): the device's; an agent tree with no team: refused.
     #[test]
     fn the_key_scope_follows_the_agent_tree() {
@@ -4962,11 +4962,11 @@ mod tests {
         assert!(again.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_ws1".to_string())));
     }
 
-    /// #EXP-1383: a thread keeps the device key, and its redactor list
+    /// #EXP-1383: a chat keeps the device key, and its redactor list
     /// carries no extra key.
     #[test]
-    fn a_thread_keeps_the_device_key() {
-        let dir = temp_dir("thread-device-key");
+    fn a_chat_keeps_the_device_key() {
+        let dir = temp_dir("chat-device-key");
         let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let prepared = ready(launch(session_request(row("t-1", None), &[]), &deps));
@@ -5400,7 +5400,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
 
     // ---- EXP-1158: the last used stamp ----
 
-    /// Only a thread ROOT a person sent stamps last used — with the account
+    /// Only a chat ROOT a person sent stamps last used — with the account
     /// they NAMED, or the agent alone. A child (an agent's), a team agent's
     /// channel and every resume never do.
     #[test]
@@ -6376,7 +6376,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
 
     // ---- EXP-1292: the end of a session's process ----
 
-    /// A thread's agent process is gone: `sessions.report{status: ended,
+    /// A chat's agent process is gone: `sessions.report{status: ended,
     /// midTurn: false}` (FEED-160: a deliberate end, never guessed lost),
     /// observed; an agent's: `{status: idle}`.
     #[test]
@@ -6386,11 +6386,11 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             (200, REPORT_OK.to_string()),
         ]);
         let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("tok".into())));
-        end_session(&trpc, "s-thread").expect("ended");
+        end_session(&trpc, "s-chat").expect("ended");
         idle_session(&trpc, "s-agent").expect("idled");
         let requests = captured.lock().unwrap();
         assert!(requests[0].starts_with("POST /api/trpc/sessions.report"));
-        assert!(requests[0].ends_with(r#"{"sessionId":"s-thread","status":"ended","midTurn":false}"#), "{}", requests[0]);
+        assert!(requests[0].ends_with(r#"{"sessionId":"s-chat","status":"ended","midTurn":false}"#), "{}", requests[0]);
         assert!(requests[1].ends_with(r#"{"sessionId":"s-agent","status":"idle","busy":false}"#), "{}", requests[1]);
     }
 

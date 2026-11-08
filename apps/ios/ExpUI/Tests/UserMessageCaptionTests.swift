@@ -2,10 +2,10 @@ import Foundation
 import XCTest
 import ExpUI
 
-// EXP-1317 / thread parity: a person's bubble caption reads `name · HH:mm`
+// EXP-1317 / chat parity: a person's bubble caption reads `name · HH:mm`
 // (web `userMessageCaption`), `· queued` while the device has not taken the
 // message — the same 24-hour clock the agent channel's rows show, not the
-// relative "5m" the thread once drew.
+// relative "5m" the chat once drew.
 @MainActor
 final class UserMessageCaptionTests: XCTestCase {
 

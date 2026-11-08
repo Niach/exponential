@@ -31,7 +31,7 @@ import {
 } from "./trace"
 
 // EXP-1324 (+ EXP-1321): THE Trace and CodeBlock specimens, identical ×4
-// (iOS ThreadCardsScreen, Android TraceSpecimenScreen, the IDE styleguide
+// (iOS ChatCardsScreen, Android TraceSpecimenScreen, the IDE styleguide
 // entries trace.rs / code_block.rs draw the same lines and blocks). Drawn by
 // the styleguide entries `trace` / `code-block` and, for their captures, by
 // the web app's dev-only `/t/$teamSlug/agent?dev=trace|code-block`.

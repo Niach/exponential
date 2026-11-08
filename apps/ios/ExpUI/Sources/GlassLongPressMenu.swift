@@ -26,7 +26,7 @@ public extension View {
 }
 
 public extension View {
-    /// Thread 58cb32df (chats.json MENUS): THE long-press arm for a host that
+    /// Session 58cb32df (chats.json MENUS): THE long-press arm for a host that
     /// presents the menu as the SHEET look (phones titling it with the
     /// chat's title): the same tap/hold split and haptic as
     /// `glassLongPressMenu`, the presentation left to `onHold`.

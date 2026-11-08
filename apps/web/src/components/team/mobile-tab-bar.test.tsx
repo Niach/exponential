@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Board, Team } from "@/db/schema"
 
 // EXP-973: the phone's FAB is the SAME split capsule on EVERY tab-bar route.
-// Devices, Actions/Automations, Threads, Inbox and Support used to drop the
+// Devices, Actions/Automations, Chats, Inbox and Support used to drop the
 // New-issue arm and leave a lone chat circle, which turned "file this" into a
 // trip back to a board. Nothing collapses it any more: a team with NO board
 // dims the arm in place (×3 with iOS / Android `composeEnabled`), so the
@@ -56,14 +56,14 @@ vi.mock(`@/hooks/use-issue-drafts`, () => ({
     return inbox.drafts
   },
 }))
-const threadsNav = vi.hoisted(() => ({
+const chatsNav = vi.hoisted(() => ({
   value: { live: false, needsYou: false, unread: false },
   scope: undefined as string | readonly string[] | undefined,
 }))
 vi.mock(`@/hooks/use-nav-counts`, () => ({
-  useThreadsNav: (teamIds: string | readonly string[] | undefined) => {
-    threadsNav.scope = teamIds
-    return threadsNav.value
+  useChatsNav: (teamIds: string | readonly string[] | undefined) => {
+    chatsNav.scope = teamIds
+    return chatsNav.value
   },
 }))
 // EXP-1186: the bar's cross-team scope — the member teams the test sets.
@@ -128,7 +128,7 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
       `/t/$teamSlug/agent`,
       `/t/$teamSlug/boards/$boardSlug`,
       `/t/$teamSlug/devices`,
-      `/t/$teamSlug/threads`,
+      `/t/$teamSlug/chats`,
     ]) {
       route.value = path
       const view = renderBar()
@@ -171,7 +171,7 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   })
 
   it(`leaves the arm live wherever a board resolves`, () => {
-    route.value = `/t/$teamSlug/threads`
+    route.value = `/t/$teamSlug/chats`
     renderBar()
     const compose = screen.getByTestId(`compose-button`)
     expect(compose.getAttribute(`aria-disabled`)).toBeNull()
@@ -179,22 +179,22 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   })
 })
 
-// EXP-1293 → thread 58cb32df: Chats — always a tab, its dot amber while a
+// EXP-1293 → chat 58cb32df: Chats — always a tab, its dot amber while a
 // chat needs you, green while one runs, else the unread dot; phones read
 // the ONE active team (chats.json `shell`).
 describe(`MobileTabBar Chats (chats.json)`, () => {
   beforeEach(() => {
     route.value = ``
     memberTeams.value = null
-    threadsNav.value = { live: false, needsYou: false, unread: false }
+    chatsNav.value = { live: false, needsYou: false, unread: false }
   })
 
-  const chatsTab = () => screen.getByTestId(`tab-threads`)
+  const chatsTab = () => screen.getByTestId(`tab-chats`)
 
   it(`links Chats and lights it on its routes`, () => {
-    route.value = `/t/$teamSlug/threads`
+    route.value = `/t/$teamSlug/chats`
     renderBar()
-    expect(chatsTab().getAttribute(`href`)).toBe(`/t/$teamSlug/threads`)
+    expect(chatsTab().getAttribute(`href`)).toBe(`/t/$teamSlug/chats`)
     expect(chatsTab().className).toContain(`bg-glass-active`)
     expect(chatsTab().getAttribute(`aria-current`)).toBe(`page`)
   })
@@ -203,15 +203,15 @@ describe(`MobileTabBar Chats (chats.json)`, () => {
     const view = renderBar()
     expect(chatsTab().querySelector(`[data-slot=phone-tab-dot]`)).toBeNull()
     view.unmount()
-    threadsNav.value = { live: true, needsYou: false, unread: false }
+    chatsNav.value = { live: true, needsYou: false, unread: false }
     const running = renderBar()
     expect(chatsTab().querySelector(`.bg-green-500`)).toBeTruthy()
     running.unmount()
-    threadsNav.value = { live: true, needsYou: true, unread: false }
+    chatsNav.value = { live: true, needsYou: true, unread: false }
     const needs = renderBar()
     expect(chatsTab().querySelector(`.bg-yellow-400`)).toBeTruthy()
     needs.unmount()
-    threadsNav.value = { live: false, needsYou: false, unread: true }
+    chatsNav.value = { live: false, needsYou: false, unread: true }
     renderBar()
     expect(chatsTab().querySelector(`.bg-primary`)).toBeTruthy()
   })
@@ -219,12 +219,12 @@ describe(`MobileTabBar Chats (chats.json)`, () => {
   it(`reads the dot off the active team only`, () => {
     memberTeams.value = [team, { id: `t2`, name: `Beta` }]
     renderBar()
-    expect(threadsNav.scope).toBe(`t1`)
+    expect(chatsNav.scope).toBe(`t1`)
   })
 
   // EXP-1327: the live dot rides Chats, never the chat arm.
   it(`never dots the chat arm`, () => {
-    threadsNav.value = { live: true, needsYou: true, unread: false }
+    chatsNav.value = { live: true, needsYou: true, unread: false }
     renderBar()
     expect(
       screen.getByTestId(`chat-button`).querySelector(`.bg-green-500, .bg-yellow-400`)
@@ -284,7 +284,7 @@ describe(`MobileTabBar tabs (chats.json shell.tabs)`, () => {
   })
 
   it(`links the Board tab to the board off the board view, no caret`, () => {
-    route.value = `/t/$teamSlug/threads`
+    route.value = `/t/$teamSlug/chats`
     renderBar()
     const tab = screen.getByTestId(`tab-board`)
     expect(tab.tagName).toBe(`A`)

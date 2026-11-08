@@ -340,7 +340,7 @@ impl NeedsInputForwarder {
 /// EXP-1292: the synced `sessions.status` a live engine owns — `running`
 /// while a turn is open, `idle` between turns (the row then waits for the
 /// next `messages` row). Driven off the [`TurnSignal`] edge and written with
-/// `sessions.report{status}`; the terminal `ended` (threads) / `idle`
+/// `sessions.report{status}`; the terminal `ended` (chats) / `idle`
 /// (agents) at engine exit is the lifecycle's own write, never this one's.
 ///
 /// The [`NeedsInputForwarder`] rule: the last CONFIRMED server value (`None`

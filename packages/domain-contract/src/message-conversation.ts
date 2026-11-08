@@ -1,4 +1,4 @@
-// NEW-8: messages live in conversations; a session's thread is the
+// NEW-8: messages live in conversations; a session's chat is the
 // messages of its own (kind `session`) conversation. Clients key every
 // message through the `conversations` shape, never through a legacy
 // `messages.session_id`.

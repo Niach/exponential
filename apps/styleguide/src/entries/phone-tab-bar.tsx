@@ -3,7 +3,7 @@ import { PhoneTabBarSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// Thread 58cb32df (#EXP-1373) → #EXP-1384 (`chats.json` `shell.tabs` +
+// Chat 58cb32df (#EXP-1373) → #EXP-1384 (`chats.json` `shell.tabs` +
 // `shell.bar`): THE phone bottom bar, `@exp/ui` `PhoneTabBarSpecimen` (Board
 // selected on the board view with the caret, Chats and Team selected, the
 // drag lens mid-drag); the app's `?dev=phone-tab-bar` capture renders the same.

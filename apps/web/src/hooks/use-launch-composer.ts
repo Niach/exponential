@@ -70,11 +70,11 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // `sessions.send({agentId})` into the viewer's chat with it, Temporary
 // session = the start below.
 //
-// EXP-1293 (Threads v2): a start is ONE `sessions.send` in the ACTIVE team: a
-// new root (a thread) on the picked device, with the subject as its facets
+// EXP-1293: a start is ONE `sessions.send` in the ACTIVE team: a
+// new root (a chat) on the picked device, with the subject as its facets
 // (`issueIds` | `promptId` (+ `repositoryId`) | `repositoryId`). The server writes a
 // `queued` row the device picks up; the composer awaits that row's sync
-// (bounded) and opens the thread. No builtins, no resume, no start ids and
+// (bounded) and opens the chat. No builtins, no resume, no start ids and
 // no landing watch: the row exists the moment the mutation returns.
 
 export type { LaunchSeed }
@@ -104,7 +104,7 @@ export type LaunchSubject =
 export const MAX_ISSUES_PER_RUN = SESSIONS_SEND_MAX_ISSUES
 // Above this, a batch gets a soft token-cost note (matches the native sheets).
 export const BATCH_COST_HINT_THRESHOLD = 6
-/** How long a start waits for its row to sync before it opens the thread
+/** How long a start waits for its row to sync before it opens the chat
  *  anyway (the page renders its own skeleton until the row lands). */
 export const START_SYNC_WAIT_MS = 4_000
 
@@ -315,7 +315,7 @@ export function useLaunchComposer({
   seed: LaunchSeed | null
   onSeedConsumed: () => void
   /** The session started (its row synced, or the wait gave up); called
-   *  right before the composer opens its thread. */
+   *  right before the composer opens its chat. */
   onStarted?: (sessionId: string) => void
 }): LaunchComposerModel {
   const navigate = useNavigate()
@@ -652,13 +652,13 @@ export function useLaunchComposer({
       clearSent(sentText, current)
       onStartedRef.current?.(result.sessionId)
       if (teamSlug) {
-        // S-3: a message opens the agent's chat, a start its thread.
+        // S-3: a message opens the agent's chat, a start its chat.
         void navigate(
           agentId
             ? { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } }
             : {
-                to: `/t/$teamSlug/threads/$threadId`,
-                params: { teamSlug, threadId: result.sessionId },
+                to: `/t/$teamSlug/sessions/$sessionId`,
+                params: { teamSlug, sessionId: result.sessionId },
               }
         )
       }

@@ -5,7 +5,7 @@ import type { SteerDevice } from "@/lib/steer-devices"
 
 // EXP-825 / EXP-1293: the composer's model: swap rules, submit labels, the
 // blocked matrix, seed consumption and THE start, ONE `sessions.send` that
-// opens the new thread. The synced collections are stubbed by ALIAS: the
+// opens the new chat. The synced collections are stubbed by ALIAS: the
 // hook names its query sources (`p` prompts, `issues`), so the fake
 // `useLiveQuery` hands each one its own rows.
 
@@ -448,7 +448,7 @@ describe(`useLaunchComposer subject`, () => {
 })
 
 describe(`useLaunchComposer start`, () => {
-  it(`sends ONE sessions.send in the team and opens the new thread`, async () => {
+  it(`sends ONE sessions.send in the team and opens the new chat`, async () => {
     const { result, onStarted } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.setText(`keep it small`))
@@ -464,8 +464,8 @@ describe(`useLaunchComposer start`, () => {
     expect(mockState.awaitTxId).toHaveBeenCalledWith(42)
     expect(onStarted).toHaveBeenCalledWith(`s-new`)
     expect(mockState.navigate).toHaveBeenCalledWith({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `s-new` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `s-new` },
     })
     // The draft is done with.
     expect(result.current.subject).toBeNull()
@@ -561,7 +561,7 @@ describe(`useLaunchComposer start`, () => {
     expect(result.current.text).toBe(`hi, and the docs`)
   })
 
-  it(`opens the thread anyway when the sync wait gives up`, async () => {
+  it(`opens the chat anyway when the sync wait gives up`, async () => {
     vi.useFakeTimers()
     try {
       mockState.awaitTxId.mockReturnValue(new Promise(() => {}))

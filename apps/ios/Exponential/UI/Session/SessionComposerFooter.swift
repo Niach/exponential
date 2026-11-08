@@ -9,7 +9,7 @@ import SwiftUI
 /// (surface session | agent), and #EXP-1535 the login is the "+" Account
 /// row (THE usage wall's session account switch); a running session never
 /// moves device here. With `controls` the `+` opens THE "+" sheet
-/// (`ThreadComposerPlusMenu`, presented by `SessionComposerCard`); a bare
+/// (`ChatComposerPlusMenu`, presented by `SessionComposerCard`); a bare
 /// box (no controls) opens the Camera | Photos | File sub-choice directly. The ring
 /// hides until context data lands and opens the Usage sheet (EXP-1150).
 /// Rides `GlassComposer`'s `tools:` slot, so the send button stays the

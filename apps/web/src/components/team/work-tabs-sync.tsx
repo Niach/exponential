@@ -23,14 +23,14 @@ import {
 // (md+ only — the strip is hidden on phones). EXP-1293: ROUTE-DRIVEN, so no
 // other screen calls into the store:
 //
-//   1. URL → tab: the open issue, thread, agent channel or raw session,
+//   1. URL → tab: the open issue, chat, agent channel or raw session,
 //      resolved against the collections (an issue's id; a session row of
 //      THIS team), is upserted (`upsertFromRoute`). The active tab is never
 //      stored: the strip derives it from the same URL.
 //   2. The New session tab: a navigation that LEAVES the Agent page for a
 //      work item lands in the New session tab (`landing`) — the composer's
-//      start navigates to its thread, and that thread takes the tab's place.
-//      The flag survives until the route resolves (a fresh thread's row may
+//      start navigates to its chat, and that chat takes the tab's place.
+//      The flag survives until the route resolves (a fresh chat's row may
 //      sync a moment after the navigation).
 //   3. Prune: a tab whose issue or session row is gone from its (READY)
 //      collection is dropped — never while a collection is still syncing, so
@@ -112,13 +112,13 @@ export function WorkTabsSync({
         : undefined,
     [issueBoard?.id, issueIdentifier]
   )
-  const routeSessionId =
-    path?.kind === `thread` ? path.threadId : path?.kind === `session` ? path.sessionId : null
+  const routeSessionId = path?.kind === `session` ? path.sessionId : null
   const { row: sessionRow } = useSessionRow(routeSessionId)
   // NEW-2: an agent tab names the `agents` row.
   const { agent: routeAgent } = useAgentRow(path?.kind === `agent` ? path.agentId : null)
-  // EXP-1316: `/sessions/<id>` only redirects into its thread (the session
-  // opens in place, the THREAD's tab focuses) unless the tree is an agent's.
+  // EXP-1733: `/sessions/<id>` of a ROOT is its chat (the chat's tab); a
+  // child only redirects into its root's chat (the session opens in place,
+  // the CHAT's tab focuses) unless the tree is an agent's.
   const sessionRootId =
     path?.kind === `session` && sessionRow && sessionRow.rootId && sessionRow.rootId !== sessionRow.id
       ? sessionRow.rootId
@@ -139,11 +139,12 @@ export function WorkTabsSync({
     if (!sessionRow || sessionRow.id !== routeSessionId || sessionRow.teamId !== teamId) {
       return null
     }
-    if (path.kind === `session`) {
-      const root = sessionRow.rootId && sessionRow.rootId !== sessionRow.id ? sessionRoot : sessionRow
-      if (!root?.agentId) return null
+    const isRoot = !sessionRow.rootId || sessionRow.rootId === sessionRow.id
+    if (isRoot) {
+      // An agent's conversation root redirects to the agent's page.
+      return sessionRow.agentId ? null : { kind: `chat`, chatId: sessionRow.id, from: path.from }
     }
-    return path
+    return sessionRoot?.agentId ? path : null
   }, [path, issueRows, sessionRow, sessionRoot, routeSessionId, routeAgent, teamId])
   const routeKey = route ? JSON.stringify(route) : null
 

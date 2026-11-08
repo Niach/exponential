@@ -13,7 +13,7 @@
 //! the Work screen picker under that, off
 //! the contract fixture's "computer use on" case), `AgentDefaultsGroup` with
 //! real selects (Model, the ONE `coding_selects::model_select` over all the
-//! agent's models, no default row; #EXP-1734: no thread or subagent model), then Update and the Remove row. The dialog view
+//! agent's models, no default row; #EXP-1734: no chat or subagent model), then Update and the Remove row. The dialog view
 //! itself is bound to a synced device row and the store, so the entry owns a
 //! small demo view holding the same entities instead; nothing it draws is a
 //! copy of a recipe.

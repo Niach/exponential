@@ -24,7 +24,7 @@ extension View {
                 header
             }
             .frame(maxWidth: .infinity)
-            // EXP-1256: over the run thread, the page's own ground.
+            // EXP-1256: over the run chat, the page's own ground.
             .headerEdgeChrome(ground: ground)
             .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
                 onBottom?(bottom)

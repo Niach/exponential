@@ -49,7 +49,7 @@ describe(`IssueChip size (SLOP-15)`, () => {
   })
 })
 
-// EXP-1316: the TAB size = the thread strip's tab box, off the unlayered
+// EXP-1316: the TAB size = the chat strip's tab box, off the unlayered
 // `.issue-chip` paint so the active wash wins.
 describe(`IssueChip size="tab" (EXP-1316)`, () => {
   it(`wears the strip tab box, glyph · identifier · title`, () => {

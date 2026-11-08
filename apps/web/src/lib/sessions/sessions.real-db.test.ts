@@ -167,7 +167,7 @@ const row = async (id: string) =>
   (await db.select().from(sessions).where(eq(sessions.id, id)).limit(1))[0]!
 
 describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
-  it(`queues a private thread on the caller's own device with its issues and first message`, async () => {
+  it(`queues a private chat on the caller's own device with its issues and first message`, async () => {
     const w = await world()
     const issueId = await w.issue(`Fix login`)
     const sent = await sendSession({
@@ -533,7 +533,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect((await composeSessionBrief(grouped.sessionId)).brief).toContain(`Typo`)
   })
 
-  it(`a message to a live session lands on it; to an ended thread it revives the SAME row (FEED-134)`, async () => {
+  it(`a message to a live session lands on it; to an ended chat it revives the SAME row (FEED-134)`, async () => {
     const w = await world()
     const issueId = await w.issue(`Kept`)
     const root = await sendSession({
@@ -672,7 +672,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       sendSession({ userId: w.owner, input: { sessionId: defaulted.sessionId, account: `gggg7777` } })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
 
-    // An ended thread: a switch alone is refused; with a message the
+    // An ended chat: a switch alone is refused; with a message the
     // revived root runs on the new login (FEED-134).
     await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
     await expect(
@@ -879,7 +879,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       code: `NOT_FOUND`,
     })
 
-    // The agent spawns a thread: it lands in the team, on the agent's device,
+    // The agent spawns a chat: it lands in the team, on the agent's device,
     // with a thread_started card on the conversation.
     const spawned = await sendSession({
       userId: w.owner,
@@ -902,14 +902,14 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const brief = await composeSessionBrief(agent.sessionId)
     expect(brief.agentInstructions).toBe(`Be brief.`)
     // Only the member's conversation with their VOICE agent is the voice
-    // conversation; the thread it spawned never is.
+    // conversation; the chat it spawned never is.
     expect(brief.voicePolicy).toBe(false)
     await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: ada!.id })
     expect((await composeSessionBrief(agent.sessionId)).voicePolicy).toBe(true)
     expect((await composeSessionBrief(spawned.sessionId)).voicePolicy).toBe(false)
     // NEW-58 (screen-memory.json TOOL): screen memory only while the voice
     // conversation is private: the agent's box shared with no team (ANY
-    // team), the conversation not `shared`; never a spawned thread.
+    // team), the conversation not `shared`; never a spawned chat.
     expect((await composeSessionBrief(agent.sessionId)).screenMemory).toBe(true)
     expect((await composeSessionBrief(spawned.sessionId)).screenMemory).toBe(false)
     const elsewhere = await world()
@@ -930,7 +930,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
   })
 })
 
-describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, () => {
+describe.skipIf(!ready.ok)(`chat issues, the Guide and the trigger mirrors`, () => {
   it(`links on the HOLDER idempotently with event cards on the root, and unlinks`, async () => {
     const w = await world()
     const a = await w.issue(`A`)
@@ -1068,7 +1068,7 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     expect((await row(root.sessionId)).guide).toEqual(before)
   })
 
-  // EXP-1397 (FEED-150/151): ownership across the thread.
+  // EXP-1397 (FEED-150/151): ownership across the chat.
   it(`EXP-1397: a writer's open PR tags its topics, a parent tags a child's, a continuation owns its predecessor's`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
@@ -1117,7 +1117,7 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     // A tag of a topic nobody in the subtree filed fails loudly.
     await expect(
       writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `Nowhere`, prUrl: url })
-    ).rejects.toThrow(/Nothing in this thread's Guide matched topic "Nowhere"/)
+    ).rejects.toThrow(/Nothing in this tree's Guide matched topic "Nowhere"/)
     // A text write never takes a child's topic over: the parent files its own.
     await writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `After`, text: `The root's words.` })
     expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `After`)).toHaveLength(2)
@@ -1153,14 +1153,14 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
 })
 
 // EXP-1397 review: a merge stamps ITS session's untagged topics with its URL
-// (bodies exclude by prUrl only, never by time); sibling/cross-thread writes
+// (bodies exclude by prUrl only, never by time); sibling/cross-chat writes
 // never reach another's entries; a parent may tag or replace a child's.
 describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
   const { publishGuidePicture } = await import(`@/lib/sessions/guide`)
   const { applyPullRequestMerged } = await import(`@/lib/integrations/pr-sync`)
   const { prBodyFromGuide } = await import(`@/lib/pr-body`)
 
-  async function thread() {
+  async function chat() {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
     const kid = async (branch: string) => {
@@ -1212,11 +1212,11 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
   }
 
   it(`two sibling PRs: one merges, the other's body keeps its topics`, async () => {
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/a`)
     const b = await t.kid(`exp/b`)
     // Untagged words, as filed before the PRs existed (or before deploy).
-    await t.write(t.root, `Summary`, { text: `The thread.` })
+    await t.write(t.root, `Summary`, { text: `The chat.` })
     await t.write(a, `Alpha`, { text: `A's work.` })
     await t.write(b, `Beta`, { text: `B's work.` })
     const prA = await t.pr(1, a, `exp/a`)
@@ -1228,16 +1228,16 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
     expect(alpha).toMatchObject({ prUrl: prA.url, sessionId: a })
     const bodyB = await t.body(prB.url)
     expect(bodyB).toContain(`B's work.`)
-    expect(bodyB).toContain(`The thread.`)
+    expect(bodyB).toContain(`The chat.`)
     expect(bodyB).not.toContain(`A's work.`)
     expect((await t.guide()).find((e) => e.topic === `Beta`)?.prUrl).toBeUndefined()
     // A later write by B (new `at` everywhere else) changes nothing of that.
     await t.write(b, `Beta`, { text: `B's work, again.` })
-    expect(await t.body(prB.url)).toContain(`The thread.`)
+    expect(await t.body(prB.url)).toContain(`The chat.`)
   })
 
   it(`legacy entries without at or sessionId stay in every open body after a merge and a write`, async () => {
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/a`)
     const b = await t.kid(`exp/b`)
     const legacy = (topic: string, text: string) => ({
@@ -1264,7 +1264,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
   })
 
   it(`a UI-opened PR (no session) merging stamps the session on its head, nobody else's`, async () => {
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/a`)
     const b = await t.kid(`exp/b`)
     await t.write(a, `Alpha`, { text: `A's work.` })
@@ -1286,7 +1286,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
   it(`#EXP-1540: a UI-opened PR on a shared head resolves to the session that pushed it`, async () => {
     const { attributePush } = await import(`@/lib/sessions/push-attribution`)
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/shared`)
     const b = await t.kid(`exp/shared`)
     await db
@@ -1315,7 +1315,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
   it(`#EXP-1540: a later push credited to nobody withdraws the earlier credit`, async () => {
     const { attributePush } = await import(`@/lib/sessions/push-attribution`)
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/stale`)
     const b = await t.kid(`exp/stale`)
     await db.update(sessions).set({ status: `running`, repositoryId: t.repo.id }).where(inArray(sessions.id, [a, b]))
@@ -1336,7 +1336,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
   it(`#EXP-1540: a push is dated by its payload; a redelivered older push never overrides a newer credit`, async () => {
     const { attributePush } = await import(`@/lib/sessions/push-attribution`)
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/redeliver`)
     const b = await t.kid(`exp/redeliver`)
     await db.update(sessions).set({ status: `running`, repositoryId: t.repo.id }).where(inArray(sessions.id, [a, b]))
@@ -1370,8 +1370,8 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
   it(`#EXP-1540: only the delivering installation's repository counts`, async () => {
     const { attributePush } = await import(`@/lib/sessions/push-attribution`)
-    const t = await thread()
-    const other = await thread()
+    const t = await chat()
+    const other = await chat()
     const installation = 100_000 + Math.floor(Math.random() * 1_000_000)
     await db.update(repositories).set({ installationId: installation }).where(eq(repositories.id, t.repo.id))
     // Another team registered the same full name under another installation.
@@ -1398,7 +1398,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
   it(`#EXP-1540: an ended session is credited for two minutes after it ended`, async () => {
     const { attributePush, PUSH_GRACE_MS } = await import(`@/lib/sessions/push-attribution`)
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/grace`)
     const now = new Date()
     const ended = (ms: number) =>
@@ -1416,7 +1416,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
   it(`#EXP-1540: a newer uncredited push delivered first wins over an older credited push delivered late`, async () => {
     const { attributePush } = await import(`@/lib/sessions/push-attribution`)
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/late`)
     const b = await t.kid(`exp/late`)
     await db.update(sessions).set({ status: `running`, repositoryId: t.repo.id }).where(inArray(sessions.id, [a, b]))
@@ -1437,7 +1437,7 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
   })
 
   it(`an explicit prUrl: null sticks across rewrites; a NEW topic takes the open PR`, async () => {
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/a`)
     const prA = await t.pr(1, a, `exp/a`)
     await t.write(a, `Shared`, { text: `For every PR.`, prUrl: null })
@@ -1448,8 +1448,8 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
     expect((await t.guide()).find((e) => e.topic === `New`)?.prUrl).toBe(prA.url)
   })
 
-  it(`a parent's files: null clears a child's files; a sibling and another thread are denied`, async () => {
-    const t = await thread()
+  it(`a parent's files: null clears a child's files; a sibling and another chat are denied`, async () => {
+    const t = await chat()
     const a = await t.kid(`exp/a`)
     const b = await t.kid(`exp/b`)
     await t.write(a, `Alpha`, { text: `A's work.`, files: [`a.ts`] })
@@ -1460,18 +1460,18 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
 
     const before = await t.guide()
     await expect(t.write(b, `Alpha`, { prUrl: `https://github.com/o/r/pull/9` })).rejects.toThrow(
-      /Nothing in this thread's Guide matched topic "Alpha"/
+      /Nothing in this tree's Guide matched topic "Alpha"/
     )
     await expect(t.write(b, `Alpha`, { remove: true })).rejects.toMatchObject({ code: `NOT_FOUND` })
-    const other = await thread()
+    const other = await chat()
     await expect(other.write(other.root, `Alpha`, { prUrl: `https://github.com/o/r/pull/9` })).rejects.toThrow(
-      /Nothing in this thread's Guide matched topic "Alpha"/
+      /Nothing in this tree's Guide matched topic "Alpha"/
     )
     expect(await t.guide()).toEqual(before)
   })
 
   it(`pictures: a sibling never replaces or removes another's; a parent replaces a child's in place`, async () => {
-    const t = await thread()
+    const t = await chat()
     const a = await t.kid(`exp/a`)
     const b = await t.kid(`exp/b`)
     const publish = (sessionId: string, prepared: ReturnType<typeof picture>) =>
@@ -2460,7 +2460,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     await expect(child(`pa`)).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`refuses with the client copy: offline, visibility, no login, agent; an ended thread revives there`, async () => {
+  it(`refuses with the client copy: offline, visibility, no login, agent; an ended chat revives there`, async () => {
     const w = await moveWorld()
     const add = async (values: Partial<typeof devices.$inferInsert>) => {
       const deviceId = `dev-x-${id8()}`
@@ -2499,7 +2499,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       .returning({ id: agents.id })
     const agent = await sendSession({ userId: w.owner, input: { agentId: bot!.id, text: `hi` } })
     await refuse(w.target, MOVE_COPY.agent, agent.sessionId)
-    // An ENDED thread: a bare device pick has nothing to run; with a
+    // An ENDED chat: a bare device pick has nothing to run; with a
     // message the SAME row revives ON the named device (FEED-134: no engine
     // runs it, so it re-targets like a queued row and says so).
     await endSession({ userId: w.owner, sessionId: w.sessionId })
@@ -3142,7 +3142,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     expect(await texts(convo.sessionId)).toEqual([`Answer to M1.`, `Answer to M2.`])
   })
 
-  it(`replace edits the latest card across turns in a thread session, whatever its title (#EXP-1446)`, async () => {
+  it(`replace edits the latest card across turns in a chat session, whatever its title (#EXP-1446)`, async () => {
     const w = await world({ shared: true })
     const sent = await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `show it` } })
     const host = caller(w.owner)
@@ -3212,7 +3212,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     }
   })
 
-  it(`a thread's turn texts stay separate bubbles; its relayed copy in the parent follows an edit of the origin`, async () => {
+  it(`a chat's turn texts stay separate bubbles; its relayed copy in the parent follows an edit of the origin`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` } })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part` } })

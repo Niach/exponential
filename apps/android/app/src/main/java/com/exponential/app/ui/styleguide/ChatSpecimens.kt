@@ -82,17 +82,17 @@ import com.exponential.app.ui.components.ChatMenuItem
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.thread.AgentGlyph
-import com.exponential.app.ui.thread.ChatHeader
-import com.exponential.app.ui.thread.ChatHeaderButton
-import com.exponential.app.ui.thread.ThreadConversation
-import com.exponential.app.ui.thread.ThreadRowMeta
-import com.exponential.app.ui.threads.ChatsContent
+import com.exponential.app.ui.chat.AgentGlyph
+import com.exponential.app.ui.chat.ChatHeader
+import com.exponential.app.ui.chat.ChatHeaderButton
+import com.exponential.app.ui.chat.ChatConversation
+import com.exponential.app.ui.chat.ChatRowMeta
+import com.exponential.app.ui.chats.ChatsContent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-// Thread 58cb32df (fixtures/chats.json): the Android twins of the styleguide
+// Session 58cb32df (fixtures/chats.json): the Android twins of the styleguide
 // entries `chat-list`, `phone-tab-bar`, `phone-board-menu`, `phone-page-header`,
 // `chat-header`,
 // `chat-transcript`, `chat-menus` and
@@ -116,7 +116,7 @@ private val ACME = TeamEntity(id = "t1", name = "Acme", slug = "acme", createdAt
 private fun chatRow(
     id: String,
     title: String,
-    group: SessionTree.ThreadsGroupKey,
+    group: SessionTree.ChatsGroupKey,
     lead: Chats.ChatLead,
     previewKind: String,
     preview: String,
@@ -124,7 +124,7 @@ private fun chatRow(
     unread: Int = 0,
     needsYou: Boolean = false,
     busy: Boolean = false,
-    word: SessionTree.ThreadRowWord? = null,
+    word: SessionTree.ChatRowWord? = null,
     activityAt: String = "",
     deviceId: String? = null,
     dim: Boolean = false,
@@ -155,22 +155,22 @@ object ChatListSpecimen {
     val LIST: Chats.ChatList = Chats.ChatList(
         rows = listOf(
             chatRow(
-                "b", "Running one", SessionTree.ThreadsGroupKey.Running, Chats.ChatLead.Working,
+                "b", "Running one", SessionTree.ChatsGroupKey.Running, Chats.ChatLead.Working,
                 "working", Chats.Copy.PREVIEW_WORKING, "09:25", busy = true,
                 activityAt = "2026-10-23T09:25:00.000Z",
             ),
             chatRow(
-                "a", "Needs you one", SessionTree.ThreadsGroupKey.NeedsYou, Chats.ChatLead.NeedsYou,
+                "a", "Needs you one", SessionTree.ChatsGroupKey.NeedsYou, Chats.ChatLead.NeedsYou,
                 "question", "Question: Snapshot?", "09:10", needsYou = true, busy = true,
                 activityAt = "2026-10-23T09:10:00.000Z", deviceId = "dev-mac",
             ),
             chatRow(
-                "c", "Open PR", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Open,
-                "agent", "Waiting for review", "08:30", unread = 1, word = SessionTree.ThreadRowWord.ReadyToMerge,
+                "c", "Open PR", SessionTree.ChatsGroupKey.Recent, Chats.ChatLead.Open,
+                "agent", "Waiting for review", "08:30", unread = 1, word = SessionTree.ChatRowWord.ReadyToMerge,
                 activityAt = "2026-10-23T08:30:00.000Z",
             ),
             chatRow(
-                "d", "Merged", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Merged,
+                "d", "Merged", SessionTree.ChatsGroupKey.Recent, Chats.ChatLead.Merged,
                 "you", "You: ship it", Chats.Copy.TIME_YESTERDAY,
                 activityAt = "2026-10-22T10:00:00.000Z", dim = true,
             ),
@@ -196,13 +196,33 @@ object ChatListSpecimen {
             activityAt = "2026-10-23T09:30:00.000Z", unreadCount = 1, needsYou = true, busy = false,
         ),
     )
+
+    /** #EXP-1733: the APP rows = `appRowCases[0].expected` (by name: Budget
+     *  with no session, Triage board needs you, working hours busy). */
+    val APP_ROWS: List<Chats.AppChatRow> = listOf(
+        Chats.AppChatRow(
+            appId = "ap1", slug = "budget", sessionId = null, name = "Budget", icon = null, color = null,
+            preview = Chats.ChatPreview("empty", Chats.Copy.PREVIEW_EMPTY), time = "",
+            activityAt = null, unreadCount = 0, needsYou = false, busy = false,
+        ),
+        Chats.AppChatRow(
+            appId = "ap3", slug = "triage-board", sessionId = "e-ap3", name = "Triage board", icon = "bug", color = "#a855f7",
+            preview = Chats.ChatPreview("question", "Question: Which columns?"), time = "09:40",
+            activityAt = "2026-10-23T09:40:00.000Z", unreadCount = 1, needsYou = true, busy = false,
+        ),
+        Chats.AppChatRow(
+            appId = "ap2", slug = "working-hours", sessionId = "e-ap2", name = "working hours", icon = "clock", color = "#22c55e",
+            preview = Chats.ChatPreview("working", Chats.Copy.PREVIEW_WORKING), time = "09:30",
+            activityAt = "2026-10-23T09:30:00.000Z", unreadCount = 1, needsYou = false, busy = true,
+        ),
+    )
 }
 
 private val ROWS get() = ChatListSpecimen.LIST.rows
 private val LIST get() = ChatListSpecimen.LIST
 
 /** THE phone Chats screen over the bottom bar (shot `sg_chat-list`, #FEED-191:
- *  the Agents section, then the chats grouped; the Needs you entry is the
+ *  the Agents section, #EXP-1733 the Apps section, then the chats grouped; the Needs you entry is the
  *  `needs-you` specimen's, as on web and iOS). */
 @Composable
 fun ChatListSpecimenScreen() {
@@ -212,6 +232,7 @@ fun ChatListSpecimenScreen() {
                 ChatsContent(
                     list = LIST,
                     agentRows = ChatListSpecimen.AGENT_ROWS,
+                    appRows = ChatListSpecimen.APP_ROWS,
                     agentOf = { "claude" },
                     onOpenChat = {},
                     onLongPressChat = {},
@@ -238,7 +259,7 @@ fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatS
         val row = ROWS.first { it.sessionId == id }
         Chats.ChatSelectionRow(
             sessionId = id,
-            rootStatus = if (row.group == SessionTree.ThreadsGroupKey.Recent) "ended" else "running",
+            rootStatus = if (row.group == SessionTree.ChatsGroupKey.Recent) "ended" else "running",
             unreadCount = row.unreadCount,
             canSteer = true,
             canDelete = true,
@@ -490,7 +511,7 @@ fun ChatHeaderSpecimenScreen() {
             Caption("A chat that needs you (${Chats.Shell.ChatHeader.ROW}px, ghost buttons, always leading)")
             ChatHeader(
                 title = "Reduce cold start",
-                subtitle = "${SessionTree.ThreadRowWord.NeedsInput.text} · Alex's MacBook",
+                subtitle = "${SessionTree.ChatRowWord.NeedsInput.text} · Alex's MacBook",
                 subtitleColor = NeedsInputAmber,
                 lead = { ChatLeadDisc(Chats.ChatLead.NeedsYou, agent = "claude", size = discSize) },
                 onBack = {},
@@ -540,27 +561,54 @@ private val LAUNCH_SURFACE: CardSurface = Json.parseToJsonElement(
     """.trimIndent(),
 ).jsonObject.let { CardSurface(it.getValue("root").jsonObject, it["data"] as? JsonObject) }
 
-private fun message(id: String, author: String, body: String) =
-    SessionTree.ThreadRow.MessageRow(id = id, author = author, authorId = if (author == "user") "u-dana" else null, body = body, queued = false)
+private fun message(id: String, author: String, body: String, authorId: String? = if (author == "user") SPECIMEN_MEMBER else null) =
+    SessionTree.SessionChatRow.MessageRow(id = id, author = author, authorId = authorId, body = body, queued = false)
 
-/** The web entry's rows (chat-transcript.tsx) line for line. */
-private val TRANSCRIPT: List<SessionTree.ThreadRow> = listOf(
+/** #EXP-1736: the transcript's viewer and the member writing beside them. */
+private const val SPECIMEN_VIEWER = "u-alex"
+private const val SPECIMEN_MEMBER = "u-dana"
+
+/** #EXP-1736 (transcript-grouping.json): the transcript's own sender, a plain
+ *  session (its agent's bubbles wear its title + the session avatar). */
+private val SPECIMEN_CHAT = com.exponential.app.domain.TranscriptGrouping.Chat(
+    sessionId = "r",
+    title = "Reduce cold start",
+    agentId = null,
+    originSessionId = null,
+)
+
+/** The web entry's rows (chat-transcript.tsx), #EXP-1736 grouped: a member
+ *  (avatar + name), the agent's group of two, a child's report (`›`), the
+ *  viewer's own bubble. */
+private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."),
-    SessionTree.ThreadRow.Plan(id = "p-old", sessionId = "r", plan = "# Plan\nProfile first", decision = "superseded"),
+    SessionTree.SessionChatRow.Plan(id = "p-old", sessionId = "r", plan = "# Plan\nProfile first", decision = "superseded"),
     message(
         "m2",
         "agent",
-        "Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:",
+        "Deferred the shape subscribe until after the first frame and added a board snapshot cache.",
     ),
-    SessionTree.ThreadRow.Surface(id = "s1", sessionId = "r", title = "Launch path", surface = LAUNCH_SURFACE),
+    message("m2b", "agent", "Here's where the time went:"),
+    SessionTree.SessionChatRow.Surface(id = "s1", sessionId = "r", title = "Launch path", surface = LAUNCH_SURFACE),
     // `specimenClock` reads UTC: 18:20 / 09:30 like web, desktop and iOS.
-    SessionTree.ThreadRow.Divider(id = "d1", kind = Chats.DIVIDER_KIND_COMPACT, at = "2026-10-23T18:20:00.000Z"),
-    message("m3", "user", "Anything new overnight?"),
+    SessionTree.SessionChatRow.Divider(id = "d1", kind = Chats.DIVIDER_KIND_COMPACT, at = "2026-10-23T18:20:00.000Z"),
+    SessionTree.SessionChatRow.Report(
+        id = "rep1",
+        sessionId = "c1",
+        text = "Report from Measure on the Galaxy A54",
+        summary = "Cold start is 0.9 s on the Galaxy A54 with the snapshot cache.",
+        xref = SessionTree.SessionXref("report", "c1", "Measure on the Galaxy A54", null),
+    ),
+    message("m3", "user", "Anything new overnight?", authorId = SPECIMEN_VIEWER),
     message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."),
-    SessionTree.ThreadRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T09:30:00.000Z"),
+    SessionTree.SessionChatRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T09:30:00.000Z"),
 )
 
-private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m3" to "09:02", "m4" to "09:03")
+private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m2b" to "21:14", "m3" to "09:02", "m4" to "09:03")
+
+/** The specimen's names by member id. */
+private fun specimenAuthor(row: SessionTree.SessionChatRow.MessageRow): String =
+    if (row.authorId == SPECIMEN_VIEWER) "Alex" else "Dana Reyes"
 
 /** The specimen's wall clock: the bubbles' times above are the web entry's
  *  UTC wall clock, so the divider pills format in the same zone (EXP-1553). */
@@ -575,10 +623,10 @@ private fun specimenClock(wire: String): String? = runCatching {
 fun ChatTranscriptSpecimenScreen() {
     AppBackground {
         Box(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId)) {
-            ThreadConversation(
+            ChatConversation(
                 rows = TRANSCRIPT,
                 rootId = "r",
-                meta = { row -> ThreadRowMeta(authorName = "Dana Reyes", time = TIMES[row.id].orEmpty()) },
+                meta = { row -> ChatRowMeta(authorName = specimenAuthor(row), time = TIMES[row.id].orEmpty()) },
                 onOpenCard = {},
                 onAnswer = { _, _, _ -> },
                 onDecidePlan = { _, _, _ -> },
@@ -587,7 +635,10 @@ fun ChatTranscriptSpecimenScreen() {
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                 onSurfaceReply = {},
+                onOpenXref = {},
                 clock = ::specimenClock,
+                chat = SPECIMEN_CHAT,
+                viewerId = SPECIMEN_VIEWER,
             )
         }
     }
@@ -610,10 +661,10 @@ fun ChatMenusSpecimenScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             MenuCaptioned("A live chat") {
-                ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true)) {})
+                ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.chatMenuEntries("running", true, true)) {})
             }
             MenuCaptioned("An ended chat") {
-                ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true, true)) {})
+                ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.chatMenuEntries("ended", true, true)) {})
             }
             MenuCaptioned("The agent menu (busy, owner)") {
                 ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
@@ -708,11 +759,11 @@ private fun Caption(text: String) {
 
 const val SealedLockedSpecimenTestId = "sealed-locked-specimen"
 
-private val LOCKED_TRANSCRIPT: List<SessionTree.ThreadRow> = listOf(
+private val LOCKED_TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     message("l-m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."),
-    SessionTree.ThreadRow.Locked(id = "l-k1", reason = SealedContent.LOCKED_NO_KEY, author = "agent"),
+    SessionTree.SessionChatRow.Locked(id = "l-k1", reason = SealedContent.LOCKED_NO_KEY, author = "agent"),
     message("l-m2", "agent", "Deferred the shape subscribe until after the first frame."),
-    SessionTree.ThreadRow.Locked(id = "l-k2", reason = SealedContent.LOCKED_UNREADABLE, author = "user"),
+    SessionTree.SessionChatRow.Locked(id = "l-k2", reason = SealedContent.LOCKED_UNREADABLE, author = "user"),
 )
 
 private val LOCKED_LIST_ROWS: List<Chats.ChatRow> get() = LIST.rows.take(3).mapIndexed { index, row ->
@@ -736,10 +787,10 @@ fun SealedLockedSpecimenScreen() {
                 .statusBarsPadding()
                 .padding(top = 12.dp),
         ) {
-            ThreadConversation(
+            ChatConversation(
                 rows = LOCKED_TRANSCRIPT,
                 rootId = "r",
-                meta = { row -> ThreadRowMeta(authorName = "Dana Reyes", time = TIMES[row.id.removePrefix("l-")].orEmpty()) },
+                meta = { row -> ChatRowMeta(authorName = "Dana Reyes", time = TIMES[row.id.removePrefix("l-")].orEmpty()) },
                 onOpenCard = {},
                 onAnswer = { _, _, _ -> },
                 onDecidePlan = { _, _, _ -> },

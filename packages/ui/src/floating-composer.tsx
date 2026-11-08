@@ -3,7 +3,7 @@ import { cn } from "./cn"
 import { MobileWorkBar, MobileWorkCapsule } from "./mobile-work-bar"
 
 // EXP-1316: THE phone reply box ×3 (iOS `FloatingComposer`, Android
-// `FloatingComposer.kt`): the thread conversation AND the session view on a
+// `FloatingComposer.kt`): the chat conversation AND the session view on a
 // phone. Collapsed = the floating bar's capsule reading the placeholder
 // (`MobileWorkBar` / `MobileWorkCapsule`, over the content above the bottom
 // edge fade, never pushing it); a tap expands it into THE Composer card the

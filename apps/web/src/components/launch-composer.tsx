@@ -64,7 +64,7 @@ import {
 //
 // EXP-1293: Start is ONE `sessions.send`; while it uploads and sends, the
 // submit goes PENDING (the spinner in its slot, "Starting", only after
-// `pending.delayMs`), then the composer opens the new thread.
+// `pending.delayMs`), then the composer opens the new chat.
 //
 // Icons are CONCEPTS — this is a multi-client surface (`lib/icons.test.ts`).
 

@@ -132,9 +132,9 @@ export * from "./separator"
 export * from "./session-dot"
 export * from "./session-results"
 export * from "./session-results-view"
-export * from "./session-thread-view"
-export * from "./threads-list"
-// Thread 58cb32df (chats.json): THE phone Chats list pieces + the phone tab bar.
+export * from "./session-chat-view"
+export * from "./chats-list"
+// Chat 58cb32df (chats.json): THE phone Chats list pieces + the phone tab bar.
 export * from "./chat-list"
 export * from "./composer-agent-row"
 // #EXP-1388: THE bulk action bar capsule (issue list + Chats selection).
@@ -144,7 +144,6 @@ export * from "./phone-board-menu"
 export * from "./page-header"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
-export * from "./session-xref"
 // #EXP-1611: the PR's CI faces (Merge pill states, the Checks submenu).
 export * from "./pr-checks"
 export * from "./run-status-row"
@@ -210,9 +209,9 @@ export * from "./comment-call-card"
 // EXP-1270 (EXP-1259 D6): THE Getting started block's face (header + one
 // strip of square cards); the app derives the entries and runs the targets.
 export * from "./getting-started-list"
-// Thread 58cb32df (chats.json): the surface card, transcript divider and phone chat bubble.
+// Chat 58cb32df (chats.json): the surface card, transcript divider and phone chat bubble.
 export * from "./surface-card"
-// Thread 58cb32df: the four chat specimens (styleguide entries + the app's ?dev= captures).
+// Chat 58cb32df: the four chat specimens (styleguide entries + the app's ?dev= captures).
 export * from "./chat-specimens"
 // EXP-1558: the mention-pill, schedule-picker and pr-row boards (styleguide entries + the app's ?dev= captures).
 export * from "./general-specimens"

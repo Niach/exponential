@@ -227,7 +227,7 @@ impl InboxPopoverBody {
 
     /// One agent message (EXP-801): a press marks it read and, #EXP-1456
     /// (inbox-route.json), opens the session it names (#EXP-1662: a session
-    /// waiting on its own plan opens its thread's plan tab); a broadcast only
+    /// waiting on its own plan opens its chat's plan tab); a broadcast only
     /// marks read.
     fn message_row(entry: &queries::MessageInboxEntry, cx: &App) -> AnyElement {
         let unread = entry.unread() > 0;

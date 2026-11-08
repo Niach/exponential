@@ -5,7 +5,7 @@
 //! person's bubble, the agent's prose) with the divider pill with the lock
 //! concept and the reason's copy (`noKey`, `unreadable`), no time, then the
 //! first three chat rows with the locked previews italic muted (#EXP-1469).
-//! The thread screen paints the same pill (`surface_card::locked_pill`).
+//! The chat screen paints the same pill (`surface_card::locked_pill`).
 //! #EXP-1553: like web, the phone's BUBBLES layout first (the agent's reply
 //! in its left bubble with its time), then the IDE transcript.
 //! #EXP-1633: laid out like web's — a wrapping row of the phone card, the
@@ -13,13 +13,12 @@
 
 use domain::chats::{ChatPreview, ChatPreviewKind, ChatRow};
 use domain::sealed::{LockedReason, PLACEHOLDER};
-use domain::session_tree::SessionThreadRow;
-use gpui::{div, px, AnyElement, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use domain::session_tree::SessionChatRow;
+use gpui::{div, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::chat_list::{chat_lead_disc, chat_row};
 use crate::markdown::ImageCache;
-use crate::thread_screen::{chat_agent_bubble, chat_user_bubble, message_markdown, ThreadText};
 
 use super::chat_transcript::{message, paint};
 
@@ -27,8 +26,8 @@ pub(crate) const ID: &str = "sealed-locked";
 pub(crate) const OWNER: &str = "EXP-1459";
 
 /// The web entry's `LOCKED_ROWS` with their times.
-fn transcript() -> Vec<(SessionThreadRow, &'static str)> {
-    let locked = |id: &str, reason, author: &str| SessionThreadRow::Locked { id: id.into(), reason, author: author.into() };
+fn transcript() -> Vec<(SessionChatRow, &'static str)> {
+    let locked = |id: &str, reason, author: &str| SessionChatRow::Locked { id: id.into(), reason, author: author.into() };
     vec![
         (message("l-m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."), "21:02"),
         (locked("l-k1", LockedReason::NoKey, "agent"), ""),
@@ -54,21 +53,6 @@ fn list_rows() -> Vec<ChatRow> {
         .collect()
 }
 
-/// A row in the chat (bubbles) layout: THE thread screen's chat bubbles;
-/// a locked row = the same pill as the transcript.
-fn paint_bubble(row: &SessionThreadRow, time: &str, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
-    let SessionThreadRow::Message { id, author, body, .. } = row else {
-        return paint(row, "", images, window, cx);
-    };
-    let text = ThreadText::default().answering(true);
-    let markdown = message_markdown(SharedString::from(format!("sg-sealed-bubble-{id}")), body, &text, images);
-    if author == domain::contract::MESSAGE_AUTHOR_KIND_USER {
-        chat_user_bubble(id, markdown, time.to_string(), false, true, cx)
-    } else {
-        chat_agent_bubble(markdown, time.to_string(), cx)
-    }
-}
-
 /// A caption over a layout (the web entry's `text-xs` muted labels).
 fn label(text: &'static str, cx: &App) -> Div {
     div().text_xs().text_color(cx.theme().muted_foreground).child(text)
@@ -76,8 +60,12 @@ fn label(text: &'static str, cx: &App) -> Div {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-sealed-locked-images", cx, |_, _| ImageCache::new(None)).clone();
-    let bubbles: Vec<AnyElement> =
-        transcript().iter().map(|(row, time)| paint_bubble(row, time, &images, window, cx)).collect();
+    // #EXP-1736: ONE transcript, ONE bubble: the phone card paints the
+    // same rows as the transcript.
+    let bubbles: Vec<AnyElement> = transcript()
+        .iter()
+        .map(|(row, time)| paint(row, time, &images, window, cx))
+        .collect();
     let rows: Vec<AnyElement> = transcript().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
     // Web: `flex flex-wrap items-start gap-6`; the phone card `w-[22rem]
     // rounded-3xl border bg-background p-4`, the transcript `w-[32rem]`,
@@ -126,7 +114,7 @@ mod tests {
     /// first and the third locked.
     #[test]
     fn the_specimen_is_the_web_entry() {
-        let pills = transcript().iter().filter(|(row, _)| matches!(row, SessionThreadRow::Locked { .. })).count();
+        let pills = transcript().iter().filter(|(row, _)| matches!(row, SessionChatRow::Locked { .. })).count();
         assert_eq!(pills, 2);
         let rows = list_rows();
         assert_eq!(rows.len(), 3);

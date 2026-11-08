@@ -45,7 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 
 /**
- * EXP-1291 Threads v2 / NEW-2: Team settings → Agents (lane AGENTS owns the
+ * EXP-1291 / NEW-2: Team settings → Agents (lane AGENTS owns the
  * UI; `agent-settings.json`). ONE model for the list (the selected team's
  * agent DEFINITIONS) and an agent page (`agentId` from the route; null =
  * `New agent`). Agents are managed like boards: owner writes, members read.

@@ -182,7 +182,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
   // Sessions this user STARTED on somebody else's machine (NEW-1: the host
   // is derived from the devices rows: no own row for the device, a
   // teammate's row sharing the team). `user_id` cascades, so the delete
-  // would VAPORIZE these rows (a shared thread is team data, and a vanished
+  // would VAPORIZE these rows (a shared chat is team data, and a vanished
   // row is no kill signal for the host's device). Re-attributing them to the
   // host keeps them as host-owned rows, ended when live; the visibility
   // mirrors (`owner_id`) follow, or the messages and issue links would

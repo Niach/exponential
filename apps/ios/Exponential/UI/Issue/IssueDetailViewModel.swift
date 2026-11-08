@@ -57,9 +57,9 @@ final class IssueDetailViewModel {
     /// Every synced `team_members` row; scoped to this issue's team by
     /// `teamUsers` (EXP-487).
     var teamMembers: [TeamMemberEntity] = []
-    /// EXP-1295: the threads (root sessions) holding the issue, newest
-    /// activity first — the page's `Threads` row.
-    var threads: [IssueThreadLink] = []
+    /// EXP-1295: the chats (root sessions) holding the issue, newest
+    /// activity first — the page's `Chats` row.
+    var chats: [IssueChatLink] = []
     /// The canonical issue when this one is marked a duplicate — resolves the
     /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
     var duplicateOf: IssueEntity?
@@ -257,7 +257,7 @@ final class IssueDetailViewModel {
             ?? []
     }
 
-    /// EXP-1343: a thread pager's NEIGHBOUR page reads its issue ONCE (no
+    /// EXP-1343: a chat pager's NEIGHBOUR page reads its issue ONCE (no
     /// observation), so a swipe lands on the page instead of a skeleton;
     /// `startObserving` takes over once the page is shown.
     func preload() {
@@ -310,16 +310,16 @@ final class IssueDetailViewModel {
             } catch {}
         })
 
-        // EXP-1295: the threads holding the issue — each root with its tree,
+        // EXP-1295: the chats holding the issue — each root with its tree,
         // linked issues and user messages, the inputs of its title and state
-        // (`SessionTree.partitionThreads`).
-        let threadsObs = ValueObservation.tracking { db in
-            try IssueThreadLink.load(db: db, issueId: issueId)
+        // (`SessionTree.partitionChats`).
+        let chatsObs = ValueObservation.tracking { db in
+            try IssueChatLink.load(db: db, issueId: issueId)
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await threads in threadsObs.removeDuplicates().values(in: pool) {
-                    self?.threads = threads
+                for try await chats in chatsObs.removeDuplicates().values(in: pool) {
+                    self?.chats = chats
                 }
             } catch {}
         })

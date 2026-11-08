@@ -23,7 +23,7 @@ describe(`session back stack`, () => {
     expect(pushBack(full, `x`).at(-1)).toBe(`x`)
   })
 
-  it(`opens a thread child in place, the viewer's agent conversation on the agent page, the rest by id`, () => {
+  it(`opens a chat child in place, the viewer's agent conversation on the agent page, the rest by id`, () => {
     const rows: Record<string, TargetSession> = {
       t1: { id: `t1`, rootId: `t1`, parentId: null, agentId: null, userId: `u1` },
       c1: { id: `c1`, rootId: `t1`, parentId: `t1`, agentId: null, userId: `u1` },
@@ -32,8 +32,8 @@ describe(`session back stack`, () => {
       ak1: { id: `ak1`, rootId: `ac1`, parentId: `ac1`, agentId: null, userId: `u1` },
     }
     const lookup = (id: string) => rows[id]
-    expect(sessionTarget(`t1`, lookup, `u1`)).toEqual({ to: `thread`, threadId: `t1`, session: null })
-    expect(sessionTarget(`c1`, lookup, `u1`)).toEqual({ to: `thread`, threadId: `t1`, session: `c1` })
+    expect(sessionTarget(`t1`, lookup, `u1`)).toEqual({ to: `chat`, chatId: `t1`, session: null })
+    expect(sessionTarget(`c1`, lookup, `u1`)).toEqual({ to: `chat`, chatId: `t1`, session: `c1` })
     expect(sessionTarget(`ac1`, lookup, `u1`)).toEqual({ to: `agent`, agentId: `a1` })
     expect(sessionTarget(`ac2`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ac2` })
     expect(sessionTarget(`ak1`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ak1` })
@@ -53,12 +53,12 @@ describe(`session target replays inbox-route.json`, () => {
       ])
       if (rootId !== session.id) rows.set(session.id, { id: session.id, rootId, agentId: null, userId: session.userId })
       const target = sessionTarget(session.id, (id) => rows.get(id), entry.viewerId)
-      const expected = entry.expected as { kind: string; agentId?: string; threadId?: string; sessionId?: string | null }
+      const expected = entry.expected as { kind: string; agentId?: string; chatId?: string; sessionId?: string | null }
       expect(target).toEqual(
         expected.kind === `agent`
           ? { to: `agent`, agentId: expected.agentId }
-          : expected.kind === `thread`
-            ? { to: `thread`, threadId: expected.threadId, session: expected.sessionId }
+          : expected.kind === `chat`
+            ? { to: `chat`, chatId: expected.chatId, session: expected.sessionId }
             : { to: `session`, sessionId: expected.sessionId }
       )
     })

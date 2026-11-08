@@ -481,7 +481,7 @@ function upgradeUpdateComponents(body: Obj, state: Upgrade09State, ctx: Ctx): Ob
 }
 
 /** §14.2: one 0.9 agent → renderer (or host-internal) message → exactly one
- *  1.0 message, threading the id maps of a stream through `state` (copied,
+ *  1.0 message, carrying the id maps of a stream through `state` (copied,
  *  never mutated). */
 export function upgradeMessage09(message: unknown, state?: Upgrade09State): { messages: unknown[]; state: Upgrade09State } {
   const next = cloneState(state)

@@ -36,15 +36,15 @@ import dev.chrisbanes.haze.rememberHazeState
 /**
  * EXP-1291: the ISSUE screen (`issue/{issueId}?comment=`) — the issue face
  * alone (EXP-1291 retired the Issue | Session | Guide faces: sessions live in
- * threads now). The host owns the Scaffold, the top bar (identifier, the
+ * chats now). The host owns the Scaffold, the top bar (identifier, the
  * collapsed title, the issue `…` menu), the "Ready to code?" checklist and
  * the bar's Start circle (lane SESSION owns Start: today it opens the home
- * composer seeded with this issue). A pull request row opens the thread that
- * opened it ([onOpenThread]), else the PR on GitHub.
+ * composer seeded with this issue). A pull request row opens the chat that
+ * opened it ([onOpenChat]), else the PR on GitHub.
  *
- * EXP-1316 [embedded]: the thread's issue tab = the issue body alone: no own
- * top bar (the thread's header stays), no `Threads` row, no Start (the bar
- * keeps properties + Comment); the thread host provides the haze, the title
+ * EXP-1316 [embedded]: the chat's issue tab = the issue body alone: no own
+ * top bar (the chat's header stays), no `Chats` row, no Start (the bar
+ * keeps properties + Comment); the chat host provides the haze, the title
  * collapse and the markdown toolbar, and hands its content [padding].
  */
 @Composable
@@ -54,8 +54,8 @@ fun IssueScreen(
     onOpenIssue: (String) -> Unit,
     /** Start: the home composer with this issue preselected. */
     onOpenAgent: (AgentComposerSeed) -> Unit,
-    /** The issue's `Threads` row and a PR row's thread. */
-    onOpenThread: (rootSessionId: String) -> Unit,
+    /** The issue's `Chats` row and a PR row's chat. */
+    onOpenChat: (rootSessionId: String) -> Unit,
     /** EXP-1121: the "Ready to code?" fixes that leave the screen; null hides. */
     /** #EXP-1381: [section] = the settings category the fix lives on. */
     onOpenTeamSettings: ((teamId: String, section: String) -> Unit)? = null,
@@ -71,7 +71,7 @@ fun IssueScreen(
     val issueVm = hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(
         key = "issue:$issueId",
     ) { factory -> factory.create(issueId) }
-    val commentVm: CommentThreadViewModel = hiltViewModel(key = "comments:$issueId")
+    val commentVm: IssueCommentsViewModel = hiltViewModel(key = "comments:$issueId")
     val controller = rememberIssueFaceController()
     val state by issueVm.state.collectAsStateWithLifecycle()
     val issue = state.issue
@@ -134,7 +134,7 @@ fun IssueScreen(
             onAddSubIssue = onCreateSubIssue?.let { create ->
                 issue?.let { parent -> { create(parent.boardId, parent.id) } }
             },
-            onOpenThread = if (embedded) null else onOpenThread,
+            onOpenChat = if (embedded) null else onOpenChat,
         )
     }
     val hazeState = rememberHazeState()

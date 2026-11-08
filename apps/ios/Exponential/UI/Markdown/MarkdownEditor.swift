@@ -1117,7 +1117,7 @@ struct BlockTextEditor: UIViewRepresentable {
         private var chipPassScheduled = false
         /// The last pass ran over a text that could hold chips (EXP-1358).
         private var chipsPresent = false
-        /// `nonisolated`: the status memo on a GRDB pool thread reads it too (EXP-1358 review).
+        /// `nonisolated`: the status memo on a GRDB pool chat reads it too (EXP-1358 review).
         nonisolated static let chipPassDebounce: TimeInterval = 0.12
 
         /// Re-chip after the edit cycle, coalesced to one pass per runloop turn.

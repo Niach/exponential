@@ -44,7 +44,7 @@ internal data class IssueRefChipSpec(
     /** Registry glyph name; null ⇒ no icon, and the `#` stays visible. */
     val iconName: String? = null,
     val color: Color? = null,
-    /** Thread e4a04d22: a mention pill — the round accent capsule, not a chip. */
+    /** Session e4a04d22: a mention pill — the round accent capsule, not a chip. */
     val pill: Boolean = false,
 )
 
@@ -108,7 +108,7 @@ internal fun Modifier.drawIssueRefChips(
 private class PillMetrics(val ascent: Float, val descent: Float, val hairline: Float)
 
 /**
- * The mention pill (thread e4a04d22), box for box web's inline
+ * The mention pill (session e4a04d22), box for box web's inline
  * `.mention-pill`: horizontally the pill's display text (its two letter-spaced
  * [MENTION_PAD] cells are the side padding), vertically the 13sp font's
  * content area plus `0.05rem` and the hairline around the baseline; fully

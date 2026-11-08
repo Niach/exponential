@@ -718,7 +718,7 @@ describe(`groupFeedRows`, () => {
     ])
   })
 
-  it(`two subagents keep separate groups and never absorb main-thread tools`, () => {
+  it(`two subagents keep separate groups and never absorb main-chat tools`, () => {
     const feed = [
       item(1, `tool`),
       item(2, `subagent`, { subagentId: `s1` }),
@@ -769,7 +769,7 @@ describe(`groupFeedRows`, () => {
     expect(subagentIdOf({ kind: `compaction`, subagentId: `s1` })).toBeNull()
   })
 
-  it(`a subagent tool breaks a main-thread run instead of joining it`, () => {
+  it(`a subagent tool breaks a main-chat run instead of joining it`, () => {
     const feed = [
       item(1, `tool`),
       item(2, `tool`, { subagentId: `s1` }),

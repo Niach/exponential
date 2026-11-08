@@ -418,7 +418,7 @@ describe(`the gesture host`, () => {
     expect(onRowClick).toHaveBeenCalledTimes(1)
   })
 
-  // Thread 58cb32df: a touch long-press opens the menu while the finger is
+  // Chat 58cb32df: a touch long-press opens the menu while the finger is
   // still down; the release's click is the gesture's tail, wherever it
   // lands (the phone sheet is under the finger), never a tap on the row.
   it(`swallows the release's click after a touch long-press, then lets taps through`, () => {

@@ -191,16 +191,16 @@
       "icon": "ui-team"
     },
     {
-      "name": "a thread reads its title",
+      "name": "a chat reads its title",
       "ref": { "kind": "thread", "id": "th-1", "title": "Checkout redesign" },
       "label": "Checkout redesign",
       "detail": null,
       "icon": "work-faces"
     },
     {
-      "name": "an untitled thread reads the noun",
+      "name": "an untitled chat reads the noun",
       "ref": { "kind": "thread", "id": "th-2" },
-      "label": "Thread",
+      "label": "Chat",
       "detail": null,
       "icon": "work-faces"
     },

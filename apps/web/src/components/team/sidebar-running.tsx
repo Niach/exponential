@@ -11,17 +11,17 @@ import {
   SidebarMenuItem,
   SidebarMenuTrailing,
   SessionRowDevice,
-  threadRunMarkState,
+  chatRunMarkState,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
 import { chatsUnread } from "@exp/domain-contract/chats"
 import type { TreeSessionRead } from "@exp/domain-contract/session-tree"
 import {
-  THREADS_LIST_COPY,
-  railThreads,
-  type ThreadRowWord,
-  type ThreadsListGroup,
-  type ThreadsListRow,
+  CHATS_LIST_COPY,
+  railChats,
+  type ChatRowWord,
+  type ChatsListGroup,
+  type ChatsListRow,
 } from "@/lib/session-tree"
 import { TABLESS_ORIGIN } from "@/lib/work-tabs"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
@@ -29,16 +29,16 @@ import { cn } from "@/lib/utils"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
 
 // EXP-923 / EXP-1293 / EXP-1318: the ACTIVE band lives in the SIDEBAR,
-// under the boards — `railThreads` over the Threads list of the ACTIVE team
-// (fixture-locked `partitionThreads`, `threads-list.json` `railCases`):
+// under the boards — `railChats` over the Chats list of the ACTIVE team
+// (fixture-locked `partitionChats`, `chats-list.json` `railCases`):
 // every Needs you row, every Running row, then the Recent rows whose word
 // still asks for a merge (`readyToMerge`, `stack`); hidden entirely when
 // empty. A row = the agent mark (the working spark, the yellow badge while it
 // needs you) + the title (it names the issue), NO captions. A click opens
-// the thread with the `running` origin, which creates NO work tab
+// the chat with the `running` origin, which creates NO work tab
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). #EXP-1461: ROOTS only (a child
 // never lists), a bold title = unread; a row that changes band
-// enters on the motion tokens. Thread 58cb32df: a root row opens THE chat
+// enters on the motion tokens. Chat 58cb32df: a root row opens THE chat
 // menu (chats.json MENUS) through the team layout's menu host.
 
 /** The words a row shows while its title is held (EXP-1316: an
@@ -70,18 +70,18 @@ function SidebarRunningTitle({ title, unread = false }: { title: string; unread?
 }
 
 /** The list data the sidebar reads ONCE and hands to its sections. */
-export interface SidebarThreads {
-  groups: ThreadsListGroup[]
+export interface SidebarChats {
+  groups: ChatsListGroup[]
   /** A row's quiet word (its root's PRs), what keeps a Recent row Active. */
-  wordOf: (row: ThreadsListRow) => ThreadRowWord | null
+  wordOf: (row: ChatsListRow) => ChatRowWord | null
 }
 
-/** The nav's live state for the Threads entry: green while anything runs,
+/** The nav's live state for the Chats entry: green while anything runs,
  *  yellow while something needs you; EXP-1323: else the unread dot while a
- *  thread holds a reply the viewer has not read; #EXP-1388: an archived
+ *  chat holds a reply the viewer has not read; #EXP-1388: an archived
  *  chat never lights it (`chatsUnread(groups, reads)`). */
-export function threadsNavState(
-  groups: readonly ThreadsListGroup[],
+export function chatsNavState(
+  groups: readonly ChatsListGroup[],
   reads: readonly TreeSessionRead[] = []
 ): {
   live: boolean
@@ -93,50 +93,48 @@ export function threadsNavState(
   return { live: needsYou || running, needsYou, unread: chatsUnread(groups, reads) }
 }
 
-/** A thread row's mark state (EXP-1312): THE one in `@exp/ui`. */
-export { threadRunMarkState }
+/** A chat row's mark state (EXP-1312): THE one in `@exp/ui`. */
+export { chatRunMarkState }
 
-/** The agent CLI of a thread's root (its brand mark). */
+/** The agent CLI of a chat's root (its brand mark). */
 function rootCli(sessionId: string): string | null {
   return sessionCollection.get(sessionId)?.cli ?? null
 }
 
-export function ThreadRunMark({
+export function ChatRunMark({
   row,
   ringClassName = `ring-sidebar`,
   className,
 }: {
-  row: Pick<ThreadsListRow, `sessionId` | `needsYou` | `busy`>
+  row: Pick<ChatsListRow, `sessionId` | `needsYou` | `busy`>
   ringClassName?: string
   className?: string
 }) {
   return (
     <AgentRunMark
       agent={rootCli(row.sessionId)}
-      state={threadRunMarkState(row)}
+      state={chatRunMarkState(row)}
       ringClassName={ringClassName}
       className={className}
     />
   )
 }
 
-/** Which thread the app is SHOWING: its page, or one of its sessions'. */
-function useShownThreadId(): string | null {
+/** Which chat the app is SHOWING: its page, or one of its sessions'. */
+function useShownChatId(): string | null {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const thread = /\/threads\/([^/]+)$/.exec(pathname)?.[1]
-  if (thread) return thread
   const session = /\/sessions\/([^/]+)$/.exec(pathname)?.[1]
   if (!session) return null
   const row = sessionCollection.get(session)
   return row ? (row.rootId ?? row.id) : null
 }
 
-function useOpenThread(teamSlug: string): (threadId: string) => void {
+function useOpenChat(teamSlug: string): (chatId: string) => void {
   const navigate = useNavigate()
-  return (threadId) => {
+  return (chatId) => {
     void navigate({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug, threadId },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug, sessionId: chatId },
       search: { from: TABLESS_ORIGIN },
     })
   }
@@ -145,14 +143,14 @@ function useOpenThread(teamSlug: string): (threadId: string) => void {
 /** The expanded sidebar's Active group — hidden with nothing in it. */
 export function SidebarRunningSection({
   teamSlug,
-  threads,
+  chats,
 }: {
   teamSlug: string
-  threads: SidebarThreads
+  chats: SidebarChats
 }) {
-  const rows = railThreads(threads.groups, threads.wordOf)
-  const shown = useShownThreadId()
-  const openThread = useOpenThread(teamSlug)
+  const rows = railChats(chats.groups, chats.wordOf)
+  const shown = useShownChatId()
+  const openChat = useOpenChat(teamSlug)
   const deviceGlyph = useDeviceGlyphs()
   const entering = useEnteringRows(rows.map((row) => row.sessionId))
   if (rows.length === 0) return null
@@ -160,7 +158,7 @@ export function SidebarRunningSection({
     <SidebarGroup data-testid="sidebar-running">
       {/* EXP-1022: the main menu's plain group label, like Boards above it —
           the filled group band belongs to LISTS, not the menu. */}
-      <SidebarGroupLabel>{THREADS_LIST_COPY.rail}</SidebarGroupLabel>
+      <SidebarGroupLabel>{CHATS_LIST_COPY.rail}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
           {rows.map((row) => {
@@ -170,13 +168,13 @@ export function SidebarRunningSection({
                 <SidebarMenuButton
                   density="compact"
                   isActive={shown === row.sessionId}
-                  onClick={() => openThread(row.sessionId)}
+                  onClick={() => openChat(row.sessionId)}
                   data-testid={`sidebar-running-${row.sessionId}`}
-                  // Thread 58cb32df: a chat row's menu (S-3: Delete) on
+                  // Chat 58cb32df: a chat row's menu (S-3: Delete) on
                   // right-click / long-press.
                   {...menuProps(CHAT_ROW_MENU_KIND, row.sessionId)}
                 >
-                  <ThreadRunMark row={row} />
+                  <ChatRunMark row={row} />
                   <SidebarRunningTitle title={row.title} unread={row.unread} />
                 </SidebarMenuButton>
                 {/* EXP-1318: the root's device, trailing — EXP-1477: in the

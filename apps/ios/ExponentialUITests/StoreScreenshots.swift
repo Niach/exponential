@@ -7,7 +7,7 @@ import XCTest
 /// the fallback), wait for Electric to sync the demo team, then
 /// capture the seven store shots — board, issue detail, Start-coding dialog,
 /// live steering, PR review, actions, inbox (the support inbox left with the
-/// helpdesk (gone, SLOP-4)). EXP-1295 walks the issue's thread for the
+/// helpdesk (gone, SLOP-4)). EXP-1295 walks the issue's chat for the
 /// steering and review shots (Reviews and the work faces are gone). EXP-393 replaced
 /// the comments / board-picker / agents-list / reviews-list / search shots
 /// with the three that actually differentiate the product (start coding,
@@ -58,8 +58,8 @@ final class StoreScreenshots: XCTestCase {
     /// to be the LAST event: the feed is bottom-anchored and lazy, so anything
     /// above the fold is never rendered and no query can find it.
     private static let feedQuestionFragment = "Lazy-load the markdown editor too"
-    /// The thread's child session the stand-in desktop serves over eNet
-    /// (DEMO_SESSION_ID); the thread root's own card comes first and has no
+    /// The chat's child session the stand-in desktop serves over eNet
+    /// (DEMO_SESSION_ID); the chat root's own card comes first and has no
     /// feed of its own.
     private static let steeredSessionTitle = "Profile the launch path"
 
@@ -99,13 +99,13 @@ final class StoreScreenshots: XCTestCase {
         // activation point lands on the leading priority control, so an
         // element tap opens the priority picker sheet instead of navigating
         // (EXP-348 — it silently killed all three snapshot retries).
-        let commentsHeader = app.staticTexts["comment-thread-header"]
+        let commentsHeader = app.staticTexts["comment-replies-header"]
         var detailOpened = false
         for _ in 0..<2 {
             if showcaseRowTitle.exists && showcaseRowTitle.isHittable {
                 showcaseRowTitle.tap()
             }
-            // The comment thread renders once the comments shape has synced;
+            // The comments render once the comments shape has synced;
             // a second tap only helps when the first one was swallowed (a
             // save-password sheet after a UI login).
             if commentsHeader.waitForExistence(timeout: Wait.sync) {
@@ -118,28 +118,28 @@ final class StoreScreenshots: XCTestCase {
             print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
         }
         XCTAssertTrue(detailOpened, "Issue detail did not open — missing: \(commentsHeader.description)")
-        // EXP-1295: the thread the reader's OWN live session works in shows
-        // as the page's Threads chip — that is what makes this shot say "an
+        // EXP-1295: the chat the reader's OWN live session works in shows
+        // as the page's Chats chip — that is what makes this shot say "an
         // agent is coding on this right now". Wait for the chip, never a
         // caption.
-        let threadChip = app.descendants(matching: .any)
-            .matching(identifier: "issue-thread-chip").firstMatch
+        let chatChip = app.descendants(matching: .any)
+            .matching(identifier: "issue-chat-chip").firstMatch
         expect(
-            threadChip,
+            chatChip,
             within: Wait.sync,
-            "No thread on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
+            "No chat on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // EXP-1295: the chip opens the thread; its child's session card opens
+        // EXP-1295: the chip opens the chat; its child's session card opens
         // the session's raw work (the pending question card still in place).
         // EXP-1303: picked by title, the root's own card is drawn first.
-        threadChip.tap()
+        chatChip.tap()
         let sessionCard = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "session-card", Self.steeredSessionTitle))
             .firstMatch
-        expect(sessionCard, within: Wait.sync, "The thread drew no session card")
+        expect(sessionCard, within: Wait.sync, "The chat drew no session card")
         // EXP-1323: the conversation opens scrolled to its live tail (the
         // Queue + status row is its last row), so the child's card can sit
         // above the fold. NEW-16: scroll it below the strip (a card under the
@@ -147,8 +147,8 @@ final class StoreScreenshots: XCTestCase {
         revealAndTap(
             app,
             sessionCard,
-            below: anyElement(app, identified: "thread-tab-conversation"),
-            "The thread's session card never scrolled into view"
+            below: anyElement(app, identified: "chat-tab-conversation"),
+            "The chat's session card never scrolled into view"
         )
         expect(
             app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
@@ -175,7 +175,7 @@ final class StoreScreenshots: XCTestCase {
         // the circle offers the start action — which PUSHES the home
         // composer with the issue chipped. The circle needs an online desktop:
         // without one it shows a notice instead of navigating. Session →
-        // thread → issue → board. The session page is a page OF the thread
+        // chat → issue → board. The session page is a page OF the chat
         // (its strip stays on screen), so one Back pops both; a third Back
         // would land on the board header's switcher sheet.
         // #NEW-12: the iPad's issue is the detail's root, the board beside it.
@@ -210,7 +210,7 @@ final class StoreScreenshots: XCTestCase {
         // pushes). Wait for a real notification group — capturing the
         // "You're all caught up" empty state would silently ship an empty
         // store shot.
-        let chatsTab = shellEntry(app, "tab-threads", within: Wait.nav)
+        let chatsTab = shellEntry(app, "tab-chats", within: Wait.nav)
         expect(chatsTab, within: 1, "Chats tab missing")
         chatsTab.tap()
         let inboxButton = app.buttons["chats-inbox"]

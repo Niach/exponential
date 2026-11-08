@@ -8,7 +8,7 @@
 //! `work_header::WorkHeader` (EXP-877): [`IssueHeader::right_cluster`]
 //! (EXP-1294: related-work badge · Start · pin · `…`) and
 //! [`IssueHeader::chip_row`] (Status · Priority · Assignee · Labels · Due
-//! date · Estimate · Board · Origin · Threads). The host observes this
+//! date · Estimate · Board · Origin · Chats). The host observes this
 //! entity so a builder's `cx.notify()` reaches it.
 //!
 //! Every control mutates immediately through tRPC (`issues.update` /
@@ -100,7 +100,7 @@ impl IssueHeader {
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
-            // EXP-1294: the tray's Threads row (roots linked through
+            // EXP-1294: the tray's Chats row (roots linked through
             // `session_issues`) and the Close PR / related-work reads.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
             cx.observe(&collections.session_issues, |_, _, cx| cx.notify()),

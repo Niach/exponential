@@ -114,7 +114,7 @@ export function prepareSubsetParams(
 /**
  * REV-8: compression must be ASYNC. A snapshot chunk can run to multiple MB
  * and zlib does ~50MB/s on JSON, so the synchronous variant froze the single
- * Bun.serve JS thread for ~hundreds of ms per chunk — and a cold-start herd
+ * Bun.serve JS chat for ~hundreds of ms per chunk — and a cold-start herd
  * (deploy restart, shape-identity rotation) serialized seconds of dead event
  * loop through it, stalling every concurrent long-poll, tRPC mutation and SSR
  * request. The callback form runs on the threadpool instead.

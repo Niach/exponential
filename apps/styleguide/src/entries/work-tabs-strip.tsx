@@ -7,7 +7,7 @@ import type { StyleguideEntry } from "./types.ts"
 // itself lives in apps/web (`components/team/work-tabs-strip.tsx`) over the
 // pure `lib/work-tabs.ts`, so the specimen draws its chips from the same
 // `@exp/ui` strip chip (`StripChip`, EXP-1334: ONE tab component with the
-// thread header's strip) + concept glyphs at rest: the × at rest is hidden on every
+// chat header's strip) + concept glyphs at rest: the × at rest is hidden on every
 // chip and shows on the HOVERED one (here the second, the active one keeps
 // no exception), the "+N" overflow, then the ghost "+" that opens the New
 // session tab, drawn last as an open New session chip.
@@ -17,7 +17,7 @@ const UiAddIcon = conceptIcon(`ui-add`)
 const NewRunIcon = conceptIcon(`action-chat`)
 const noop = (): void => {}
 
-/** THE strip chip (EXP-1334: the thread header's chip box too), the ×
+/** THE strip chip (EXP-1334: the chat header's chip box too), the ×
  *  as its trailing part, hidden unless the tab is hovered. */
 function Chip({
   lead,
@@ -59,7 +59,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1255`,
   title: `Work tab strip`,
-  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). Route-driven (EXP-1293): an issue, a thread, an agent's channel or a raw session the URL opened is a tab; a thread chip leads with its agent mark. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Every chip is THE strip chip (EXP-1334: the same box as the thread header's chips, \`StripChip\`); chips that do not fit fold into "+N" (the contract's \`partitionTabs\`). A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); the navigation that leaves it (its start opening the thread) lands in that tab. Threads opened from the sidebar's Running stay tabless. Switching tabs never animates.`,
+  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). Route-driven (EXP-1293): an issue, a chat, an agent's channel or a raw session the URL opened is a tab; a chat chip leads with its agent mark. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Every chip is THE strip chip (EXP-1334: the same box as the chat header's chips, \`StripChip\`); chips that do not fit fold into "+N" (the contract's \`partitionTabs\`). A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); the navigation that leaves it (its start opening the chat) lands in that tab. Chats opened from the sidebar's Running stay tabless. Switching tabs never animates.`,
   status: {
     web: {
       state: `ok`,

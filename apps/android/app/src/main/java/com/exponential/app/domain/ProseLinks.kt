@@ -37,7 +37,6 @@ object ProseLinks {
             is AppLink.IssueRef -> Triple(link.teamSlug, ChipKind.Issue, link.identifier)
             is AppLink.Board -> Triple(link.teamSlug, ChipKind.Board, link.boardSlug)
             is AppLink.Session -> Triple(link.teamSlug, ChipKind.Session, link.sessionId)
-            is AppLink.Thread -> Triple(link.teamSlug, ChipKind.Session, link.threadId)
             is AppLink.Agent -> Triple(link.teamSlug, ChipKind.Agent, link.agentId)
             else -> return null
         }

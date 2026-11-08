@@ -46,7 +46,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         ))
         .child(rail_row_lead(
             "sg-sidebar-chats",
-            lead(Icon::from(registry::NAV_THREADS)),
+            lead(Icon::from(registry::NAV_CHATS)),
             "Chats",
             false,
             Some(RailBadge::Dot(yellow)),

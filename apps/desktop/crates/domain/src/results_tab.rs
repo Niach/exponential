@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(RESULTS_TAB.copy.now, "now");
         assert_eq!(RESULTS_TAB.copy.untitled, "Result");
         assert_eq!(RESULTS_TAB.tab.copy.label, "Results");
-        assert_eq!(RESULTS_TAB.tab.test_ids.tab, "thread-results-tab");
+        assert_eq!(RESULTS_TAB.tab.test_ids.tab, "chat-results-tab");
         assert_eq!(RESULTS_TAB.tab.tile.thumb_height.phone, 240.0);
         assert_eq!(RESULTS_TAB.tab.tile.list_gap, 32.0);
     }

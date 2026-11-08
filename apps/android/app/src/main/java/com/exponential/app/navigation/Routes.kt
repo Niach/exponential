@@ -3,60 +3,60 @@ package com.exponential.app.navigation
 import com.exponential.app.domain.NeedsYou
 
 /**
- * EXP-1291 Threads v2: the route strings every screen lane navigates by.
+ * EXP-1291: the route strings every screen lane navigates by.
  *
  * - [HOME] = the composer page (the Agent tab, the app's landing root);
  *   seeded pushes ride `agentRoute(seed)` (`domain/AgentComposerSeed.kt`).
- * - [THREADS] = the Threads tab (it replaced Reviews).
- * - [thread] = ONE conversation screen for a thread root OR an agent root.
+ * - [CHATS] = the Chats tab (it replaced Reviews).
+ * - [chat] = ONE conversation screen for a chat root OR an agent root.
  * - [session] = the raw session view (the live transcript; was `steer/{id}`).
  * - [AGENTS_SETTINGS] / [agentSettings] / [AGENT_NEW] = Settings → Agents.
  */
 object Routes {
     const val HOME = MainTabs.AGENT
-    const val THREADS = MainTabs.THREADS
+    const val CHATS = MainTabs.CHATS
 
     /** #EXP-1388: the Chats tab's Archived page (pushed from its entry row). */
-    const val CHATS_ARCHIVED = "threads-archived"
+    const val CHATS_ARCHIVED = "chats-archived"
 
     /** #FEED-191 (needs-you.json): THE list, pushed from the Chats list's first row. */
-    const val CHATS_NEEDS_YOU = "threads-needs-you"
+    const val CHATS_NEEDS_YOU = "chats-needs-you"
 
-    /** `tab` = the tab the thread opens on (`guide` for a `?view=guide`
+    /** `tab` = the tab the chat opens on (`guide` for a `?view=guide`
      *  link); absent = the Conversation. `plan` = the plan card the plan tab
      *  opens on (#EXP-1662; absent = `planTabTarget`). `card` = the waiting card
      *  the Conversation centres (#FEED-191 needs-you.json). */
-    const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}&plan={plan}&card={card}"
+    const val CHAT_PATTERN = "chat/{sessionId}?tab={tab}&plan={plan}&card={card}"
 
     /** EXP-1635 (share-targets.json): STEP 1 of a share; New issue pushes [SHARE_COMPOSE]. */
     const val SHARE_TO = "share-to"
     const val SHARE_COMPOSE = "share-compose"
 
-    const val THREAD_TAB_GUIDE = "guide"
-    const val THREAD_TAB_PLAN = "plan"
-    const val THREAD_TAB_RESULTS = "results"
-    fun thread(rootSessionId: String, tab: String? = null): String =
-        if (tab == null) "thread/$rootSessionId" else "thread/$rootSessionId?tab=$tab"
+    const val CHAT_TAB_GUIDE = "guide"
+    const val CHAT_TAB_PLAN = "plan"
+    const val CHAT_TAB_RESULTS = "results"
+    fun chat(rootSessionId: String, tab: String? = null): String =
+        if (tab == null) "chat/$rootSessionId" else "chat/$rootSessionId?tab=$tab"
 
     const val SESSION_PATTERN = "session/{sessionId}"
     fun session(sessionId: String): String = "session/$sessionId"
 
-    /** #EXP-1662 (plan-page.json WAYS IN): the thread [rootSessionId] open on
+    /** #EXP-1662 (plan-page.json WAYS IN): the chat [rootSessionId] open on
      *  its plan tab, on the plan card [messageId]. */
-    fun threadPlan(rootSessionId: String, messageId: String): String =
-        "thread/$rootSessionId?tab=$THREAD_TAB_PLAN&plan=$messageId"
+    fun chatPlan(rootSessionId: String, messageId: String): String =
+        "chat/$rootSessionId?tab=$CHAT_TAB_PLAN&plan=$messageId"
 
-    /** #FEED-191 (needs-you.json): the thread [rootSessionId] on its
+    /** #FEED-191 (needs-you.json): the chat [rootSessionId] on its
      *  Conversation, centred on the waiting card [messageId]. */
-    fun threadCard(rootSessionId: String, messageId: String): String =
-        "thread/$rootSessionId?card=$messageId"
+    fun chatCard(rootSessionId: String, messageId: String): String =
+        "chat/$rootSessionId?card=$messageId"
 
     /** #FEED-191 (needs-you.json): where a Needs you row opens, by `opens`. */
     fun needsYou(row: NeedsYou.Row): String = when (row.opens) {
-        NeedsYou.Opens.Plan -> threadPlan(row.rootId, row.messageId)
-        NeedsYou.Opens.Card -> threadCard(row.rootId, row.messageId)
-        NeedsYou.Opens.Results -> thread(row.rootId, THREAD_TAB_RESULTS)
-        NeedsYou.Opens.Chat -> thread(row.rootId)
+        NeedsYou.Opens.Plan -> chatPlan(row.rootId, row.messageId)
+        NeedsYou.Opens.Card -> chatCard(row.rootId, row.messageId)
+        NeedsYou.Opens.Results -> chat(row.rootId, CHAT_TAB_RESULTS)
+        NeedsYou.Opens.Chat -> chat(row.rootId)
     }
 
     /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
@@ -94,7 +94,7 @@ object Routes {
     const val SKILL_SETTINGS_PATTERN = "settings/skill/{skillId}"
     fun skillSettings(skillId: String): String = "settings/skill/$skillId"
 
-    /** VAPP-110: the selected team's Apps (reached from the Threads tab). */
+    /** VAPP-110: the selected team's Apps (reached from the Chats tab). */
     const val APPS = "apps"
     /** VAPP-110: one app's EDITOR (VAPP-242: only from a `…` › Edit app). */
     /** VAPP-218: `tab` = the editor tab to open on, `screen` + `params` are

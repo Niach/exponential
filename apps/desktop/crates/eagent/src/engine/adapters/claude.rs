@@ -4403,7 +4403,7 @@ impl ClaudeSession {
     }
 
     /// EXP-1134: an SDK-mode claude (2.1.282 on) never names a conversation
-    /// by itself, so a FRESH bare thread asks for its name once, off its
+    /// by itself, so a FRESH bare chat asks for its name once, off its
     /// first real prompt (a slash command names nothing). A session listed
     /// under an issue, a title or an agent's name never asks
     /// ([`LaunchSpec::name_conversation`]); a resume keeps the name the

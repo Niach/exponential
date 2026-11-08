@@ -5,7 +5,7 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
 | Test | Journey | Watch |
 |---|---|---|
 | `transcriptScroll` | fast swipes up and down a long live transcript | `frameDurationCpuMs`, `frameOverrunMs` |
-| `openSession` | cold open of the thread, then the session: the full join replay | `sessionOpenFrameMaxMs`, `sessionOpenMainThreadMaxMs` (the frames after the card tap), `SteerConnection.commitStagingSumMs` |
+| `openSession` | cold open of the chat, then the session: the full join replay | `sessionOpenFrameMaxMs`, `sessionOpenMainThreadMaxMs` (the frames after the card tap), `SteerConnection.commitStagingSumMs` |
 | `sendThenBack` | type, send, press back at once | `Choreographer#doFrame%MaxMs` (the old 2–3 s freeze), `frameDurationCpuMs` |
 | `typeWhileLive` | type 60 characters into a live session's composer while the agent's `turn` frames tick | fails if a character is lost or reordered; `frameDurationCpuMs` |
 | `reopenSessionDock` | back to the Conversation tab, then reopen the session's card (#EXP-1538) | `Dock.openToVisibleMaxMs`: open → the first Dock card |
@@ -31,7 +31,7 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
    adb install -r -t macrobenchmark/build/outputs/apk/production/benchmark/macrobenchmark-production-benchmark.apk
    ```
 
-4. Sign the benchmark app in once, by hand: self-hosted instance `http://10.0.2.2:<port>`, `demo@exponential.at` / `screenshots-demo`. Grant the notification permission (`adb shell pm grant at.exponential android.permission.POST_NOTIFICATIONS`), or its prompt covers the thread on the first cold start.
+4. Sign the benchmark app in once, by hand: self-hosted instance `http://10.0.2.2:<port>`, `demo@exponential.at` / `screenshots-demo`. Grant the notification permission (`adb shell pm grant at.exponential android.permission.POST_NOTIFICATIONS`), or its prompt covers the chat on the first cold start.
 5. Run:
 
    ```bash
@@ -41,7 +41,7 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
      com.exponential.macrobenchmark/androidx.test.runner.AndroidJUnitRunner
    ```
 
-   `-e threadId <root id> -e sessionTitle <card title>` points the journeys at another thread. The traces land in `/storage/emulated/0/Android/media/com.exponential.macrobenchmark/`.
+   `-e chatId <root id> -e sessionTitle <card title>` points the journeys at another chat. The traces land in `/storage/emulated/0/Android/media/com.exponential.macrobenchmark/`.
 
 Compare numbers on the same device only. Emulator numbers are for before/after, not for absolute frame budgets.
 

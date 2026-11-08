@@ -7,7 +7,7 @@
 //! - `exponential_sessions_send {text, name}`: `text` = a body envelope for
 //!   the TARGET tree (the caller's own for a child start or an own-tree
 //!   session, another tree's current key for a session elsewhere, a fresh
-//!   key riding as `seal` for a new thread), `name` → `sealedName`.
+//!   key riding as `seal` for a new root session), `name` → `sealedName`.
 //!   `{answer}` re-seals the answered card as `sealedCard`.
 //! - `exponential_show`: the card is BUILT here (the port of
 //!   `lib/sessions/plan.ts` buildPlanCard / buildQuestionCard /
@@ -205,17 +205,17 @@ impl SealingTransform {
                     // A fresh root is a NEW tree: no key holder = no key, so
                     // it is keyless and plaintext stays legal there (no
                     // known tree to check, unlike `unsealed_into`).
-                    unsealed("a new thread", &err)?;
+                    unsealed("a new session", &err)?;
                     return Ok(args);
                 }
                 Ok(seal) => {
-                    let public = sealing::public_key_from_b64(&seal.public_key).map_err(|e| refused("a new thread", &e))?;
+                    let public = sealing::public_key_from_b64(&seal.public_key).map_err(|e| refused("a new session", &e))?;
                     let seal_one = |value: &Option<String>| {
                         value.as_deref().map(|v| enet_core::sealed::seal_body(&public, seal.epoch, v)).transpose()
                     };
                     match (seal_one(&text), seal_one(&name)) {
                         (Ok(text), Ok(name)) => (text, name, Some(seal)),
-                        (Err(err), _) | (_, Err(err)) => return Err(refused("a new thread", &err)),
+                        (Err(err), _) | (_, Err(err)) => return Err(refused("a new session", &err)),
                     }
                 }
             },
@@ -260,7 +260,7 @@ impl SealingTransform {
             .map_err(|err| SealError::NoKey(format!("sessions.sendTarget failed: {err}")))
     }
 
-    /// A fresh tree key for a new thread, wrapped for this install and
+    /// A fresh tree key for a new chat, wrapped for this install and
     /// (#EXP-1483) the installs of `target_device`, the device the send
     /// starts it on, so its pickup opens the brief at once; other readers
     /// (and a target whose seal key is unknown here) get theirs through
@@ -1957,7 +1957,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_thread_carries_its_key_and_another_tree_uses_its_current_key() {
+    fn a_new_chat_carries_its_key_and_another_tree_uses_its_current_key() {
         let _serial = serial();
         let install = enet_core::PushKeypair::generate();
         let fake = Arc::new(crate::sealing::test_support::FakeService { install_public: Some(install.public()), ..Default::default() });
@@ -2002,12 +2002,12 @@ mod tests {
         sealing::uninstall();
     }
 
-    /// #EXP-1483: a new thread's key is wrapped for its target device at
+    /// #EXP-1483: a new chat's key is wrapped for its target device at
     /// creation, so that device's pickup opens the brief without waiting
     /// for a pending pass; a device with no known seal key keeps the old
     /// fallback (this install's wrap alone).
     #[test]
-    fn a_new_thread_wraps_its_key_for_the_target_device() {
+    fn a_new_chat_wraps_its_key_for_the_target_device() {
         let _serial = serial();
         let install = enet_core::PushKeypair::generate();
         let target = enet_core::PushKeypair::generate();
@@ -2039,7 +2039,7 @@ mod tests {
         sealing::uninstall();
     }
 
-    /// #FEED-188: an idle thread older than sealing is only keyed at a
+    /// #FEED-188: an idle chat older than sealing is only keyed at a
     /// claim, and the send is what would wake its device: the sender keys it.
     #[test]
     fn a_send_into_a_keyless_tree_keys_it_and_never_goes_out_plaintext() {
@@ -2192,15 +2192,15 @@ mod tests {
     /// #FEED-184, end to end through the gateway's HTTP: an agent on device
     /// A (a team agent, launched while A's key holder was still coming)
     /// sends text to, and answers the open question card in, a SEALED
-    /// thread it started that runs on device B. Device B holds the tree
+    /// chat it started that runs on device B. Device B holds the tree
     /// secret; A holds it too (its starter's wrap) once its holder runs.
     /// Nothing reaches the server in clear, and B opens both.
     #[test]
-    fn an_agent_on_device_a_messages_and_answers_a_sealed_thread_on_device_b() {
+    fn an_agent_on_device_a_messages_and_answers_a_sealed_chat_on_device_b() {
         let _serial = serial();
         sealing::uninstall();
         sealing::set_service_wait(std::time::Duration::from_secs(10));
-        // Device B's tree key for the thread (root-b, child child-b).
+        // Device B's tree key for the chat (root-b, child child-b).
         let tree = enet_core::sealed::generate_tree_key();
         let question = enet_core::sealed::seal_card(
             &tree.public,
@@ -2240,7 +2240,7 @@ mod tests {
         let opened_on_b = enet_core::sealed::open_body(text, &|_| Some(tree.secret));
         assert_eq!(opened_on_b.text.as_deref(), Some("PING-184 from the Assistant"));
 
-        // The open question card of the thread: answered, re-sealed whole.
+        // The open question card of the chat: answered, re-sealed whole.
         let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "answer": { "answers": ["Yes"] } }));
         assert!(out.get("error").is_none(), "{out}");
         let sent = calls_of(&server, SEND_TOOL).pop().unwrap();

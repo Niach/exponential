@@ -26,8 +26,8 @@ import com.exponential.app.ui.chats.NeedsYouRowItem
 import com.exponential.app.ui.components.LocalSpecimenPicture
 import com.exponential.app.ui.components.SpecimenSamples
 import com.exponential.app.ui.theme.AppBackground
-import com.exponential.app.ui.thread.ResultsTabContent
-import com.exponential.app.ui.thread.resultPictureSet
+import com.exponential.app.ui.chat.ResultsTabContent
+import com.exponential.app.ui.chat.resultPictureSet
 import com.exponential.app.ui.work.PictureViewer
 import com.exponential.app.ui.work.PictureViewerSet
 

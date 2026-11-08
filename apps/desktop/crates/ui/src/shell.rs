@@ -246,7 +246,7 @@ pub struct Shell {
     /// window's size (see [`crate::window_size::WindowSizeTracker`]). Only
     /// ordinal 0 observes bounds, so it is inert on further windows.
     size_tracker: crate::window_size::WindowSizeTracker,
-    /// EXP-1075/EXP-1294: my own live threads per team — what the fixed
+    /// EXP-1075/EXP-1294: my own live chats per team — what the fixed
     /// header's team switcher draws its dot from. Held (not derived per
     /// paint) so the switcher repaints only when a team's tally actually
     /// moves.
@@ -1647,14 +1647,14 @@ mod tests {
             Screen::Session {
                 session_id: "s1".into(),
             },
-            Screen::Thread {
+            Screen::Chat {
                 session_id: "t1".into(),
             },
             Screen::Agent {
                 agent_id: "a1".into(),
             },
             Screen::Home,
-            Screen::Threads,
+            Screen::Chats,
             Screen::AppRun { app: "a".into() },
             Screen::BoardIssues {
                 board_id: "b1".into(),

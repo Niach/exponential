@@ -155,7 +155,7 @@ export function FileDiffCard({
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
   density?: DiffDensity
-  /** Threaded in, never read here — see `DiffPath`. */
+  /** Passed in, never read here — see `DiffPath`. */
   isMobile?: boolean
   /** EXP-916: everything but `ready` draws the header ALONE — no counts, no
    *  body; `failed` adds a rose tint plus a trailing `failed`, `done` is a

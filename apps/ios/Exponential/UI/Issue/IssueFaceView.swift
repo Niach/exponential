@@ -82,10 +82,10 @@ struct IssueTitleRowBottomKey: PreferenceKey {
 }
 
 /// The issue PAGE — today's issue body (big title, props chip box, the
-/// Threads row, description, sub-issues, PR rows, files, activity) and its
+/// Chats row, description, sub-issues, PR rows, files, activity) and its
 /// floating bar. Everything around it — the nav bar, the `…` menu, share,
 /// delete, the view model's lifetime — is the host's (`IssueScreen`, or a
-/// thread's issue tab), so it must be re-mountable without losing the issue.
+/// chat's issue tab), so it must be re-mountable without losing the issue.
 struct IssueFaceView: View {
     let vm: IssueDetailViewModel
     let issue: IssueEntity
@@ -95,10 +95,10 @@ struct IssueFaceView: View {
     /// EXP-1241: scroll to this comment once the timeline holds it (a
     /// comment card tap); the timeline flashes it.
     var focusCommentId: String? = nil
-    /// T-N9: the thread whose page hosts this one — its `Threads` row leaves
-    /// that thread out (it IS the page you are on).
-    var hostThreadId: String? = nil
-    /// EXP-1316: a thread's issue tab — the body WITHOUT the Threads row or
+    /// T-N9: the chat whose page hosts this one — its `Chats` row leaves
+    /// that chat out (it IS the page you are on).
+    var hostChatId: String? = nil
+    /// EXP-1316: a chat's issue tab — the body WITHOUT the Chats row or
     /// the Start control (the bar keeps properties + Comment); the host
     /// draws no header of its own around it.
     var embedded = false
@@ -128,10 +128,10 @@ struct IssueFaceView: View {
     @State private var pendingMoveTarget: BoardEntity?
     /// EXP-592: the comment-edit editor lives up here, not inside the timeline,
     /// so the screen can mount ONE candidate menu above the keyboard for it and
-    /// for the description alike. CommentThreadView re-seeds it per Edit tap.
+    /// for the description alike. CommentRepliesView re-seeds it per Edit tap.
     @State private var commentEditEditor = IssueEditorModel()
     /// EXP-741: the reply the docked composer is composing — set by the
-    /// thread's "Leave a reply…" row, cleared by the bar.
+    /// chat's "Leave a reply…" row, cleared by the bar.
     @State private var commentReplyTarget: CommentReplyTarget?
     @FocusState private var titleFocused: Bool
 
@@ -240,13 +240,13 @@ struct IssueFaceView: View {
                     onOpenProperties: { activeSheet = .properties }
                 )
 
-                // EXP-1295: the issue names its THREADS — one chip per
-                // thread holding it, each opening the thread. Nothing while
-                // it sits in none. T-N9: on a thread page, that thread is
+                // EXP-1295: the issue names its CHATS — one chip per
+                // chat holding it, each opening the chat. Nothing while
+                // it sits in none. T-N9: on a chat page, that chat is
                 // left out.
-                let threads = embedded ? [] : vm.threads.filter { $0.id != hostThreadId }
-                if !threads.isEmpty {
-                    IssueThreadsStrip(threads: threads)
+                let chats = embedded ? [] : vm.chats.filter { $0.id != hostChatId }
+                if !chats.isEmpty {
+                    IssueChatsStrip(chats: chats)
                 }
 
                 // A remote edit arrived while editing locally — offer
@@ -320,7 +320,7 @@ struct IssueFaceView: View {
                 )
 
                 // EXP-1647: no PR row on the issue page (web EXP-1293: a
-                // pull request is the thread Guide's).
+                // pull request is the chat Guide's).
 
                 // Widget/agent submission metadata (EXP-496):
                 // expandable card, default collapsed; renders nothing
@@ -334,7 +334,7 @@ struct IssueFaceView: View {
                 IssueFilesSection(viewModel: vm)
 
                 // Activity timeline (comments + events)
-                CommentThreadView(
+                CommentRepliesView(
                     issue: issue,
                     singleMemberTeam: vm.singleMemberTeam,
                     reporterName: vm.widgetSubmission?.reporterName,

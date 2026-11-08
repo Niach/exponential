@@ -140,7 +140,7 @@ export const usersRouter = router({
   // writes it into an agent-tree session's MCP config; it reaches no tRPC,
   // no shapes, no attachments route). The caller must be a member of the
   // team. Without `teamId` the agent key stays the full key a normal coding
-  // thread runs on.
+  // chat runs on.
   mintPersonalApiKey: authedProcedure
     .input(
       z

@@ -140,7 +140,7 @@ pub struct ThemeColors {
     /// `1px solid var(--border)` — the border is what makes the pill legible
     /// when the accent fill sits close to the surface behind it).
     pub reference_border: Hsla,
-    /// Exponential thread e4a04d22: the `@member` mention pill's own chrome
+    /// Exponential session e4a04d22: the `@member` mention pill's own chrome
     /// (web `.mention-pill`: opaque `var(--accent)` fill, `var(--border)`
     /// hairline, `var(--accent-foreground)` text) — issue chips keep the
     /// `reference_*` trio.

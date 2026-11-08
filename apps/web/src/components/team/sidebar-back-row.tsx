@@ -20,7 +20,7 @@ export function SidebarBackRow({
   onBack,
 }: {
   /** Where back goes — "Settings", the board's name, "Inbox", "Support",
-   *  "Threads". */
+   *  "Chats". */
   label: string
   /** EXP-1246: absent on a list SCREEN (the md+ Inbox page) — the row is the
    *  list's plain title there, the main menu beside it is the way out. */

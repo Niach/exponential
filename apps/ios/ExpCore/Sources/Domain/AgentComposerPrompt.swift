@@ -36,7 +36,7 @@ public enum AgentComposerPrompt {
     public enum Subject: Equatable, Sendable {
         /// No subject: the text is the request.
         case none
-        /// `count` checked issues (the new thread's issues).
+        /// `count` checked issues (the new chat's issues).
         case issues(count: Int)
         /// NEW-2: a team prompt picked in the `/` menu (`promptId`).
         case prompt

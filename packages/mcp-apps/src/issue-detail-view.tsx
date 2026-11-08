@@ -74,7 +74,7 @@ type IssueWithBoard = IssueDetail & { boardId?: string }
 // EXP-1183 — `exponential_issues_get` as a WORKING issue face, the app's
 // issue detail in miniature: an inline-edited title, the status / priority
 // pickers, an editable description, "Start coding" on an online device and
-// the comment thread with its composer. Every write goes through the host's
+// the nested comments with their composer. Every write goes through the host's
 // tools/call (`useMcpActions`) and is followed by a fresh issues_get; a
 // picked status or priority shows at once and reverts on a refusal.
 export function IssueDetailView({

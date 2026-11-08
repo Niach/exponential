@@ -194,7 +194,7 @@ pub trait EngineHost: Send + Sync + 'static {
 }
 
 /// How a run finished. `end` is the result of the backend's last write
-/// (Exponential, EXP-1292: `coding::end_session` for a thread session, the
+/// (Exponential, EXP-1292: `coding::end_session` for a chat session, the
 /// idle report for an agent root, so the CLI can apply
 /// `registry::end_outcome_resolves` (EXP-641) without writing it twice;
 /// `engine::EngineExit` names it). A server-free run has none (`End = ()`).

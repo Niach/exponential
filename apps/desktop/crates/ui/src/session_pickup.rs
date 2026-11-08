@@ -1,4 +1,4 @@
-//! EXP-1294 (Threads v2) — the desktop's half of "the database is the bus":
+//! EXP-1294 — the desktop's half of "the database is the bus":
 //! this machine hosts every `sessions` row whose `device_id` is its own, and
 //! picks queued rows and new person messages up from the synced shapes.
 //!

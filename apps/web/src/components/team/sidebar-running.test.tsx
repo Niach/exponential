@@ -1,13 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { SidebarProvider, TooltipProvider } from "@exp/ui"
-import type { ThreadsListGroup } from "@/lib/session-tree"
+import type { ChatsListGroup } from "@/lib/session-tree"
 
 // EXP-923 / EXP-1293 / EXP-1318: the sidebar's ACTIVE section lists the
-// Threads list's `needs_you` + `running` rows, then the Recent rows whose
-// word still asks for a merge (`railThreads`) — hidden when empty, one row
-// per thread (the agent mark and the title, NO identifier, NO caption), and
-// a click that opens the THREAD with the `running` origin — which keeps it
+// Chats list's `needs_you` + `running` rows, then the Recent rows whose
+// word still asks for a merge (`railChats`) — hidden when empty, one row
+// per chat (the agent mark and the title, NO identifier, NO caption), and
+// a click that opens the CHAT with the `running` origin — which keeps it
 // off the work-tab strip.
 
 const navigate = vi.hoisted(() => vi.fn())
@@ -34,8 +34,8 @@ vi.mock(`@/hooks/use-device-glyphs`, () => ({
 
 import {
   SidebarRunningSection,
-  threadRunMarkState,
-  threadsNavState,
+  chatRunMarkState,
+  chatsNavState,
 } from "@/components/team/sidebar-running"
 
 const T0 = `2026-10-13T10:00:00.000Z`
@@ -69,7 +69,7 @@ function row(
   }
 }
 
-const groups: ThreadsListGroup[] = [
+const groups: ChatsListGroup[] = [
   {
     key: `needs_you`,
     title: `Needs you`,
@@ -84,11 +84,11 @@ const groups: ThreadsListGroup[] = [
 ]
 const wordOf = (r: { sessionId: string }) => (r.sessionId === `t-pr` ? (`readyToMerge` as const) : null)
 
-function renderSection(list: ThreadsListGroup[] = groups) {
+function renderSection(list: ChatsListGroup[] = groups) {
   return render(
     <SidebarProvider>
       <TooltipProvider>
-        <SidebarRunningSection teamSlug="acme" threads={{ groups: list, wordOf }} />
+        <SidebarRunningSection teamSlug="acme" chats={{ groups: list, wordOf }} />
       </TooltipProvider>
     </SidebarProvider>
   )
@@ -106,7 +106,7 @@ describe(`SidebarRunningSection`, () => {
     expect(screen.queryByTestId(`sidebar-running`)).toBeNull()
   })
 
-  it(`is the Active band: needs-you, running, then recent threads waiting on a merge`, () => {
+  it(`is the Active band: needs-you, running, then recent chats waiting on a merge`, () => {
     renderSection()
     expect(screen.getByText(`Active`)).toBeTruthy()
     const rows = screen.getAllByTestId(/^sidebar-running-/)
@@ -126,23 +126,23 @@ describe(`SidebarRunningSection`, () => {
     ).toBe(`Alex's MacBook Pro`)
     expect(rows[1].querySelector(`[data-slot="session-row-device"]`)).toBeNull()
     expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()
-    // The needs-you thread wears the yellow badge.
+    // The needs-you chat wears the yellow badge.
     expect(rows[0].querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(
       `needs_input`
     )
   })
 
-  it(`opens the thread with the tabless running origin`, () => {
+  it(`opens the chat with the tabless running origin`, () => {
     renderSection()
     fireEvent.click(screen.getByTestId(`sidebar-running-t-run`))
     expect(navigate).toHaveBeenCalledWith({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `t-run` },
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `t-run` },
       search: { from: `running` },
     })
   })
 
-  it(`marks the thread on screen, its own page or one of its sessions`, () => {
+  it(`marks the chat on screen, its own page or one of its sessions`, () => {
     location.pathname = `/t/acme/sessions/s-child`
     renderSection()
     expect(screen.getByTestId(`sidebar-running-t-run`).getAttribute(`data-active`)).toBe(`true`)
@@ -152,32 +152,32 @@ describe(`SidebarRunningSection`, () => {
 
 describe(`the nav state`, () => {
   it(`is green while anything runs, yellow while something needs you`, () => {
-    expect(threadsNavState([])).toEqual({ live: false, needsYou: false, unread: false })
-    expect(threadsNavState([groups[1], groups[2]])).toEqual({
+    expect(chatsNavState([])).toEqual({ live: false, needsYou: false, unread: false })
+    expect(chatsNavState([groups[1], groups[2]])).toEqual({
       live: true,
       needsYou: false,
       unread: false,
     })
-    expect(threadsNavState(groups)).toEqual({ live: true, needsYou: true, unread: false })
+    expect(chatsNavState(groups)).toEqual({ live: true, needsYou: true, unread: false })
   })
 
-  it(`EXP-1323: carries the unread dot off a thread row`, () => {
-    const recent: ThreadsListGroup = {
+  it(`EXP-1323: carries the unread dot off a chat row`, () => {
+    const recent: ChatsListGroup = {
       key: `recent`,
       title: `Recent`,
       rows: [row(`t-new`, `Fix flaky scroll`, { unread: true })],
     }
-    expect(threadsNavState([recent])).toEqual({ live: false, needsYou: false, unread: true })
+    expect(chatsNavState([recent])).toEqual({ live: false, needsYou: false, unread: true })
     // #EXP-1388: an archived chat never lights the Chats dot.
     expect(
-      threadsNavState([recent], [{ sessionId: `t-new`, readAt: `2026-01-01T00:00:00Z`, archivedAt: `2026-01-02T00:00:00Z` }])
+      chatsNavState([recent], [{ sessionId: `t-new`, readAt: `2026-01-01T00:00:00Z`, archivedAt: `2026-01-02T00:00:00Z` }])
     ).toEqual({ live: false, needsYou: false, unread: false })
   })
 
   it(`maps a row onto the run mark`, () => {
-    expect(threadRunMarkState({ needsYou: true, busy: true })).toBe(`needs_input`)
-    expect(threadRunMarkState({ needsYou: false, busy: true })).toBe(`working`)
-    expect(threadRunMarkState({ needsYou: false, busy: false })).toBeUndefined()
+    expect(chatRunMarkState({ needsYou: true, busy: true })).toBe(`needs_input`)
+    expect(chatRunMarkState({ needsYou: false, busy: true })).toBe(`working`)
+    expect(chatRunMarkState({ needsYou: false, busy: false })).toBeUndefined()
   })
 })
 
@@ -190,7 +190,7 @@ describe(`SidebarRunningSection — held titles`, () => {
         <TooltipProvider>
           <SidebarRunningSection
             teamSlug="acme"
-            threads={{
+            chats={{
               groups: [
                 {
                   key: `running`,

@@ -35,12 +35,12 @@ data class AgentComposerSeed(
     /** A curated icon name seeding the Create action builtin's `icon` input. */
     val icon: String? = null,
     /**
-     * EXP-1284: the THREAD the start joins (a thread page's "Start a run
-     * here" / reply). Rides `steer.startSession({threadId})`; the composer
-     * returns to that thread once the run lands. `thread=<uuid>` on the route
-     * (web `?thread=`).
+     * EXP-1284: the CHAT the start joins (a chat page's "Start a run
+     * here" / reply). The composer returns to that chat once the run
+     * lands. `chat=<uuid>` on the route
+     * (web `?chat=`).
      */
-    val threadId: String? = null,
+    val chatId: String? = null,
 ) {
     /** Whether the seed names a subject at all. */
     val hasSubject: Boolean get() = promptId != null || issueIds.isNotEmpty()
@@ -71,7 +71,7 @@ data class AgentComposerSeed(
             prIssueId = get(ARG_PR)?.takeIf { UUID_RE.matches(it) },
             text = get(ARG_TEXT)?.takeIf { it.isNotEmpty() },
             icon = get(ARG_ICON)?.takeIf { it.isNotEmpty() },
-            threadId = get(ARG_THREAD)?.takeIf { UUID_RE.matches(it) },
+            chatId = get(ARG_CHAT)?.takeIf { UUID_RE.matches(it) },
         )
 
         /** The seed the `agent?…` route entry carries. */
@@ -95,11 +95,11 @@ const val ARG_DEVICE = "device"
 const val ARG_PR = "pr"
 const val ARG_TEXT = "text"
 const val ARG_ICON = "icon"
-const val ARG_THREAD = "thread"
+const val ARG_CHAT = "chat"
 
 /** Every query arg the `agent` destination declares, in pattern order. */
 val AGENT_ROUTE_ARGS: List<String> =
-    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_THREAD)
+    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_CHAT)
 
 /**
  * The NavHost pattern: every arg is a `{placeholder}` query value so an absent
@@ -110,7 +110,7 @@ val AGENT_ROUTE_PATTERN: String =
 
 /**
  * The concrete route a play button navigates with: `agent` alone for an empty
- * seed, else `agent?issues=a,b&action=…&device=…&pr=…&text=…&icon=…&thread=…` with
+ * seed, else `agent?issues=a,b&action=…&device=…&pr=…&text=…&icon=…&chat=…` with
  * EMPTY params omitted, so the route carries only what was picked. Values are
  * percent-encoded ([encodeRouteValue]) — the suggestion text carries newlines,
  * backticks and JSON — and Navigation decodes them back on the way in.
@@ -123,7 +123,7 @@ fun agentRoute(seed: AgentComposerSeed): String {
         seed.prIssueId?.takeIf { it.isNotEmpty() }?.let { add(ARG_PR to it) }
         seed.text?.takeIf { it.isNotEmpty() }?.let { add(ARG_TEXT to it) }
         seed.icon?.takeIf { it.isNotEmpty() }?.let { add(ARG_ICON to it) }
-        seed.threadId?.takeIf { it.isNotEmpty() }?.let { add(ARG_THREAD to it) }
+        seed.chatId?.takeIf { it.isNotEmpty() }?.let { add(ARG_CHAT to it) }
     }
     if (params.isEmpty()) return AGENT_ROUTE
     return AGENT_ROUTE + "?" + params.joinToString("&") { (key, value) -> "$key=${encodeRouteValue(value)}" }

@@ -645,7 +645,7 @@ impl Render for GuideViewer {
             .autolink(true)
             .on_open_link(crate::links::link_opener(self.source.team_id.as_deref().map(str::to_string)));
             if let Some(team_id) = self.source.team_id.as_deref() {
-                view = view.resolver(crate::thread_screen::thread_text_resolver(team_id));
+                view = view.resolver(crate::session_chat::chat_text_resolver(team_id));
             }
             div().w_full().min_w_0().text_sm().text_color(foreground).child(view)
         });

@@ -447,7 +447,7 @@ fn stack_list_row(entry: &PrEntry, cx: &mut App) -> crate::pr_rows::PrListRow {
                 Some(session_id) => crate::navigation::navigate(
                     window,
                     cx,
-                    crate::navigation::Screen::Thread { session_id },
+                    crate::navigation::Screen::Chat { session_id },
                 ),
                 None => {
                     if let Some(url) = url {

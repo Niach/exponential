@@ -254,12 +254,12 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
  * of the markdown editor/renderer family on every client (EXP-657). A generous
  * superset on purpose: `board`/`board-*`/`search` are in because issue rows
  * strip markdown for their preview line through the same helpers, `steering`
- * and `session` because the agent's question renders as markdown, `thread` and
+ * and `session` because the agent's question renders as markdown, `chat-screen` and
  * `agent-channel` (EXP-1293) because their message rows are GFM, and the action editor
  * because the web renders GFM there even where the natives do not yet. Being too tight here silently commits a stale shot; being too
  * wide costs a handful of extra captures.
  */
-const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|session$|thread$|agent-channel$|action-editor$)/
+const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|session$|chat-screen$|agent-channel$|action-editor$)/
 
 /**
  * Desktop PATHS that narrow to a view family, in match order.
@@ -829,10 +829,10 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   // so do the raw session view and a team agent's channel.
   { dir: `session`, views: /^(steering|session$|chat|agents|agent-channel|machine-settings|add-server|agent-home|work-card|script-card|comment-call-card)/ },
   { dir: `steer`, views: /^(steering|session$|chat)/ },
-  // EXP-1284/1293: the native thread screens (ui/thread, UI/Thread) and the
-  // Threads list.
-  { dir: `thread`, views: /^thread/ },
-  { dir: `threads`, views: /^thread/ },
+  // EXP-1284/1293: the native chat screens (ui/chat, UI/Chat) and the
+  // Chats list.
+  { dir: `chat`, views: /^(chats$|chat-screen$|chat-replies$|chat-results$)/ },
+  { dir: `chats`, views: /^(chats$|chat-screen$|chat-replies$|chat-results$)/ },
 ]
 
 /** Role suffixes a screen's filename carries on one platform or the other. */

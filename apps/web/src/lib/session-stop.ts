@@ -34,7 +34,7 @@ export function onStopRetraction(
  *  message never renders as a row. The text comes back at once (the
  *  STEER-WIRE rule); a REFUSED call re-takes it (the device still holds the
  *  queue, its next `queue` frame repaints the strip — the text must not sit
- *  in a field too, or it is sent twice) and rethrows. Thread 58cb32df
+ *  in a field too, or it is sent twice) and rethrows. Chat 58cb32df
  *  (chats.json STOP): `delivered === false` (the relay reached no device)
  *  toasts `copy.stopTurn.notDelivered`. */
 export async function stopSessionTurn(

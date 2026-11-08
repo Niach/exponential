@@ -4,7 +4,7 @@
  * merges and closes Exponential missed, so the train never queues a PR that
  * already landed. A merge goes through `applyPullRequestMerged` with the
  * forge's own `merged_at` (the `pr_merged` events, the merge automation, the
- * thread's card); a close through `applyPullRequestClosed`. A reopen is not
+ * chat's card); a close through `applyPullRequestClosed`. A reopen is not
  * possible here: only live rows are read.
  *
  * The forge read sits behind `ForgePullReader` (GitHub today; #EXP-1709's

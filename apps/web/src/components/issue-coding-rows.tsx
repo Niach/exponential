@@ -10,12 +10,12 @@ import {
   ReadinessStartPill,
 } from "@/components/coding-readiness-checklist"
 
-// EXP-1293 (Threads v2): the issue page's ONE coding control is Start: the
+// EXP-1293: the issue page's ONE coding control is Start: the
 // white pill in the md+ header's trailing slot, the right circle of the
 // phone bar. Ready, it opens the home composer seeded with this issue (the
-// send lands a new thread); a missing step (GitHub, the board's repository,
+// send lands a new chat); a missing step (GitHub, the board's repository,
 // a device online) turns it into the readiness checklist's entry point
-// (EXP-1121). No Stop, no Merge, no PR row: a live session is the thread's,
+// (EXP-1121). No Stop, no Merge, no PR row: a live session is the chat's,
 // a pull request the Guide's.
 
 // The play glyph the Actions surfaces run with.

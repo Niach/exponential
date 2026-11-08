@@ -36,9 +36,9 @@ final class InboxRouteTests: XCTestCase {
         let object = try XCTUnwrap(raw as? [String: Any])
         switch try XCTUnwrap(object["kind"] as? String) {
         case "agent": return .agent(agentId: try XCTUnwrap(object["agentId"] as? String))
-        case "thread":
-            return .thread(
-                threadId: try XCTUnwrap(object["threadId"] as? String),
+        case "chat":
+            return .chat(
+                chatId: try XCTUnwrap(object["chatId"] as? String),
                 sessionId: object["sessionId"] as? String
             )
         case "session": return .session(id: try XCTUnwrap(object["sessionId"] as? String))

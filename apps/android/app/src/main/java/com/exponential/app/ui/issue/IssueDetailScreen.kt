@@ -258,7 +258,7 @@ fun IssueMenuActions(
 @Composable
 fun IssueFace(
     viewModel: IssueDetailViewModel,
-    commentViewModel: CommentThreadViewModel,
+    commentViewModel: IssueCommentsViewModel,
     controller: IssueFaceController,
     padding: PaddingValues,
     onBack: () -> Unit,
@@ -273,9 +273,9 @@ fun IssueFace(
     onAddSubIssue: (() -> Unit)? = null,
     /** EXP-1241: scroll to this comment once it renders, then highlight it. */
     focusCommentId: String? = null,
-    /** EXP-1284: the `Threads` row's chip — opens that thread. Null hides
+    /** EXP-1284: the `Chats` row's chip — opens that chat. Null hides
      *  the row. */
-    onOpenThread: ((String) -> Unit)? = null,
+    onOpenChat: ((String) -> Unit)? = null,
 ) {
     val issueId = viewModel.issueId
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -322,7 +322,7 @@ fun IssueFace(
 
     val descriptionModel = remember(issue?.id) { EditorModel() }
 
-    // The bar's comment half shares the thread's screen-scoped VM (hoisted
+    // The bar's comment half shares the comment list's screen-scoped VM (hoisted
     // draft) — bind before either consumer renders.
     LaunchedEffect(issueId) { commentViewModel.bind(issueId) }
     val commentDraft by commentViewModel.draft.collectAsStateWithLifecycle()
@@ -336,7 +336,7 @@ fun IssueFace(
         if (commentReplyTarget != null) composerExpanded = true
     }
     // SLOP-4: the "Reply to reporter" pill exists only while the submission
-    // (loaded once by this screen's ViewModel, shared with the thread) has a
+    // (loaded once by this screen's ViewModel, shared with the comment list) has a
     // reporter email; its ON state lives on the comment ViewModel.
     val reporterAudience by commentViewModel.reporterAudience.collectAsStateWithLifecycle()
     val reporterToggle = widgetSubmission
@@ -395,7 +395,7 @@ fun IssueFace(
     val mutationError by viewModel.mutationError.collectAsStateWithLifecycle()
     FailedActionToast(mutationError, onShown = viewModel::consumeMutationError)
 
-    // Same for the comment thread (send / edit / delete / upload) ...
+    // Same for the comment list (send / edit / delete / upload) ...
     val commentFailure by commentViewModel.commentFailure.collectAsStateWithLifecycle()
     FailedActionToast(commentFailure, onShown = commentViewModel::consumeCommentFailure)
     // ... and a picked attachment it refused (caps, unreadable): a plain toast.
@@ -410,7 +410,7 @@ fun IssueFace(
     // Inline `#IDENTIFIER` pills + editor #-autocomplete (masterplan §5e):
     // resolve against this team's synced issues; a tap navigates to the
     // referenced issue. The CompositionLocal reaches every MarkdownView below
-    // (description read view + comment thread) and every embedded editor
+    // (description read view + comment list) and every embedded editor
     // (description, comment composer, comment edit).
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
@@ -425,7 +425,7 @@ fun IssueFace(
 
     // Inline `@email` mention pills (REV2-42): the same synced team members the
     // @-autocomplete offers, so a written mention renders as the member's name
-    // in every read view below (description + comment thread) instead of a raw
+    // in every read view below (description + comment list) instead of a raw
     // address. Display-only — the stored markdown keeps the `@email` token.
     val mentionMembers = remember(teamUsers) {
         teamUsers.map { MentionMember(it.name ?: it.email, it.email) }
@@ -701,10 +701,10 @@ fun IssueFace(
                     onOpenBoard = if (isModerator) { { controller.openMoveBoard() } } else null,
                 )
 
-                // EXP-1284: the issue names its threads — one chip per
-                // thread holding it (a live mark while it runs).
-                if (onOpenThread != null) {
-                    IssueThreadsRow(viewModel = viewModel, onOpen = onOpenThread)
+                // EXP-1284: the issue names its chats — one chip per
+                // chat holding it (a live mark while it runs).
+                if (onOpenChat != null) {
+                    IssueChatsRow(viewModel = viewModel, onOpen = onOpenChat)
                 }
 
                 // EXP-893: no Coding-now / Watch row under the chips any more —
@@ -764,7 +764,7 @@ fun IssueFace(
                 }
 
                 // EXP-1647: NO pull-request row on the issue page ×4 (web
-                // issue-coding-rows.tsx, EXP-1293): a PR is the thread's
+                // issue-coding-rows.tsx, EXP-1293): a PR is the chat's
                 // (its Results tab / header Merge), never the issue's.
 
                 // Widget/agent submission metadata (EXP-496): expandable card,
@@ -788,7 +788,7 @@ fun IssueFace(
                 )
 
                 Spacer(Modifier.height(20.dp))
-                CommentThread(
+                IssueComments(
                     issueId = issue.id,
                     viewModel = commentViewModel,
                     // SLOP-4: a reporter's comment names the submission's
@@ -1156,26 +1156,26 @@ fun IssueTitleField(
     )
 }
 
-/** EXP-1291: the issue page's `Threads` row — the thread roots linking
+/** EXP-1291: the issue page's `Chats` row — the chat roots linking
  *  this issue, one tappable title each. */
 @Composable
-private fun IssueThreadsRow(viewModel: IssueDetailViewModel, onOpen: (String) -> Unit) {
-    val threads by viewModel.threads.collectAsStateWithLifecycle()
-    if (threads.isEmpty()) return
+private fun IssueChatsRow(viewModel: IssueDetailViewModel, onOpen: (String) -> Unit) {
+    val chats by viewModel.chats.collectAsStateWithLifecycle()
+    if (chats.isEmpty()) return
     Spacer(Modifier.height(12.dp))
-    IssueThreadsChips(threads = threads, onOpen = onOpen)
+    IssueChatsChips(chats = chats, onOpen = onOpen)
 }
 
 /**
- * EXP-1291 (draft 7): the muted `Threads` label, then one glass chip per
- * thread holding this issue — its title, led by the session mark. Stateless for the capture.
+ * EXP-1291 (draft 7): the muted `Chats` label, then one glass chip per
+ * chat holding this issue — its title, led by the session mark. Stateless for the capture.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun IssueThreadsChips(threads: List<IssueDetailViewModel.IssueThread>, onOpen: (String) -> Unit) {
-    if (threads.isEmpty()) return
+fun IssueChatsChips(chats: List<IssueDetailViewModel.IssueChat>, onOpen: (String) -> Unit) {
+    if (chats.isEmpty()) return
     Row(
-        modifier = Modifier.fillMaxWidth().testTag("issue-threads-row"),
+        modifier = Modifier.fillMaxWidth().testTag("issue-chats-row"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1189,28 +1189,28 @@ fun IssueThreadsChips(threads: List<IssueDetailViewModel.IssueThread>, onOpen: (
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            threads.forEach { thread ->
+            chats.forEach { chat ->
                 com.exponential.app.ui.components.GlassPill(
-                    thread.title,
+                    chat.title,
                     size = com.exponential.app.ui.components.PillSize.Sm,
-                    onClick = { onOpen(thread.rootId) },
-                    // EXP-1554: the session mark (web `ThreadChip`, iOS
-                    // IssueThreadsStrip): working while it works, the brand
+                    onClick = { onOpen(chat.rootId) },
+                    // EXP-1554: the session mark (web `ChatChip`, iOS
+                    // IssueChatsStrip): working while it works, the brand
                     // mark at rest, dimmed once every session in it ended.
                     leading = {
                         com.exponential.app.ui.components.AgentRunMark(
-                            agent = thread.cli,
-                            state = if (thread.live && thread.busy) {
+                            agent = chat.cli,
+                            state = if (chat.live && chat.busy) {
                                 com.exponential.app.domain.SessionTree.SessionState.Working
                             } else {
                                 null
                             },
                             size = 14.dp,
                             badgeSize = 0.dp,
-                            ended = !thread.live,
+                            ended = !chat.live,
                         )
                     },
-                    modifier = Modifier.testTag("issue-thread-chip"),
+                    modifier = Modifier.testTag("issue-chat-chip"),
                 )
             }
         }

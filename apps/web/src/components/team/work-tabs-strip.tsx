@@ -31,16 +31,16 @@ import {
   updateWorkTabs,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
-import { useAgents, useSessionTitles, useThreadsList } from "@/hooks/use-session-tree"
+import { useAgents, useSessionTitles, useChatsList } from "@/hooks/use-session-tree"
 import { useSession } from "@/hooks/use-session"
 import {
   sessionState,
   toTreeSession,
   type SessionRow,
-  type ThreadsListRow,
+  type ChatsListRow,
 } from "@/lib/session-tree"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { ThreadRunMark, threadRunMarkState } from "@/components/team/sidebar-running"
+import { ChatRunMark, chatRunMarkState } from "@/components/team/sidebar-running"
 import { AgentIcon } from "@/components/team/sidebar-agents"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
@@ -49,8 +49,8 @@ import { AgentIcon } from "@/components/team/sidebar-agents"
 // `work-tabs-sync.tsx` (route-driven, EXP-1293); this only draws it:
 //
 //   * a FLAT chip list in stored order: issues (status glyph + identifier +
-//     title), threads (the agent mark — the spark while it works, amber
-//     while it needs you — + the thread title), agents' channels (the
+//     title), chats (the agent mark — the spark while it works, amber
+//     while it needs you — + the chat title), agents' channels (the
 //     agent's icon in its color + its name) and raw sessions (the mark +
 //     the session's name);
 //   * the ACTIVE chip is derived from the URL — never stored;
@@ -58,7 +58,7 @@ import { AgentIcon } from "@/components/team/sidebar-agents"
 //     Close all all reach it;
 //   * chips that do not fit collapse into a trailing "+N" menu
 //     (`partitionTabs`, the contract's, measured against the real chips);
-//   * EXP-1334: every chip is THE strip chip (`StripChip`), the thread
+//   * EXP-1334: every chip is THE strip chip (`StripChip`), the chat
 //     header's chip box — one tab component for both strips;
 //   * EXP-1255: a chip's × shows only while the tab is hovered (or the × has
 //     keyboard focus); a ghost "+" after the last tab opens the New session
@@ -158,14 +158,14 @@ export function WorkTabsStrip({
   // EXP-1341: a session tab reads THE display title (`sessionTitle`); a
   // held one (its shapes still loading) shows the placeholder.
   const { titles: sessionTitles } = useSessionTitles(sessionList)
-  // Thread chips read their title + state off the Threads list (the ONE
-  // model, `partitionThreads`); agent chips off the Agents list. Neither
+  // Chat chips read their title + state off the Chats list (the ONE
+  // model, `partitionChats`); agent chips off the Agents list. Neither
   // query runs while no such tab is open.
-  const hasThreadTabs = state.tabs.some((tab) => tab.kind === `thread`)
+  const hasChatTabs = state.tabs.some((tab) => tab.kind === `chat`)
   const hasAgentTabs = state.tabs.some((tab) => tab.kind === `agent`)
-  const { groups } = useThreadsList(hasThreadTabs ? teamId : null)
-  const threadsById = useMemo(() => {
-    const map = new Map<string, { row: ThreadsListRow; live: boolean }>()
+  const { groups } = useChatsList(hasChatTabs ? teamId : null)
+  const chatsById = useMemo(() => {
+    const map = new Map<string, { row: ChatsListRow; live: boolean }>()
     for (const group of groups) {
       for (const row of group.rows) {
         map.set(row.sessionId, { row, live: group.key !== `recent` })
@@ -196,12 +196,14 @@ export function WorkTabsStrip({
     if (!path) return null
     const match = tabs.find((tab) => {
       switch (path.kind) {
-        case `thread`:
-          return tab.kind === `thread` && tab.threadId === path.threadId
         case `agent`:
           return tab.kind === `agent` && tab.agentId === path.agentId
         case `session`:
-          return tab.kind === `session` && tab.sessionId === path.sessionId
+          // EXP-1733: a root's `/sessions/<id>` is its chat's tab.
+          return (
+            (tab.kind === `chat` && tab.chatId === path.sessionId) ||
+            (tab.kind === `session` && tab.sessionId === path.sessionId)
+          )
         case `issue`: {
           if (tab.kind !== `issue`) return false
           const issue = issuesById.get(tab.issueId)
@@ -226,8 +228,8 @@ export function WorkTabsStrip({
           title: NEW_RUN_TAB_TITLE,
           lead: <NewRunIcon className="size-3.5 text-muted-foreground" />,
         }
-      case `thread`: {
-        const entry = threadsById.get(tab.threadId)
+      case `chat`: {
+        const entry = chatsById.get(tab.chatId)
         return {
           key,
           tab,
@@ -236,10 +238,10 @@ export function WorkTabsStrip({
           lead: !entry ? (
             <LiveDot tone="muted" />
           ) : entry.live ? (
-            <ThreadRunMark row={entry.row} ringClassName="ring-background" />
+            <ChatRunMark row={entry.row} ringClassName="ring-background" />
           ) : (
             <AgentRunMark
-              agent={sessionCollection.get(tab.threadId)?.cli ?? null}
+              agent={sessionCollection.get(tab.chatId)?.cli ?? null}
               state="ended"
             />
           ),
@@ -389,7 +391,7 @@ export function WorkTabsStrip({
     // it, exactly like its ×. The mousedown is swallowed too, or Chrome opens
     // its autoscroll cursor (and a middle click on the label's anchor role
     // would try a new tab) before the auxclick ever lands.
-    // EXP-1334: THE strip chip (`@exp/ui` `StripChip`), the thread header's
+    // EXP-1334: THE strip chip (`@exp/ui` `StripChip`), the chat header's
     // chip box: lead · mono identifier · title, the × as its trailing part.
     const body = (
       <StripChip
@@ -555,7 +557,7 @@ function SessionMark({ row }: { row: SessionRow }) {
       state={
         state === `done`
           ? `ended`
-          : threadRunMarkState({
+          : chatRunMarkState({
               needsYou: state === `needs_you`,
               busy: state === `working`,
             })

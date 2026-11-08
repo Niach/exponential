@@ -5,7 +5,7 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// EXP-1291/NEW-1/NEW-2 — the session tree (threads, agent conversations
+// EXP-1291/NEW-1/NEW-2 — the session tree (chats, agent conversations
 // and their sub-sessions). ONE visibility rule: `shared OR user_id = me`
 // inside the member's teams. A device picks up its `queued` rows from this
 // shape (the DB is the bus). SERVER-ONLY, behind the allowlist:

@@ -27,7 +27,7 @@ import com.exponential.app.ui.components.DockPile
 import com.exponential.app.ui.components.DockSheetSpecimenFrame
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.thread.PlanAskCard
+import com.exponential.app.ui.chat.PlanAskCard
 
 /** The capture's anchor (shot `sg_ask-dock`). */
 const val AskDockSpecimenScreenTestId = "ask-dock-specimen-screen"
@@ -44,29 +44,29 @@ private val LONG_PLAN = listOf(
 ).joinToString("\n")
 
 private val QUESTIONS = listOf(
-    SessionTree.ThreadRow.PlanQuestion(
+    SessionTree.SessionChatRow.PlanQuestion(
         id = "q-scope",
         prompt = "Which cards move into the Dock first?",
         multi = false,
         custom = true,
         options = listOf(
-            SessionTree.ThreadRow.QuestionChoice("Plan and question cards", "The rest follows as its own issue"),
-            SessionTree.ThreadRow.QuestionChoice("Everything", "Plan, question, tasks, queued messages, banners"),
+            SessionTree.SessionChatRow.QuestionChoice("Plan and question cards", "The rest follows as its own issue"),
+            SessionTree.SessionChatRow.QuestionChoice("Everything", "Plan, question, tasks, queued messages, banners"),
         ),
     ),
-    SessionTree.ThreadRow.PlanQuestion(
+    SessionTree.SessionChatRow.PlanQuestion(
         id = "q-eui",
         prompt = "Should DockCard also go into Exponential UI?",
         multi = false,
         custom = false,
         options = listOf(
-            SessionTree.ThreadRow.QuestionChoice("Yes, as DockCard", null),
-            SessionTree.ThreadRow.QuestionChoice("Styleguide only for now", null),
+            SessionTree.SessionChatRow.QuestionChoice("Yes, as DockCard", null),
+            SessionTree.SessionChatRow.QuestionChoice("Styleguide only for now", null),
         ),
     ),
 )
 
-private val RICH_PLAN = SessionTree.ThreadRow.Plan(
+private val RICH_PLAN = SessionTree.SessionChatRow.Plan(
     id = "p1",
     sessionId = "a",
     plan = LONG_PLAN,
