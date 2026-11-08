@@ -4674,8 +4674,8 @@
         "file": "shots/exponential-ui-table/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 29408,
-        "sha256": "7225143b6ca5315f80e41974f80693795c64101aadba4ec0933fe46aa6237d95"
+        "bytes": 37272,
+        "sha256": "384d305beaed8a86dbda83c8ee93985bf94c319f9a18ac7743fcf3c9a6ecda97"
       }
     },
     "exponential-ui-tabs": {
