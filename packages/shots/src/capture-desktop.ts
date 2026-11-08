@@ -739,8 +739,9 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
       await raiseWindow(child.pid)
       await sleep(300)
 
+      const winId = (await run({ cmd: [`/tmp/e1745-stack/bin/winid`, String(child.pid)], timeoutMs: 10_000 })).stdout.trim().split(` `)[0]
       const capture = await run({
-        cmd: [`screencapture`, `-x`, `-R${rect}`, out],
+        cmd: [`screencapture`, `-x`, `-o`, `-l${winId}`, out],
         timeoutMs: 30_000,
       })
       if (capture.code !== 0 || !existsSync(out)) {

@@ -4644,8 +4644,8 @@
         "file": "shots/exponential-ui-switch/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 9148,
-        "sha256": "0cf696c783bcff1ce55a37231cb976771c32d4c8243418c93df757129d57889b"
+        "bytes": 9146,
+        "sha256": "05d8b225be7bb0b9dac0081c32587468d64da107aba714c2e5833c917bc6ab85"
       }
     },
     "exponential-ui-table": {
