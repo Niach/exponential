@@ -446,6 +446,11 @@ impl Builder<'_, '_> {
         let value = data.get(&col_key);
         let text = cell_text(&kind, value, col, self.ctx.formatter, self.ctx.now);
         let mut props = json!({"text": text, "cellType": kind, "align": align, "value": value.cloned().unwrap_or(Value::Null)});
+        // FEED-202: a date pattern = the core's text; a painter that formats
+        // dates natively (SwiftUI) keeps it.
+        if let Some(format) = col.get("format").and_then(Value::as_str).filter(|f| !f.is_empty() && matches!(kind.as_str(), "date" | "dateTime")) {
+            props["format"] = json!(format);
+        }
         if Self::truncates(col) {
             props["lines"] = json!(1);
         }
