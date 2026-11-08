@@ -402,6 +402,24 @@ fun SurfaceModel.hover(id: String, hovered: Boolean) {
     setInteraction(id) { it.copy(hover = hovered) }
 }
 
+/**
+ * #EDE-65: the pointer entered a Box: its `on.hover` fires, exactly like a
+ * Motion's (no payload); leaving fires nothing. Pressable or not; nothing
+ * without a handler.
+ */
+fun SurfaceModel.boxHover(id: String, inside: Boolean) {
+    if (!inside) return
+    val i = indexOf(id) ?: return
+    val n = node(i) ?: return
+    if (n.component != "Box" || n.part != null) return
+    val events = try {
+        surface.event(i.toUInt(), "hover", null)
+    } catch (_: UiException) {
+        return
+    }
+    if (events.isNotEmpty()) dispatch(events)
+}
+
 /** Focus on / off a node. */
 fun SurfaceModel.focus(id: String, focused: Boolean, fromKeyboard: Boolean = false) {
     if (focused) keyboardFocus = id else if (keyboardFocus == id) keyboardFocus = null

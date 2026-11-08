@@ -177,6 +177,10 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
 /// the background executor: failures (offline, a transport error) only
 /// mean the next sign-in tries again.
 fn claim_timezone(account: &api::Account, cx: &mut App) {
+    // #EXP-1727: a Local desktop has no digest to send.
+    if account.is_local() {
+        return;
+    }
     let timezone = match iana_time_zone::get_timezone() {
         Ok(timezone) => timezone,
         Err(err) => {

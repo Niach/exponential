@@ -133,6 +133,10 @@ impl ControlChannels {
 /// steer runtime failed to init; the channel itself no-ops when `steer.config`
 /// reports the relay disabled (an unconfigured instance is silent).
 pub fn start_control_channel(account: &api::Account, cx: &mut App) {
+    // #EXP-1727: a Local desktop has no relay, no presence and no eNet.
+    if account.is_local() {
+        return;
+    }
     let Some(runtime) = runtime(cx) else {
         return;
     };
@@ -310,7 +314,7 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 /// `nothing_installed()` flips (EXP-367: the last agent CLI vanishing takes
 /// the device offline for remote start; installing the first brings it back).
 pub fn refresh_device_advertisement(cx: &mut App) {
-    let Some(account) = queries::active_account(cx) else {
+    let Some(account) = queries::active_account(cx).filter(|a| !a.is_local()) else {
         return;
     };
     let Some(hub) = coding_flow::CodingHub::global_ref(cx) else {

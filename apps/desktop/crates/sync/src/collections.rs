@@ -1164,6 +1164,7 @@ impl Store {
         let sqlite = Arc::new(ShapeStore::open(db_path)?);
         let shapes: Vec<&str> = crate::shapes::SHAPES.iter().map(|spec| spec.name).collect();
         sqlite.mark_live(&shapes)?;
+        self.manager.adopt_store(account_id, Arc::clone(&sqlite), db_path.to_path_buf());
         self.collections.clear_all(cx);
         self.collections.hydrate_all(&sqlite, cx);
         self.set_session(SessionPhase::Synced { account_id: account_id.to_string() }, cx);

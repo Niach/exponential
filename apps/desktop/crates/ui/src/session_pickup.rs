@@ -195,7 +195,8 @@ fn action_session_id(action: &PickupAction) -> &str {
 
 /// One pass: snapshot, plan, execute (the daemon's `pickup_pass`).
 fn run_pass(cx: &mut App) {
-    if queries::active_account(cx).is_none() {
+    // #EXP-1727: a Local desktop's sessions are `elocal::runs`'s to claim.
+    if queries::active_account(cx).is_none_or(|a| a.is_local()) {
         return;
     }
     let Some(store) = Store::try_global(cx) else {

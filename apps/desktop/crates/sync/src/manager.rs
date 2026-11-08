@@ -379,6 +379,16 @@ impl SyncManager {
 
     /// The per-account store, for the collections layer's hydration reads
     /// (§5.8 — the read-only WAL connection never blocks the writer).
+    /// #EXP-1727: an authoritative store with no pipeline (a Local
+    /// desktop): [`Self::store`] finds it, nothing syncs it.
+    pub fn adopt_store(&self, account_id: &str, store: Arc<ShapeStore>, db_path: PathBuf) {
+        let token: TokenFn = Arc::new(|| None);
+        let pipeline = AccountPipeline { store, stop: Arc::new(AtomicBool::new(false)), threads: Vec::new(), base_url: String::new(), db_path, token, shapes: Some(&[]) };
+        if let Some(previous) = self.pipelines.lock().expect("pipelines poisoned").insert(account_id.to_string(), pipeline) {
+            stop_pipeline(previous);
+        }
+    }
+
     pub fn store(&self, account_id: &str) -> Option<Arc<ShapeStore>> {
         self.pipelines
             .lock()
