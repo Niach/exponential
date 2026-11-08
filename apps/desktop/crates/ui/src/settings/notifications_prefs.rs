@@ -223,6 +223,18 @@ struct Ink {
     radius_md: f32,
 }
 
+/// The IDE's translucent inks (`foreground.opacity(…)`) as the node's
+/// opacity over the solid colour: a `#rrggbbaa` byte rounds 0.5 to 0.502.
+const HINT_ALPHA: f32 = 0.5;
+const VALUE_ALPHA: f32 = 0.7;
+const GLYPH_ALPHA: f32 = 0.6;
+
+/// `node` drawn at `alpha` (see [`HINT_ALPHA`]).
+fn faded(mut node: Value, alpha: f32) -> Value {
+    node["style"]["opacity"] = json!(alpha);
+    node
+}
+
 /// gpui's default line height (`phi()`), relative to the font size.
 const LINE: f32 = 1.618_034;
 /// gpui `text_sm` / `text_xs`, in rems.
@@ -236,10 +248,10 @@ impl Ink {
         Self {
             rem: f32::from(theme.font_size),
             foreground: hex(theme.foreground),
-            hint: hex(theme.foreground.opacity(0.5)),
-            value: hex(theme.foreground.opacity(0.7)),
+            hint: hex(theme.foreground),
+            value: hex(theme.foreground),
             muted: hex(theme.muted_foreground),
-            muted_glyph: hex(theme.muted_foreground.opacity(0.6)),
+            muted_glyph: hex(theme.muted_foreground),
             primary: hex(theme.primary),
             fill_row: hex(chrome.fill_row),
             stroke_row: hex(chrome.stroke_row),
@@ -272,6 +284,13 @@ impl Ink {
         json!({"id": id, "component": "Box", "visible": visible, "style": {"height": 1, "flexShrink": 0, "backgroundColor": self.stroke_row}})
     }
 
+    /// The row's hairline where `shown`: the IDE draws it as the row's top
+    /// border, so a disabled row's dims with it (two nodes, `disabled`
+    /// picks).
+    fn row_dividers(&self, id: &str, shown: Value, disabled: Value) -> [Value; 2] {
+        [self.divider(id, and(shown.clone(), not(disabled.clone()))), faded(self.divider(&format!("{id}_dim"), and(shown, disabled)), 0.5)]
+    }
+
     /// `glass_row_shell`: `px_4` / `py_3`, centred, `gap_3`. A disabled row
     /// dims WHOLE (EXP-1557), so each row is drawn twice and `dim` picks.
     fn shell(&self, id: &str, dim: bool, visible: Value, children: Vec<Value>) -> Value {
@@ -280,7 +299,7 @@ impl Ink {
 
     /// The label column (`gap_0p5`): the label over its muted hint.
     fn label_column(&self, id: &str, label: Value, hint: Value, grow: bool) -> Value {
-        let mut hint = self.text(&format!("{id}_hint"), hint, XS, &self.hint);
+        let mut hint = faded(self.text(&format!("{id}_hint"), hint, XS, &self.hint), HINT_ALPHA);
         hint["style"]["maxWidth"] = json!(eui_gpui::controls::ROW_DESCRIPTION_MAX_W);
         json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": self.r(0.125), "minWidth": 0, "flexGrow": if grow { 1 } else { 0 }, "flexShrink": 1},
             "children": [self.text(&format!("{id}_label"), label, SM, &self.foreground), hint]})
@@ -307,8 +326,8 @@ fn picker_row(ink: &Ink, id: &str, dim: bool, visible: Value, label: &str, hint:
     let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "cursor": "pointer"},
         "children": [
-            ink.text(&format!("{id}_value"), value, SM, &ink.value),
-            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value}},
+            faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), VALUE_ALPHA),
+            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA}},
         ]});
     let control = if dim {
         trigger
@@ -341,10 +360,11 @@ fn document(ink: &Ink) -> Value {
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "borderWidth": 1, "borderColor": ink.stroke_card, "backgroundColor": ink.fill_card},
         "children": [{"id": "alert_line", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "columnGap": 4, "flexGrow": 1, "minWidth": 0}, "children": line}]});
 
+    let row_children: Vec<Value> = ink.row_dividers("row_divider", not(path("first")), path("disabled")).into_iter().chain([toggle_row(ink, false), toggle_row(ink, true)]).collect();
     let rows = ink.group("rows", vec![json!({"id": "rows_list", "component": "List", "props": {"gap": "none"},
         "template": {"component": "row", "path": "/pane/rows", "key": "key"},
         "children": [{"id": "row", "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
-            "children": [ink.divider("row_divider", not(path("first"))), toggle_row(ink, false), toggle_row(ink, true)]}]})]);
+            "children": row_children}]})]);
 
     let skeleton = json!({"id": "skeleton", "component": "Skeleton", "visible": path("/pane/loading"), "props": {"rows": crate::feedback::SKELETON_ROWS, "rowHeight": super::SETTINGS_ROW_H}});
     // `action_error::load_failed_state`: `controls::empty_state_list` (a
@@ -355,7 +375,7 @@ fn document(ink: &Ink) -> Value {
     let failed = json!({"id": "failed", "component": "Box", "visible": path("/pane/failed"),
         "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(1.5), "width": "100%"},
         "children": [
-            {"id": "failed_icon", "component": "Icon", "props": {"name": "settings-notifications"}, "style": {"width": 20, "height": 20, "color": ink.muted_glyph}},
+            {"id": "failed_icon", "component": "Icon", "props": {"name": "settings-notifications"}, "style": {"width": 20, "height": 20, "color": ink.muted_glyph, "opacity": GLYPH_ALPHA}},
             ink.text("failed_title", json!(NO_PREFERENCES), SM, &ink.muted),
             {"id": "failed_retry", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "retry"}}}, "children": [retry]},
         ]});
@@ -366,7 +386,7 @@ fn document(ink: &Ink) -> Value {
     let daily = path("/pane/digest/daily");
     let delivery = |dim: bool| picker_row(ink, if dim { "delivery_dim" } else { "delivery" }, dim, if dim { disabled.clone() } else { not(disabled.clone()) }, "Delivery", "How often the digest goes out.", path("/pane/digest/label"), "digest", digest_items.clone());
     let send_time = |dim: bool| picker_row(ink, if dim { "hour_dim" } else { "hour" }, dim, and(daily.clone(), if dim { disabled.clone() } else { not(disabled.clone()) }), "Send time", "Full hours only, in your timezone.", path("/pane/digest/hourLabel"), "hour", hour_items.clone());
-    let mut digest = ink.group("digest", vec![delivery(false), delivery(true), ink.divider("hour_divider", daily.clone()), send_time(false), send_time(true)]);
+    let mut digest = ink.group("digest", [vec![delivery(false), delivery(true)], ink.row_dividers("hour_divider", daily.clone(), disabled.clone()).to_vec(), vec![send_time(false), send_time(true)]].concat());
     digest["visible"] = path("/pane/ready");
 
     // `settings::section`: `gap_2`.
@@ -703,10 +723,10 @@ mod tests {
             rem: 14.,
             primary: "#fafafaff".into(),
             foreground: "#ffffffff".into(),
-            hint: "#ffffff80".into(),
-            value: "#ffffffb3".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
             muted: "#a1a1aaff".into(),
-            muted_glyph: "#a1a1aa99".into(),
+            muted_glyph: "#a1a1aaff".into(),
             fill_row: "#ffffff0a".into(),
             stroke_row: "#ffffff14".into(),
             fill_card: "#ffffff0f".into(),
