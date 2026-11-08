@@ -16,7 +16,7 @@ use sync::Store;
 use crate::session::AuthContext;
 
 const PREFIX: &str = "local-";
-const URL_SCHEME: &str = "local://";
+const URL_SCHEME: &str = api::accounts::LOCAL_SCHEME;
 
 /// The machine's Local desktops and the open one.
 pub(crate) struct LocalDesktops {
@@ -141,6 +141,7 @@ pub(crate) fn enter(id: &str, cx: &mut App) -> bool {
     let runs = start_runs(&desktop);
     let db = desktop.dir.join("local.sqlite");
     let account = account_id(id);
+    crate::app_outbox::forget_account(&account, cx);
     {
         let locals = cx.global_mut::<LocalDesktops>();
         if let Some(previous) = locals.runs.take() {
@@ -230,7 +231,9 @@ mod tests {
             let teams = c.teams_sorted(cx);
             assert_eq!(teams.len(), 1);
             assert_eq!(c.boards_in_team(&teams[0].id, cx).len(), 1);
-            assert!(crate::queries::active_account(cx).is_some_and(|a| a.id.starts_with(PREFIX)));
+            assert!(crate::queries::active_account(cx).is_some_and(|a| a.id.starts_with(PREFIX) && a.is_local()));
+            // The record outbox's log finds the desktop's store.
+            assert!(Store::global(cx).manager().store(&account_id(&teams[0].id)).is_some());
             (teams[0].id.clone(), client(cx).expect("a local client"))
         });
         let board = cx.update(|cx| Store::global(cx).collections().boards_in_team(&team, cx)[0].id.clone());

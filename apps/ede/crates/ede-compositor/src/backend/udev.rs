@@ -785,11 +785,21 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     }
     elements.extend(super::output_elements(state, &output, &mut renderer));
 
+    let started = std::time::Instant::now();
     let result = surface.drm_output.render_frame(&mut renderer, &elements, state.clear_color(), FrameFlags::DEFAULT);
     drop(renderer);
     match result {
         Ok(frame) if !frame.is_empty => {
             u.health.drew();
+            // #EDE-65: what each frame did, for a flicker only a real display
+            // shows (RUST_LOG=ede_frames=debug in the session's environment).
+            if tracing::enabled!(target: "ede_frames", tracing::Level::DEBUG) {
+                let (primary, damage) = match &frame.primary_element {
+                    PrimaryPlaneElement::Swapchain(e) => ("composited", e.damage.damage_since(None).map(|d| d.len()).unwrap_or(0)),
+                    PrimaryPlaneElement::Element(_) => ("scanout", 0),
+                };
+                tracing::debug!(target: "ede_frames", output = %output.name(), primary, damage_rects = damage, cursor_plane = frame.cursor_element.is_some(), elements = elements.len(), render_ms = started.elapsed().as_secs_f32() * 1000.0, "frame");
+            }
             // No IN_FENCE_FD on this plane (vmwgfx, virtio-gpu, llvmpipe's
             // EGL fences cannot be exported): the kernel would scan out the
             // buffer while the renderer still draws into it, and the host
@@ -814,7 +824,15 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                 }
                 super::frame_done(state, &output);
             }
-            Err(e) => tracing::warn!("{}: queue_frame: {e:?}", output.name()),
+            Err(e) => {
+                // #EDE-65: smithay counted this frame as shown (the slot's
+                // age, the elements' damage) though it never reached the
+                // screen; vmwgfx copies only the next frames' damage clips to
+                // the host, so what changed in it stayed stale on screen.
+                // The next frame redraws the whole output instead.
+                surface.drm_output.reset_buffers();
+                tracing::warn!("{}: queue_frame: {e:?}; the next frame redraws the whole output", output.name());
+            }
             }
         }
         Ok(_) => {
@@ -892,5 +910,64 @@ mod tests {
         assert!(wants_render(false, false), "nothing pending: render");
         assert!(!wants_render(true, false), "a flip waits for its vblank");
         assert!(!wants_render(false, true), "an idle refresh is pending: its timer renders");
+    }
+
+    /// #EDE-65 probe: llvmpipe GLES on card0's GBM (vmwgfx without 3D, the
+    /// VM's stack) renders partial-damage frames into a rotating swapchain the
+    /// way the DrmCompositor does (buffer age per slot); every buffer, read
+    /// back through a CPU map of the BO (what scanout reads), must hold the
+    /// whole scene. Needs /dev/dri/card0 (any session's ACL, no DRM master).
+    #[test]
+    #[ignore]
+    fn partial_frames_on_card0_hold_the_whole_scene() {
+        use smithay::backend::allocator::{dmabuf::AsDmabuf, gbm::{GbmAllocator, GbmBufferFlags, GbmDevice}, Fourcc, Modifier, Swapchain};
+        use smithay::backend::drm::DrmDeviceFd;
+        use smithay::backend::egl::{EGLContext, EGLDisplay};
+        use smithay::backend::renderer::{damage::OutputDamageTracker, element::{solid::SolidColorRenderElement, Id, Kind}, gles::GlesRenderer, utils::CommitCounter, Bind};
+        use smithay::utils::{Rectangle, Transform};
+
+        let file = std::fs::OpenOptions::new().read(true).write(true).open("/dev/dri/card0").unwrap();
+        let fd = DrmDeviceFd::new(smithay::utils::DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+        let gbm = GbmDevice::new(fd).unwrap();
+        let display = unsafe { EGLDisplay::new(gbm.clone()) }.unwrap();
+        let mut renderer = unsafe { GlesRenderer::new(EGLContext::new(&display).unwrap()) }.unwrap();
+        let (w, h) = (256i32, 128i32);
+        let allocator = GbmAllocator::new(gbm.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
+        let mut swapchain = Swapchain::new(allocator, w as u32, h as u32, Fourcc::Argb8888, vec![Modifier::Linear, Modifier::Invalid]);
+        let mut tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
+        let square = Id::new();
+        let (red, green) = ([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]);
+        let mut held = std::collections::VecDeque::new();
+        let mut failures = Vec::new();
+        for i in 0..12 {
+            let x = 32 * (i % 7);
+            let slot = swapchain.acquire().unwrap().expect("a free slot");
+            let age = slot.age() as usize;
+            let mut dmabuf = slot.export().unwrap();
+            {
+                let mut fb = renderer.bind(&mut dmabuf).unwrap();
+                let elements = [SolidColorRenderElement::new(square.clone(), Rectangle::new((x, 32).into(), (32, 32).into()), CommitCounter::default(), green, Kind::Unspecified)];
+                let out = tracker.render_output(&mut renderer, &mut fb, age, &elements, red).unwrap();
+                let _ = out.sync.wait();
+            }
+            swapchain.submitted(&slot);
+            // What scanout reads: green under the square, red everywhere else.
+            let pixels = slot.map(0, 0, w as u32, h as u32, |m| (m.stride(), m.buffer().to_vec())).unwrap();
+            let at = |px: i32, py: i32| {
+                let o = py as usize * pixels.0 as usize + px as usize * 4;
+                [pixels.1[o + 2], pixels.1[o + 1], pixels.1[o]]
+            };
+            for sx in (0..w).step_by(16) {
+                let want = if sx >= x && sx < x + 32 { [0, 255, 0] } else { [255, 0, 0] };
+                if at(sx, 40) != want {
+                    failures.push(format!("frame {i} (age {age}) x={sx}: {:?}, want {want:?}", at(sx, 40)));
+                }
+            }
+            held.push_back(slot);
+            if held.len() > 2 {
+                held.pop_front();
+            }
+        }
+        assert!(failures.is_empty(), "stale pixels in scanout buffers:\n{}", failures.join("\n"));
     }
 }
