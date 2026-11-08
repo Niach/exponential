@@ -790,7 +790,36 @@ app_ids = ["org.example.Bank"]   # on top of the built-in list
 [theme]              # the bridge (#EDE-19), read by exponential-theme, not the compositor
 bridge = true        # false: exponential-theme sync removes what it wrote
 icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size likewise; unset = the first installed preference
+
+[diagnostics]        # Settings › About › Send diagnostics (#LOGS-2)
+send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or log reports
 ```
+
+## Diagnostics (#LOGS-2)
+
+`crates/ede-observability`: the Sentry SDK in the compositor, `exponential-session` and
+`exponential-services` (panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions),
+OFF unless the signed-in account's server turns it on. Nothing is baked in: the server of the first
+account in the IDE's shared `accounts.json` answers `GET <server>/api/monitoring/config?platform=ede`
+(`{"enabled", "dsn", "environment", "tracesSampleRate"}`), the answer is cached in
+`$XDG_CACHE_HOME/exponential-desktop/monitoring.json` and applies from the NEXT launch (no network
+before the desktop starts), and every envelope is POSTed to the server's tunnel
+`<server>/api/monitoring`, never to the collector. No account, no cached answer, `{"enabled": false}`,
+`[diagnostics] send = false` or `EXP_DIAGNOSTICS=0` = off.
+
+- release `exponential-ede@<version>`; environment = `SENTRY_ENVIRONMENT`, else the server's, else
+  `dev` (debug build) / `prod`; traces = `SENTRY_TRACES_SAMPLE_RATE`, else the server's, else 0.1;
+  errors 1.0.
+- Privacy: `send_default_pii` off, no hostname, the user is the account's pseudonymous id only;
+  `Authorization`, cookies and every key matching token|secret|password|key|ticket|session|dsn are
+  `[Filtered]` in events, breadcrumbs and logs (`scrub.rs`, unit-tested).
+- `EXP_SENTRY_DSN`: a local development override naming the project (still through the tunnel).
+- The compositor: every drawn frame is timed; one of 33 ms or more is a `ui.frame.long` transaction,
+  a `ui.frames` transaction carries each minute's p50/p95/p99/max, and a heartbeat every 50 ms on the
+  main loop turns a block of 100 ms or more into a `ui.hang` transaction (a loop stuck for 2 s is a
+  warning event from the watchdog thread). At most one long-frame or hang span a second.
+- `EXP_FRAME_STATS=1`: the same frame times as a stderr summary every 5 s, Sentry or not:
+  `frame stats 5.0s: 300 frames (60.0/s) avg 2.10 ms, p50 2.0, p95 4.5, p99 8.0, max 12.3 ms; 0 long (>= 33 ms); 0 hangs (max 0 ms)`.
 
 ## Lock, idle, input methods, protected surfaces
 

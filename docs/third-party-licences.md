@@ -580,3 +580,19 @@ Its licence is the MIT/X11 family (permissive, notice-preserving), and the
 links only noble's own system libraries, which come in through the .deb's
 Depends and are never copied into it. xorgproto is used at build time only:
 it is headers, and nothing of it ships.
+
+## Exponential Desktop's diagnostics: the Sentry SDK (LOGS-2, 2026-11-09)
+
+eDE's compositor, session and services link the Sentry Rust SDK (`sentry`
+0.49 and its `sentry-*` crates, MIT) through `apps/ede/crates/ede-observability`,
+with default features off: no native-tls, no built-in transport, no minidumps.
+What it adds to eDE's graph is permissive and notice-preserving only: MIT or
+Apache-2.0 (`os_info`, `findshlibs`, `hostname`, `uname`, `backtrace`,
+`addr2line`, `gimli`, `object`, `rustc-demangle`, `time`, `nix`), Apache-2.0
+(`debugid`). The HTTP side is the reqwest + rustls-on-ring that eMCP already
+puts in the graph; no aws-lc, no OpenSSL. Nothing ships as a separate binary and
+no service is bundled: the envelopes go to the Exponential server's own tunnel
+(`/api/monitoring`). The eDE packages carry no per-dependency inventory yet
+(`packages/licenses` collects `apps/desktop` only); these crates join whoever
+adds that collector.
+
