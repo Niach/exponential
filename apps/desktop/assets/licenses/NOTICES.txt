@@ -199,12 +199,12 @@ Applies to the following 126 components:
     MIT elected from `MIT OR Apache-2.0`
   profiling-procmacros 1.0.18
     MIT elected from `MIT OR Apache-2.0`
-  rio-graphics 0.5.26
+  rio-graphics 0.5.29
     Copyright (c) 2023-Present Raphael Amorim
-  rio-unicode 0.5.26
+  rio-unicode 0.5.29
     Copyright (c) 2023-Present Raphael Amorim
     MIT elected from `MIT OR Apache-2.0`
-  rio-vt 0.5.26
+  rio-vt 0.5.29
     Copyright (c) 2023-Present Raphael Amorim
   rust-i18n-macro 4.2.1
   rust-i18n-support 4.2.1
@@ -18826,7 +18826,7 @@ MIT
 
 Applies to the following component:
 
-  rio-grapheme-width 0.5.26
+  rio-grapheme-width 0.5.29
     Copyright (c) 2018-Present Wez Furlong
     Copyright (c) 2023-Present Raphael Amorim
 
@@ -24017,7 +24017,7 @@ Elections made in this build
     MIT elected from `Apache-2.0 OR MIT`
   resvg 0.46.0
     MIT elected from `Apache-2.0 OR MIT`
-  rio-unicode 0.5.26
+  rio-unicode 0.5.29
     MIT elected from `MIT OR Apache-2.0`
   ropey 2.0.0-beta.1
     MIT elected from `MIT OR Apache-2.0`
