@@ -159,7 +159,7 @@ struct ChatHeaderTitle: View {
     static func subtitle(rows: ChatRows) -> String {
         let live = live(rows)
         let state: String = if live.contains(where: \.needsInput) {
-            ChatRowWord.needsInput.text
+            ChatRowWord.needsInput.text ?? ""
         } else if live.contains(where: \.busy) {
             Chats.Copy.Preview.working
         } else if rows.root.status == DomainContract.sessionStatusEnded {

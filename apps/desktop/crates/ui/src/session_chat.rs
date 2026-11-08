@@ -4574,11 +4574,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("a line starts with {needle:?}"))
         };
         let second = line_of("curl", cx);
-        let item = line_of("Phone writes", cx);
         // A sweep INSIDE the code span (it leads its line) copies its code.
         let code = copy_after_sweep(text(20., second), text(120., second), cx);
         assert_eq!(code, CODE, "a code span copies its code");
-        let all = copy_after_sweep(text(0., first), text(1000., item), cx);
+        let all = copy_after_sweep(text(0., first), text(f32::from(body.size.width) - 2., f32::from(body.size.height) - 8.), cx);
         for part in ["Package repos:", "pkg.exponential.at is a small server.", "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh installs it", "Phone writes: live test"] {
             assert!(all.contains(part), "multi-paragraph Copy carries {part:?}: {all:?}");
         }
