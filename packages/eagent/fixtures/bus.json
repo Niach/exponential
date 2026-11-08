@@ -1131,13 +1131,13 @@
             "id": "ag1",
             "ownerId": "u1",
             "role": "assistant",
-            "conversationId": "as1"
+            "rootSessionId": "as1"
           },
           {
             "id": "ag2",
             "ownerId": "u1",
             "role": "agent",
-            "conversationId": "pa1"
+            "rootSessionId": "pa1"
           }
         ]
       },
