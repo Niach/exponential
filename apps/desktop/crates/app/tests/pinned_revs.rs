@@ -47,7 +47,8 @@ fn lockfile_pins_the_expected_gpui_versions() {
                 "{name} comes from a git source ({source}): gpui is pinned to crates.io"
             );
         }
-        if name == "gpui-pre" || name.starts_with("gpui-pre-") {
+        // The snapshot's reqwest fork keeps reqwest's own version line.
+        if (name == "gpui-pre" || name.starts_with("gpui-pre-")) && name != "gpui-pre-reqwest" {
             gpui_pre += 1;
             assert_eq!(version, GPUI_PRE, "{name} drifted off the gpui-pre pin");
         } else if GPUI_KIT_PACKAGES.contains(&name) {

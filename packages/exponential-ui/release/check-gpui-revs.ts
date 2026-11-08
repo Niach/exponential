@@ -21,6 +21,8 @@ const REPO = resolve(import.meta.dir, `..`, `..`, `..`)
 const VERSION = /^\d+\.\d+\.\d+$/
 const GIT_UPSTREAMS = [`github.com/zed-industries/zed`, `github.com/longbridge/gpui-`]
 const KIT_PACKAGES = [`gpui-component`, `gpui-base`, `gpui-kit-assets`, `gpui-component-macros`]
+// The snapshot's reqwest fork keeps reqwest's own version line (=0.12.15).
+const isPre = (name: string) => (name === `gpui-pre` || name.startsWith(`gpui-pre-`)) && name !== `gpui-pre-reqwest`
 
 const errors: string[] = []
 const read = (path: string) => readFileSync(join(REPO, path), `utf8`)
@@ -54,7 +56,7 @@ function checkLock(path: string) {
     const source = field(`source`) ?? ``
     if (!name || !version) continue
     if (GIT_UPSTREAMS.some((u) => source.includes(u))) fail(path, `${name} comes from git (${source}); gpui is pinned to crates.io`)
-    if (name === `gpui-pre` || name.startsWith(`gpui-pre-`)) {
+    if (isPre(name)) {
       pre++
       if (version !== gpuiPre) fail(path, `${name} ${version} is off the gpui-pre pin ${gpuiPre}`)
     } else if (KIT_PACKAGES.includes(name)) {
@@ -78,7 +80,7 @@ function checkManifest(path: string) {
     const pkg = line.match(/package = "([^"]+)"/)?.[1] ?? line.match(/^([a-z][a-z0-9_-]*)\s*=/)?.[1]
     if (!pkg) continue
     const req = line.match(/version = "([^"]+)"/)?.[1] ?? line.match(/^[a-z][a-z0-9_-]*\s*=\s*"([^"]+)"/)?.[1]
-    const want = pkg === `gpui-pre` || pkg.startsWith(`gpui-pre-`) ? gpuiPre : KIT_PACKAGES.includes(pkg) ? component : undefined
+    const want = isPre(pkg) ? gpuiPre : KIT_PACKAGES.includes(pkg) ? component : undefined
     if (!want || !req) continue
     seen++
     if (req !== `=${want}`) fail(path, `${pkg} requires "${req}", not the pin "=${want}"`)
