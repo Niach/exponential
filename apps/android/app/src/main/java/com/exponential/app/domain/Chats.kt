@@ -489,11 +489,11 @@ object Chats {
 
     // ── the list's per-conversation DIGEST (`digestCases`, TS `digestMessages`) ──
     // The Chats list never reads a transcript: the server keeps, on each
-    // conversation row (`conversations.digest`), exactly the messages the
+    // session row (`sessions.digest`, #EXP-1730), exactly the messages the
     // list's rules read; [digestMessages] turns it back into tree messages so
     // `partitionThreads` and `chatList` run UNCHANGED over it.
 
-    /** `conversations.digest` (JSON text) → its object; null / bad = none. */
+    /** `sessions.digest` (JSON text) → its object; null / bad = none. */
     fun parseDigest(text: String?): JsonObject? {
         if (text.isNullOrBlank()) return null
         return runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
@@ -532,7 +532,7 @@ object Chats {
                 consumedAt = null,
                 createdAt = createdAt,
                 authorSessionId = m.optText("authorSessionId"),
-                // EXP-1459: a slot the DAO could not open (SealedContent.conversation).
+                // EXP-1459: a slot the DAO could not open (SealedContent.digest).
                 locked = m.optText("locked"),
             )
             if (authorKind == "agent" && card?.kind() != "event") {

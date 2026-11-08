@@ -195,7 +195,8 @@ class AgentSettingsViewModel @Inject constructor(
         steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId),
         agent,
     ) { list, row ->
-        list?.filter { it.online || it.deviceId == row?.deviceId }
+        val current = row?.runnerDefaults?.deviceId
+        list?.filter { it.online || (current != null && it.deviceId == current) }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** #EXP-1661: the agent's team's skills (the Skills row's picker), by name. */
