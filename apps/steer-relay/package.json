@@ -15,7 +15,7 @@
     "@exp/domain-contract": "workspace:*",
     "@exp/etalk": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
-    "hono": "^4.7.11",
+    "hono": "^4.12.34",
     "zod": "^4.0.14"
   },
   "devDependencies": {
