@@ -1388,7 +1388,7 @@ mod tests {
         let off = super::resolve_recipe(&theme, &super::RecipeQuery::new("Switch", "track", props(false), vec![]), super::Mode::Dark);
         let color = |name: &str| theme.modes.dark.color.get(name).cloned().map(serde_json::Value::String);
         assert_eq!(on.get("backgroundColor").cloned(), color("primary"));
-        assert_eq!(off.get("backgroundColor").cloned(), color("input"));
+        assert_eq!(off.get("backgroundColor").cloned(), color("accent"));
         let playful = crate::themes::builtin_theme("playful").unwrap();
         let track = super::resolve_recipe(&playful, &super::RecipeQuery::new("Switch", "track", props(true), vec!["checked".into()]), super::Mode::Dark);
         assert_eq!(track.get("width").and_then(serde_json::Value::as_f64), Some(44.0));
