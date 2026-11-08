@@ -2401,7 +2401,12 @@ impl ChatScreenView {
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
             && teams_step.is_none_or(|step| step.is_some())
-            && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
+            && crate::screens::take_dev_composer_menu(
+                matches!(self.presentation, Presentation::Dialog),
+                bounds,
+                cx.entity_id(),
+                cx,
+            );
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
             .tooltip(PLUS_TOOLTIP)
