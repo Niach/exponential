@@ -466,6 +466,9 @@ pub const SHAPES: [ShapeSpec; 34] = [
             // NOT `app_id`, an editor session's app). `heal_missing_columns`
             // ALTERs it onto existing store tables.
             "via_app_id",
+            // #EXP-1730: the lists' digest (mirrored from the session's
+            // conversation server-side; `conversations` is never read).
+            "digest",
             "created_at",
             "updated_at",
         ],
@@ -497,12 +500,14 @@ pub const SHAPES: [ShapeSpec; 34] = [
         // EXP-1294: every session's conversation (person, agent and system
         // rows; `card` jsonb). `consumed_at` NULL on a person's row = queued
         // (the device's pickup reads this shape). Scoping columns
-        // (`shared`, `owner_id`) stay server-side. NEW-8: a row lives in a
-        // conversation; the legacy `session_id` is never read (the
-        // conversation decides, `domain::message_conversation`).
+        // (`shared`, `owner_id`) stay server-side. #EXP-1730: a row lives
+        // in its session (`session_id`, `domain::message_session::
+        // message_session`); `conversation_id` is synced, never read.
         columns: &[
             "id",
             "conversation_id",
+            // #EXP-1730: the row's session (THE key every reader uses).
+            "session_id",
             "root_id",
             "team_id",
             "author_kind",
@@ -529,6 +534,10 @@ pub const SHAPES: [ShapeSpec; 34] = [
         // one per session, or `dm` / `channel` with no session). Byte-matches
         // the proxy's allowlist (apps/web routes/api/shapes/conversations.ts).
         // #EXP-1380: `digest` = the lists' digest of the messages.
+        // #EXP-1730: no reader left (messages carry `session_id`, sessions
+        // their `digest`); the table stays for a Local desktop's store, whose
+        // fixture-locked `sessions.send` (local-parity.json) still writes it.
+        // The CLI daemon and eDE no longer subscribe.
         columns: &["id", "team_id", "kind", "session_id", "title", "digest", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
@@ -820,6 +829,10 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "cli",
             "account",
             "model",
+            // #EXP-1730: the runner defaults as one object (the ONLY one read:
+            // `domain::rows::AgentDefRow`); the four columns above stay for
+            // the proxy byte-match until phase B drops them.
+            "defaults",
             // #EXP-1656: the skills every run of the agent starts with.
             "skill_ids",
             "owner_id",
@@ -877,6 +890,8 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "draft_package",
             "created_by",
             "granted_tools",
+            // #EXP-1730: the app's agent (NULL = standalone).
+            "agent_id",
             "deleted_at",
             "created_at",
             "updated_at",
@@ -1082,7 +1097,7 @@ mod tests {
     fn the_new2_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("agents").unwrap().columns,
-            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "skill_ids", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "defaults", "skill_ids", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
         );
         assert_eq!(
             shape_by_name("events").unwrap().columns,
@@ -1108,7 +1123,7 @@ mod tests {
     fn the_apps_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("apps").unwrap().columns,
-            &["id", "team_id", "slug", "name", "icon", "color", "description", "package", "head_version", "published_version", "draft_package", "created_by", "granted_tools", "deleted_at", "created_at", "updated_at"]
+            &["id", "team_id", "slug", "name", "icon", "color", "description", "package", "head_version", "published_version", "draft_package", "created_by", "granted_tools", "agent_id", "deleted_at", "created_at", "updated_at"]
         );
         let versions = shape_by_name("app_versions").unwrap();
         assert_eq!(
@@ -1300,7 +1315,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 39);
+        assert_eq!(sessions.columns.len(), 40);
         // #EXP-1720: the Assistant conversation root's Teams pick.
         for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "scope_team_ids"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
@@ -1324,10 +1339,11 @@ mod tests {
         assert_eq!(messages.path, "/api/shapes/messages");
         assert!(messages.columns.contains(&"consumed_at"));
         assert!(!messages.columns.contains(&"owner_id"));
-        // NEW-8: a message is keyed through its conversation, never its
-        // legacy `session_id`.
+        // #EXP-1730: a message is keyed by its own `session_id` (the legacy
+        // `conversation_id` still syncs, never read).
         assert!(messages.columns.contains(&"conversation_id"));
-        assert!(!messages.columns.contains(&"session_id"));
+        assert!(messages.columns.contains(&"session_id"));
+        assert!(sessions.columns.contains(&"digest"));
         assert_eq!(
             shape_by_name("conversations").unwrap().columns,
             &["id", "team_id", "kind", "session_id", "title", "digest", "created_at", "updated_at"]

@@ -207,7 +207,6 @@ impl TalkHost for ExponentialHost {
     fn messages(&self, cx: &App, visit: &mut dyn FnMut(&TalkMessage<'_>)) -> bool {
         let Some(store) = Store::try_global(cx) else { return false };
         let collections = store.collections();
-        let sessions = domain::message_conversation::conversation_sessions(collections.conversations.read(cx).iter());
         let rows = collections.messages.read(cx);
         for row in rows.iter() {
             visit(&TalkMessage {
@@ -217,7 +216,7 @@ impl TalkHost for ExponentialHost {
                     body: row.body.as_deref(),
                     has_card: row.card.as_ref().is_some_and(|card| !card.is_null()),
                     author_session_id: row.author_session_id.as_deref(),
-                    session_id: domain::message_conversation::session_of(row, &sessions),
+                    session_id: domain::message_session::message_session(row),
                     created_at: row.created_at.as_deref(),
                 },
             });

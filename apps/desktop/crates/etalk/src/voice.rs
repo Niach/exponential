@@ -1185,7 +1185,7 @@ pub struct VoiceMessage<'a> {
     pub body: Option<&'a str>,
     pub has_card: bool,
     pub author_session_id: Option<&'a str>,
-    /// The session the row belongs to (through its conversation).
+    /// The session the row belongs to (#EXP-1730: `messages.session_id`).
     pub session_id: Option<&'a str>,
     pub created_at: Option<&'a str>,
 }
