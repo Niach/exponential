@@ -32,7 +32,8 @@ import { cn } from "@/lib/utils"
 //            360px) : the tab pane (7fr; the active tab's body or the
 //            opened item over it), a hairline between; `chat` = the chat
 //            full width; phones: `tab` (the tab's body) or `item` (the
-//            opened item, a `‹` back to the tab).
+//            opened item as a PUSHED PAGE: its own header, `‹` + the
+//            item's title, replaces the screen header AND the tabs).
 //
 // The hosts (`chat-screen.tsx`, `apps/app-editor.tsx`) own the bodies and
 // the route search; nothing here queries.
@@ -75,6 +76,8 @@ export interface SessionScreenFrameProps {
   item?: ReactNode
   /** The opened item's `‹` back (to the tab it came from). */
   onCloseItem?: () => void
+  /** Phones: the opened item's title (its pushed page's header). */
+  itemTitle?: string
   /** Over the body (the voice call card). */
   overlay?: ReactNode
 }
@@ -170,6 +173,7 @@ export function SessionScreenFrame({
   pane,
   item,
   onCloseItem,
+  itemTitle,
   overlay,
 }: SessionScreenFrameProps) {
   const phone = useIsMobile()
@@ -208,6 +212,24 @@ export function SessionScreenFrame({
     body = paneBody
   } else {
     body = <div className="flex min-h-0 min-w-0 flex-1 flex-col">{chat}</div>
+  }
+
+  // session-screen.json PHONE ITEM: an opened item is a pushed page; its
+  // own header (‹ + the item's title) replaces the screen header and tabs.
+  if (phone && screen.layout === `item` && item) {
+    return (
+      <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid={testId} data-layout={screen.layout}>
+        <MobileDetailHeader
+          title={<span data-testid="session-item-title">{itemTitle ?? ``}</span>}
+          onBack={onCloseItem}
+          backLabel={SESSION_SCREEN_COPY.back}
+        />
+        {overlay}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="session-item">
+          {item}
+        </div>
+      </div>
+    )
   }
 
   if (phone) {

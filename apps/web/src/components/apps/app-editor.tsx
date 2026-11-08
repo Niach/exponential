@@ -54,7 +54,10 @@ import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
 import { requestDeviceMove } from "@/components/session-device-move"
 import {
+  SESSION_SCREEN_COPY,
   sessionScreen,
+  sessionScreenStatus,
+  sessionScreenSubtitle,
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
@@ -358,15 +361,18 @@ export function AppEditor({
   // #EXP-1729 (apps.json `editorHeader`): the header's `status · device`,
   // the device = the one the composer shows, named as its Device row names it.
   const shownDevice = deviceId ? devices.devices?.find((d) => d.deviceId === deviceId) : undefined
+  const headerDeviceInput = deviceId
+    ? {
+        name: deviceRows.find((r) => r.id === deviceId)?.name ?? deviceId,
+        online: shownDevice ? deviceIsOnline(shownDevice) : false,
+      }
+    : null
   const header = editorHeader(
     root ? { status: root.status, busy: root.busy, needsInput: root.needsInput } : null,
-    deviceId
-      ? {
-          name: deviceRows.find((r) => r.id === deviceId)?.name ?? deviceId,
-          online: shownDevice ? deviceIsOnline(shownDevice) : false,
-        }
-      : null
+    headerDeviceInput
   )
+  // #EXP-1732: the subtitle's device part alone (no root = no word).
+  const headerDevice = editorHeader(null, headerDeviceInput)
   // #EXP-1729: Account › and Model › (composer-menu.json, an app editor's
   // composer, always): held picks ride the next send until the root is live.
   const heldRunner = useEditorRunner(root, shownDevice)
@@ -488,7 +494,6 @@ export function AppEditor({
    *  other on its own route. */
   const openSession = (session: SessionRow) => {
     if (root && session.id !== root.id && (session.rootId ?? session.id) === root.id) {
-      setTab(`sessions`)
       setOpened({ open: `session`, sessionId: session.id })
       return
     }
@@ -887,9 +892,22 @@ export function AppEditor({
       />
     ) : null
 
-  // #EXP-1729 (apps.json `editorHeader`): THE header's ONE subtitle line
-  // says why nothing starts (`queued · no device online`), in its tone.
-  const subtitle = header.subtitle
+  // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word (never
+  // dropped) · apps.json `editorHeader`'s DEVICE part (the name, else `no
+  // device online`), in `editorHeader`'s tone.
+  const statusRows = root && !tree.some((row) => row.id === root.id) ? [root, ...tree] : tree
+  const subtitle = sessionScreenSubtitle({
+    status: sessionScreenStatus(
+      statusRows.map((row) => ({
+        status: row.status,
+        busy: row.busy,
+        needsInput: row.needsInput,
+        root: row.id === root?.id,
+      }))
+    ),
+    device: headerDevice.subtitle,
+    trigger: null,
+  })
 
   return (
     <>
@@ -916,6 +934,13 @@ export function AppEditor({
         pane={pane}
         item={item}
         onCloseItem={closeItem}
+        itemTitle={
+          screen.open === `settings`
+            ? SESSION_SCREEN_COPY.settings
+            : openSessionRow
+              ? (titles.get(openSessionRow.id) ?? ``)
+              : ``
+        }
       />
       {exportDialog}
       {deletePrompt}

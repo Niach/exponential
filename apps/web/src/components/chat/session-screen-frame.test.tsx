@@ -11,8 +11,19 @@ const mocks = vi.hoisted(() => ({ isMobile: { current: false } }))
 vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useIsMobile: () => mocks.isMobile.current,
-  MobileDetailHeader: ({ title, menu, below }: { title: ReactNode; menu?: ReactNode; below?: ReactNode }) => (
+  MobileDetailHeader: ({
+    title,
+    menu,
+    below,
+    onBack,
+  }: {
+    title: ReactNode
+    menu?: ReactNode
+    below?: ReactNode
+    onBack?: () => void
+  }) => (
     <div data-testid="mobile-header">
+      {onBack && <button type="button" data-testid="mobile-header-back" onClick={onBack} />}
       {title}
       {menu}
       {below}
@@ -49,6 +60,7 @@ function renderFrame(
       pane={<div data-testid="tab-body" />}
       item={value.open ? <div data-testid="item-body" /> : null}
       onCloseItem={props.onCloseItem}
+      itemTitle="Settings"
     />
   )
 }
@@ -157,5 +169,18 @@ describe(`phones (one pane)`, () => {
   it(`the header keeps THE tabs`, () => {
     renderFrame({ kind: `session` })
     expect(screen.getByTestId(`mobile-header`).querySelector(`[data-testid="session-tabs"]`)).toBeTruthy()
+  })
+
+  it(`an opened item is a pushed page: its own header (‹ + title) replaces the screen header and THE tabs`, () => {
+    const onCloseItem = vi.fn()
+    renderFrame({ kind: `agent`, open: `settings` }, { onCloseItem })
+    const header = screen.getByTestId(`mobile-header`)
+    expect(screen.getByTestId(`session-item-title`).textContent).toBe(`Settings`)
+    expect(screen.queryByTestId(`session-tabs`)).toBeNull()
+    expect(screen.queryByTestId(`chat-title`)).toBeNull()
+    expect(screen.queryByTestId(`session-item-back`)).toBeNull()
+    expect(screen.getByTestId(`item-body`)).toBeTruthy()
+    fireEvent.click(header.querySelector(`[data-testid="mobile-header-back"]`)!)
+    expect(onCloseItem).toHaveBeenCalled()
   })
 })

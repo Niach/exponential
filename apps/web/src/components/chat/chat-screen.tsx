@@ -1,9 +1,11 @@
 import { chatPendingAsks, chatSessionNames } from "@exp/domain-contract/ask-dock"
 import { WAITING_CARDS_CONSTANTS } from "@exp/domain-contract/waiting-cards"
-import { CHATS_COPY, type ChatLead } from "@exp/domain-contract/chats"
+import type { ChatLead } from "@exp/domain-contract/chats"
 import {
+  SESSION_SCREEN_COPY,
   sessionScreen,
   sessionScreenKind,
+  sessionScreenStatus,
   sessionScreenSubtitle,
   type SessionScreenOpen,
   type SessionScreenTab,
@@ -57,13 +59,12 @@ import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import {
-  CHAT_ROW_WORDS,
   type PullRequestRow,
   type SessionRow,
   type SessionChatView,
 } from "@/lib/session-tree"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
-import { planTabTarget } from "@exp/domain-contract/plan-page"
+import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
 
 // #EXP-1732 (fixtures/session-screen.json): THE session screen for a chat
 // (a root session), a team agent's conversation and the Assistant's. The
@@ -90,13 +91,6 @@ import { planTabTarget } from "@exp/domain-contract/plan-page"
 export { validateChatSearch, type ChatSearch } from "@/lib/session-screen-search"
 
 const PrivateIcon = conceptIcon(`ui-private`)
-
-/** The header subtitle's status word (`sessionScreenSubtitle`). */
-function statusWord(rows: readonly SessionRow[], root: SessionRow, needsYou: boolean): string {
-  if (needsYou) return CHAT_ROW_WORDS.needsInput ?? ``
-  if (rows.some((row) => row.busy)) return CHATS_COPY.preview.working
-  return root.status === `ended` ? `ended` : `idle`
-}
 
 /** #EXP-1732: an agent's (or the Assistant's) header parts and settings,
  *  the route's. */
@@ -234,8 +228,10 @@ export function ChatScreen({
   const openItem = (next: ChatSearch) => onNavigate({ tab: screen.active, ...next, ...keepBack })
   /** The opened item's `‹`: back to the tab it came from. */
   const closeItem = () => onNavigate({ tab: screen.active, ...keepBack }, { replace: true })
-  const openSession = (sessionId: string) => openItem({ tab: `sessions`, open: `session`, session: sessionId })
-  const openIssue = (issueId: string) => openItem({ tab: `issues`, open: `issue`, issue: issueId })
+  // session-screen.json ACTIVE FOLLOWS THE OPENED ITEM: `sessionScreen`
+  // makes Sessions (Issues) active while a session (an issue) is open.
+  const openSession = (sessionId: string) => openItem({ open: `session`, session: sessionId })
+  const openIssue = (issueId: string) => openItem({ open: `issue`, issue: issueId })
   /** S-3: the session on show (an xref pushes it; `‹` pops back to it). */
   const nav = useSessionNav({
     teamSlug,
@@ -395,7 +391,10 @@ export function ChatScreen({
   }
 
   let item: ReactNode = null
+  /** Phones: the pushed item page's title. */
+  let itemTitle = ``
   if (screen.open === `session` && openSessionRow) {
+    itemTitle = titles.get(openSessionRow.id) ?? ``
     item = (
       <InPlaceSession
         key={openSessionRow.id}
@@ -406,6 +405,7 @@ export function ChatScreen({
       />
     )
   } else if (screen.open === `plan` && openPlan) {
+    itemTitle = PLAN_PAGE_COPY.title
     item = (
       <ChatPlanBody
         row={openPlan}
@@ -419,6 +419,7 @@ export function ChatScreen({
   } else if (screen.open === `issue` && openIssueId) {
     const issue = issuesById.get(openIssueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
+    itemTitle = issue?.identifier ?? ``
     item =
       issue && board ? (
         <div className="min-h-0 flex-1">
@@ -439,6 +440,7 @@ export function ChatScreen({
         </div>
       )
   } else if (screen.open === `settings` && agent) {
+    itemTitle = SESSION_SCREEN_COPY.settings
     item = (
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="session-settings">
         <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10">{agent.settings}</div>
@@ -474,7 +476,15 @@ export function ChatScreen({
       : (chatLeadPrState(pullRequests) ?? `waiting`)
   const avatar = agent ? agent.avatar : <ChatLeadDisc lead={lead} agent={root.cli ?? null} className={HEADER_DISC_CLASS} />
   const subtitle = sessionScreenSubtitle({
-    status: statusWord(rows, root, needsYou),
+    // session-screen.json STATUS WORD: THE tree's word, never dropped.
+    status: sessionScreenStatus(
+      (rows.some((row) => row.id === root.id) ? rows : [root, ...rows]).map((row) => ({
+        status: row.status,
+        busy: row.busy,
+        needsInput: row.needsInput,
+        root: row.id === root.id,
+      }))
+    ),
     device: deviceGlyph(root.deviceId)?.name ?? null,
     trigger: agent?.trigger ?? null,
   })
@@ -538,6 +548,7 @@ export function ChatScreen({
             pane={pane}
             item={item}
             onCloseItem={closeItem}
+            itemTitle={itemTitle}
             overlay={agent?.overlay}
           />
           </CardHighlightContext.Provider>
