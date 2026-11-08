@@ -7,6 +7,8 @@ import fixture from "../fixtures/shell-layout.json" with { type: "json" }
 export interface ShellLayout {
   version: number
   railWidth: number
+  /** #EDE-65: the settings nav's column, where the rail is while Settings are open. */
+  settingsWidth: number
   taskbarHeight: number
   panelMargin: number
   panelRadius: number
