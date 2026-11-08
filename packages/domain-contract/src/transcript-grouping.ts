@@ -1,0 +1,142 @@
+// #EXP-1736: ONE transcript ×4, every chat a group chat. Who sent each row,
+// which rows share an avatar, the gaps between them.
+// fixtures/transcript-grouping.json holds the rules + cases; mirrors: desktop
+// `domain::transcript_grouping`, iOS ExpCore `TranscriptGrouping.swift`,
+// Android `domain/TranscriptGrouping.kt`.
+
+import fixture from "../fixtures/transcript-grouping.json" with { type: "json" }
+
+export const TRANSCRIPT_LAYOUT = fixture.layout
+export const TRANSCRIPT_COPY = fixture.copy
+
+export type TranscriptItemKind = `message` | `trace` | `full`
+
+export interface TranscriptItem {
+  id: string
+  kind: TranscriptItemKind
+  /** `message` only: `user` | `agent` | `system`. */
+  authorKind?: string | null
+  authorId?: string | null
+  authorSessionId?: string | null
+}
+
+export interface TranscriptChat {
+  /** The session whose conversation this is. */
+  sessionId: string
+  title: string
+  agentId: string | null
+  /** The session that started it (session-chat.json `origin`), else null. */
+  originSessionId: string | null
+}
+
+export interface TranscriptInput {
+  viewerId: string | null
+  chat: TranscriptChat
+  members: readonly { id: string; name: string }[]
+  agents: readonly { id: string; name: string }[]
+  sessions: readonly { id: string; title: string; agentId: string | null }[]
+  items: readonly TranscriptItem[]
+}
+
+export interface TranscriptSender {
+  kind: `member` | `agent` | `session`
+  id: string
+  name: string
+  /** A cross-session sender: the session a press opens. */
+  link: string | null
+}
+
+export interface TranscriptRowLayout {
+  id: string
+  side: `own` | `other` | `full`
+  sender: TranscriptSender | null
+  avatar: boolean
+  name: boolean
+  gap: number
+}
+
+export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] {
+  const { chat } = input
+  const sessions = new Map(input.sessions.map((s) => [s.id, s]))
+  const members = new Map(input.members.map((m) => [m.id, m.name]))
+  const agents = new Map(input.agents.map((a) => [a.id, a.name]))
+  const fromSession = (id: string | null | undefined): TranscriptSender | null => {
+    const session = id && id !== chat.sessionId ? sessions.get(id) : undefined
+    if (!session) return null
+    return session.agentId
+      ? { kind: `agent`, id: session.agentId, name: session.title, link: session.id }
+      : { kind: `session`, id: session.id, name: session.title, link: session.id }
+  }
+  const ownAgent: TranscriptSender = chat.agentId
+    ? { kind: `agent`, id: chat.agentId, name: agents.get(chat.agentId) ?? chat.title, link: null }
+    : { kind: `session`, id: chat.sessionId, name: chat.title, link: null }
+  let originPending = Boolean(chat.originSessionId)
+
+  const out: TranscriptRowLayout[] = []
+  let prevKey: string | null = null
+  let groupNamed = false
+  for (const item of input.items) {
+    let side: TranscriptRowLayout[`side`]
+    let sender: TranscriptSender | null = null
+    if (item.kind === `full` || (item.kind === `message` && item.authorKind === `system`)) {
+      side = `full`
+    } else if (item.kind === `trace`) {
+      side = `other`
+      sender = ownAgent
+    } else {
+      const own = item.authorKind === `user` && Boolean(input.viewerId) && item.authorId === input.viewerId
+      const cross = fromSession(item.authorSessionId)
+      if (cross) {
+        side = `other`
+        sender = cross
+      } else if (own) {
+        side = `own`
+      } else {
+        side = `other`
+        const origin = originPending && !item.authorSessionId ? fromSession(chat.originSessionId) : null
+        if (origin) sender = origin
+        else if (item.authorKind === `user`) {
+          const id = item.authorId ?? ``
+          sender = { kind: `member`, id, name: members.get(id) ?? TRANSCRIPT_COPY.formerMember, link: null }
+        } else sender = ownAgent
+      }
+      if (!own && !item.authorSessionId) originPending = false
+    }
+    const key = side === `full` ? null : side === `own` ? `own` : `${sender!.kind}:${sender!.id}:${sender!.link ?? ``}`
+    const sameGroup = key !== null && key === prevKey
+    if (!sameGroup) groupNamed = false
+    const name = side === `other` && item.kind === `message` && !groupNamed
+    if (name) groupNamed = true
+    out.push({
+      id: item.id,
+      side,
+      sender,
+      avatar: side === `other` && !sameGroup,
+      name,
+      gap: out.length === 0 ? 0 : sameGroup ? TRANSCRIPT_LAYOUT.gapInGroup : TRANSCRIPT_LAYOUT.gapBetween,
+    })
+    prevKey = key
+  }
+  return out
+}
+
+export interface CrossSessionInput {
+  kind: `report` | `message`
+  name: string
+  sessionId: string
+  body: string
+}
+
+const INPUT_PATTERN = /^(Report|Message) from (.+?) \(session ([^,)\s]+)(, ended)?\): ([\s\S]*)$/
+
+/** A session input as the device words it (`coding::pickup::input_text`). */
+export function crossSessionInput(text: string): CrossSessionInput | null {
+  const match = INPUT_PATTERN.exec(text)
+  if (!match) return null
+  return {
+    kind: match[1] === `Report` ? `report` : `message`,
+    name: match[2]!,
+    sessionId: match[3]!,
+    body: match[5]!,
+  }
+}

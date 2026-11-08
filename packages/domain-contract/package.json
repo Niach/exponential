@@ -39,6 +39,7 @@
     "./feedback-mark": "./src/feedback-mark.ts",
     "./session-tree": "./src/session-tree.ts",
     "./session-title": "./src/session-title.ts",
+    "./transcript-grouping": "./src/transcript-grouping.ts",
     "./session-kind": "./src/session-kind.ts",
     "./inbox-route": "./src/inbox-route.ts",
     "./chat-row-action": "./src/chat-row-action.ts",

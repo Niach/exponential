@@ -1,0 +1,693 @@
+{
+  "$comment": "#EXP-1736 (owner 2026-11-07, drafts approved 2026-11-08): ONE TRANSCRIPT ×4 for EVERY chat (a session, an agent, the Assistant, an app, a team agent): no 1:1 variant, no group variant, every chat reads like a group chat. ONE bubble ×4 = THE MessageBubble (web packages/ui `MessageBubble`, desktop crates/ui `message_bubble`, iOS ExpUI `MessageBubble`, Android `MessageBubble`; Exponential UI's `MessageBubble` macro carries the same `avatar` slot + press/href): the glass card bubble (16 px radius, its `HH:mm` bottom-right inside), `layout.maxWidth.phone` of the column on phones and `layout.maxWidth.wide` on web/desktop. A bubble from anyone but the viewer sits LEFT under its sender's AVATAR (THE Avatar at its default size `layout.avatar` px, `layout.avatarGap` px left of the column, top-aligned with the group's first row) and its NAME (the bubble's `author` line, 12 px medium muted, on the group's first BUBBLE only); the viewer's own bubbles sit RIGHT with neither. SENDERS (`transcriptLayout(input)`, every mirror replays `cases` comparing the WHOLE expected array): an item is `message` (a card-less message row, a child's report, a pending input), `trace` (a tool, thought or subagent line of the agent's work, the raw session view's feed) or `full` (every card: question, plan, to-do, suggestions, session card, picture, surface, event line, divider, locked pill; full width, never grouped). A `message` with `authorKind` `user`: `authorId == viewerId` = `own`; else the MEMBER (`kind member`, id = authorId, name = members[authorId].name, else `copy.formerMember`; the Avatar's initials in the member's hue). `authorKind` `system` = `full`. `authorKind` `agent` (or any message carrying `authorSessionId`): a CROSS-SESSION sender when `authorSessionId` names a KNOWN session other than `chat.sessionId` (a child's report, `sessions_send` from a session or an agent, the prompt a parent started this session with): `kind agent` when that session has an `agentId` (the agent's own avatar, id = agentId) else `kind session` (the muted session avatar with its glyph, id = the session), name = that session's `title`, `link` = its id; the name reads `name` + ` ` + `copy.linkChevron` and a press anywhere on the bubble opens that session on the back stack. This REPLACES the `Started by` / `Report from` / `Message from` link rows and the `via MCP` card. Any other agent message = the chat's OWN agent: `chat.agentId` set = `kind agent` (id = agentId, name = agents[agentId].name, else `chat.title`), else `kind session` (id = `chat.sessionId`, name = `chat.title`; owner's answer: in a plain session the agent's bubbles wear the session title + the session avatar); `link` null. A `user` message carrying an `authorSessionId` of another known session (a session posting as its starter) is cross-session too. `chat.originSessionId` (the session that STARTED the viewed one, session-chat.json `origin`): the FIRST `message` item that carries no `authorSessionId` and is not the viewer's own reads as sent by that session (it was its prompt). A `trace` item belongs to the chat's OWN agent sender (it never shows a name). An unknown `authorSessionId` falls back to the rule without it. GROUPING: consecutive non-full items with the same sender (kind + id + link; `own` = one sender) form one group; `avatar` = true on a group's FIRST item when it is not own; `name` = true on a group's first `message` item when it is not own; `gap` (the space above the row) = 0 on the first item, `layout.gapInGroup` inside a group, else `layout.gapBetween`. The text of a session input on the device (`inputCases`, `crossSessionInput(text)`): the raw session view gets a parent's or child's message as a prompt line `Report from <name> (session <id>, ended): <summary>` or `Message from <name> (session <id>): <body>` (desktop `coding::pickup::input_text`); it parses to `{kind: report|message, name, sessionId, body}` (the pattern `^(Report|Message) from (.+?) \\(session ([^,)\\s]+)(, ended)?\\): ([\\s\\S]*)$`, the name the shortest prefix that matches) and draws as that session's cross-session bubble (`body` the bubble's text); anything else = null (a person's prompt).",
+  "layout": {
+    "avatar": 32,
+    "avatarGap": 8,
+    "gapInGroup": 3,
+    "gapBetween": 12,
+    "maxWidth": {
+      "phone": 0.78,
+      "wide": 0.62
+    },
+    "radius": 16,
+    "nameSize": 12
+  },
+  "copy": {
+    "formerMember": "Former member",
+    "linkChevron": "›"
+  },
+  "cases": [
+    {
+      "name": "a plain session: the viewer right, the agent under the session's title and avatar",
+      "input": {
+        "viewerId": "u1",
+        "chat": {
+          "sessionId": "s1",
+          "title": "Reduce cold start",
+          "agentId": null,
+          "originSessionId": null
+        },
+        "members": [
+          {
+            "id": "u1",
+            "name": "Alex"
+          }
+        ],
+        "agents": [],
+        "sessions": [
+          {
+            "id": "s1",
+            "title": "Reduce cold start",
+            "agentId": null
+          }
+        ],
+        "items": [
+          {
+            "id": "m1",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u1",
+            "authorSessionId": null
+          },
+          {
+            "id": "m2",
+            "kind": "trace"
+          },
+          {
+            "id": "m3",
+            "kind": "trace"
+          },
+          {
+            "id": "m4",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m5",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": "s1"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "m1",
+          "side": "own",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 0
+        },
+        {
+          "id": "m2",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "s1",
+            "name": "Reduce cold start",
+            "link": null
+          },
+          "avatar": true,
+          "name": false,
+          "gap": 12
+        },
+        {
+          "id": "m3",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "s1",
+            "name": "Reduce cold start",
+            "link": null
+          },
+          "avatar": false,
+          "name": false,
+          "gap": 3
+        },
+        {
+          "id": "m4",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "s1",
+            "name": "Reduce cold start",
+            "link": null
+          },
+          "avatar": false,
+          "name": true,
+          "gap": 3
+        },
+        {
+          "id": "m5",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "s1",
+            "name": "Reduce cold start",
+            "link": null
+          },
+          "avatar": false,
+          "name": false,
+          "gap": 3
+        }
+      ]
+    },
+    {
+      "name": "an agent chat: members by name, the agent by its own name, a cross-session report links its session",
+      "input": {
+        "viewerId": "u1",
+        "chat": {
+          "sessionId": "a1",
+          "title": "Triage",
+          "agentId": "ag1",
+          "originSessionId": null
+        },
+        "members": [
+          {
+            "id": "u1",
+            "name": "Alex"
+          },
+          {
+            "id": "u2",
+            "name": "Dana Reyes"
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "name": "Triage"
+          },
+          {
+            "id": "ag2",
+            "name": "Release"
+          }
+        ],
+        "sessions": [
+          {
+            "id": "a1",
+            "title": "Triage",
+            "agentId": "ag1"
+          },
+          {
+            "id": "c1",
+            "title": "Fix the sign-in redirect",
+            "agentId": null
+          },
+          {
+            "id": "r1",
+            "title": "Release",
+            "agentId": "ag2"
+          }
+        ],
+        "items": [
+          {
+            "id": "m1",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u2",
+            "authorSessionId": null
+          },
+          {
+            "id": "m2",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m3",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m4",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": "c1"
+          },
+          {
+            "id": "m5",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u1",
+            "authorSessionId": null
+          },
+          {
+            "id": "m6",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": "r1"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "m1",
+          "side": "other",
+          "sender": {
+            "kind": "member",
+            "id": "u2",
+            "name": "Dana Reyes",
+            "link": null
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 0
+        },
+        {
+          "id": "m2",
+          "side": "other",
+          "sender": {
+            "kind": "agent",
+            "id": "ag1",
+            "name": "Triage",
+            "link": null
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        },
+        {
+          "id": "m3",
+          "side": "other",
+          "sender": {
+            "kind": "agent",
+            "id": "ag1",
+            "name": "Triage",
+            "link": null
+          },
+          "avatar": false,
+          "name": false,
+          "gap": 3
+        },
+        {
+          "id": "m4",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "c1",
+            "name": "Fix the sign-in redirect",
+            "link": "c1"
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        },
+        {
+          "id": "m5",
+          "side": "own",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 12
+        },
+        {
+          "id": "m6",
+          "side": "other",
+          "sender": {
+            "kind": "agent",
+            "id": "ag2",
+            "name": "Release",
+            "link": "r1"
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        }
+      ]
+    },
+    {
+      "name": "full rows break groups; the same sender after a card starts a new group",
+      "input": {
+        "viewerId": "u1",
+        "chat": {
+          "sessionId": "s1",
+          "title": "Fix it",
+          "agentId": null,
+          "originSessionId": null
+        },
+        "members": [],
+        "agents": [],
+        "sessions": [],
+        "items": [
+          {
+            "id": "m1",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "q1",
+            "kind": "full"
+          },
+          {
+            "id": "m2",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m3",
+            "kind": "message",
+            "authorKind": "system",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m4",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u1",
+            "authorSessionId": null
+          },
+          {
+            "id": "m5",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u1",
+            "authorSessionId": null
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "m1",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "s1",
+            "name": "Fix it",
+            "link": null
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 0
+        },
+        {
+          "id": "q1",
+          "side": "full",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 12
+        },
+        {
+          "id": "m2",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "s1",
+            "name": "Fix it",
+            "link": null
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        },
+        {
+          "id": "m3",
+          "side": "full",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 12
+        },
+        {
+          "id": "m4",
+          "side": "own",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 12
+        },
+        {
+          "id": "m5",
+          "side": "own",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 3
+        }
+      ]
+    },
+    {
+      "name": "a child session: its parent's prompt is the origin's bubble; an unknown member and an unknown session fall back",
+      "input": {
+        "viewerId": "u1",
+        "chat": {
+          "sessionId": "c1",
+          "title": "Measure on the Galaxy A54",
+          "agentId": null,
+          "originSessionId": "p1"
+        },
+        "members": [],
+        "agents": [],
+        "sessions": [
+          {
+            "id": "p1",
+            "title": "Reduce cold start",
+            "agentId": null
+          },
+          {
+            "id": "c1",
+            "title": "Measure on the Galaxy A54",
+            "agentId": null
+          }
+        ],
+        "items": [
+          {
+            "id": "m1",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m2",
+            "kind": "trace"
+          },
+          {
+            "id": "m3",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m4",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": "gone"
+          },
+          {
+            "id": "m5",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u9",
+            "authorSessionId": null
+          },
+          {
+            "id": "m6",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u9",
+            "authorSessionId": "p1"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "m1",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "p1",
+            "name": "Reduce cold start",
+            "link": "p1"
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 0
+        },
+        {
+          "id": "m2",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "c1",
+            "name": "Measure on the Galaxy A54",
+            "link": null
+          },
+          "avatar": true,
+          "name": false,
+          "gap": 12
+        },
+        {
+          "id": "m3",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "c1",
+            "name": "Measure on the Galaxy A54",
+            "link": null
+          },
+          "avatar": false,
+          "name": true,
+          "gap": 3
+        },
+        {
+          "id": "m4",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "c1",
+            "name": "Measure on the Galaxy A54",
+            "link": null
+          },
+          "avatar": false,
+          "name": false,
+          "gap": 3
+        },
+        {
+          "id": "m5",
+          "side": "other",
+          "sender": {
+            "kind": "member",
+            "id": "u9",
+            "name": "Former member",
+            "link": null
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        },
+        {
+          "id": "m6",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "p1",
+            "name": "Reduce cold start",
+            "link": "p1"
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        }
+      ]
+    },
+    {
+      "name": "an agent with no synced name falls back to the chat title; the viewer's prompt never takes the origin",
+      "input": {
+        "viewerId": "u1",
+        "chat": {
+          "sessionId": "a1",
+          "title": "Assistant",
+          "agentId": "ag9",
+          "originSessionId": "p1"
+        },
+        "members": [],
+        "agents": [],
+        "sessions": [
+          {
+            "id": "p1",
+            "title": "Plan the release",
+            "agentId": null
+          }
+        ],
+        "items": [
+          {
+            "id": "m1",
+            "kind": "message",
+            "authorKind": "user",
+            "authorId": "u1",
+            "authorSessionId": null
+          },
+          {
+            "id": "m2",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          },
+          {
+            "id": "m3",
+            "kind": "message",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "m1",
+          "side": "own",
+          "sender": null,
+          "avatar": false,
+          "name": false,
+          "gap": 0
+        },
+        {
+          "id": "m2",
+          "side": "other",
+          "sender": {
+            "kind": "session",
+            "id": "p1",
+            "name": "Plan the release",
+            "link": "p1"
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        },
+        {
+          "id": "m3",
+          "side": "other",
+          "sender": {
+            "kind": "agent",
+            "id": "ag9",
+            "name": "Assistant",
+            "link": null
+          },
+          "avatar": true,
+          "name": true,
+          "gap": 12
+        }
+      ]
+    }
+  ],
+  "inputCases": [
+    {
+      "name": "a child's report",
+      "text": "Report from Fix the cart (session c1, ended): Opened PR #12.",
+      "expected": {
+        "kind": "report",
+        "name": "Fix the cart",
+        "sessionId": "c1",
+        "body": "Opened PR #12."
+      }
+    },
+    {
+      "name": "a session's message keeps its lines",
+      "text": "Message from Fix the cart (session sc): Which branch?\nmain or dev",
+      "expected": {
+        "kind": "message",
+        "name": "Fix the cart",
+        "sessionId": "sc",
+        "body": "Which branch?\nmain or dev"
+      }
+    },
+    {
+      "name": "a name with parentheses",
+      "text": "Message from Ship (v2) (session ab12): Done.",
+      "expected": {
+        "kind": "message",
+        "name": "Ship (v2)",
+        "sessionId": "ab12",
+        "body": "Done."
+      }
+    },
+    {
+      "name": "a person's prompt",
+      "text": "Report from the field: it works",
+      "expected": null
+    },
+    {
+      "name": "the prefix must lead",
+      "text": "See: Message from X (session a): hi",
+      "expected": null
+    }
+  ]
+}
