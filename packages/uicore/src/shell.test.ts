@@ -2,18 +2,22 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/shell.json" with { type: "json" }
 import {
   altTabOrder,
+  chatRows,
   hydrate,
   reduce,
   startMenuApps,
   startMenuCategories,
+  startMenuIssues,
   taskbarButtons,
   taskbarPress,
   taskbarScroll,
   workspaceBadges,
   switcherSections,
+  type ChatInput,
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
+  type StartMenuIssue,
 } from "./shell"
 
 const given = (state: unknown): ShellState => hydrate(state as Partial<ShellState>)
@@ -27,7 +31,7 @@ describe(`shell.json reduce`, () => {
   test(`every event kind has a case`, () => {
     const kinds = new Set(fixture.reduce.map((c) => c.event.kind))
     for (const kind of [
-      `rail.toggle`, `sidebar.toggle`, `switcher.pick`, `switcher.set`,
+      `switcher.pick`, `switcher.set`,
       `window.opened`, `window.closed`, `window.focused`, `window.titled`, `window.minimized`, `window.restored`, `window.moved`,
       `workspace.switched`, `workspace.count`,
       `taskbar.pin`, `taskbar.unpin`, `taskbar.hover`, `taskbar.unhover`, `taskbar.previews`, `taskbar.menu`,
@@ -64,4 +68,17 @@ describe(`shell.json selectors`, () => {
     const args = (c as { args?: { apps?: StartMenuApp[]; favourites?: string[] } }).args ?? {}
     test(c.name, () => expect(startMenuCategories(args.apps ?? apps, args.favourites ?? favourites)).toEqual(c.expected))
   }
+  for (const c of fixture.selectors.startMenuIssues) {
+    const args = (c as { args?: { issues?: StartMenuIssue[] } }).args ?? {}
+    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected))
+  }
+})
+
+describe(`shell.json chats (#EDE-65)`, () => {
+  for (const c of fixture.chats) test(c.name, () => expect(chatRows(c.chats as ChatInput[])).toEqual(c.expected as ReturnType<typeof chatRows>))
+
+  test(`the state has no rail and no folded sections`, () => {
+    expect(Object.keys(fixture.initial)).not.toContain(`rail`)
+    expect(Object.keys(fixture.initial)).not.toContain(`sidebar`)
+  })
 })

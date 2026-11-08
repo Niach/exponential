@@ -210,6 +210,15 @@ pub fn default_data_dir() -> PathBuf {
 /// columns), so pre-rename files are unusable. The store is a pure cache — a
 /// fresh file just means one cheap resync — so any stale pre-rename DB (plus
 /// its WAL sidecars) is deleted on the way through.
+/// EXP-1458: an account's sealed-content keyring (the tree secrets this
+/// install holds, 0600) beside its eNet identity: `seal-keys` for the app,
+/// `cli-seal-keys` for the CLI daemon. #EDE-65: Exponential Desktop's shell
+/// reads the app's to open the same chats.
+pub fn seal_keyring_path(data_dir: &std::path::Path, account_id: &str, daemon: bool) -> PathBuf {
+    let file = if daemon { "cli-seal-keys" } else { "seal-keys" };
+    data_dir.join("accounts").join(account_id).join(file)
+}
+
 pub fn account_db_path(data_dir: &std::path::Path, account_id: &str) -> PathBuf {
     let dir = data_dir.join("accounts").join(account_id);
     for stale in ["sync.sqlite", "sync.sqlite-wal", "sync.sqlite-shm"] {

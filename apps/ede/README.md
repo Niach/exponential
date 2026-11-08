@@ -25,8 +25,8 @@ supervisor, so a shell crash never takes the session down.
 
 Since #EDE-50 the shell is `compositor + uicore`, four crates next to it
 that the IDE will host too (`ide = shell + uicore`): `uicore-model`, the
-pure shell reducer (`reduce(state, event)` + selectors: the rail, the
-sidebar's sections, the desktop/team switcher, the windows and their MRU,
+pure shell reducer (`reduce(state, event)` + selectors: the desktop/team
+switcher, the windows and their MRU, the rail's chats (#EDE-65),
 Mint's grouped taskbar with pins, the start menu's categories and search,
 the chat toggle, Alt-Tab), byte-locked by `packages/uicore/fixtures/shell.json`
 and its TypeScript reference; `uicore-data`, what the documents bind (the
@@ -42,9 +42,9 @@ socket, the hotkeys, the `ede_*` host functions.
 
 Every document with a layer
 `surface` header is a layer-shell surface (`WindowKind::LayerShell`), opened
-in the order the ground, the sidebar, the taskbar, then the rest (smithay
-arranges layer surfaces in mapping order, so the sidebar takes the left edge
-and the taskbar the rest of the bottom); a popup document opens from its
+in the order the ground, the taskbar, the sidebar, then the rest (smithay
+arranges layer surfaces in mapping order, so the taskbar takes the whole
+bottom edge and the sidebar the left edge above it, #EDE-65); a popup document opens from its
 anchor component in its parent as an `xdg_popup` of that surface, and so
 does a Popover or Menu inside a document (hosted popups: the surface paints
 none of it, the shell opens a popup window with the layer at (0, 0)). A
@@ -53,7 +53,7 @@ frame line, which the supervisor reads.
 Data every document may bind: `/time` + `/date` + `/dateText` (local; the
 calendar applet's weekday and date words), `/windows` (the
 active workspace's windows over ede-protocol: id, title, app, focused,
-minimized), `/shell` (the model: `rail`, `taskbar.buttons` (Mint's groups:
+minimized), `/shell` (the model: `chats` (the rail's), `taskbar.buttons` (Mint's groups:
 app, pinned, windows, focused, minimized, running), `taskbar.previews`,
 `workspaces.badges`, `startMenu` (open, query, category, categories, apps),
 `chat.open`, `altTab`), `/apps` + `/query` (the launcher: the desktop
@@ -65,13 +65,12 @@ entries of the XDG data directories, filtered as the person types),
 again by the shell): `ede_launch {command}`, `ede_focus {window}`,
 `ede_close {window}`, `ede_minimize {window}`, `ede_lock`, `ede_logout`,
 `ede_power {action: suspend|reboot|poweroff}`, `ede_select {window}` (the
-switcher), and the model's: `ede_rail` (toggle: the sidebar re-opens at the
-rail's width), `ede_pin {app}` / `ede_unpin {app}` (kept in
+switcher), and the model's: `ede_pin {app}` / `ede_unpin {app}` (kept in
 `~/.config/exponential-desktop/shell.json`), `ede_taskbar {app}` (Mint's
 click: launch, focus, minimize, or the previews of a group),
 `ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
-`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle),
-`ede_workspace {index}`, `ede_sidebar {section}` (fold a section),
+`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle; `{action:
+open, id}` opens a chat of the rail, #EDE-65), `ede_workspace {index}`,
 `ede_history {action: undo|reset}` (the shell documents' history);
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
@@ -79,11 +78,12 @@ fonts are embedded); app icons come from the installed icon themes as
 `file:` pictures. Factory documents live in `apps/ede/ui/*.json` (the IDE
 look, #EDE-42): `ground.json` (the background layer: the rounded panel the
 focused window sits on, inset by the sidebar, the taskbar and the panel
-margin), `sidebar.json` (left, 272 px exclusive zone, or the 56 px icon rail:
-the desktop/team switcher, inbox, search and new, Needs you + Chats, the
-Pinned / Workspaces / Active sections, the Exponential start button and the
-chat button bottom-left), `taskbar.json` (bottom, 48 px exclusive zone to the
-right of the sidebar: Mint's grouped window list with pins, hover previews
+margin), `sidebar.json` (left, the IDE's 56 px icon rail for good, #EDE-65:
+only the chats, each the agent's mark with its dot; the IDE mounts the same
+document and eDE prunes the IDE's header and corners), `taskbar.json`
+(bottom, 48 px exclusive zone along the whole edge: the Exponential start
+button, the chat button and the new-issue button bottom-left under the rail,
+then Mint's grouped window list with pins, hover previews
 and a context menu, the applets, the tray, the bell and the clock),
 `start-menu.json` (the start button's popup: Mint's three columns and the
 search box; its own entries are Files (Nemo, else the default file manager),

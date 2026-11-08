@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 eui-core = { path = "../eui-core" }
-eui-gpui = { path = "../eui-gpui", default-features = false }
+eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor"] }
 ede-protocol = { path = "../ede-protocol" }
 # The shell core both hosts share (#EDE-50): the reducer, what the documents
 # bind, the gpui host (layer-shell surfaces, popups) and the factory documents.
@@ -31,6 +31,8 @@ domain = { path = "../domain" }
 elocal = { path = "../elocal" }
 eagent = { path = "../eagent" }
 sync = { path = "../sync", default-features = false }
+# #EDE-65 lane I: a team chat's text sealed to its tree's public key (the IDE's envelope).
+enet-core = { path = "../enet-core", default-features = false }
 flume.workspace = true
 ede-ui = { path = "../../../ede/crates/ede-ui" }
 # The services data source (#EDE-13): /services/<domain> in every document.
@@ -69,6 +71,8 @@ ede-theme = { path = "../../../ede/crates/ede-theme" }
 
 [dev-dependencies]
 tempfile = "3"
+# The sealed-content fixture's hex keys.
+data-encoding = "2"
 # The factory documents, to check their headers against the functions this shell matches.
 uicore-docs = { path = "../uicore-docs" }
 

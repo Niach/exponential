@@ -6,7 +6,6 @@ import fixture from "../fixtures/shell-layout.json" with { type: "json" }
 
 export interface ShellLayout {
   version: number
-  sidebarWidth: number
   railWidth: number
   taskbarHeight: number
   panelMargin: number
@@ -22,9 +21,6 @@ export interface ShellLayout {
 }
 
 export const LAYOUT: ShellLayout = fixture
-
-/** The sidebar's width for a rail state: the full column or the icon rail. */
-export const sidebarWidth = (rail: boolean): number => (rail ? LAYOUT.railWidth : LAYOUT.sidebarWidth)
 
 /** A widget's size in px for its class (`s` when unknown). */
 export function widgetSize(size: string): { width: number; height: number } {

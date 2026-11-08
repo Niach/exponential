@@ -22,6 +22,9 @@ pub struct App {
     /// `Exec` with the field codes stripped, wrapped in a terminal when
     /// `Terminal=true`.
     pub exec: String,
+    /// #EDE-65: the raw `Exec` when it takes URLs (`%u`/`%U`), for
+    /// [`exec_with_url`]; `None` = the entry takes none.
+    pub exec_url: Option<String>,
     pub icon: Option<PathBuf>,
     /// Lowercase haystack for the search: name, generic name, keywords, id.
     pub keywords: String,
@@ -90,7 +93,7 @@ pub fn scan() -> Vec<App> {
                     seen.insert(id, app);
                 }
                 Parsed::Hidden => {
-                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), icon: None, keywords: String::new(), categories: Vec::new() });
+                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), exec_url: None, icon: None, keywords: String::new(), categories: Vec::new() });
                 }
                 Parsed::NotAnApp => {}
             }
@@ -112,7 +115,7 @@ pub fn demo() -> Vec<App> {
         ("terminal", "Terminal", "Use the command line", "x-terminal-emulator", "System"),
     ]
     .into_iter()
-    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()] })
+    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), exec_url: None, icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()] })
     .collect()
 }
 
@@ -164,7 +167,10 @@ pub fn parse(id: &str, text: &str, desktop: &str) -> Parsed {
         }
     }
     let exec = strip_field_codes(get("Exec"));
-    let exec = if truthy(get("Terminal")) { format!("x-terminal-emulator -e {exec}") } else { exec };
+    let terminal = truthy(get("Terminal"));
+    let exec = if terminal { format!("x-terminal-emulator -e {exec}") } else { exec };
+    let raw = get("Exec");
+    let exec_url = (raw.contains("%u") || raw.contains("%U")).then(|| if terminal { format!("x-terminal-emulator -e {raw}") } else { raw.to_string() });
     let name = get("Name").to_string();
     let generic = get("GenericName");
     let keywords = format!("{} {} {} {}", name, generic, get("Keywords").replace(';', " "), id.trim_end_matches(".desktop")).to_lowercase();
@@ -173,6 +179,7 @@ pub fn parse(id: &str, text: &str, desktop: &str) -> Parsed {
         name,
         comment: get("Comment").to_string(),
         exec,
+        exec_url,
         icon: Some(get("Icon")).filter(|i| !i.is_empty()).and_then(icon_file),
         keywords,
         categories: list(get("Categories")).into_iter().map(String::from).collect(),
@@ -184,6 +191,27 @@ fn executable_exists(name: &str) -> bool {
         return Path::new(name).exists();
     }
     std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).exists()))
+}
+
+/// #EDE-65: the command that opens `url` with an entry's raw `Exec`
+/// ([`App::exec_url`]): `%u`/`%U` become the URL, shell-quoted (the shell
+/// launches through `sh -c`), the other field codes go, `%%` is a percent.
+pub fn exec_with_url(exec: &str, url: &str) -> String {
+    let quoted = format!("'{}'", url.replace('\'', "'\\''"));
+    let mut out = String::with_capacity(exec.len() + quoted.len());
+    let mut chars = exec.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('%') => out.push('%'),
+            Some('u' | 'U') => out.push_str(&quoted),
+            Some(_) | None => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// `%f %F %u %U %i %c %k` and the deprecated ones go; `%%` is a percent.
@@ -298,8 +326,12 @@ mod tests {
         let Parsed::Shown(app) = parse("org.gnome.Calculator.desktop", CALC, "Exponential") else { panic!("shown") };
         assert_eq!(app.name, "Calculator");
         assert_eq!(app.exec, "gnome-calculator");
+        assert_eq!(app.exec_url.as_deref(), Some("gnome-calculator %U"));
         assert!(app.keywords.contains("arithmetic") && app.keywords.contains("org.gnome.calculator"));
         assert_eq!(strip_field_codes("sh -c 'x %% y' %f %U"), "sh -c 'x % y'");
+        assert_eq!(exec_with_url("exponential-desktop %U", "exponential://issue/EXP-12"), "exponential-desktop 'exponential://issue/EXP-12'");
+        assert_eq!(exec_with_url("app --x %u %i", "exponential://session/s1?opens=card&message=m1"), "app --x 'exponential://session/s1?opens=card&message=m1'");
+        assert_eq!(exec_with_url("app %U", "it's"), "app 'it'\\''s'");
     }
 
     #[test]

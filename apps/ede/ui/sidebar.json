@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team only on a Local desktop, Connect Exponential only without a signed-in account (#EDE-65: /shell/switcher/connection {connected, onLocal, account}); a pick makes the entry current, remembered across logins, and the Exponential app follows a picked team), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede_rail, ede_sidebar, ede_pin/unpin, ede_taskbar, ede_workspace, ede_start_menu, ede_chat, ede_launch, ede_switcher. The IDE mounts this document too (#EXP-1725): it prunes what it draws itself and fills the ide_* lists from /shell/ide (packages/uicore/fixtures/ide-sidebar.json); eDE never feeds that path, so they stay hidden here.",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on a Local desktop; on a team the Exponential app's session, a hand-off until eDE's chat takes team chats). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header with the switcher, search, new and the rail toggle, header_rail, the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json), the corner with the start and chat buttons); eDE prunes those it does not draw (the header, header_rail, ide_nav, the corners) and never feeds /shell/ide, and the IDE prunes `chats`. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher, ede_rail (the IDE's toggle).",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -8,20 +8,16 @@
       "bottom"
     ],
     "size": {
-      "width": 272
+      "width": 56
     },
-    "exclusiveZone": 272,
+    "exclusiveZone": 56,
     "keyboard": "on-demand",
     "functions": [
       "ede_rail",
-      "ede_sidebar",
-      "ede_taskbar",
-      "ede_workspace",
       "ede_start_menu",
       "ede_chat",
       "ede_launch",
-      "ede_switcher",
-      "ede_open_document"
+      "ede_switcher"
     ]
   },
   "root": {
@@ -128,16 +124,6 @@
                         }
                       },
                       {
-                        "id": "switcher_avatar",
-                        "component": "Avatar",
-                        "props": {
-                          "name": {
-                            "@path": "/shell/switcher/current/name"
-                          },
-                          "size": "default"
-                        }
-                      },
-                      {
                         "id": "switcher_name",
                         "component": "Text",
                         "props": {
@@ -146,15 +132,6 @@
                           },
                           "variant": "label",
                           "lines": 1
-                        }
-                      },
-                      {
-                        "id": "switcher_chevron",
-                        "component": "Icon",
-                        "props": {
-                          "name": "nav-team-switcher",
-                          "size": "sm",
-                          "tone": "neutral"
                         }
                       },
                       {
@@ -179,26 +156,6 @@
                         }
                       }
                     ]
-                  },
-                  {
-                    "id": "inbox",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-inbox",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Inbox"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_launch",
-                          "args": {
-                            "app": "at.exponential"
-                          }
-                        }
-                      }
-                    }
                   },
                   {
                     "id": "ide_inbox",
@@ -435,56 +392,6 @@
                         "component": "Separator"
                       },
                       {
-                        "id": "switcher_new",
-                        "component": "Row",
-                        "props": {
-                          "title": "New local desktop",
-                          "icon": "ui-add",
-                          "density": "compact",
-                          "pressable": true
-                        },
-                        "on": {
-                          "press": {
-                            "functionCall": {
-                              "@call": "ede_switcher",
-                              "args": {
-                                "action": "new"
-                              }
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "id": "switcher_share",
-                        "component": "Row",
-                        "props": {
-                          "title": "Share as a team…",
-                          "icon": "ui-share",
-                          "density": "compact",
-                          "pressable": true
-                        },
-                        "on": {
-                          "press": {
-                            "functionCall": {
-                              "@call": "ede_switcher",
-                              "args": {
-                                "action": "share"
-                              }
-                            }
-                          }
-                        },
-                        "visible": {
-                          "@call": "cond",
-                          "args": {
-                            "if": {
-                              "@path": "/shell/switcher/connection/onLocal"
-                            },
-                            "then": true,
-                            "else": false
-                          }
-                        }
-                      },
-                      {
                         "id": "switcher_connect",
                         "component": "Row",
                         "props": {
@@ -637,26 +544,6 @@
                     }
                   },
                   {
-                    "id": "rail_inbox",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-inbox",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Inbox"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_launch",
-                          "args": {
-                            "app": "at.exponential"
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
                     "id": "ide_rail_inbox",
                     "component": "Icon",
                     "props": {
@@ -729,55 +616,6 @@
                             },
                             "then": true,
                             "else": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              },
-              {
-                "id": "nav",
-                "component": "List",
-                "props": {
-                  "gap": "none"
-                },
-                "children": [
-                  {
-                    "id": "nav_needs_you",
-                    "component": "Row",
-                    "props": {
-                      "title": "Needs you",
-                      "icon": "nav-needs-you",
-                      "density": "compact",
-                      "pressable": true
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_launch",
-                          "args": {
-                            "app": "at.exponential"
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "id": "nav_chats",
-                    "component": "Row",
-                    "props": {
-                      "title": "Chats",
-                      "icon": "nav-threads",
-                      "density": "compact",
-                      "pressable": true
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_launch",
-                          "args": {
-                            "app": "at.exponential"
                           }
                         }
                       }
@@ -914,7 +752,7 @@
                     },
                     "children": [
                       {
-                        "id": "pinned",
+                        "id": "chats",
                         "component": "Box",
                         "style": {
                           "display": "flex",
@@ -923,595 +761,44 @@
                         },
                         "children": [
                           {
-                            "id": "pinned_head",
-                            "component": "Box",
-                            "props": {
-                              "pressable": true
-                            },
-                            "style": {
-                              "display": "flex",
-                              "flexDirection": "row",
-                              "alignItems": "center",
-                              "gap": "$spacing.xs",
-                              "height": 24,
-                              "paddingLeft": "$spacing.xs",
-                              "paddingRight": "$spacing.xs",
-                              "borderRadius": "$radius.md"
-                            },
-                            "on": {
-                              "press": {
-                                "event": {
-                                  "name": "sidebar"
-                                }
-                              }
-                            },
-                            "children": [
-                              {
-                                "id": "pinned_open",
-                                "component": "Icon",
-                                "props": {
-                                  "name": "ui-chevron-down",
-                                  "size": "sm",
-                                  "tone": "neutral"
-                                },
-                                "visible": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/sidebar/pinnedOpen"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              },
-                              {
-                                "id": "pinned_closed",
-                                "component": "Icon",
-                                "props": {
-                                  "name": "ui-chevron-right",
-                                  "size": "sm",
-                                  "tone": "neutral"
-                                },
-                                "visible": {
-                                  "@call": "not",
-                                  "args": {
-                                    "value": {
-                                      "@call": "cond",
-                                      "args": {
-                                        "if": {
-                                          "@path": "/shell/sidebar/pinnedOpen"
-                                        },
-                                        "then": true,
-                                        "else": false
-                                      }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "id": "pinned_title",
-                                "component": "Text",
-                                "props": {
-                                  "text": "Pinned",
-                                  "variant": "caption"
-                                }
-                              }
-                            ],
-                            "visible": {
-                              "@call": "not",
-                              "args": {
-                                "value": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/rail"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "id": "pinned_list",
+                            "id": "chats_list",
                             "component": "List",
                             "props": {
                               "gap": "none"
                             },
                             "template": {
-                              "component": "pinned_row",
-                              "path": "/shell/sidebar/pinned",
-                              "key": "app"
-                            },
-                            "children": [
-                              {
-                                "id": "pinned_row",
-                                "component": "Row",
-                                "props": {
-                                  "title": {
-                                    "@path": "name"
-                                  },
-                                  "density": "compact",
-                                  "pressable": true,
-                                  "selected": {
-                                    "@path": "focused"
-                                  }
-                                },
-                                "slots": {
-                                  "leading": {
-                                    "id": "pinned_icon",
-                                    "component": "Image",
-                                    "props": {
-                                      "src": {
-                                        "@path": "icon"
-                                      },
-                                      "alt": {
-                                        "@path": "name"
-                                      },
-                                      "width": 16,
-                                      "height": 16,
-                                      "fit": "contain",
-                                      "fallback": "nav-apps"
-                                    }
-                                  }
-                                },
-                                "on": {
-                                  "press": {
-                                    "functionCall": {
-                                      "@call": "ede_taskbar",
-                                      "args": {
-                                        "app": {
-                                          "@path": "app"
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            ],
-                            "visible": {
-                              "@call": "or",
-                              "args": {
-                                "values": [
-                                  {
-                                    "@call": "cond",
-                                    "args": {
-                                      "if": {
-                                        "@path": "/shell/rail"
-                                      },
-                                      "then": true,
-                                      "else": false
-                                    }
-                                  },
-                                  {
-                                    "@call": "and",
-                                    "args": {
-                                      "values": [
-                                        {
-                                          "@call": "cond",
-                                          "args": {
-                                            "if": {
-                                              "@path": "/shell/sidebar/pinnedOpen"
-                                            },
-                                            "then": true,
-                                            "else": false
-                                          }
-                                        },
-                                        {
-                                          "@call": "not",
-                                          "args": {
-                                            "value": {
-                                              "@call": "eq",
-                                              "args": {
-                                                "a": {
-                                                  "@call": "len",
-                                                  "args": {
-                                                    "value": {
-                                                      "@path": "/shell/sidebar/pinned"
-                                                    }
-                                                  }
-                                                },
-                                                "b": 0
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                ]
-                              }
-                            }
-                          }
-                        ],
-                        "visible": {
-                          "@call": "not",
-                          "args": {
-                            "value": {
-                              "@call": "eq",
-                              "args": {
-                                "a": {
-                                  "@call": "len",
-                                  "args": {
-                                    "value": {
-                                      "@path": "/shell/sidebar/pinned"
-                                    }
-                                  }
-                                },
-                                "b": 0
-                              }
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "id": "workspaces",
-                        "component": "Box",
-                        "style": {
-                          "display": "flex",
-                          "flexDirection": "column",
-                          "gap": "$spacing.xxs"
-                        },
-                        "children": [
-                          {
-                            "id": "workspaces_head",
-                            "component": "Box",
-                            "props": {
-                              "pressable": true
-                            },
-                            "style": {
-                              "display": "flex",
-                              "flexDirection": "row",
-                              "alignItems": "center",
-                              "gap": "$spacing.xs",
-                              "height": 24,
-                              "paddingLeft": "$spacing.xs",
-                              "paddingRight": "$spacing.xs",
-                              "borderRadius": "$radius.md"
-                            },
-                            "on": {
-                              "press": {
-                                "event": {
-                                  "name": "sidebar"
-                                }
-                              }
-                            },
-                            "children": [
-                              {
-                                "id": "workspaces_open",
-                                "component": "Icon",
-                                "props": {
-                                  "name": "ui-chevron-down",
-                                  "size": "sm",
-                                  "tone": "neutral"
-                                },
-                                "visible": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/sidebar/workspacesOpen"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              },
-                              {
-                                "id": "workspaces_closed",
-                                "component": "Icon",
-                                "props": {
-                                  "name": "ui-chevron-right",
-                                  "size": "sm",
-                                  "tone": "neutral"
-                                },
-                                "visible": {
-                                  "@call": "not",
-                                  "args": {
-                                    "value": {
-                                      "@call": "cond",
-                                      "args": {
-                                        "if": {
-                                          "@path": "/shell/sidebar/workspacesOpen"
-                                        },
-                                        "then": true,
-                                        "else": false
-                                      }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "id": "workspaces_title",
-                                "component": "Text",
-                                "props": {
-                                  "text": "Workspaces",
-                                  "variant": "caption"
-                                }
-                              }
-                            ],
-                            "visible": {
-                              "@call": "not",
-                              "args": {
-                                "value": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/rail"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "id": "workspaces_list",
-                            "component": "List",
-                            "props": {
-                              "gap": "none"
-                            },
-                            "template": {
-                              "component": "workspace_row",
-                              "path": "/shell/sidebar/workspaces",
-                              "key": "index"
-                            },
-                            "children": [
-                              {
-                                "id": "workspace_row",
-                                "component": "Row",
-                                "props": {
-                                  "title": {
-                                    "@path": "label"
-                                  },
-                                  "icon": "ede-workspaces",
-                                  "meta": {
-                                    "@path": "countText"
-                                  },
-                                  "density": "compact",
-                                  "pressable": true,
-                                  "selected": {
-                                    "@path": "active"
-                                  }
-                                },
-                                "on": {
-                                  "press": {
-                                    "functionCall": {
-                                      "@call": "ede_workspace",
-                                      "args": {
-                                        "index": {
-                                          "@path": "index"
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            ],
-                            "visible": {
-                              "@call": "or",
-                              "args": {
-                                "values": [
-                                  {
-                                    "@call": "cond",
-                                    "args": {
-                                      "if": {
-                                        "@path": "/shell/rail"
-                                      },
-                                      "then": true,
-                                      "else": false
-                                    }
-                                  },
-                                  {
-                                    "@call": "cond",
-                                    "args": {
-                                      "if": {
-                                        "@path": "/shell/sidebar/workspacesOpen"
-                                      },
-                                      "then": true,
-                                      "else": false
-                                    }
-                                  }
-                                ]
-                              }
-                            }
-                          }
-                        ]
-                      },
-                      {
-                        "id": "sessions",
-                        "component": "Box",
-                        "style": {
-                          "display": "flex",
-                          "flexDirection": "column",
-                          "gap": "$spacing.xxs"
-                        },
-                        "children": [
-                          {
-                            "id": "sessions_head",
-                            "component": "Box",
-                            "props": {
-                              "pressable": true
-                            },
-                            "style": {
-                              "display": "flex",
-                              "flexDirection": "row",
-                              "alignItems": "center",
-                              "gap": "$spacing.xs",
-                              "height": 24,
-                              "paddingLeft": "$spacing.xs",
-                              "paddingRight": "$spacing.xs",
-                              "borderRadius": "$radius.md"
-                            },
-                            "on": {
-                              "press": {
-                                "event": {
-                                  "name": "sidebar"
-                                }
-                              }
-                            },
-                            "children": [
-                              {
-                                "id": "sessions_open",
-                                "component": "Icon",
-                                "props": {
-                                  "name": "ui-chevron-down",
-                                  "size": "sm",
-                                  "tone": "neutral"
-                                },
-                                "visible": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/sidebar/sessionsOpen"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              },
-                              {
-                                "id": "sessions_closed",
-                                "component": "Icon",
-                                "props": {
-                                  "name": "ui-chevron-right",
-                                  "size": "sm",
-                                  "tone": "neutral"
-                                },
-                                "visible": {
-                                  "@call": "not",
-                                  "args": {
-                                    "value": {
-                                      "@call": "cond",
-                                      "args": {
-                                        "if": {
-                                          "@path": "/shell/sidebar/sessionsOpen"
-                                        },
-                                        "then": true,
-                                        "else": false
-                                      }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "id": "sessions_title",
-                                "component": "Text",
-                                "props": {
-                                  "text": "Active",
-                                  "variant": "caption"
-                                }
-                              }
-                            ],
-                            "visible": {
-                              "@call": "not",
-                              "args": {
-                                "value": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/rail"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "id": "sessions_list",
-                            "component": "List",
-                            "props": {
-                              "gap": "none"
-                            },
-                            "template": {
-                              "component": "session_row",
-                              "path": "/shell/sessions",
+                              "component": "chat_row",
+                              "path": "/shell/chats",
                               "key": "id"
                             },
                             "children": [
                               {
-                                "id": "session_row",
+                                "id": "chat_row",
                                 "component": "Row",
                                 "props": {
                                   "title": {
                                     "@path": "title"
                                   },
-                                  "subtitle": {
-                                    "@path": "where"
+                                  "icon": {
+                                    "@path": "glyph"
                                   },
-                                  "icon": "nav-threads",
                                   "density": "compact",
                                   "pressable": true
                                 },
                                 "on": {
                                   "press": {
                                     "functionCall": {
-                                      "@call": "ede_launch",
+                                      "@call": "ede_chat",
                                       "args": {
-                                        "app": "at.exponential"
+                                        "sessionId": {
+                                          "@path": "id"
+                                        }
                                       }
                                     }
                                   }
                                 }
                               }
-                            ],
-                            "visible": {
-                              "@call": "or",
-                              "args": {
-                                "values": [
-                                  {
-                                    "@call": "cond",
-                                    "args": {
-                                      "if": {
-                                        "@path": "/shell/rail"
-                                      },
-                                      "then": true,
-                                      "else": false
-                                    }
-                                  },
-                                  {
-                                    "@call": "and",
-                                    "args": {
-                                      "values": [
-                                        {
-                                          "@call": "cond",
-                                          "args": {
-                                            "if": {
-                                              "@path": "/shell/sidebar/sessionsOpen"
-                                            },
-                                            "then": true,
-                                            "else": false
-                                          }
-                                        },
-                                        {
-                                          "@call": "not",
-                                          "args": {
-                                            "value": {
-                                              "@call": "eq",
-                                              "args": {
-                                                "a": {
-                                                  "@call": "len",
-                                                  "args": {
-                                                    "value": {
-                                                      "@path": "/shell/sessions"
-                                                    }
-                                                  }
-                                                },
-                                                "b": 0
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                ]
-                              }
-                            }
+                            ]
                           }
                         ],
                         "visible": {
@@ -1524,7 +811,7 @@
                                   "@call": "len",
                                   "args": {
                                     "value": {
-                                      "@path": "/shell/sessions"
+                                      "@path": "/shell/chats"
                                     }
                                   }
                                 },
@@ -2738,26 +2025,6 @@
                     "style": {
                       "flexGrow": 1
                     }
-                  },
-                  {
-                    "id": "settings",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-settings",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Settings"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_open_document",
-                          "args": {
-                            "name": "settings"
-                          }
-                        }
-                      }
-                    }
                   }
                 ]
               },
@@ -2780,26 +2047,6 @@
                   }
                 },
                 "children": [
-                  {
-                    "id": "rail_settings",
-                    "component": "Button",
-                    "props": {
-                      "icon": "nav-settings",
-                      "variant": "ghost",
-                      "size": "icon",
-                      "label": "Settings"
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_open_document",
-                          "args": {
-                            "name": "settings"
-                          }
-                        }
-                      }
-                    }
-                  },
                   {
                     "id": "rail_chat",
                     "component": "Button",
@@ -2860,7 +2107,7 @@
   },
   "data": {
     "shell": {
-      "rail": false,
+      "rail": true,
       "switcher": {
         "current": {
           "kind": "local",
@@ -2881,14 +2128,7 @@
           "account": ""
         }
       },
-      "sidebar": {
-        "pinnedOpen": true,
-        "workspacesOpen": true,
-        "sessionsOpen": true,
-        "pinned": [],
-        "workspaces": []
-      },
-      "sessions": []
+      "chats": []
     }
   }
 }

@@ -136,7 +136,9 @@ impl gpui::Element for SelectableUnit {
             });
             ((state.selection.clone(), state.painted.clone()), state)
         });
-        // #EXP-1739: the text is what a menu opened on it follows.
+        // #EXP-1739: the text is what a menu opened on it follows (the
+        // vendored gpui-component only: the `overlay-anchor` feature).
+        #[cfg(feature = "overlay-anchor")]
         gpui_component::overlay_anchor::report_anchor("overlay-anchor", bounds, window, cx);
         let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
         selection.register(TextSelectionRegistration::new(hitbox, bounds).with_document_order(document_order(&bounds)).with_text_bounds(vec![bounds]), window, cx);
