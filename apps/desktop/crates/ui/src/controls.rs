@@ -982,6 +982,9 @@ struct PointerMenuState {
     /// N-6: a dev open (EXP-1259) is waiting for a measured trigger to open
     /// its menu layer with the first row selected.
     dev_layer: bool,
+    /// #EXP-1739: the trigger as an overlay anchor, and the open layer's watch.
+    anchor: Option<gpui_component::overlay_anchor::OverlayAnchor>,
+    anchor_guard: Option<gpui_component::overlay_anchor::AnchorGuard>,
 }
 
 impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
@@ -1033,8 +1036,12 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
         let slot = menu_state.clone();
         div()
             .id(ElementId::Name(SharedString::from(format!("pointer-menu-layer:{id}"))))
-            .on_prepaint(move |bounds, _, cx| {
-                slot.update(cx, |state, _| state.trigger_bounds = bounds);
+            .on_prepaint(move |bounds, window, cx| {
+                let anchor = gpui_component::overlay_anchor::report_anchor("pointer-menu-anchor", bounds, window, cx);
+                slot.update(cx, |state, _| {
+                    state.trigger_bounds = bounds;
+                    state.anchor = Some(anchor);
+                });
             })
             .child(self.trigger.selected(open))
             .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
@@ -1060,6 +1067,12 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
                         window.refresh();
                     },
                 );
+                // #EXP-1739: the layer closes once its trigger moves or goes.
+                let anchor = menu_state.read(cx).anchor.clone();
+                let guard = anchor.and_then(|anchor| {
+                    gpui_component::overlay_anchor::watch_anchor(anchor, window, cx, |_, cx| crate::menu_window::close(cx))
+                });
+                menu_state.update(cx, |state, _| state.anchor_guard = guard);
             })
             .into_any_element()
     }
@@ -1338,6 +1351,8 @@ struct PointerContextShared {
     position: gpui::Point<Pixels>,
     previous_focus: Option<gpui::FocusHandle>,
     subscription: Option<gpui::Subscription>,
+    /// #EXP-1739: closes the menu when what it was opened on moves or goes.
+    anchor: Option<gpui_component::overlay_anchor::AnchorGuard>,
 }
 
 #[derive(Default)]
@@ -1364,7 +1379,7 @@ impl<E: gpui::ParentElement + Styled> PointerContextMenu<E> {
 
 impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for PointerContextMenu<E> {
     type RequestLayoutState = PointerContextState;
-    type PrepaintState = gpui::Hitbox;
+    type PrepaintState = (gpui::Hitbox, gpui_component::overlay_anchor::OverlayAnchor);
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -1446,7 +1461,8 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
         if let Some(element) = &mut state.element {
             element.prepaint(window, cx);
         }
-        window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal)
+        let anchor = gpui_component::overlay_anchor::report_anchor("context-menu-anchor", bounds, window, cx);
+        (window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal), anchor)
     }
 
     fn paint(
@@ -1455,7 +1471,7 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
         _: Option<&gpui::InspectorElementId>,
         _: gpui::Bounds<Pixels>,
         state: &mut Self::RequestLayoutState,
-        hitbox: &mut Self::PrepaintState,
+        (hitbox, own_anchor): &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -1467,6 +1483,7 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
         self.with_state(id.unwrap(), window, cx, |_, state, window, _| {
             let shared = state.shared.clone();
             let hitbox = hitbox.clone();
+            let own_anchor = own_anchor.clone();
             window.on_mouse_event(move |event: &gpui::MouseDownEvent, phase, window, cx| {
                 if !phase.bubble()
                     || event.button != gpui::MouseButton::Right
@@ -1494,11 +1511,17 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                         builder.clone(),
                         SharedString::from(format!("{:?}", layer_id)),
                         false,
-                        move |window, cx| open_in_window(&shared, &builder, position, window, cx),
+                        {
+                            let shared = shared.clone();
+                            let own_anchor = own_anchor.clone();
+                            move |window, cx| open_in_window(&shared, &builder, position, &own_anchor, window, cx)
+                        },
                     );
+                    let guard = watch_menu_anchor(position, &own_anchor, window, cx, |_, cx| crate::menu_window::close(cx));
+                    shared.borrow_mut().anchor = guard;
                     return;
                 }
-                open_in_window(&shared, &builder, event.position, window, cx);
+                open_in_window(&shared, &builder, event.position, &own_anchor, window, cx);
             });
         });
     }
@@ -1506,10 +1529,25 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
 
 /// The in-window half of [`PointerContextMenu`]: record the press, build the
 /// menu on the next frame from current state and hand focus back on dismiss.
+/// #EXP-1739: a menu opened at `position` follows what it was opened on
+/// (`overlay_anchor`): the text or element under the pointer, else `own` (the
+/// element that took the press). `on_lost` closes it.
+pub(crate) fn watch_menu_anchor(
+    position: gpui::Point<Pixels>,
+    own: &gpui_component::overlay_anchor::OverlayAnchor,
+    window: &mut Window,
+    cx: &mut App,
+    on_lost: impl FnOnce(&mut Window, &mut App) + 'static,
+) -> Option<gpui_component::overlay_anchor::AnchorGuard> {
+    let anchor = gpui_component::overlay_anchor::anchor_at(position, window, cx).unwrap_or_else(|| own.clone());
+    gpui_component::overlay_anchor::watch_anchor(anchor, window, cx, on_lost)
+}
+
 fn open_in_window(
     shared: &std::rc::Rc<std::cell::RefCell<PointerContextShared>>,
     builder: &ContextMenuBuilder,
     position: gpui::Point<Pixels>,
+    own_anchor: &gpui_component::overlay_anchor::OverlayAnchor,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -1533,7 +1571,24 @@ fn open_in_window(
                     state.subscription = None;
                     state.position = position;
                     state.open = true;
+                    state.anchor = None;
                 }
+                let guard = watch_menu_anchor(position, own_anchor, window, cx, {
+                    let shared = shared.clone();
+                    move |window, cx| {
+                        let menu = {
+                            let mut state = shared.borrow_mut();
+                            state.anchor = None;
+                            state.open = false;
+                            state.menu.clone()
+                        };
+                        if let Some(menu) = menu {
+                            menu.update(cx, |menu, cx| menu.close(window, cx));
+                        }
+                        window.refresh();
+                    }
+                });
+                shared.borrow_mut().anchor = guard;
                 window.defer(cx, {
                     let shared = shared.clone();
                     let builder = builder.clone();

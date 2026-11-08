@@ -146,6 +146,7 @@ struct AppRunScreen: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
+            AppOutboxPendingGlyph(appId: app.id)
         }
     }
 

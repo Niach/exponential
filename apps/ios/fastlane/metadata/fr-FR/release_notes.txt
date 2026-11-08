@@ -48,3 +48,4 @@
 - Votre Assistant fonctionne dans toutes vos équipes
 - Les propriétaires peuvent désigner un agent Coordinateur
 - Les apps peuvent dessiner sur un canevas et réagir aux touchers et glissements
+- L'enregistrement d'une fiche dans un formulaire d'app fonctionne à nouveau

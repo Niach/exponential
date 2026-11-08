@@ -7,7 +7,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -47,6 +47,9 @@ pub struct Client {
     /// keyboard to upload.
     pub keymap: Option<(u32, std::os::fd::OwnedFd, u32)>,
     pub virtual_keyboard_manager: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
+    /// The serial of the last button press our pointer received (what a
+    /// client-side title bar hands back with `move` and `resize`).
+    pub press_serial: Option<u32>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -231,6 +234,13 @@ impl Session {
         keyboard
     }
 
+    /// Binds the seat's pointer so `press_serial` fills in.
+    pub fn pointer(&mut self) -> wl_pointer::WlPointer {
+        let pointer = self.state.seat.as_ref().expect("seat advertised").get_pointer(&self.qh, ());
+        self.roundtrip();
+        pointer
+    }
+
     /// A virtual keyboard with the seat's keymap (call [`Session::keyboard`] first).
     pub fn virtual_keyboard(&mut self) -> zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1 {
         let seat = self.state.seat.clone().expect("seat advertised");
@@ -380,6 +390,14 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
             wl_keyboard::Event::Leave { .. } => state.keyboard_focus = None,
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => state.keys.push(key),
             _ => {}
+        }
+    }
+}
+
+impl Dispatch<wl_pointer::WlPointer, ()> for Client {
+    fn event(state: &mut Self, _: &wl_pointer::WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_pointer::Event::Button { serial, state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } = event {
+            state.press_serial = Some(serial);
         }
     }
 }

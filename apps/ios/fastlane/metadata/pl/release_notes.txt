@@ -48,3 +48,4 @@
 - Twój Asystent działa we wszystkich twoich zespołach
 - Właściciele zespołu mogą wskazać agenta Koordynatora
 - Aplikacje mogą rysować na płótnie i reagować na dotknięcia i przeciągnięcia
+- Zapisywanie rekordu w formularzu aplikacji znów działa
