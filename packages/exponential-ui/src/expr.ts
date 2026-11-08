@@ -194,6 +194,9 @@ export function evalExpr(expr: string, ctx: ExprContext): unknown {
   const text = expr.trim()
   const fn = FUNCTION.exec(text)
   if (fn) {
+    // VAPP-290: `range(3)` = a literal count (Window's three dots).
+    const literal = fn[1] === `range` ? numericString(fn[2]) : undefined
+    if (literal !== undefined) return Array.from({ length: Math.min(MAX_RANGE_ITEMS, Math.max(0, Math.floor(literal))) }, (_, i) => i)
     const inner = evalExpr(fn[2], ctx)
     // #VAPP-285: `treeRows(props)` = a Tree's flat rows (src/tree.ts).
     if (fn[1] === `treeRows`) {
