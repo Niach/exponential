@@ -631,7 +631,8 @@ mod tests {
         let mut e = Engine::new();
         e.resize(6);
         let lp = LengthPercentage::length;
-        e.set_style(0, Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Style::default() });
+        // The root's width 100.3 lands on 100.5 (a length, snapped before layout).
+        e.set_style(0, Style { display: Display::Flex, flex_direction: FlexDirection::Column, size: Size { width: Dimension::length(100.3), height: Dimension::auto() }, ..Style::default() });
         e.set_style(1, Style { padding: Rect { left: lp(3.3), right: lp(3.3), top: lp(3.3), bottom: lp(3.3) }, border: Rect { left: lp(0.2), right: lp(0.2), top: lp(0.2), bottom: lp(0.2) }, ..Style::default() });
         e.set_style(2, Style { display: Display::Flex, ..Style::default() });
         for i in 3..6 {
@@ -648,7 +649,7 @@ mod tests {
         // 10.3 rounds UP to 10.5: 0.5 + 3.5 + 10.5 + 3.5 + 0.5.
         assert_eq!(e.layout(1).size.height, 18.5);
         assert_eq!(e.layout(2).location.y, 18.5);
-        // Three equal shares of 100.3: outer edges round in absolute device
+        // Three equal shares of 100.5: outer edges round in absolute device
         // pixels, so neighbours close and the last ends on the row's edge.
         let xs: Vec<f32> = (3..6).map(|i| e.layout(i).location.x).collect();
         assert_eq!(xs, vec![0.0, 33.5, 67.0]);
