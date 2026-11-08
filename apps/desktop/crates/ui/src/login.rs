@@ -1225,7 +1225,7 @@ impl Render for LoginView {
         form = form.child(self.render_instance_toggle(cx));
         // #EXP-1727: an account is optional: a Local desktop lives on this
         // machine alone.
-        form = form.child(
+        form = gpui::prelude::FluentBuilder::when(form, crate::local_desktops::available(), |form| form.child(
             Button::new("login-local-desktop")
                 .ghost()
                 .cursor_pointer()
@@ -1235,7 +1235,7 @@ impl Render for LoginView {
                     crate::local_desktops::enter_current(cx);
                     window.refresh();
                 }),
-        );
+        ));
 
         // Web `BrandHeading` (EXP-1176): the 56px mark over the title. The
         // title is 24px on a 32px line, the web `text-2xl` (gpui's `text_2xl`
