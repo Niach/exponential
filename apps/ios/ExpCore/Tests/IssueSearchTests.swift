@@ -25,6 +25,9 @@ final class IssueSearchTests: XCTestCase {
         let createdAt: String?
         let updatedAt: String?
         let status: String?
+        let creatorName: String?
+        let creatorEmail: String?
+        let creatorAgentName: String?
 
         var row: IssueSearch.Row {
             IssueSearch.Row(
@@ -34,7 +37,10 @@ final class IssueSearchTests: XCTestCase {
                 description: description,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
-                status: status
+                status: status,
+                creatorName: creatorName,
+                creatorEmail: creatorEmail,
+                creatorAgentName: creatorAgentName
             )
         }
     }
