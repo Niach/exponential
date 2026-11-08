@@ -1334,6 +1334,20 @@
         "press"
       ]
     },
+    "Window": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "one",
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
     "Separator": {
       "kind": "macro",
       "group": "layout",

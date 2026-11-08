@@ -1977,6 +1977,212 @@
       }
     },
     {
+      "name": "Window/example",
+      "input": {
+        "id": "window",
+        "component": "Window",
+        "props": {
+          "title": "exponential.at"
+        },
+        "children": [
+          {
+            "id": "window-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "window",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "window.chrome",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "window.chrome.dots",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "window.chrome.dots.dot.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Window",
+                      "part": "dot",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "window.chrome.dots.dot.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Window",
+                      "part": "dot",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "window.chrome.dots.dot.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Window",
+                      "part": "dot",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": 6,
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "flexBasis": 0,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Window",
+                  "part": "dots",
+                  "props": {}
+                }
+              },
+              {
+                "id": "window.chrome.title",
+                "component": "Text",
+                "props": {
+                  "text": "exponential.at",
+                  "variant": "caption",
+                  "align": "center",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Window",
+                  "part": "title",
+                  "props": {}
+                }
+              },
+              {
+                "id": "window.chrome.end",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "flexBasis": 0,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Window",
+                  "part": "end",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": 34,
+              "flexShrink": 0,
+              "paddingHorizontal": "$spacing.md",
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "Window",
+              "part": "chrome",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "window.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "window-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "flexShrink": 1,
+              "minHeight": 0,
+              "minWidth": 0,
+              "position": "relative"
+            },
+            "recipe": {
+              "macro": "Window",
+              "part": "body",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "borderRadius": "$radius.lg",
+          "overflow": "hidden",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Window",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "exponential.at"
+        }
+      }
+    },
+    {
       "name": "Separator/example",
       "input": {
         "id": "separator",

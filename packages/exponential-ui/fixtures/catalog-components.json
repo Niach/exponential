@@ -753,6 +753,25 @@
       }
     },
     {
+      "name": "Window/example",
+      "node": {
+        "id": "window",
+        "component": "Window",
+        "props": {
+          "title": "exponential.at"
+        },
+        "children": [
+          {
+            "id": "window-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Separator/example",
       "node": {
         "id": "separator",

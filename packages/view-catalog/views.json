@@ -4645,6 +4645,39 @@
       }
     },
     {
+      "id": "exponential-ui-window",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · Window",
+      "blurb": "A window frame around one child: a chrome bar with three dots and an optional centred title over a body the child fills. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/window/.",
+      "order": 114,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-window",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-window"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-window",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-window",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-zoomable-image",
       "group": "exponential-ui-catalog",
       "title": "genUI · ZoomableImage",

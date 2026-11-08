@@ -1666,6 +1666,418 @@
             }
           }
         },
+        "Window": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "chrome": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "dots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "dot": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "title": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "end": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "body": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            }
+          }
+        },
         "Separator": {
           "type": "object",
           "additionalProperties": false,

@@ -4313,6 +4313,41 @@
             }
           ]
         },
+        "Window": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "boxShadow": "$shadow.md"
+              }
+            }
+          ],
+          "chrome": [
+            {
+              "style": {
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "backgroundColor": "$color.mutedForeground",
+                "opacity": "$opacity.quaternary"
+              }
+            }
+          ],
+          "title": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
         "Separator": {
           "root": [
             {
@@ -12509,6 +12544,41 @@
             {
               "style": {
                 "color": "$color.cardForeground"
+              }
+            }
+          ]
+        },
+        "Window": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "boxShadow": "$shadow.md"
+              }
+            }
+          ],
+          "chrome": [
+            {
+              "style": {
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "backgroundColor": "$color.mutedForeground",
+                "opacity": "$opacity.quaternary"
+              }
+            }
+          ],
+          "title": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -20712,6 +20782,41 @@
             {
               "style": {
                 "color": "$color.cardForeground"
+              }
+            }
+          ]
+        },
+        "Window": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "boxShadow": "$shadow.md"
+              }
+            }
+          ],
+          "chrome": [
+            {
+              "style": {
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "backgroundColor": "$color.mutedForeground",
+                "opacity": "$opacity.quaternary"
+              }
+            }
+          ],
+          "title": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -29205,6 +29310,41 @@
             {
               "style": {
                 "color": "$color.cardForeground"
+              }
+            }
+          ]
+        },
+        "Window": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "boxShadow": "$shadow.md"
+              }
+            }
+          ],
+          "chrome": [
+            {
+              "style": {
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "backgroundColor": "$color.mutedForeground",
+                "opacity": "$opacity.quaternary"
+              }
+            }
+          ],
+          "title": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]

@@ -2431,6 +2431,20 @@
       ]
     },
     {
+      "name": "Window",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "chrome",
+        "dots",
+        "dot",
+        "title",
+        "end",
+        "body"
+      ],
+      "props": []
+    },
+    {
       "name": "Separator",
       "kind": "macro",
       "parts": [
