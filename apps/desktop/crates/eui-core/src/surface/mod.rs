@@ -553,6 +553,13 @@ pub struct Surface {
     layers: Vec<LayerSpec>,
     /// VAPP-276: the node ids overlays are anchored to (the last full build's).
     anchor_ids: HashSet<String>,
+    /// #EXP-1739: each open anchored overlay's anchor (node id and frame) from
+    /// the first finished pass it showed in; a later pass with another node
+    /// or frame closes it.
+    anchor_frames: HashMap<String, (String, Frame)>,
+    /// #EXP-1739: overlays a finished pass found lost, closed at the start of
+    /// the next one (never mid-output: the pass's delta must stand).
+    lost_overlays: Vec<String>,
     lists: Vec<ListSpec>,
     toasts: Vec<ToastSpec>,
     node_state: Vec<NodeState>,
@@ -678,6 +685,8 @@ impl Surface {
             main_root: None,
             layers: Vec::new(),
             anchor_ids: HashSet::new(),
+            anchor_frames: HashMap::new(),
+            lost_overlays: Vec::new(),
             lists: Vec::new(),
             toasts: Vec::new(),
             node_state: Vec::new(),

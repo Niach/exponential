@@ -554,3 +554,63 @@ describe(`fixtures/interactions-round1.json checkbox`, () => {
     })
   }
 })
+
+interface OverlayAnchorCase {
+  name: string
+  step: { relayout?: boolean; scroll?: string; y?: number; insertAbove?: boolean; removeAnchor?: boolean }
+  after: boolean
+}
+
+// #EXP-1739 overlayAnchor: an open anchored Popover closes once its anchor
+// scrolls, moves or leaves the tree. jsdom lays nothing out, so a box's
+// origin here is its place among its siblings (40px a row): a node inserted
+// above the anchor moves it.
+describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
+  const fx = (fixture as unknown as { overlayAnchor: { surface: NestedNode; above: NestedNode; cases: OverlayAnchorCase[] } }).overlayAnchor
+  for (const c of fx.cases) {
+    it(`overlayAnchor: ${c.name}`, async () => {
+      const rect = vi.spyOn(HTMLElement.prototype, `getBoundingClientRect`).mockImplementation(function (this: HTMLElement) {
+        let y = 0
+        for (let el: Element | null = this.closest(`[data-xui-id]`); el?.previousElementSibling; el = el.previousElementSibling) y += 40
+        return new DOMRect(0, y, 100, 40)
+      })
+      const shown = () => document.querySelector(`[data-xui-overlay="Popover"]`) !== null
+      const frames = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+      const { container, rerender } = render(<ExponentialSurface root={tree(fx.surface)} theme="neutral" id="oa" />)
+      await frames()
+      expect(shown(), `${c.name}: opens against its anchor`).toBe(true)
+      const children = [...(fx.surface.children ?? [])] as NestedNode[]
+      if (c.step.insertAbove) children.unshift(fx.above)
+      const next = c.step.removeAnchor ? children.filter((child) => child.id !== `target`) : children
+      rerender(<ExponentialSurface root={tree({ ...fx.surface, children: next })} theme="neutral" id="oa" />)
+      if (c.step.scroll) fireEvent.scroll(container.querySelector(`[data-xui-id="${c.step.scroll}"]`)!)
+      await frames()
+      expect(shown(), c.name).toBe(c.after)
+      rect.mockRestore()
+    })
+  }
+})
+
+interface BoxHoverCase {
+  name: string
+  steps: ({ enter: string } | { leave: string } | { press: string })[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+
+// #EDE-65: a Box's `on.hover` fires as the pointer enters (Motion's rule).
+describe(`fixtures/interactions-round1.json boxHover`, () => {
+  const hover = (fixture as unknown as { boxHover: { surface: NestedNode; cases: BoxHoverCase[] } }).boxHover
+  for (const c of hover.cases) {
+    it(`boxHover: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ExponentialSurface root={tree(hover.surface)} theme="neutral" id="bh" host={{ onAction: (e) => void actions.push(e) }} />)
+      const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement
+      for (const s of c.steps) {
+        if (`enter` in s) fireEvent.pointerEnter(box(s.enter))
+        else if (`leave` in s) fireEvent.pointerLeave(box(s.leave))
+        else fireEvent.click(box(s.press))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+})

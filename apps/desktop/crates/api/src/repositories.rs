@@ -195,6 +195,39 @@ struct SetDefaultBranchInput<'a> {
     branch: Option<&'a str>,
 }
 
+/// #EXP-1727: a Local desktop's linked folder.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRepository {
+    pub id: String,
+    pub full_name: String,
+    pub default_branch: String,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+struct LinkedFolder {
+    repository: LocalRepository,
+}
+
+#[derive(Deserialize)]
+struct LocalRepositories {
+    repositories: Vec<LocalRepository>,
+}
+
+/// #EXP-1727: link a git working copy on this machine to a Local desktop
+/// (and point `board_id` at it).
+pub fn link_folder(trpc: &TrpcClient, path: &str, board_id: Option<&str>) -> Result<LocalRepository, ApiError> {
+    let out: LinkedFolder = trpc.mutation("repositories.linkFolder", &serde_json::json!({"path": path, "boardId": board_id}))?;
+    Ok(out.repository)
+}
+
+/// #EXP-1727: a Local desktop's linked folders.
+pub fn list_local(trpc: &TrpcClient) -> Result<Vec<LocalRepository>, ApiError> {
+    let out: LocalRepositories = trpc.query("repositories.listLocal")?;
+    Ok(out.repositories)
+}
+
 /// `repositories.forIssue` — query. `Ok(None)` = no repo linked (the
 /// disabled-button state, not an error).
 pub fn for_issue(

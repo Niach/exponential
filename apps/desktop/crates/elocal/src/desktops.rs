@@ -67,6 +67,21 @@ pub struct DesktopMeta {
     pub agent_instructions: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub agent_prompt: String,
+    /// #EXP-1727: folders on this machine linked as the desktop's
+    /// repositories (a board's `repository_id` names one).
+    #[serde(default)]
+    pub repositories: Vec<LocalRepository>,
+}
+
+/// A git working copy on disk, a Local desktop's repository.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRepository {
+    pub id: String,
+    /// The folder's name, what the screens show where an instance shows `owner/name`.
+    pub name: String,
+    pub path: std::path::PathBuf,
+    pub default_branch: String,
 }
 
 pub struct Desktops {
@@ -211,7 +226,7 @@ impl LocalDesktop {
         let meta_path = dir.join("desktop.json");
         let fresh = !meta_path.exists();
         let meta: DesktopMeta = if fresh {
-            DesktopMeta { identity: LocalIdentity::for_machine(), device_id: format!("local-{}", &entry.id[..entry.id.len().min(8)]), prompt_bodies: Default::default(), agent_instructions: Default::default(), agent_prompt: String::new() }
+            DesktopMeta { identity: LocalIdentity::for_machine(), device_id: format!("local-{}", &entry.id[..entry.id.len().min(8)]), prompt_bodies: Default::default(), agent_instructions: Default::default(), agent_prompt: String::new(), repositories: Vec::new() }
         } else {
             let text = std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
             serde_json::from_str(&text).map_err(|e| format!("desktop.json: {e}"))?

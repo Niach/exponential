@@ -110,3 +110,43 @@ export function withinOtherOverlay(own: Element | null | undefined, target: Even
   const layer = target.closest(`[data-xui-overlay]`)
   return !!layer && layer !== own && !own?.contains(layer)
 }
+
+/** #EXP-1739 (overlayAnchor, the core's rule): an open anchored overlay
+ *  closes once its anchor SCROLLS (a scroll container holding it scrolls),
+ *  MOVES (its box's origin changes, checked every animation frame) or GOES
+ *  (it leaves the document, or another element replaces it). `get` is read
+ *  every frame; `onLost` runs once.
+ *  Returns the cleanup (call it when the overlay closes). */
+export function watchAnchor(get: () => Element | null | undefined, onLost: () => void): () => void {
+  const first = get()
+  if (!first || typeof window === `undefined`) return () => {}
+  const opened = first.getBoundingClientRect()
+  let done = false
+  let frame = 0
+  const lose = () => {
+    if (done) return
+    stop()
+    onLost()
+  }
+  const scrolled = (e: Event) => {
+    const el = get()
+    const target = e.target
+    if (el && (target === document || target === window || (target instanceof Node && target !== el && target.contains(el)))) lose()
+  }
+  const tick = () => {
+    const el = get()
+    // Gone, or another element took its place (the same place is not the same anchor).
+    if (!el || !el.isConnected || el !== first) return lose()
+    const rect = el.getBoundingClientRect()
+    if (Math.abs(rect.x - opened.x) >= 0.5 || Math.abs(rect.y - opened.y) >= 0.5) return lose()
+    frame = requestAnimationFrame(tick)
+  }
+  const stop = () => {
+    done = true
+    cancelAnimationFrame(frame)
+    window.removeEventListener(`scroll`, scrolled, true)
+  }
+  window.addEventListener(`scroll`, scrolled, { capture: true, passive: true })
+  frame = requestAnimationFrame(tick)
+  return stop
+}

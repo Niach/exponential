@@ -208,6 +208,21 @@ fn a_client_maximize_request_fills_the_work_area() {
     wait_for(&mut c, |c| c.state.toplevels[0].size == (400, 300));
 }
 
+/// #EDE-64: the Exponential app asks to be maximized before its first
+/// frame on eDE; it maps filling the ground, never floating centred.
+#[test]
+fn a_window_maximized_before_it_maps_opens_filling_the_work_area() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let t = c.toplevel("w");
+    t.toplevel.set_maximized();
+    c.roundtrip();
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |c| c.state.toplevels[0].states.contains(&XdgState::Maximized) && c.state.toplevels[0].size == (1280, 800));
+    c.draw_configured(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).first().is_some_and(|w| w.1 == Rectangle::new((0, 0).into(), (1280, 800).into())));
+}
+
 #[test]
 fn alt_f4_asks_the_focused_window_to_close_and_focus_falls_to_the_next() {
     let h = harness(&[(1280, 800)]);

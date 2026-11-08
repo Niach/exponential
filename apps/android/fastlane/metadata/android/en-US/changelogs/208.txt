@@ -1,0 +1,1 @@
+- Saving a record in an app form works again

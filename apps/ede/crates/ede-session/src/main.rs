@@ -11,7 +11,7 @@ use std::{
 };
 
 use ede_session::{
-    application_dirs, compositor_args, device_start, failure_file, load_crashes, migrate_legacy_dirs, recovery_args, state_file, store_crashes, take_failure, xdg_homes, DeviceStart, Exit, Next, Policy, DAEMON_UNIT, DEVICE_DESKTOP_ENTRIES,
+    application_dirs, compositor_args, device_start, failure_file, load_crashes, migrate_legacy_dirs, recovery_args, state_file, store_crashes, take_failure, xdg_homes, DeviceStart, Exit, Next, Policy, DAEMON_UNIT, DEVICE_ENV, DEVICE_DESKTOP_ENTRIES,
     EXPORTED_ENV, FATAL_EXIT, SESSION_ENV,
 };
 
@@ -83,7 +83,9 @@ fn device() -> ExitCode {
         DeviceStart::App(argv) => {
             use std::os::unix::process::CommandExt as _;
             tracing::info!("starting the Exponential app: {}", argv.join(" "));
-            let err = Command::new(&argv[0]).args(&argv[1..]).exec();
+            // #EDE-64: the app runs as the session's device: no window at
+            // login, and closing its last window keeps it online.
+            let err = Command::new(&argv[0]).args(&argv[1..]).env(DEVICE_ENV, "1").exec();
             tracing::error!("{}: {err}", argv[0]);
             ExitCode::FAILURE
         }

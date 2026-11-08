@@ -56,3 +56,22 @@ pub(crate) fn request_shell_window(cx: &mut App) -> bool {
     (hook)(cx);
     true
 }
+
+/// #EDE-64: the IDE runs as the eDE session's device
+/// (`exponential-device.service` sets `EXPONENTIAL_SESSION_DEVICE`): it
+/// starts with no window and closing the last window keeps it running, so
+/// the device stays online and its coding sessions live on. A launch from
+/// the panel (a second launch, forwarded) brings a window up.
+struct ResidentDevice;
+
+impl Global for ResidentDevice {}
+
+/// Mark this process as the session's resident device. Called once from `app`.
+pub fn set_resident_device(cx: &mut App) {
+    cx.set_global(ResidentDevice);
+}
+
+/// This process is the session's resident device.
+pub fn resident_device(cx: &App) -> bool {
+    cx.has_global::<ResidentDevice>()
+}

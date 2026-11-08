@@ -750,12 +750,21 @@ impl SurfaceView {
         }
         let toast_root = owner == "Toast" && n.part.as_deref() == Some("root");
         let motion = n.component == "Motion" && n.part.is_none();
-        let hoverable = motion || n.pressable || self.cache.hover_styled.get(index as usize).copied().unwrap_or(false) || is_text_field(n) || toast_root || style.transition.is_some();
+        // #EDE-65: a Box's `on.hover` fires on entering, like Motion's.
+        let box_hover = self.cache.hover_fires.get(index as usize).copied().unwrap_or(false);
+        let hoverable = motion || box_hover || n.pressable || self.cache.hover_styled.get(index as usize).copied().unwrap_or(false) || is_text_field(n) || toast_root || style.transition.is_some();
         if hoverable && n.trigger_for.as_deref().is_none_or(|t| !self.opens_on_hover(t)) {
             let hid = id.clone();
             let toast = toast_root.then(|| n.owner.clone()).flatten();
             el = el.on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
+                // gpui may repeat a hover: only a real enter fires.
+                let entered = *hovered && !this.interaction.get(&hid).is_some_and(|s| s.hover);
                 this.hover(&hid, *hovered, cx);
+                if box_hover && entered {
+                    if let Some(i) = this.cache.index_of(&hid) {
+                        this.fire(i, "hover", None, cx);
+                    }
+                }
                 if motion {
                     this.motion_hover(&hid, *hovered, cx);
                 }
@@ -966,7 +975,7 @@ impl SurfaceView {
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx, cx),
             ("Avatar", _) => natives::avatar(&lcx),
-            ("Image", _) => natives::image(&lcx, self.image_surround(n), window, cx),
+            ("Image", _) => natives::image(&lcx, self.image_surround(n), self.cache.ids.get(i).map(|id| (id, &self.held_images)), window, cx),
             // An exiting layer paints nothing live (the view is the open tree's).
             ("ZoomableImage", _) if self.ghosting.get() => return None,
             ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,

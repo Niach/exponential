@@ -1,7 +1,9 @@
 # This machine as an Exponential device for the whole session: the
 # Exponential app (its launcher entry, the AppImage writes it where it was
 # started from) runs under this unit and comes back when it crashes, so the
-# device stays online while the person is logged in. `exponential-session
+# device stays online while the person is logged in. It starts without a
+# window and closing its last window keeps it running (EXPONENTIAL_SESSION_DEVICE,
+# #EDE-64); the panel's launches bring a window up. `exponential-session
 # --device` does nothing when the CLI daemon's own unit
 # (`exponential daemon install`, exponential-daemon.service) runs already, or
 # when neither is installed.

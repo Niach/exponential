@@ -70,6 +70,68 @@ pub struct Region {
     pub name: String,
     pub handle: WindowHandle<SurfaceRoot>,
     pub view: Entity<SurfaceView>,
+    /// What the view was last given of the feed.
+    pushed: Rc<RefCell<Pushed>>,
+}
+
+/// What one view was last given of the feed (#EDE-65): the data roots its
+/// document binds and the value of every path pushed into it, so a refresh
+/// gives each view only the paths it binds that moved, and an unchanged
+/// view never lays out and redraws (every refresh redrew every bar).
+#[derive(Default)]
+pub struct Pushed {
+    roots: std::collections::BTreeSet<String>,
+    last: HashMap<String, Value>,
+}
+
+impl Pushed {
+    /// For a document of `source` (its JSON as written).
+    pub fn for_source(source: &Value) -> Self {
+        Self { roots: bound_roots(source), last: HashMap::new() }
+    }
+
+    /// The paths of `feed` this view binds whose value moved since the last
+    /// call, recorded as given.
+    pub fn changes(&mut self, feed: &Feed) -> Vec<(String, Value)> {
+        let mut out = Vec::new();
+        for (path, value) in feed.entries() {
+            if !self.roots.contains(root_of(path)) || self.last.get(path) == Some(value) {
+                continue;
+            }
+            self.last.insert(path.to_string(), value.clone());
+            out.push((path.to_string(), value.clone()));
+        }
+        out
+    }
+
+    /// The whole feed was just given (a document (re)loaded).
+    pub fn given_all(&mut self, feed: &Feed) {
+        self.last = feed.entries().map(|(p, v)| (p.to_string(), v.clone())).collect();
+    }
+}
+
+/// `/shell/rail` -> `shell`.
+fn root_of(path: &str) -> &str {
+    path.trim_start_matches('/').split('/').next().unwrap_or_default()
+}
+
+/// The data roots a document can read: the first segment of every absolute
+/// path written anywhere in it (`@path`, templates, function arguments; a
+/// string that only looks like one costs a needless push, never a missed one).
+pub fn bound_roots(source: &Value) -> std::collections::BTreeSet<String> {
+    fn walk(v: &Value, out: &mut std::collections::BTreeSet<String>) {
+        match v {
+            Value::String(s) if s.starts_with('/') && s.len() > 1 => {
+                out.insert(root_of(s).to_string());
+            }
+            Value::Array(a) => a.iter().for_each(|v| walk(v, out)),
+            Value::Object(o) => o.values().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(source, &mut out);
+    out
 }
 
 /// A window of the host: its kind and the bounds to ask for.
@@ -271,11 +333,13 @@ pub struct Surfaces {
     open: HashMap<String, Region>,
     /// Hosted popup windows by (document, owner).
     hosted: HashMap<(String, String), WindowHandle<SurfaceRoot>>,
+    /// The size each hosted popup window was last given.
+    hosted_sizes: HashMap<(String, String), gpui::Size<Pixels>>,
 }
 
 impl Surfaces {
     pub fn new(host: Box<dyn ShellHost>, theme: std::sync::Arc<ResolvedTheme>, plugin_for: PluginFor, on_frame: OnFrame, app_id: &str) -> Self {
-        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new() }
+        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new(), hosted_sizes: HashMap::new() }
     }
 
     pub fn is_open(&self, name: &str) -> bool {
@@ -302,6 +366,7 @@ impl Surfaces {
         let doc_name = doc.name.clone();
         let doc = doc.clone();
         let feed = feed.clone();
+        let (source, feed_now) = (doc.source.clone(), feed.clone());
         let view_out: Rc<RefCell<Option<Entity<SurfaceView>>>> = Rc::new(RefCell::new(None));
         let out = view_out.clone();
         let opened = cx.open_window(
@@ -330,7 +395,11 @@ impl Surfaces {
             },
         );
         match opened {
-            Ok(handle) => view_out.borrow().clone().map(|view| Region { name: doc_name, handle, view }),
+            Ok(handle) => view_out.borrow().clone().map(|view| {
+                let mut pushed = Pushed::for_source(&source);
+                pushed.given_all(&feed_now);
+                Region { name: doc_name, handle, view, pushed: Rc::new(RefCell::new(pushed)) }
+            }),
             Err(e) => {
                 tracing::warn!(document = %doc_name, "window: {e}");
                 None
@@ -381,6 +450,7 @@ impl Surfaces {
     pub fn close(&mut self, name: &str, cx: &mut App) -> bool {
         let hosted: Vec<(String, String)> = self.hosted.keys().filter(|(doc, _)| doc == name).cloned().collect();
         for key in hosted {
+            self.hosted_sizes.remove(&key);
             if let Some(h) = self.hosted.remove(&key) {
                 let _ = h.update(cx, |_, window, _| window.remove_window());
             }
@@ -410,16 +480,34 @@ impl Surfaces {
         let wanted: Vec<&Layer> = layers.iter().filter(|l| l.hosted).collect();
         let gone: Vec<(String, String)> = self.hosted.keys().filter(|(doc, owner)| doc == document && !wanted.iter().any(|l| &l.owner == owner)).cloned().collect();
         for key in gone {
+            self.hosted_sizes.remove(&key);
             if let Some(h) = self.hosted.remove(&key) {
                 let _ = h.update(cx, |_, window, _| window.remove_window());
             }
         }
         for layer in wanted {
             let key = (document.to_string(), layer.owner.clone());
-            if self.hosted.contains_key(&key) {
+            let Some(placed) = self.host.hosted(&parent, layer, cx) else { continue };
+            if let Some(handle) = self.hosted.get(&key) {
+                // #EDE-65: the layer laid out again (its data arrived after
+                // it opened, the taskbar previews' thumbnails): the window
+                // follows, else it stays at its first, clipped size. A popup
+                // the compositor has not configured yet cannot reposition, so
+                // the size goes again once it has drawn.
+                if self.hosted_sizes.get(&key) != Some(&placed.bounds.size) {
+                    let size = placed.bounds.size;
+                    let _ = handle.update(cx, |_, window, _| {
+                        window.resize(size);
+                        window.on_next_frame(move |window, _| {
+                            if window.bounds().size != size {
+                                window.resize(size);
+                            }
+                        });
+                    });
+                    self.hosted_sizes.insert(key, placed.bounds.size);
+                }
                 continue;
             }
-            let Some(placed) = self.host.hosted(&parent, layer, cx) else { continue };
             let view = parent.view.clone();
             let owner = layer.owner.clone();
             let opened = cx.open_window(
@@ -429,6 +517,7 @@ impl Surfaces {
             match opened {
                 Ok(handle) => {
                     tracing::info!(document, owner = %layer.owner, "hosted popup opened");
+                    self.hosted_sizes.insert(key.clone(), placed.bounds.size);
                     self.hosted.insert(key, handle);
                 }
                 Err(e) => tracing::warn!(document, owner = %layer.owner, "hosted popup: {e}"),
@@ -455,6 +544,8 @@ impl Surfaces {
         let on_frame = self.on_frame.clone();
         let feed = feed.clone();
         let doc = doc.clone();
+        *region.pushed.borrow_mut() = Pushed::for_source(&doc.source);
+        region.pushed.borrow_mut().given_all(&feed);
         let _ = region.handle.update(cx, |_, window, cx| {
             region.view.update(cx, |v, cx| load(v, &doc, &feed, cx));
             window.on_next_frame(move |_, _| on_frame(&n, &digest));
@@ -472,6 +563,9 @@ impl Surfaces {
         let bounds = layer_bounds(&doc.surface);
         let feed = feed.clone();
         let doc = doc.clone();
+        // The reload gives the view the whole feed: what it was given starts over.
+        *region.pushed.borrow_mut() = Pushed::for_source(&doc.source);
+        region.pushed.borrow_mut().given_all(&feed);
         let _ = region.handle.update(cx, |_, window, cx| {
             window.resize(bounds.size);
             if zone != 0 {
@@ -482,10 +576,21 @@ impl Surfaces {
         true
     }
 
-    /// Pushes the feed into every open view.
+    /// Gives every open view the paths it binds that moved; a view with
+    /// none is left alone (no layout, no frame).
     pub fn feed_all(&self, feed: &Feed, cx: &mut App) {
         for region in self.open.values() {
-            let _ = region.handle.update(cx, |_, _, cx| region.view.update(cx, |v, cx| push_feed(v, feed, cx)));
+            let changes = region.pushed.borrow_mut().changes(feed);
+            if changes.is_empty() {
+                continue;
+            }
+            let _ = region.handle.update(cx, |_, _, cx| {
+                region.view.update(cx, |v, cx| {
+                    for (path, value) in changes {
+                        let _ = v.set_data(&path, Some(value), cx);
+                    }
+                })
+            });
         }
     }
 
@@ -532,6 +637,32 @@ pub fn push_feed(view: &mut SurfaceView, feed: &Feed, cx: &mut gpui::Context<Sur
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-65: a refresh gives a view only the paths its document binds
+    /// that moved; the taskbar never hears the ground's data.
+    #[test]
+    fn a_view_gets_only_the_bound_paths_that_moved() {
+        let taskbar = uicore_docs::DOCS.iter().find(|d| d.name == "taskbar").unwrap();
+        let mut pushed = Pushed::for_source(&serde_json::from_str(taskbar.source).unwrap());
+        assert!(pushed.roots.contains("shell") && pushed.roots.contains("previews") && pushed.roots.contains("time"), "{:?}", pushed.roots);
+        let mut feed = Feed::new();
+        feed.set("/shell", serde_json::json!({"rail": false}));
+        feed.set("/time", serde_json::json!("12:00"));
+        feed.set("/unbound", serde_json::json!(1));
+        pushed.given_all(&feed);
+        assert!(pushed.changes(&feed).is_empty(), "nothing moved");
+        feed.set("/time", serde_json::json!("12:01"));
+        feed.set("/unbound", serde_json::json!(2));
+        let moved: Vec<String> = pushed.changes(&feed).into_iter().map(|(p, _)| p).collect();
+        assert_eq!(moved, vec!["/time".to_string()]);
+        assert!(pushed.changes(&feed).is_empty(), "given once");
+    }
+
+    #[test]
+    fn bound_roots_are_the_first_segments_of_absolute_paths() {
+        let roots = bound_roots(&serde_json::json!({"a": {"@path": "/shell/rail"}, "b": [{"path": "/previews/windows"}, "relative", "/"]}));
+        assert_eq!(roots.into_iter().collect::<Vec<_>>(), vec!["previews".to_string(), "shell".to_string()]);
+    }
 
     #[test]
     fn a_hosted_layer_above_a_panel_anchors_at_its_top_edge() {

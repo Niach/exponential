@@ -437,6 +437,16 @@ draws NO default trigger; with a child, the child toggles it too. An id that
 names no painted node leaves the overlay against its own wrapper. Only the
 FIRST node with that id that is not already a trigger is linked.
 
+An open anchored overlay (Popover, Menu, Tooltip, a picker's popup) CLOSES,
+as Escape would (`open: false` + `change`), once its anchor is lost (#EXP-1739,
+`fixtures/interactions-round1.json` `overlayAnchor`): a scroll container
+holding the anchor scrolls, the anchor's box moves, or the anchor leaves the
+tree (an overlay that fell back to its wrapper counts as moved). Core:
+`Surface::close_overlays_in` on a scroll, `check_anchor_frames` on a finished
+pass (the close lands at the start of the next one and is raised through
+`take_events`, which every native host drains). Web: `watchAnchor`
+(`@exponential_app/eui/web`), one per open overlay in React and Solid.
+
 Core: `Builder::link_anchors` runs after the whole tree is built (so the
 anchor may come after the overlay in tree order): it sets the node's
 `trigger_for`, makes it pressable (not for `openOn: hover`), and points the

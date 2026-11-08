@@ -29,8 +29,9 @@ use crate::settings::SettingsSection;
 /// its region moves (the header, the footer).
 const PRUNED: &[&str] = &["header", "switcher_menu", "header_rail", "nav", "pinned", "workspaces", "sessions", "settings", "rail_settings"];
 
-/// The start menu without what only a desktop session has.
-const MENU_PRUNED: &[&str] = &["lock", "power"];
+/// The start menu without what only a desktop session has (the switcher:
+/// the IDE's sidebar header has its own).
+const MENU_PRUNED: &[&str] = &["lock", "power", "switcher", "switcher_menu"];
 
 const TERMINAL: &str = "ide.terminal";
 const FILES: &str = "ide.files";
