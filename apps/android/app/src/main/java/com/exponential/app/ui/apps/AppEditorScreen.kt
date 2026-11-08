@@ -1168,8 +1168,9 @@ private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit, onFromTempl
 /**
  * #EXP-1732: the editor session's Chat tab = the ROOT's own session view
  * ([com.exponential.app.ui.session.SessionPage]: its raw work + traces, its
- * cards, THE Dock and THE composer). The root's view model (shared by key with
- * the page) carries the editor's device move (#FEED-204).
+ * cards, THE Dock and THE composer, its Device › row = the editor's pick-and-
+ * move, #FEED-204 / #EXP-1738). The root's view model is shared by key with
+ * the page.
  */
 @Composable
 private fun AppEditorConversation(
@@ -1190,6 +1191,12 @@ private fun AppEditorConversation(
             padding = padding,
             onOpenIssue = {},
             onOpenOrigin = { id, _ -> onOpenSession(id) },
+            // #EXP-1738: a pick on a live root also moves it (the session
+            // pin's request; a refusal = its toast).
+            deviceMenu = editorDevice.composerDevice { picked ->
+                viewModel.pickDevice(picked)
+                if (viewModel.editing) rootSession.moveToDevice(picked)
+            },
         )
     }
 }

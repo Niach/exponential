@@ -458,6 +458,9 @@ fun RunFace(
     /** S-3: the feed's `Started by` / `Reported to` link pushes that session
      *  ([root] = open it as its chat); null = no origin line. */
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
+    /** #FEED-204 / #EXP-1738: an app editor's Device › row (pick-and-move),
+     *  passed through to THE composer; null = every other session. */
+    deviceMenu: SessionComposerDevice? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
     // `exponential_sessions_show` row to draw its picture; live, so the tile
@@ -467,7 +470,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin, deviceMenu)
     }
 }
 
@@ -540,6 +543,8 @@ fun SessionPage(
     onOpenIssue: (issueId: String) -> Unit,
     /** S-3: the page's origin link pushes that session (null = inert line). */
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
+    /** #EXP-1738: the app editor's Device › row (pick-and-move). */
+    deviceMenu: SessionComposerDevice? = null,
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
@@ -550,6 +555,7 @@ fun SessionPage(
         onOpenIssue = onOpenIssue,
         trailingBarSlot = null,
         onOpenOrigin = onOpenOrigin ?: { _, _ -> },
+        deviceMenu = deviceMenu,
     )
 }
 
@@ -642,6 +648,7 @@ private fun RunFaceContent(
     trailingBarSlot: (@Composable () -> Unit)?,
     mergeBarSlot: (@Composable () -> Unit)?,
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
+    deviceMenu: SessionComposerDevice? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     // S-3: who started this session, the feed's first line.
@@ -1212,6 +1219,7 @@ private fun RunFaceContent(
             trailing = trailingBarSlot,
             merge = mergeBarSlot,
             dock = dock,
+            deviceMenu = deviceMenu,
             modifier = Modifier.onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
         )
         }
@@ -5807,7 +5815,7 @@ internal data class SessionComposerMenu(
  * picker's rows, the value = the device's name.
  */
 @Immutable
-internal data class SessionComposerDevice(
+data class SessionComposerDevice(
     val devices: List<DevicePickerDevice>,
     val value: String?,
     val onPick: (String) -> Unit,
