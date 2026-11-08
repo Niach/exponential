@@ -8,6 +8,8 @@ declare module "solid-js" {
     interface ExplicitAttributes {
       checked: string | undefined
       value: string | undefined
+      // FEED-200: a swipeable Tabs' neighbour panels (React's `inert`).
+      inert: string | undefined
     }
     // An overlay trigger's toggle runs on the way down (natives/overlays.tsx).
     interface CustomCaptureEvents {

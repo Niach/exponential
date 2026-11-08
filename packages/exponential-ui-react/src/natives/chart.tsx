@@ -51,6 +51,16 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const fmt = useMemo(() => ({ format: (v: number) => formatChartValue(ctx.formatter, v, valueFormat) }), [ctx.formatter, JSON.stringify(valueFormat ?? null)])
   const [active, setActive] = useState<number | null>(null)
   const plotRef = useRef<SVGSVGElement>(null)
+  // VAPP-289: a pointerleave clears the highlight only after a real
+  // pointermove. A pointer that never moved sits at 0,0 (on the plot); a
+  // re-render's hover update then sends a pointerleave at no fixed moment,
+  // which wiped the keyboard highlight.
+  const pointerInside = useRef(false)
+  const onLeave = () => {
+    if (!pointerInside.current) return
+    pointerInside.current = false
+    setActive(null)
+  }
 
   const ext = chartExtent(kind, series, props.min === undefined ? undefined : num(props.min), props.max === undefined ? undefined : num(props.max))
   const ticks = sparkline || round ? { min: ext.min, max: ext.max, step: 0, ticks: [] as number[] } : niceTicks(ext.min, ext.max, 5)
@@ -195,6 +205,7 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
     else if (e.key === `Escape`) setActive(null)
   }
   const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    pointerInside.current = true
     if (round || n === 0) return
     const r = plotRef.current?.getBoundingClientRect()
     if (!r) return
@@ -236,7 +247,7 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
           tabIndex={sparkline ? undefined : 0}
           onKeyDown={sparkline ? undefined : onKey}
           onPointerMove={sparkline ? undefined : onMove}
-          onPointerLeave={() => setActive(null)}
+          onPointerLeave={onLeave}
           onBlur={() => setActive(null)}
           className="xui-chart-svg"
         >

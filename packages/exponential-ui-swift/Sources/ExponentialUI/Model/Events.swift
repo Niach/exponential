@@ -714,6 +714,62 @@ extension SurfaceModel {
         fire(index, "drag", payload: .object(["phase": .string(phase), "delta": .number(Double(delta))]))
     }
 
+    /// FEED-200: the `content` part of a `swipeable` Tabs (its panels page
+    /// under a horizontal touch drag).
+    public func isSwipeContent(_ index: Int) -> Bool {
+        guard let n = node(index), n.ownerComponent == "Tabs", n.part == "content" else { return false }
+        return ownerProps(index)["swipeable"]?.bool == true
+    }
+
+    /// FEED-200: a swipeable Tabs' swipe (`phase` = start | move | end |
+    /// cancel, `offset` = SCREEN pt since the touch started, positive =
+    /// rightwards, never mirrored; `velocity` = pt/ms at the release). The
+    /// core draws the pages and the `thumb` and settles (`fixtures/swipe.json`).
+    public func tabSwipe(_ index: Int, phase: String, offset: CGFloat, velocity: CGFloat = 0) {
+        fire(index, "swipe", payload: .object(["phase": .string(phase), "offset": .number(Double(offset)), "velocity": .number(Double(velocity))]))
+    }
+
+    /// FEED-200: the axis a touch that moved (`dx`, `dy`) commits to
+    /// (`pending` | `horizontal` | `vertical`, the core's `swipeLock`).
+    public func swipeAxis(dx: CGFloat, dy: CGFloat) -> String {
+        ExponentialUICore.swipeLock(dx: Double(dx), dy: Double(dy))
+    }
+
+    /// FEED-200: does node `index` pan by itself (`swipeBlocks` of its
+    /// component, `direction` prop and resolved `overflowX`)?
+    func swipeBlocker(_ index: Int) -> Bool {
+        guard let n = node(index) else { return false }
+        let s = style(index)
+        let scrollsX = s.scrollX || scroll(index)?.scrollsX == true
+        let overflowX: String? = scrollsX ? "auto" : (s.clipX ? "hidden" : nil)
+        return ExponentialUICore.swipeBlocks(component: n.component, direction: n.props["direction"]?.string, overflowX: overflowX)
+    }
+
+    /// FEED-200: is a touch starting at `point` (surface coordinates,
+    /// unscrolled like `frame`) inside swipeable content `content` the
+    /// touch of a node that scrolls, pans or drags sideways? Walks from the
+    /// deepest hit node (topmost in paint order, skipping hidden,
+    /// `pointerEvents: none` and invisible boxes, through scroll offsets)
+    /// up to the content.
+    public func swipeBlocked(_ content: Int, at point: CGPoint) -> Bool {
+        var at = content
+        var p = point
+        var path: [Int] = []
+        while path.count < 512 {
+            if let s = scroll(at) { p = CGPoint(x: p.x + s.offset.x, y: p.y + s.offset.y) }
+            let layer = node(at)?.layer
+            let hit = (children[safe: at] ?? []).reversed().first { k in
+                guard let n = node(k), !n.hidden, n.layer == layer else { return false }
+                let s = style(k)
+                return !s.pointerNone && !s.invisible && frame(k).contains(p)
+            }
+            guard let hit else { break }
+            path.append(hit)
+            at = hit
+        }
+        return path.contains { swipeBlocker($0) }
+    }
+
     /// A key on a node the core handles itself (a Resizable handle: the
     /// arrows, Home, End, Enter).
     public func nodeKey(_ index: Int, key: String) {

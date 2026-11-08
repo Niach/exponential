@@ -44,6 +44,9 @@ upstream carries them).
 - EXP-1676, `src/button/button.rs`: a disabled `Primary` button keeps its
   normal look with the fill and border at half opacity (web's
   `disabled:opacity-50`) instead of upstream's 15% fill and muted label.
+- #EXP-1752, an open menu updates live: `src/menu/popup_menu.rs`
+  `PopupMenu::refresh` is `rebuild` keeping the selected row (and so the
+  open submenu) when the rebuilt menu still has it.
 - Packaging only: dropped `tests/` (and the manifest's `[[test]]` entry that
   pointed into it), `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`.
   No other source is modified.

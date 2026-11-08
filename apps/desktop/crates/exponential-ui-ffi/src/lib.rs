@@ -928,6 +928,35 @@ pub fn segmented_badge_text(count: Option<f64>) -> Option<String> {
     shield("segmented_badge_text", || None, || eui_core::segmented::badge_text(count.map(serde_json::Value::from).as_ref()))
 }
 
+/// FEED-200 (fixtures/swipe.json): the swipe pager's axis lock for a touch
+/// that moved (`dx`, `dy`): `pending`, `horizontal` or `vertical`.
+#[uniffi::export]
+pub fn swipe_lock(dx: f64, dy: f64) -> String {
+    shield("swipe_lock", || "pending".to_string(), || eui_core::swipe::swipe_lock(dx, dy).to_string())
+}
+
+/// FEED-200: the offset a pager's pages are DRAWN at while the finger is at
+/// `offset` (screen px; resisted past an end, at most one page).
+#[uniffi::export]
+pub fn swipe_offset(index: u32, count: u32, offset: f64, width: f64, rtl: bool) -> f64 {
+    shield("swipe_offset", || 0.0, || eui_core::swipe::swipe_offset(index as usize, count as usize, offset, width, rtl))
+}
+
+/// FEED-200: the page a released swipe settles on (`offset` screen px,
+/// `velocity` px/ms at the release).
+#[uniffi::export]
+pub fn swipe_settle(index: u32, count: u32, offset: f64, velocity: f64, width: f64, rtl: bool) -> u32 {
+    shield("swipe_settle", || index, || eui_core::swipe::swipe_settle(index as usize, count as usize, offset, velocity, width, rtl) as u32)
+}
+
+/// FEED-200: whether a touch starting inside a node of `component` (its
+/// `direction` prop, its resolved `overflowX`) is that node's, not an
+/// enclosing pager's.
+#[uniffi::export]
+pub fn swipe_blocks(component: String, direction: Option<String>, overflow_x: Option<String>) -> bool {
+    shield("swipe_blocks", || false, || eui_core::swipe::swipe_blocks(&component, direction.as_deref(), overflow_x.as_deref()))
+}
+
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
 #[uniffi::export]
 pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, max: Option<f64>) -> Result<String, UiError> {

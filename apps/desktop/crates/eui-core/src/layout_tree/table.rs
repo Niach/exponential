@@ -186,6 +186,20 @@ fn fold_accent(c: char) -> char {
     }
 }
 
+/// FEED-202: the `totals` row, one entry per column: a `number` or
+/// `currency` column's sum over `rows` (each value as [`num`]), else `None`
+/// (the reference's `tableTotals`). The first column shows `$string.total`
+/// when it sums nothing.
+pub fn table_totals(rows: &[Value], columns: &[Value]) -> Vec<Option<f64>> {
+    columns
+        .iter()
+        .map(|c| {
+            let key = c.get("key").map(js).unwrap_or_default();
+            matches!(c.get("type").and_then(Value::as_str), Some("number" | "currency")).then(|| rows.iter().fold(0.0, |sum, r| sum + r.get(&key).map(num).unwrap_or(0.0)))
+        })
+        .collect()
+}
+
 /// A cell's text by column type, through the surface formatter (round 2),
 /// as the reference's Table `cell`: a missing value (absent, null, `""`)
 /// is empty; `number` / `currency` / `percent` coerce like `num` (a
@@ -211,8 +225,11 @@ pub fn cell_text(kind: &str, v: Option<&Value>, column: &Value, formatter: &dyn 
             None => formatter.number(num(v), options),
         },
         "percent" => formatter.percent(num(v), decimals),
-        "date" => format_date_value(formatter, v, &DateOptions::default()),
-        "dateTime" => format_date_value(formatter, v, &DateOptions { time: true, ..DateOptions::default() }),
+        // FEED-202: a column's `format` (a TR35 pattern) wins over the preset.
+        "date" | "dateTime" => match column.get("format").and_then(Value::as_str).filter(|f| !f.is_empty()) {
+            Some(format) => format_date_value(formatter, v, &DateOptions { format: Some(format.to_string()), ..DateOptions::default() }),
+            None => format_date_value(formatter, v, &DateOptions { time: kind == "dateTime", ..DateOptions::default() }),
+        },
         "relativeTime" => format_relative_value(formatter, v, now),
         "boolean" => {
             if crate::expr::truthy(v) && v != &Value::Bool(false) {
@@ -358,9 +375,43 @@ impl Builder<'_, '_> {
             let empty = owner.props.get("emptyText").map(js).unwrap_or_else(|| self.string("noResults"));
             self.text_part(body, &owner, "empty", &empty, "muted", "");
         }
+        if bool_prop(&owner.props, "totals") && !rows.is_empty() {
+            self.totals_row(&owner, &columns, &rows, multiple, min_width);
+        }
         if let Some(caption) = str_prop(&owner.props, "caption") {
             let caption = caption.to_string();
             self.text_part(index, &owner, "caption", &caption, "muted", "");
+        }
+    }
+
+    /// FEED-202: the sum row under the body: parts `row` / `cell` (suffix
+    /// `#totals`) with the painter's `total: true`, cells in their column's
+    /// format, the first column `$string.total` when it sums nothing.
+    fn totals_row(&mut self, owner: &LNode, columns: &[Value], rows: &[Value], multiple: bool, min_width: f64) {
+        let sums = table_totals(rows, columns);
+        // A multiple table's checkbox column stays empty (the row's inset).
+        let inset = if multiple { self.ctx.checkbox } else { 0.0 };
+        let row = self.part_in(owner.index, owner, "row", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch", "flexShrink": 0, "minWidth": min_width, "paddingLeft": inset}), json!({"key": "#totals"}), ".#totals");
+        self.query_prop(row, "total", Value::Bool(true));
+        let label = self.string("total");
+        for (c, col) in columns.iter().enumerate() {
+            let kind = col.get("type").and_then(Value::as_str).unwrap_or("text").to_string();
+            let col_key = col.get("key").map(js).unwrap_or_default();
+            let align = col.get("align").and_then(Value::as_str).unwrap_or("start").to_string();
+            let (text, cell_type) = match sums[c] {
+                Some(sum) => (cell_text(&kind, Some(&json!(sum)), col, self.ctx.formatter, self.ctx.now), kind.clone()),
+                None if c == 0 => (label.clone(), "text".to_string()),
+                None => (String::new(), "text".to_string()),
+            };
+            let mut style = Self::column_style(col);
+            style["textAlign"] = json!(align);
+            let mut props = json!({"text": text, "cellType": cell_type, "align": align, "value": sums[c].map(|s| json!(s)).unwrap_or(Value::Null), "key": col_key});
+            if Self::truncates(col) {
+                props["lines"] = json!(1);
+            }
+            let cell = self.part_in(row, owner, "cell", "Text", NodeKind::Leaf, style, props, &format!(".#totals.{c}"));
+            self.query_prop(cell, "align", json!(align));
+            self.query_prop(cell, "total", Value::Bool(true));
         }
     }
 
@@ -395,6 +446,11 @@ impl Builder<'_, '_> {
         let value = data.get(&col_key);
         let text = cell_text(&kind, value, col, self.ctx.formatter, self.ctx.now);
         let mut props = json!({"text": text, "cellType": kind, "align": align, "value": value.cloned().unwrap_or(Value::Null)});
+        // FEED-202: a date pattern = the core's text; a painter that formats
+        // dates natively (SwiftUI) keeps it.
+        if let Some(format) = col.get("format").and_then(Value::as_str).filter(|f| !f.is_empty() && matches!(kind.as_str(), "date" | "dateTime")) {
+            props["format"] = json!(format);
+        }
         if Self::truncates(col) {
             props["lines"] = json!(1);
         }

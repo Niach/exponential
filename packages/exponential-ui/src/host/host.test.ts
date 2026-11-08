@@ -410,15 +410,19 @@ describe(`stream transports`, () => {
 
   test(`close() then start() leaves exactly one loop (a stale one asleep in its wait exits)`, async () => {
     const { f, gets } = streamFetch([new Error(`down`)])
-    const t = new JsonlStreamTransport({ url: `u`, reconnectMs: 20, fetch: f })
+    // Polls instead of fixed sleeps: a loaded runner stretches every timer.
+    const until = async (n: number) => {
+      for (let i = 0; i < 200 && gets.length < n; i++) await tick(5)
+    }
+    const t = new JsonlStreamTransport({ url: `u`, reconnectMs: 100, fetch: f })
     t.start(() => {}, () => {})
-    await tick(5) // the first loop failed and sleeps in its reconnect wait
+    await until(1) // the first loop failed and sleeps in its reconnect wait
     t.close()
     t.start(() => {}, () => {})
-    await tick(5)
-    const before = gets.length
-    expect(before).toBe(2)
-    await tick(30) // one reconnect, from the new loop only
+    await until(2)
+    expect(gets.length).toBe(2)
+    await until(3) // one reconnect, from the new loop only
+    await tick(50) // a stale loop wakes with the new one: it would add a 4th inside half a reconnect
     t.close()
     expect(gets.length).toBe(3)
   })

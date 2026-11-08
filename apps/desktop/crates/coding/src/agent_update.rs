@@ -14,6 +14,12 @@
 //! pinned build being (re-)fetched ([`crate::managed_codex::ensure`]); a
 //! build already in place is "up to date". A custom `codexPath` still runs
 //! `codex update`.
+//!
+//! EXP-1513: a Claude Code that is not there at the DEFAULT path is
+//! installed instead, with Anthropic's own installer
+//! ([`eagent::install`]); it lands signed out, and the profile's Sign in is
+//! the next step. A custom `claudePath` that does not run is still refused:
+//! an install would not land there.
 
 use std::path::Path;
 use std::time::Duration;
@@ -63,7 +69,7 @@ pub fn describe(agent: CodingAgent, before: Option<&str>, after: &str) -> String
             format!("{} is already up to date (v{after}).", agent.label())
         }
         Some(before) => format!("{} updated: v{before} → v{after}.", agent.label()),
-        None => format!("{} updated to v{after}.", agent.label()),
+        None => format!("{} installed (v{after}).", agent.label()),
     }
 }
 
@@ -94,6 +100,10 @@ pub fn update_agent(
     let path_env = terminal::pty::login_path();
     let tool = tool_for(agent);
     let before = check_tool(tool, &program);
+    if before.version.is_none() && agent == CodingAgent::Claude && settings.claude_path == crate::settings::DEFAULT_CLAUDE_PATH {
+        let installed = eagent::install::install(agent, &path_env)?;
+        return Ok(AgentUpdateOutcome { agent, before: None, after: installed.version });
+    }
     if before.version.is_none() {
         return Err(before
             .error
@@ -176,7 +186,7 @@ mod tests {
             describe(CodingAgent::Codex, Some("0.144.5"), "0.144.5"),
             "Codex is already up to date (v0.144.5)."
         );
-        assert_eq!(describe(CodingAgent::Claude, None, "2.1.281"), "Claude Code updated to v2.1.281.");
+        assert_eq!(describe(CodingAgent::Claude, None, "2.1.281"), "Claude Code installed (v2.1.281).");
     }
 
     #[test]
@@ -199,8 +209,9 @@ mod tests {
         assert_eq!(last_line("  \n"), None);
     }
 
-    /// A CLI that is not there is refused before anything is spawned — the
-    /// doctor's reason is the message.
+    /// A CLI that is not there at a CUSTOM path is refused before anything
+    /// is spawned (an install would not land there) — the doctor's reason
+    /// is the message.
     #[test]
     fn a_missing_cli_is_refused_up_front() {
         let mut settings = Settings::default();

@@ -856,6 +856,9 @@ pub(crate) struct PointerMenu<T: gpui_component::Selectable + IntoElement + 'sta
     dev_steps: usize,
     /// N-6: the height the menu wants — the menu layer picks its side by it.
     wanted: Pixels,
+    /// #EXP-1752: what the rows are built from; a change while the menu is
+    /// open rebuilds it in place ([`Self::live`]).
+    content_key: Option<u64>,
 }
 
 impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
@@ -877,6 +880,7 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
             dev_open: false,
             dev_steps: 1,
             wanted: px(crate::menu_window::DEFAULT_WANTED_HEIGHT),
+            content_key: None,
         }
     }
 
@@ -902,6 +906,16 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
     /// nothing (either way), so the menu photographs at its root.
     pub(crate) fn dev_steps(mut self, steps: usize) -> Self {
         self.dev_steps = steps;
+        self
+    }
+
+    /// #EXP-1752: a menu whose rows come from live data (the composer "+"
+    /// menu's devices, logins, models) passes a key over that data; an OPEN
+    /// menu whose key changed rebuilds its rows in place (the hovered row and
+    /// its submenu kept), in-window and in a menu layer alike. Without it a
+    /// menu keeps the rows it opened with until it is reopened.
+    pub(crate) fn live(mut self, content_key: u64) -> Self {
+        self.content_key = Some(content_key);
         self
     }
 
@@ -984,6 +998,8 @@ struct PointerMenuState {
     /// N-6: a dev open (EXP-1259) is waiting for a measured trigger to open
     /// its menu layer with the first row selected.
     dev_layer: bool,
+    /// #EXP-1752: the [`PointerMenu::live`] key the open menu was built from.
+    built_key: Option<u64>,
     /// #EXP-1739: the trigger as an overlay anchor, and the open layer's watch.
     anchor: Option<gpui_component::overlay_anchor::OverlayAnchor>,
     anchor_guard: Option<gpui_component::overlay_anchor::AnchorGuard>,
@@ -1093,6 +1109,22 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                 state.dev_select = steps > 0;
                 state.dev_steps = steps;
             });
+        }
+        // #EXP-1752: the rows' data changed under an open menu: rebuild it
+        // where it is drawn (a closed one builds from this builder on open).
+        if let Some(key) = self.content_key {
+            let (stale, open_menu) = menu_state.update(cx, |state, _| {
+                let stale = state.built_key.replace(key).is_some_and(|built| built != key);
+                (stale, state.menu.clone())
+            });
+            if stale {
+                let id = SharedString::from(format!("{:?}", self.id));
+                crate::menu_window::refresh(&id, builder.clone(), cx);
+                if let Some(menu) = open_menu {
+                    let builder = builder.clone();
+                    menu.update(cx, |menu, cx| menu.refresh(window, cx, move |menu, window, cx| builder(menu, window, cx)));
+                }
+            }
         }
         // N-6: in a dialog window the menu opens in a menu layer over the
         // window, so it can overhang the dialog's edges. The in-window

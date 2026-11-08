@@ -795,6 +795,21 @@ impl PopupMenu {
         cx.notify();
     }
 
+    /// Exponential patch (#EXP-1752): [`Self::rebuild`] that keeps the
+    /// selected row (and so an open submenu, which is drawn while its row is
+    /// selected) when the rebuilt menu still has a row there. For an open
+    /// menu whose content arrives live: the rows update under the pointer.
+    pub fn refresh(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(Self, &mut Window, &mut Context<Self>) -> Self,
+    ) {
+        let selected = self.selected_index;
+        self.rebuild(window, cx, f);
+        self.selected_index = selected.filter(|ix| *ix < self.menu_items.len());
+    }
+
     fn add_menu_item(
         &mut self,
         label: impl Into<SharedString>,

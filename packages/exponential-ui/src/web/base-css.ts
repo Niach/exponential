@@ -171,6 +171,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Tabs-item:has(>.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
 .xui-Tabs-item>.xui-Tabs-tab:has(+.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
 .xui-Tabs-item[data-folded],.xui-Tabs-more[data-folded]{position:absolute;top:0;inset-inline-start:0;visibility:hidden;pointer-events:none}
+.xui-Tabs-pager{display:flex;flex-direction:column;position:relative;overflow:hidden;touch-action:pan-y;min-width:0}
+.xui-Tabs-pager>.xui-Tabs-content[data-state]{animation:none}
+.xui-Tabs-pager>[data-xui-page]{position:absolute;top:0;left:0;width:100%;pointer-events:none}
+.xui-Tabs-list[data-xui-swipe]{position:relative;isolation:isolate}
+.xui-Tabs-thumb{position:absolute;left:0;pointer-events:none;z-index:-1}
 [data-xui-c="Segmented"].xui-el{display:inline-flex;align-items:center;align-self:flex-start;flex-wrap:nowrap}
 [data-xui-c="Segmented"][data-r-fill="true"].xui-el,[data-xui-c="Segmented"][data-r-variant="bar"].xui-el{align-self:stretch}
 .xui-Segmented-item{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;flex:0 0 auto;min-width:0}

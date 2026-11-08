@@ -40063,7 +40063,2835 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
+            },
+            "children": [],
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "table",
+              "props": {}
+            },
+            "slots": {
+              "menu": {
+                "id": "record-table.table.menu",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "record-table.table.menu.edit",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "edit",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.edit"
+                    }
+                  },
+                  {
+                    "id": "record-table.table.menu.delete",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "delete",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.delete"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "menu",
+                  "props": {}
+                }
+              }
+            }
+          },
+          {
+            "id": "record-table.list",
+            "component": "List",
+            "props": {
+              "divided": true
+            },
+            "children": [],
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "list",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.editor",
+            "component": "Drawer",
+            "props": {
+              "title": "Deal",
+              "open": false,
+              "side": "right",
+              "dismissible": false
+            },
+            "children": [
+              {
+                "id": "record-table.editor.form",
+                "component": "Form",
+                "props": {
+                  "name": "deal",
+                  "disabled": false
+                },
+                "children": [
+                  {
+                    "id": "record-table.editor.form.fields",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.fields.field.0",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.0.text",
+                            "component": "Input",
+                            "props": {
+                              "label": "Title",
+                              "name": "title",
+                              "value": {
+                                "@path": "/recordForm/deal/title"
+                              },
+                              "checks": [
+                                {
+                                  "condition": {
+                                    "@call": "required",
+                                    "args": {
+                                      "value": {
+                                        "@path": "/recordForm/deal/title"
+                                      }
+                                    }
+                                  },
+                                  "message": "$string.required"
+                                }
+                              ]
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "text",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.1",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.1.number",
+                            "component": "NumberField",
+                            "props": {
+                              "label": "Amount",
+                              "name": "amount",
+                              "value": {
+                                "@path": "/recordForm/deal/amount"
+                              },
+                              "min": 0
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "number",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.2",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.2.select",
+                            "component": "Select",
+                            "props": {
+                              "label": "Stage",
+                              "name": "stage",
+                              "value": {
+                                "@path": "/recordForm/deal/stage"
+                              },
+                              "options": [
+                                {
+                                  "label": "Open",
+                                  "value": "open"
+                                },
+                                {
+                                  "label": "Won",
+                                  "value": "won"
+                                }
+                              ],
+                              "searchable": false,
+                              "multiple": false
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "select",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.3",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.3.date",
+                            "component": "DatePicker",
+                            "props": {
+                              "label": "Close",
+                              "name": "close",
+                              "value": {
+                                "@path": "/recordForm/deal/close"
+                              }
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "date",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                      "gap": "$spacing.md",
+                      "alignItems": "start",
+                      "@media (min-width: $breakpoint.md)": {
+                        "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "FieldGroup",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  },
+                  {
+                    "id": "record-table.editor.form.actions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.actions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.actions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.save",
+                          "variant": "default",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordForm",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "editor",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.confirm",
+            "component": "Dialog",
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": false
+            },
+            "children": [
+              {
+                "id": "record-table.confirm.confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "children": [
+                  {
+                    "id": "record-table.confirm.confirmForm.confirmActions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.delete",
+                          "variant": "destructive",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "confirmForm",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "confirm",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "alertdialog"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "RecordTable",
+          "part": "root",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "RecordTable/search=true",
+      "input": {
+        "id": "record-table",
+        "component": "RecordTable",
+        "props": {
+          "kind": "deal",
+          "title": "Deal",
+          "cols": [
+            {
+              "key": "title",
+              "label": "Title",
+              "sortable": true,
+              "truncate": true
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "type": "number",
+              "width": 64,
+              "align": "end",
+              "sortable": true
+            },
+            {
+              "key": "updatedAt",
+              "label": "Updated",
+              "type": "relativeTime",
+              "width": 88,
+              "sortable": true
+            },
+            {
+              "key": "menu",
+              "label": "",
+              "type": "slot",
+              "slot": "menu",
+              "width": 80
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1",
+              "title": "Acme renewal",
+              "amount": 1200,
+              "updatedAt": "2026-11-03T10:00:00Z"
+            }
+          ],
+          "count": "1 record",
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "widget": "text",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/recordForm/deal/title"
+                      }
+                    }
+                  },
+                  "message": "$string.required"
+                }
+              ]
+            },
+            {
+              "name": "amount",
+              "label": "Amount",
+              "widget": "number",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/amount"
+              },
+              "min": 0
+            },
+            {
+              "name": "stage",
+              "label": "Stage",
+              "widget": "select",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/stage"
+              },
+              "options": [
+                {
+                  "label": "Open",
+                  "value": "open"
+                },
+                {
+                  "label": "Won",
+                  "value": "won"
+                }
+              ]
+            },
+            {
+              "name": "close",
+              "label": "Close",
+              "widget": "date",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/close"
+              }
+            }
+          ],
+          "path": "/recordTable/deals/editor/draft",
+          "editorOpen": false,
+          "deleteOpen": false,
+          "search": true
+        }
+      },
+      "expected": {
+        "id": "record-table",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "record-table.toolbar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "record-table.toolbar.search",
+                "component": "Input",
+                "props": {
+                  "label": "",
+                  "name": "search",
+                  "type": "search",
+                  "placeholder": "$string.search"
+                },
+                "children": [],
+                "style": {
+                  "width": 240,
+                  "maxWidth": "100%"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "search",
+                  "props": {}
+                },
+                "accessibility": {
+                  "label": "$string.search"
+                }
+              },
+              {
+                "id": "record-table.toolbar.count",
+                "component": "Text",
+                "props": {
+                  "text": "1 record",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "count",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Toolbar",
+                  "part": "spacer",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.add",
+                "component": "Button",
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "add",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Toolbar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          },
+          {
+            "id": "record-table.table",
+            "component": "Table",
+            "props": {
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title",
+                  "sortable": true,
+                  "truncate": true
+                },
+                {
+                  "key": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "width": 64,
+                  "align": "end",
+                  "sortable": true
+                },
+                {
+                  "key": "updatedAt",
+                  "label": "Updated",
+                  "type": "relativeTime",
+                  "width": 88,
+                  "sortable": true
+                },
+                {
+                  "key": "menu",
+                  "label": "",
+                  "type": "slot",
+                  "slot": "menu",
+                  "width": 80
+                }
+              ],
+              "rows": [
+                {
+                  "id": "d1",
+                  "title": "Acme renewal",
+                  "amount": 1200,
+                  "updatedAt": "2026-11-03T10:00:00Z"
+                }
+              ],
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords",
+              "totals": false
+            },
+            "children": [],
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "table",
+              "props": {}
+            },
+            "slots": {
+              "menu": {
+                "id": "record-table.table.menu",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "record-table.table.menu.edit",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "edit",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.edit"
+                    }
+                  },
+                  {
+                    "id": "record-table.table.menu.delete",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "delete",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.delete"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "menu",
+                  "props": {}
+                }
+              }
+            }
+          },
+          {
+            "id": "record-table.list",
+            "component": "List",
+            "props": {
+              "divided": true
+            },
+            "children": [],
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "list",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.editor",
+            "component": "Drawer",
+            "props": {
+              "title": "Deal",
+              "open": false,
+              "side": "right",
+              "dismissible": false
+            },
+            "children": [
+              {
+                "id": "record-table.editor.form",
+                "component": "Form",
+                "props": {
+                  "name": "deal",
+                  "disabled": false
+                },
+                "children": [
+                  {
+                    "id": "record-table.editor.form.fields",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.fields.field.0",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.0.text",
+                            "component": "Input",
+                            "props": {
+                              "label": "Title",
+                              "name": "title",
+                              "value": {
+                                "@path": "/recordForm/deal/title"
+                              },
+                              "checks": [
+                                {
+                                  "condition": {
+                                    "@call": "required",
+                                    "args": {
+                                      "value": {
+                                        "@path": "/recordForm/deal/title"
+                                      }
+                                    }
+                                  },
+                                  "message": "$string.required"
+                                }
+                              ]
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "text",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.1",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.1.number",
+                            "component": "NumberField",
+                            "props": {
+                              "label": "Amount",
+                              "name": "amount",
+                              "value": {
+                                "@path": "/recordForm/deal/amount"
+                              },
+                              "min": 0
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "number",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.2",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.2.select",
+                            "component": "Select",
+                            "props": {
+                              "label": "Stage",
+                              "name": "stage",
+                              "value": {
+                                "@path": "/recordForm/deal/stage"
+                              },
+                              "options": [
+                                {
+                                  "label": "Open",
+                                  "value": "open"
+                                },
+                                {
+                                  "label": "Won",
+                                  "value": "won"
+                                }
+                              ],
+                              "searchable": false,
+                              "multiple": false
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "select",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.3",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.3.date",
+                            "component": "DatePicker",
+                            "props": {
+                              "label": "Close",
+                              "name": "close",
+                              "value": {
+                                "@path": "/recordForm/deal/close"
+                              }
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "date",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                      "gap": "$spacing.md",
+                      "alignItems": "start",
+                      "@media (min-width: $breakpoint.md)": {
+                        "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "FieldGroup",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  },
+                  {
+                    "id": "record-table.editor.form.actions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.actions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.actions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.save",
+                          "variant": "default",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordForm",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "editor",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.confirm",
+            "component": "Dialog",
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": false
+            },
+            "children": [
+              {
+                "id": "record-table.confirm.confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "children": [
+                  {
+                    "id": "record-table.confirm.confirmForm.confirmActions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.delete",
+                          "variant": "destructive",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "confirmForm",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "confirm",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "alertdialog"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "RecordTable",
+          "part": "root",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "RecordTable/search=false",
+      "input": {
+        "id": "record-table",
+        "component": "RecordTable",
+        "props": {
+          "kind": "deal",
+          "title": "Deal",
+          "cols": [
+            {
+              "key": "title",
+              "label": "Title",
+              "sortable": true,
+              "truncate": true
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "type": "number",
+              "width": 64,
+              "align": "end",
+              "sortable": true
+            },
+            {
+              "key": "updatedAt",
+              "label": "Updated",
+              "type": "relativeTime",
+              "width": 88,
+              "sortable": true
+            },
+            {
+              "key": "menu",
+              "label": "",
+              "type": "slot",
+              "slot": "menu",
+              "width": 80
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1",
+              "title": "Acme renewal",
+              "amount": 1200,
+              "updatedAt": "2026-11-03T10:00:00Z"
+            }
+          ],
+          "count": "1 record",
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "widget": "text",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/recordForm/deal/title"
+                      }
+                    }
+                  },
+                  "message": "$string.required"
+                }
+              ]
+            },
+            {
+              "name": "amount",
+              "label": "Amount",
+              "widget": "number",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/amount"
+              },
+              "min": 0
+            },
+            {
+              "name": "stage",
+              "label": "Stage",
+              "widget": "select",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/stage"
+              },
+              "options": [
+                {
+                  "label": "Open",
+                  "value": "open"
+                },
+                {
+                  "label": "Won",
+                  "value": "won"
+                }
+              ]
+            },
+            {
+              "name": "close",
+              "label": "Close",
+              "widget": "date",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/close"
+              }
+            }
+          ],
+          "path": "/recordTable/deals/editor/draft",
+          "editorOpen": false,
+          "deleteOpen": false,
+          "search": false
+        }
+      },
+      "expected": {
+        "id": "record-table",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "record-table.toolbar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "record-table.toolbar.count",
+                "component": "Text",
+                "props": {
+                  "text": "1 record",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "count",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Toolbar",
+                  "part": "spacer",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.add",
+                "component": "Button",
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "add",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Toolbar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          },
+          {
+            "id": "record-table.table",
+            "component": "Table",
+            "props": {
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title",
+                  "sortable": true,
+                  "truncate": true
+                },
+                {
+                  "key": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "width": 64,
+                  "align": "end",
+                  "sortable": true
+                },
+                {
+                  "key": "updatedAt",
+                  "label": "Updated",
+                  "type": "relativeTime",
+                  "width": 88,
+                  "sortable": true
+                },
+                {
+                  "key": "menu",
+                  "label": "",
+                  "type": "slot",
+                  "slot": "menu",
+                  "width": 80
+                }
+              ],
+              "rows": [
+                {
+                  "id": "d1",
+                  "title": "Acme renewal",
+                  "amount": 1200,
+                  "updatedAt": "2026-11-03T10:00:00Z"
+                }
+              ],
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords",
+              "totals": false
+            },
+            "children": [],
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "table",
+              "props": {}
+            },
+            "slots": {
+              "menu": {
+                "id": "record-table.table.menu",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "record-table.table.menu.edit",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "edit",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.edit"
+                    }
+                  },
+                  {
+                    "id": "record-table.table.menu.delete",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "delete",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.delete"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "menu",
+                  "props": {}
+                }
+              }
+            }
+          },
+          {
+            "id": "record-table.list",
+            "component": "List",
+            "props": {
+              "divided": true
+            },
+            "children": [],
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "list",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.editor",
+            "component": "Drawer",
+            "props": {
+              "title": "Deal",
+              "open": false,
+              "side": "right",
+              "dismissible": false
+            },
+            "children": [
+              {
+                "id": "record-table.editor.form",
+                "component": "Form",
+                "props": {
+                  "name": "deal",
+                  "disabled": false
+                },
+                "children": [
+                  {
+                    "id": "record-table.editor.form.fields",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.fields.field.0",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.0.text",
+                            "component": "Input",
+                            "props": {
+                              "label": "Title",
+                              "name": "title",
+                              "value": {
+                                "@path": "/recordForm/deal/title"
+                              },
+                              "checks": [
+                                {
+                                  "condition": {
+                                    "@call": "required",
+                                    "args": {
+                                      "value": {
+                                        "@path": "/recordForm/deal/title"
+                                      }
+                                    }
+                                  },
+                                  "message": "$string.required"
+                                }
+                              ]
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "text",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.1",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.1.number",
+                            "component": "NumberField",
+                            "props": {
+                              "label": "Amount",
+                              "name": "amount",
+                              "value": {
+                                "@path": "/recordForm/deal/amount"
+                              },
+                              "min": 0
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "number",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.2",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.2.select",
+                            "component": "Select",
+                            "props": {
+                              "label": "Stage",
+                              "name": "stage",
+                              "value": {
+                                "@path": "/recordForm/deal/stage"
+                              },
+                              "options": [
+                                {
+                                  "label": "Open",
+                                  "value": "open"
+                                },
+                                {
+                                  "label": "Won",
+                                  "value": "won"
+                                }
+                              ],
+                              "searchable": false,
+                              "multiple": false
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "select",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.3",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.3.date",
+                            "component": "DatePicker",
+                            "props": {
+                              "label": "Close",
+                              "name": "close",
+                              "value": {
+                                "@path": "/recordForm/deal/close"
+                              }
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "date",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                      "gap": "$spacing.md",
+                      "alignItems": "start",
+                      "@media (min-width: $breakpoint.md)": {
+                        "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "FieldGroup",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  },
+                  {
+                    "id": "record-table.editor.form.actions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.actions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.actions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.save",
+                          "variant": "default",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordForm",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "editor",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.confirm",
+            "component": "Dialog",
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": false
+            },
+            "children": [
+              {
+                "id": "record-table.confirm.confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "children": [
+                  {
+                    "id": "record-table.confirm.confirmForm.confirmActions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.delete",
+                          "variant": "destructive",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "confirmForm",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "confirm",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "alertdialog"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "RecordTable",
+          "part": "root",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "RecordTable/totals=true",
+      "input": {
+        "id": "record-table",
+        "component": "RecordTable",
+        "props": {
+          "kind": "deal",
+          "title": "Deal",
+          "cols": [
+            {
+              "key": "title",
+              "label": "Title",
+              "sortable": true,
+              "truncate": true
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "type": "number",
+              "width": 64,
+              "align": "end",
+              "sortable": true
+            },
+            {
+              "key": "updatedAt",
+              "label": "Updated",
+              "type": "relativeTime",
+              "width": 88,
+              "sortable": true
+            },
+            {
+              "key": "menu",
+              "label": "",
+              "type": "slot",
+              "slot": "menu",
+              "width": 80
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1",
+              "title": "Acme renewal",
+              "amount": 1200,
+              "updatedAt": "2026-11-03T10:00:00Z"
+            }
+          ],
+          "count": "1 record",
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "widget": "text",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/recordForm/deal/title"
+                      }
+                    }
+                  },
+                  "message": "$string.required"
+                }
+              ]
+            },
+            {
+              "name": "amount",
+              "label": "Amount",
+              "widget": "number",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/amount"
+              },
+              "min": 0
+            },
+            {
+              "name": "stage",
+              "label": "Stage",
+              "widget": "select",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/stage"
+              },
+              "options": [
+                {
+                  "label": "Open",
+                  "value": "open"
+                },
+                {
+                  "label": "Won",
+                  "value": "won"
+                }
+              ]
+            },
+            {
+              "name": "close",
+              "label": "Close",
+              "widget": "date",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/close"
+              }
+            }
+          ],
+          "path": "/recordTable/deals/editor/draft",
+          "editorOpen": false,
+          "deleteOpen": false,
+          "totals": true
+        }
+      },
+      "expected": {
+        "id": "record-table",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "record-table.toolbar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "record-table.toolbar.count",
+                "component": "Text",
+                "props": {
+                  "text": "1 record",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "count",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Toolbar",
+                  "part": "spacer",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.add",
+                "component": "Button",
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "add",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Toolbar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          },
+          {
+            "id": "record-table.table",
+            "component": "Table",
+            "props": {
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title",
+                  "sortable": true,
+                  "truncate": true
+                },
+                {
+                  "key": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "width": 64,
+                  "align": "end",
+                  "sortable": true
+                },
+                {
+                  "key": "updatedAt",
+                  "label": "Updated",
+                  "type": "relativeTime",
+                  "width": 88,
+                  "sortable": true
+                },
+                {
+                  "key": "menu",
+                  "label": "",
+                  "type": "slot",
+                  "slot": "menu",
+                  "width": 80
+                }
+              ],
+              "rows": [
+                {
+                  "id": "d1",
+                  "title": "Acme renewal",
+                  "amount": 1200,
+                  "updatedAt": "2026-11-03T10:00:00Z"
+                }
+              ],
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords",
+              "totals": true
+            },
+            "children": [],
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "table",
+              "props": {}
+            },
+            "slots": {
+              "menu": {
+                "id": "record-table.table.menu",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "record-table.table.menu.edit",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "edit",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.edit"
+                    }
+                  },
+                  {
+                    "id": "record-table.table.menu.delete",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "delete",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.delete"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "menu",
+                  "props": {}
+                }
+              }
+            }
+          },
+          {
+            "id": "record-table.list",
+            "component": "List",
+            "props": {
+              "divided": true
+            },
+            "children": [],
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "list",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.editor",
+            "component": "Drawer",
+            "props": {
+              "title": "Deal",
+              "open": false,
+              "side": "right",
+              "dismissible": false
+            },
+            "children": [
+              {
+                "id": "record-table.editor.form",
+                "component": "Form",
+                "props": {
+                  "name": "deal",
+                  "disabled": false
+                },
+                "children": [
+                  {
+                    "id": "record-table.editor.form.fields",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.fields.field.0",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.0.text",
+                            "component": "Input",
+                            "props": {
+                              "label": "Title",
+                              "name": "title",
+                              "value": {
+                                "@path": "/recordForm/deal/title"
+                              },
+                              "checks": [
+                                {
+                                  "condition": {
+                                    "@call": "required",
+                                    "args": {
+                                      "value": {
+                                        "@path": "/recordForm/deal/title"
+                                      }
+                                    }
+                                  },
+                                  "message": "$string.required"
+                                }
+                              ]
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "text",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.1",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.1.number",
+                            "component": "NumberField",
+                            "props": {
+                              "label": "Amount",
+                              "name": "amount",
+                              "value": {
+                                "@path": "/recordForm/deal/amount"
+                              },
+                              "min": 0
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "number",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.2",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.2.select",
+                            "component": "Select",
+                            "props": {
+                              "label": "Stage",
+                              "name": "stage",
+                              "value": {
+                                "@path": "/recordForm/deal/stage"
+                              },
+                              "options": [
+                                {
+                                  "label": "Open",
+                                  "value": "open"
+                                },
+                                {
+                                  "label": "Won",
+                                  "value": "won"
+                                }
+                              ],
+                              "searchable": false,
+                              "multiple": false
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "select",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.3",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.3.date",
+                            "component": "DatePicker",
+                            "props": {
+                              "label": "Close",
+                              "name": "close",
+                              "value": {
+                                "@path": "/recordForm/deal/close"
+                              }
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "date",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                      "gap": "$spacing.md",
+                      "alignItems": "start",
+                      "@media (min-width: $breakpoint.md)": {
+                        "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "FieldGroup",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  },
+                  {
+                    "id": "record-table.editor.form.actions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.actions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.actions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.save",
+                          "variant": "default",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordForm",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "editor",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.confirm",
+            "component": "Dialog",
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": false
+            },
+            "children": [
+              {
+                "id": "record-table.confirm.confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "children": [
+                  {
+                    "id": "record-table.confirm.confirmForm.confirmActions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.delete",
+                          "variant": "destructive",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "confirmForm",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "confirm",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "alertdialog"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "RecordTable",
+          "part": "root",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "RecordTable/totals=false",
+      "input": {
+        "id": "record-table",
+        "component": "RecordTable",
+        "props": {
+          "kind": "deal",
+          "title": "Deal",
+          "cols": [
+            {
+              "key": "title",
+              "label": "Title",
+              "sortable": true,
+              "truncate": true
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "type": "number",
+              "width": 64,
+              "align": "end",
+              "sortable": true
+            },
+            {
+              "key": "updatedAt",
+              "label": "Updated",
+              "type": "relativeTime",
+              "width": 88,
+              "sortable": true
+            },
+            {
+              "key": "menu",
+              "label": "",
+              "type": "slot",
+              "slot": "menu",
+              "width": 80
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1",
+              "title": "Acme renewal",
+              "amount": 1200,
+              "updatedAt": "2026-11-03T10:00:00Z"
+            }
+          ],
+          "count": "1 record",
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "widget": "text",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/recordForm/deal/title"
+                      }
+                    }
+                  },
+                  "message": "$string.required"
+                }
+              ]
+            },
+            {
+              "name": "amount",
+              "label": "Amount",
+              "widget": "number",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/amount"
+              },
+              "min": 0
+            },
+            {
+              "name": "stage",
+              "label": "Stage",
+              "widget": "select",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/stage"
+              },
+              "options": [
+                {
+                  "label": "Open",
+                  "value": "open"
+                },
+                {
+                  "label": "Won",
+                  "value": "won"
+                }
+              ]
+            },
+            {
+              "name": "close",
+              "label": "Close",
+              "widget": "date",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/close"
+              }
+            }
+          ],
+          "path": "/recordTable/deals/editor/draft",
+          "editorOpen": false,
+          "deleteOpen": false,
+          "totals": false
+        }
+      },
+      "expected": {
+        "id": "record-table",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "record-table.toolbar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "record-table.toolbar.count",
+                "component": "Text",
+                "props": {
+                  "text": "1 record",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "count",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Toolbar",
+                  "part": "spacer",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.add",
+                "component": "Button",
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "add",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Toolbar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          },
+          {
+            "id": "record-table.table",
+            "component": "Table",
+            "props": {
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title",
+                  "sortable": true,
+                  "truncate": true
+                },
+                {
+                  "key": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "width": 64,
+                  "align": "end",
+                  "sortable": true
+                },
+                {
+                  "key": "updatedAt",
+                  "label": "Updated",
+                  "type": "relativeTime",
+                  "width": 88,
+                  "sortable": true
+                },
+                {
+                  "key": "menu",
+                  "label": "",
+                  "type": "slot",
+                  "slot": "menu",
+                  "width": 80
+                }
+              ],
+              "rows": [
+                {
+                  "id": "d1",
+                  "title": "Acme renewal",
+                  "amount": 1200,
+                  "updatedAt": "2026-11-03T10:00:00Z"
+                }
+              ],
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -40763,7 +43591,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -41447,7 +44276,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -42147,7 +44977,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -42847,7 +45678,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -43729,7 +46561,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -44428,7 +47261,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -45127,7 +47961,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -45826,7 +48661,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -46525,7 +49361,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -47422,7 +50259,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -69162,7 +72000,8 @@
               },
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -69865,7 +72704,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -70583,7 +73423,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -71300,7 +74141,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -72004,7 +74846,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -72705,7 +75548,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -73409,7 +76253,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -74138,7 +76983,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -74840,7 +77686,8 @@
               ],
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": false
             },
             "children": [],
             "style": {
@@ -74999,6 +77846,1412 @@
                           "props": {}
                         }
                       },
+                      {
+                        "id": "record-table.editor.form.fields.field.0",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.0.text",
+                            "component": "Input",
+                            "props": {
+                              "label": "Title",
+                              "name": "title",
+                              "value": {
+                                "@path": "/recordForm/deal/title"
+                              },
+                              "checks": [
+                                {
+                                  "condition": {
+                                    "@call": "required",
+                                    "args": {
+                                      "value": {
+                                        "@path": "/recordForm/deal/title"
+                                      }
+                                    }
+                                  },
+                                  "message": "$string.required"
+                                }
+                              ]
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "text",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.1",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.1.number",
+                            "component": "NumberField",
+                            "props": {
+                              "label": "Amount",
+                              "name": "amount",
+                              "value": {
+                                "@path": "/recordForm/deal/amount"
+                              },
+                              "min": 0
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "number",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.2",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.2.select",
+                            "component": "Select",
+                            "props": {
+                              "label": "Stage",
+                              "name": "stage",
+                              "value": {
+                                "@path": "/recordForm/deal/stage"
+                              },
+                              "options": [
+                                {
+                                  "label": "Open",
+                                  "value": "open"
+                                },
+                                {
+                                  "label": "Won",
+                                  "value": "won"
+                                }
+                              ],
+                              "searchable": false,
+                              "multiple": false
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "select",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.3",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.3.date",
+                            "component": "DatePicker",
+                            "props": {
+                              "label": "Close",
+                              "name": "close",
+                              "value": {
+                                "@path": "/recordForm/deal/close"
+                              }
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "date",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                      "gap": "$spacing.md",
+                      "alignItems": "start",
+                      "@media (min-width: $breakpoint.md)": {
+                        "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "FieldGroup",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  },
+                  {
+                    "id": "record-table.editor.form.actions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.actions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.actions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.save",
+                          "variant": "default",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordForm",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "editor",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.confirm",
+            "component": "Dialog",
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": false
+            },
+            "children": [
+              {
+                "id": "record-table.confirm.confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "children": [
+                  {
+                    "id": "record-table.confirm.confirmForm.confirmActions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.delete",
+                          "variant": "destructive",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "confirmForm",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "confirm",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "alertdialog"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "RecordTable",
+          "part": "root",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "RecordTable/bound:searchValue",
+      "input": {
+        "id": "record-table",
+        "component": "RecordTable",
+        "props": {
+          "kind": "deal",
+          "title": "Deal",
+          "cols": [
+            {
+              "key": "title",
+              "label": "Title",
+              "sortable": true,
+              "truncate": true
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "type": "number",
+              "width": 64,
+              "align": "end",
+              "sortable": true
+            },
+            {
+              "key": "updatedAt",
+              "label": "Updated",
+              "type": "relativeTime",
+              "width": 88,
+              "sortable": true
+            },
+            {
+              "key": "menu",
+              "label": "",
+              "type": "slot",
+              "slot": "menu",
+              "width": 80
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1",
+              "title": "Acme renewal",
+              "amount": 1200,
+              "updatedAt": "2026-11-03T10:00:00Z"
+            }
+          ],
+          "count": "1 record",
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "widget": "text",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/recordForm/deal/title"
+                      }
+                    }
+                  },
+                  "message": "$string.required"
+                }
+              ]
+            },
+            {
+              "name": "amount",
+              "label": "Amount",
+              "widget": "number",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/amount"
+              },
+              "min": 0
+            },
+            {
+              "name": "stage",
+              "label": "Stage",
+              "widget": "select",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/stage"
+              },
+              "options": [
+                {
+                  "label": "Open",
+                  "value": "open"
+                },
+                {
+                  "label": "Won",
+                  "value": "won"
+                }
+              ]
+            },
+            {
+              "name": "close",
+              "label": "Close",
+              "widget": "date",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/close"
+              }
+            }
+          ],
+          "path": "/recordTable/deals/editor/draft",
+          "editorOpen": false,
+          "deleteOpen": false,
+          "searchValue": {
+            "@path": "/searchValue"
+          }
+        }
+      },
+      "expected": {
+        "id": "record-table",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "record-table.toolbar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "record-table.toolbar.count",
+                "component": "Text",
+                "props": {
+                  "text": "1 record",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "count",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Toolbar",
+                  "part": "spacer",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.add",
+                "component": "Button",
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "add",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Toolbar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          },
+          {
+            "id": "record-table.table",
+            "component": "Table",
+            "props": {
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title",
+                  "sortable": true,
+                  "truncate": true
+                },
+                {
+                  "key": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "width": 64,
+                  "align": "end",
+                  "sortable": true
+                },
+                {
+                  "key": "updatedAt",
+                  "label": "Updated",
+                  "type": "relativeTime",
+                  "width": 88,
+                  "sortable": true
+                },
+                {
+                  "key": "menu",
+                  "label": "",
+                  "type": "slot",
+                  "slot": "menu",
+                  "width": 80
+                }
+              ],
+              "rows": [
+                {
+                  "id": "d1",
+                  "title": "Acme renewal",
+                  "amount": 1200,
+                  "updatedAt": "2026-11-03T10:00:00Z"
+                }
+              ],
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords",
+              "totals": false
+            },
+            "children": [],
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "table",
+              "props": {}
+            },
+            "slots": {
+              "menu": {
+                "id": "record-table.table.menu",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "record-table.table.menu.edit",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "edit",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.edit"
+                    }
+                  },
+                  {
+                    "id": "record-table.table.menu.delete",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "delete",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.delete"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "menu",
+                  "props": {}
+                }
+              }
+            }
+          },
+          {
+            "id": "record-table.list",
+            "component": "List",
+            "props": {
+              "divided": true
+            },
+            "children": [],
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "list",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.editor",
+            "component": "Drawer",
+            "props": {
+              "title": "Deal",
+              "open": false,
+              "side": "right",
+              "dismissible": false
+            },
+            "children": [
+              {
+                "id": "record-table.editor.form",
+                "component": "Form",
+                "props": {
+                  "name": "deal",
+                  "disabled": false
+                },
+                "children": [
+                  {
+                    "id": "record-table.editor.form.fields",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.fields.field.0",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.0.text",
+                            "component": "Input",
+                            "props": {
+                              "label": "Title",
+                              "name": "title",
+                              "value": {
+                                "@path": "/recordForm/deal/title"
+                              },
+                              "checks": [
+                                {
+                                  "condition": {
+                                    "@call": "required",
+                                    "args": {
+                                      "value": {
+                                        "@path": "/recordForm/deal/title"
+                                      }
+                                    }
+                                  },
+                                  "message": "$string.required"
+                                }
+                              ]
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "text",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.1",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.1.number",
+                            "component": "NumberField",
+                            "props": {
+                              "label": "Amount",
+                              "name": "amount",
+                              "value": {
+                                "@path": "/recordForm/deal/amount"
+                              },
+                              "min": 0
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "number",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.2",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.2.select",
+                            "component": "Select",
+                            "props": {
+                              "label": "Stage",
+                              "name": "stage",
+                              "value": {
+                                "@path": "/recordForm/deal/stage"
+                              },
+                              "options": [
+                                {
+                                  "label": "Open",
+                                  "value": "open"
+                                },
+                                {
+                                  "label": "Won",
+                                  "value": "won"
+                                }
+                              ],
+                              "searchable": false,
+                              "multiple": false
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "select",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.fields.field.3",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "record-table.editor.form.fields.field.3.date",
+                            "component": "DatePicker",
+                            "props": {
+                              "label": "Close",
+                              "name": "close",
+                              "value": {
+                                "@path": "/recordForm/deal/close"
+                              }
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "RecordForm",
+                              "part": "date",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "minWidth": 0,
+                          "gridColumn": "auto"
+                        },
+                        "recipe": {
+                          "macro": "RecordForm",
+                          "part": "field",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                      "gap": "$spacing.md",
+                      "alignItems": "start",
+                      "@media (min-width: $breakpoint.md)": {
+                        "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "FieldGroup",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  },
+                  {
+                    "id": "record-table.editor.form.actions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.editor.form.actions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.editor.form.actions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.save",
+                          "variant": "default",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordForm",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "editor",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.confirm",
+            "component": "Dialog",
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": false
+            },
+            "children": [
+              {
+                "id": "record-table.confirm.confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "children": [
+                  {
+                    "id": "record-table.confirm.confirmForm.confirmActions",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.cancel",
+                          "variant": "outline"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "cancel",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "record-table.confirm.confirmForm.confirmActions.submit",
+                        "component": "Button",
+                        "props": {
+                          "label": "$string.delete",
+                          "variant": "destructive",
+                          "submit": true
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "submit",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "justifyContent": "flex-end",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "FormActions",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "confirmForm",
+                  "props": {}
+                }
+              }
+            ],
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "confirm",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "alertdialog"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "RecordTable",
+          "part": "root",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "RecordTable/bound:filterValue",
+      "input": {
+        "id": "record-table",
+        "component": "RecordTable",
+        "props": {
+          "kind": "deal",
+          "title": "Deal",
+          "cols": [
+            {
+              "key": "title",
+              "label": "Title",
+              "sortable": true,
+              "truncate": true
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "type": "number",
+              "width": 64,
+              "align": "end",
+              "sortable": true
+            },
+            {
+              "key": "updatedAt",
+              "label": "Updated",
+              "type": "relativeTime",
+              "width": 88,
+              "sortable": true
+            },
+            {
+              "key": "menu",
+              "label": "",
+              "type": "slot",
+              "slot": "menu",
+              "width": 80
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1",
+              "title": "Acme renewal",
+              "amount": 1200,
+              "updatedAt": "2026-11-03T10:00:00Z"
+            }
+          ],
+          "count": "1 record",
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "widget": "text",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/recordForm/deal/title"
+                      }
+                    }
+                  },
+                  "message": "$string.required"
+                }
+              ]
+            },
+            {
+              "name": "amount",
+              "label": "Amount",
+              "widget": "number",
+              "required": true,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/amount"
+              },
+              "min": 0
+            },
+            {
+              "name": "stage",
+              "label": "Stage",
+              "widget": "select",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/stage"
+              },
+              "options": [
+                {
+                  "label": "Open",
+                  "value": "open"
+                },
+                {
+                  "label": "Won",
+                  "value": "won"
+                }
+              ]
+            },
+            {
+              "name": "close",
+              "label": "Close",
+              "widget": "date",
+              "required": false,
+              "wide": false,
+              "value": {
+                "@path": "/recordForm/deal/close"
+              }
+            }
+          ],
+          "path": "/recordTable/deals/editor/draft",
+          "editorOpen": false,
+          "deleteOpen": false,
+          "filterValue": {
+            "@path": "/filterValue"
+          }
+        }
+      },
+      "expected": {
+        "id": "record-table",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "record-table.toolbar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "record-table.toolbar.count",
+                "component": "Text",
+                "props": {
+                  "text": "1 record",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "count",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Toolbar",
+                  "part": "spacer",
+                  "props": {}
+                }
+              },
+              {
+                "id": "record-table.toolbar.add",
+                "component": "Button",
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "add",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "flex-end",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Toolbar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          },
+          {
+            "id": "record-table.table",
+            "component": "Table",
+            "props": {
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title",
+                  "sortable": true,
+                  "truncate": true
+                },
+                {
+                  "key": "amount",
+                  "label": "Amount",
+                  "type": "number",
+                  "width": 64,
+                  "align": "end",
+                  "sortable": true
+                },
+                {
+                  "key": "updatedAt",
+                  "label": "Updated",
+                  "type": "relativeTime",
+                  "width": 88,
+                  "sortable": true
+                },
+                {
+                  "key": "menu",
+                  "label": "",
+                  "type": "slot",
+                  "slot": "menu",
+                  "width": 80
+                }
+              ],
+              "rows": [
+                {
+                  "id": "d1",
+                  "title": "Acme renewal",
+                  "amount": 1200,
+                  "updatedAt": "2026-11-03T10:00:00Z"
+                }
+              ],
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords",
+              "totals": false
+            },
+            "children": [],
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "table",
+              "props": {}
+            },
+            "slots": {
+              "menu": {
+                "id": "record-table.table.menu",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "record-table.table.menu.edit",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "edit",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.edit"
+                    }
+                  },
+                  {
+                    "id": "record-table.table.menu.delete",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "RecordTable",
+                      "part": "delete",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "label": "$string.delete"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "recipe": {
+                  "macro": "RecordTable",
+                  "part": "menu",
+                  "props": {}
+                }
+              }
+            }
+          },
+          {
+            "id": "record-table.list",
+            "component": "List",
+            "props": {
+              "divided": true
+            },
+            "children": [],
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "recipe": {
+              "macro": "RecordTable",
+              "part": "list",
+              "props": {}
+            }
+          },
+          {
+            "id": "record-table.editor",
+            "component": "Drawer",
+            "props": {
+              "title": "Deal",
+              "open": false,
+              "side": "right",
+              "dismissible": false
+            },
+            "children": [
+              {
+                "id": "record-table.editor.form",
+                "component": "Form",
+                "props": {
+                  "name": "deal",
+                  "disabled": false
+                },
+                "children": [
+                  {
+                    "id": "record-table.editor.form.fields",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
                       {
                         "id": "record-table.editor.form.fields.field.0",
                         "component": "Box",

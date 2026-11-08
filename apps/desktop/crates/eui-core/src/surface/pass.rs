@@ -283,7 +283,8 @@ impl Surface {
     /// VAPP-279: a strip Tabs whose visible tabs changed rebuilds and lays
     /// out again (at most twice a pass: the `+N` count can widen it once).
     fn refit_tab_strips(&mut self, frames: &[Frame], state: &mut PassState) -> bool {
-        if state.refits >= 2 || !self.fit_tab_strips(frames) {
+        // `|`: both refit in the same round.
+        if state.refits >= 2 || !(self.fit_tab_strips(frames) | self.fit_tab_pagers(frames)) {
             return false;
         }
         state.refits += 1;

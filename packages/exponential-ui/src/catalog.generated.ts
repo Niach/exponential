@@ -194,7 +194,7 @@ export interface Shapes {
   valueFormat: { type?: "number" | "currency" | "percent" | "compact"; currency?: string; decimals?: number }
   pageItem: { title?: string }
   step: { label: string; description?: string }
-  column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number; truncate?: boolean }
+  column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number; truncate?: boolean; format?: string }
   sort: { key: string; direction: SortDirectionValue }
   panel: { min?: number; max?: number; collapsible?: boolean }
   file: { name: string; size?: number; type?: string; url?: string }
@@ -237,7 +237,7 @@ export interface ComponentProps {
   QrCode: { value: string | Dynamic; size?: number; level?: QrLevelValue; label?: string }
   Carousel: { page?: number | Dynamic; loop?: boolean; indicators?: boolean; counter?: boolean; thumbnails?: string[] }
   Mosaic: { pictures: Shapes["picture"][]; label?: string }
-  Tabs: { tabs: Shapes["tab"][]; value?: string | Dynamic; variant?: TabsVariantValue; fill?: boolean; closable?: TabClosableValue; addable?: boolean }
+  Tabs: { tabs: Shapes["tab"][]; value?: string | Dynamic; variant?: TabsVariantValue; fill?: boolean; closable?: TabClosableValue; addable?: boolean; swipeable?: boolean }
   Segmented: { items: Shapes["option"][]; type?: GroupTypeValue; value?: string | Dynamic; variant?: SegmentedVariantValue; size?: ControlSizeValue; fill?: boolean; orientation?: OrientationValue }
   Accordion: { items: Shapes["accordionItem"][]; type?: GroupTypeValue; value?: string | Dynamic }
   Collapsible: { title: string; open?: boolean | Dynamic; count?: number }
@@ -267,7 +267,7 @@ export interface ComponentProps {
   Skeleton: { width?: string; height?: string; rounded?: boolean; rows?: number; rowHeight?: number; dot?: boolean }
   VoiceWave: { activity?: VoiceWaveActivityValue | Dynamic; variant?: VoiceWaveVariantValue; level?: number | Dynamic; bands?: number[] | Dynamic; size?: VoiceWaveSizeValue; label?: string }
   CallSurface: { name: string | Dynamic; avatar?: string | Dynamic; state?: CallStateValue | Dynamic; activity?: VoiceWaveActivityValue | Dynamic; level?: number | Dynamic; bands?: number[] | Dynamic; status?: string | Dynamic; caption?: string | Dynamic; muted?: boolean | Dynamic; speaker?: boolean | Dynamic }
-  Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean }
+  Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean; totals?: boolean }
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; rows?: Record<string, unknown>[] | Dynamic; categoryField?: string; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; valueFormat?: Shapes["valueFormat"]; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
   StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic; pressable?: boolean }
@@ -306,7 +306,7 @@ export interface ComponentProps {
   Calendar: { source?: string; view?: CalendarViewValue; labelField?: string; detailField?: string; metaField?: string; style?: Style }
   Timeline: { source?: string; labelField?: string; rowTitle?: string; showCount?: boolean; style?: Style }
   RecordForm: { kind: string; recordId?: string | Dynamic; submitLabel?: string; readOnly?: boolean; cancel?: boolean; path?: string; fields?: Record<string, unknown>[]; missing?: boolean; error?: string | Dynamic; author?: string | Dynamic; authorOptions?: Shapes["option"][] | Dynamic }
-  RecordTable: { kind: string; query?: string; columns?: string[]; add?: boolean; editable?: boolean; title?: string; cols?: Shapes["column"][]; rows?: Record<string, unknown>[] | Dynamic; count?: string | Dynamic; loading?: boolean | Dynamic; fields?: Record<string, unknown>[]; path?: string; editorOpen?: boolean | Dynamic; editorId?: string | Dynamic; deleteOpen?: boolean | Dynamic; missing?: boolean; error?: string | Dynamic; author?: string | Dynamic; authorOptions?: Shapes["option"][] | Dynamic }
+  RecordTable: { kind: string; query?: string; columns?: unknown[]; search?: boolean; filter?: string; totals?: boolean; add?: boolean; editable?: boolean; title?: string; cols?: Shapes["column"][]; rows?: Record<string, unknown>[] | Dynamic; count?: string | Dynamic; loading?: boolean | Dynamic; fields?: Record<string, unknown>[]; path?: string; editorOpen?: boolean | Dynamic; editorId?: string | Dynamic; deleteOpen?: boolean | Dynamic; missing?: boolean; error?: string | Dynamic; author?: string | Dynamic; authorOptions?: Shapes["option"][] | Dynamic; searchValue?: string | Dynamic; filterValue?: string | Dynamic; filterLabel?: string; filterOptions?: Shapes["option"][] }
 }
 
 /** A2UI basic component → core component. */

@@ -19,6 +19,7 @@ mod motion_leaf;
 mod canvas_leaf;
 mod paint;
 mod pinned;
+mod swipe;
 pub(crate) mod state;
 mod zoom;
 
@@ -387,6 +388,13 @@ pub struct SurfaceView {
     sheet_drag: Option<SheetDrag>,
     resize_drag: Option<ResizeDrag>,
     tab_drag: Option<TabDrag>,
+    /// FEED-200: the swipeable Tabs' trackpad gesture (`swipe.rs`), the
+    /// blockers under the pointer for the wheel event being dispatched,
+    /// momentum after a horizontal swipe, the phase-less end's watchdog.
+    wheel_swipe: Option<swipe::WheelSwipe>,
+    swipe_hits: Rc<RefCell<Vec<u32>>>,
+    wheel_momentum: Option<Instant>,
+    wheel_watchdog: Option<Task<()>>,
     /// Round 2: the core's sticky offsets of the last pass (node → dx, dy).
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
@@ -632,6 +640,10 @@ impl SurfaceView {
             sheet_drag: None,
             resize_drag: None,
             tab_drag: None,
+            wheel_swipe: None,
+            swipe_hits: Rc::new(RefCell::new(Vec::new())),
+            wheel_momentum: None,
+            wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
             held_images: RefCell::new(HashMap::new()),
@@ -1854,6 +1866,14 @@ impl Element for SurfaceElement {
     }
 
     fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), prepaint: &mut Option<AnyElement>, window: &mut Window, cx: &mut App) {
+        // FEED-200 (`swipe.rs`): registered before the nodes, so a wheel
+        // event's capture pass starts with no blocker under the pointer.
+        let hits = self.view.read(cx).swipe_hits.clone();
+        window.on_mouse_event(move |_: &gpui::ScrollWheelEvent, phase, _, _| {
+            if phase == gpui::DispatchPhase::Capture {
+                hits.borrow_mut().clear();
+            }
+        });
         if let Some(el) = prepaint {
             el.paint(window, cx);
         }

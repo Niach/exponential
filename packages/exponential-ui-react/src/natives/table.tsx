@@ -26,7 +26,7 @@ import { partClass } from "@exponential_app/eui/web"
 import { useBoundState } from "./bound"
 import { displayString } from "@exponential_app/eui"
 import { arr, bool, BuiltinIcon, num, phrase, str, useParts, objects } from "./shared"
-import { sortRows, tableMinWidth, tableTemplate, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
+import { sortRows, tableMinWidth, tableTemplate, tableTotals, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
 
 export { sortRows }
 export type { TableColumn }
@@ -122,6 +122,7 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
 
   const cell = (c: TableColumn, row: Record<string, unknown>, index: number): ReactNode => {
     const v = row?.[c.key]
+    const format = typeof c.format === `string` && c.format ? c.format : undefined
     const missing = v === undefined || v === null || v === ``
     const decimals = c.decimals === undefined ? undefined : num(c.decimals)
     // Round 2 §3: every formatted cell goes through the surface Formatter,
@@ -139,9 +140,9 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
       case `percent`:
         return Number.isFinite(n) ? ctx.formatter.percent(n, { decimals }) : ``
       case `date`:
-        return missing ? `` : ctx.formatter.date(v)
+        return missing ? `` : ctx.formatter.date(v, format ? { format } : {})
       case `dateTime`:
-        return missing ? `` : ctx.formatter.date(v, { time: true })
+        return missing ? `` : ctx.formatter.date(v, format ? { format } : { time: true })
       case `relativeTime`:
         return missing ? `` : ctx.formatter.relativeTime(v, ctx.now())
       case `boolean`:
@@ -281,12 +282,35 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
     </div>
   )
 
+  // FEED-202: the sum row under the body (`totals`): each number and
+  // currency column's sum over the rows in its cell format, the first
+  // column `$string.total` when it sums nothing; parts `row` / `cell` with
+  // `total: true`.
+  const showTotals = bool(props.totals) && rows.length > 0
+  const sums = showTotals ? tableTotals(rows, columns) : []
+  const totalsRow = showTotals ? (
+    <div role="rowgroup" style={{ minWidth }}>
+      <div role="row" aria-rowindex={rows.length + 2} {...(part.atWith(`row`, `#totals`, { total: true }) as Record<string, string>)} style={{ gridTemplateColumns: template }}>
+        {selectable === `multiple` ? <div role="cell" className="xui-table-check" /> : null}
+        {columns.map((c, ci) => {
+          const sum = sums[ci]
+          const text = sum !== null && sum !== undefined ? cell(c, { [c.key]: sum }, -1) : ci === 0 ? ctx.t(`total`) : ``
+          return (
+            <div key={c.key} role="cell" {...(part.atWith(`cell`, `#totals.${ci}`, { align: c.align ?? `start`, total: true }) as Record<string, string>)} data-type={sum !== null && sum !== undefined ? c.type : `text`} data-truncate={c.truncate ? `true` : undefined}>
+              {c.truncate ? <span className="xui-table-text">{text}</span> : text}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
+
   const caption = str(props.caption)
   return (
     <div
       {...(rootProps as Record<string, unknown>)}
       role={interactive ? `grid` : `table`}
-      aria-rowcount={rows.length + 1}
+      aria-rowcount={rows.length + 1 + (showTotals ? 1 : 0)}
       aria-multiselectable={selectable === `multiple` || undefined}
       aria-describedby={caption ? `${domId}.caption` : undefined}
       aria-label={caption ? undefined : ((rootProps as Record<string, string | undefined>)[`aria-label`] ?? ctx.t(`table`))}
@@ -306,6 +330,7 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
           order.map((_, pos) => renderRow(pos))
         )}
       </div>
+      {totalsRow}
       {caption ? (
         <div {...(part(`caption`) as Record<string, string>)} id={`${domId}.caption`}>
           {caption}

@@ -29,9 +29,106 @@ impl Builder<'_, '_> {
         }
         let content = self.part(&owner, "content", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column"}), json!({}));
         let count = self.child_keys(node, scope).len();
+        if bool_prop(&owner.props, "swipeable") {
+            self.tab_pages(&owner, content, node, scope, count, values.iter().position(|v| *v == active).unwrap_or(0));
+            return;
+        }
         for i in 0..count {
             let hidden = values.get(i) != Some(&active);
             self.one_child(content, node, i, scope, hidden);
+        }
+    }
+
+    /// FEED-200: a `swipeable` Tabs' panels: the active one in flow, its
+    /// neighbours stacked over it (out of flow, inert, hidden from AT) one
+    /// measured width to either side, the content clipping them. Only
+    /// paint-time transforms move them: by the live swipe's drawn offset
+    /// while a finger is down, else animated (`$motion.standard`, snapped
+    /// under reduced motion by every painter) back to rest; the neighbours
+    /// join once the pager is measured (`Surface::fit_tab_pagers`).
+    fn tab_pages(&mut self, owner: &super::LNode, content: u32, node: &UiNode, scope: &str, count: usize, active: usize) {
+        self.style_default(content, &[("position", json!("relative")), ("overflow", json!("hidden"))]);
+        let pager = self.ctx.local.tab_pager.get(&owner.id).cloned().filter(|p| p.width > 0.0);
+        let drag = self.ctx.local.tab_swipe.get(&owner.id).copied();
+        for i in 0..count {
+            let side = i as i64 - active as i64;
+            let shown = side == 0 || (side.abs() == 1 && pager.is_some());
+            let Some(child) = self.one_child(content, node, i, scope, !shown) else { continue };
+            if !shown {
+                continue;
+            }
+            let (width, rtl) = pager.as_ref().map(|p| (p.width, p.rtl)).unwrap_or((0.0, false));
+            let x = if rtl { -side as f32 } else { side as f32 } * width + drag.unwrap_or(0.0);
+            let mut style = vec![("transform", json!(format!("translate({x}px, 0px)")))];
+            style.extend(pager_motion(drag.is_some()));
+            if side != 0 {
+                style.extend([("position", json!("absolute")), ("top", json!(0)), ("left", json!(0)), ("width", json!("100%")), ("pointerEvents", json!("none"))]);
+                self.nodes[child as usize].accessibility = Some(json!({"hidden": true}));
+            }
+            self.style_default(child, &style);
+        }
+    }
+
+    /// FEED-200: a `swipeable` Tabs' `thumb`: the selected tab's chrome (the
+    /// `tab` recipe, the `item` one on a strip, in the `selected` state)
+    /// painted as its own box behind the headers, so it can follow the
+    /// swipe: at the active tab's span, interpolated towards the
+    /// neighbour's by the drawn offset (`swipe::swipe_indicator`). True =
+    /// drawn (the headers then drop their own selected fill).
+    fn tab_thumb(&mut self, list: u32, owner: &super::LNode, values: &[String], active: &str, header: &str) -> bool {
+        if !bool_prop(&owner.props, "swipeable") {
+            return false;
+        }
+        self.style_default(list, &[("position", json!("relative"))]);
+        let Some(pager) = self.ctx.local.tab_pager.get(&owner.id).cloned() else { return false };
+        let at = values.iter().position(|v| v == active).unwrap_or(0);
+        let Some((x0, y, w0, h)) = pager.spans.get(at).copied().flatten() else { return false };
+        let drag = self.ctx.local.tab_swipe.get(&owner.id).copied();
+        let (x, w) = match drag {
+            Some(offset) => {
+                let target = at as i64 + crate::swipe::swipe_step(f64::from(offset), pager.rtl);
+                match usize::try_from(target).ok().and_then(|t| pager.spans.get(t).copied().flatten()) {
+                    Some((tx, _, tw, _)) => {
+                        let (x, w) = crate::swipe::swipe_indicator((x0.into(), w0.into()), (tx.into(), tw.into()), crate::swipe::swipe_progress(offset.into(), pager.width.into()));
+                        (x as f32, w as f32)
+                    }
+                    None => (x0, w0),
+                }
+            }
+            None => (x0, w0),
+        };
+        let mut style = vec![
+            ("position", json!("absolute")),
+            ("left", json!(0)),
+            ("top", json!(y)),
+            ("width", json!(w)),
+            ("height", json!(h)),
+            ("transform", json!(format!("translate({x}px, 0px)"))),
+            ("pointerEvents", json!("none")),
+        ];
+        style.extend(pager_motion(drag.is_some()));
+        let thumb = self.part_in(list, owner, "thumb", "Box", NodeKind::Container, json!({}), json!({}), "");
+        let n = &mut self.nodes[thumb as usize];
+        for (k, v) in style {
+            n.base_style.insert(k.to_string(), v);
+            n.authored_keys.push(k.to_string());
+        }
+        if let Some(q) = &mut n.part_query {
+            q.part = header.to_string();
+            q.states = vec!["selected".to_string()];
+        }
+        n.accessibility = Some(json!({"hidden": true}));
+        true
+    }
+
+    /// FEED-200: a header the `thumb` paints for: no selected fill of its own.
+    fn drop_selected_fill(&mut self, index: u32, shadow: bool) {
+        let n = &mut self.nodes[index as usize];
+        n.base_style.insert("backgroundColor".to_string(), json!("#00000000"));
+        n.authored_keys.push("backgroundColor".to_string());
+        if shadow {
+            n.base_style.insert("boxShadow".to_string(), json!("$shadow.none"));
+            n.authored_keys.push("boxShadow".to_string());
         }
     }
 
@@ -51,6 +148,7 @@ impl Builder<'_, '_> {
         let closable = matches!(str_prop(&owner.props, "closable"), Some("hover" | "always"));
         let folded = json!({"position": "absolute", "top": 0, "insetInlineStart": 0, "visibility": "hidden", "pointerEvents": "none"});
         let list = self.part(owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "alignSelf": "stretch", "position": "relative"}), json!({}));
+        let thumbed = self.tab_thumb(list, owner, values, active, "item");
         for &i in &order {
             let tab = &tabs[i];
             let selected = values[i] == active;
@@ -66,6 +164,9 @@ impl Builder<'_, '_> {
                 }
             }
             let item = self.part_in(list, owner, "item", "Box", NodeKind::Container, style, json!({"value": values[i]}), &format!(".{i}"));
+            if thumbed && selected {
+                self.drop_selected_fill(item, false);
+            }
             self.query_prop(item, "selected", Value::Bool(selected));
             if selected {
                 self.add_state(item, "selected");
@@ -122,7 +223,8 @@ impl Builder<'_, '_> {
         let owner = owner.clone();
         let fill = bool_prop(&owner.props, "fill");
         let closable = matches!(str_prop(&owner.props, "closable"), Some("hover" | "always"));
-        let list =self.part(&owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch", "alignSelf": if fill { "stretch" } else { "flex-start" }}), json!({}));
+        let list = self.part(&owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch", "alignSelf": if fill { "stretch" } else { "flex-start" }}), json!({}));
+        let thumbed = self.tab_thumb(list, &owner, values, active, "tab");
         for (i, tab) in tabs.iter().enumerate() {
             let label = tab.get("label").map(js).unwrap_or_default();
             let mut props = json!({"text": label, "lines": 1, "value": values[i]});
@@ -142,6 +244,9 @@ impl Builder<'_, '_> {
             self.query_prop(t, "selected", Value::Bool(selected));
             if selected {
                 self.add_state(t, "selected");
+            }
+            if thumbed && selected {
+                self.drop_selected_fill(t, true);
             }
             self.nodes[t as usize].pressable = true;
             // EXP-1259: the close glyph after the title (`closable`); a
@@ -609,3 +714,13 @@ pub(crate) struct WindowAxis {
 }
 
 pub(crate) use WindowAxis as Axis;
+
+/// FEED-200: the pager's motion: none under a finger, else the settle
+/// (`$motion.standard`, `$ease.decelerate`).
+fn pager_motion(dragging: bool) -> Vec<(&'static str, Value)> {
+    if dragging {
+        vec![("transition", json!(0))]
+    } else {
+        vec![("transition", json!("$motion.standard")), ("transitionEasing", json!("$ease.decelerate"))]
+    }
+}

@@ -174,6 +174,8 @@ struct OpenLayer {
     host: AnyWindowHandle,
     /// The opener's menu id — its trigger draws selected while this is up.
     id: SharedString,
+    /// #EXP-1752: the menu drawn in the layer ([`refresh`] rebuilds its rows).
+    menu: Entity<PopupMenu>,
     /// Lives while the layer does: the host's move/resize observer.
     _host_watch: Entity<HostWatch>,
 }
@@ -274,6 +276,23 @@ pub(crate) fn close(cx: &mut App) {
     });
 }
 
+/// #EXP-1752: the menu `id` is open in a layer and its content changed
+/// (devices arriving under an open "+" menu): rebuild its rows in place from
+/// `builder`, the hovered row and its open submenu kept. Deferred — the call
+/// comes from the host's render. Nothing open for `id` = nothing to do.
+pub(crate) fn refresh(id: &SharedString, builder: MenuBuilder, cx: &mut App) {
+    let Some((layer, menu)) = cx.try_global::<MenuWindowGlobal>().and_then(|global| {
+        global.0.read(cx).open.as_ref().filter(|open| open.id == *id).map(|open| (open.layer, open.menu.clone()))
+    }) else {
+        return;
+    };
+    cx.defer(move |cx| {
+        let _ = layer.update(cx, |_, window, cx| {
+            menu.update(cx, |menu, cx| menu.refresh(window, cx, |menu, window, cx| builder(menu, window, cx)));
+        });
+    });
+}
+
 /// A host window is going away (the dialog registry's release hook): its
 /// layer goes with it.
 pub(crate) fn on_host_released(host: WindowId, cx: &mut App) {
@@ -348,11 +367,14 @@ pub(crate) fn open(
         log::info!(
             "[menu-window] opening a layer for {id}: layer {layer_bounds:?} over host {host_bounds:?}, anchor {anchor_in_layer:?}"
         );
+        let built: Rc<std::cell::RefCell<Option<Entity<PopupMenu>>>> = Rc::default();
+        let built_slot = built.clone();
         let opened = cx.open_window(options, move |window, cx| {
             let menu = PopupMenu::build(window, cx, {
                 let builder = builder.clone();
                 move |menu, window, cx| builder(menu, window, cx)
             });
+            built_slot.replace(Some(menu.clone()));
             let layer = cx.new(|cx| {
                 MenuLayer::new(menu, anchor_in_layer, wanted, layer_id, select_first, window, cx)
             });
@@ -367,8 +389,8 @@ pub(crate) fn open(
                     .bg(gpui::transparent_black())
             })
         });
-        match opened {
-            Ok(handle) => {
+        match (opened, built.take()) {
+            (Ok(handle), Some(menu)) => {
                 log::info!("[menu-window] layer up for {id}");
                 // N-14: X11 ignores `focus` and never gives an
                 // override-redirect window the keyboard — the keys went on
@@ -381,12 +403,17 @@ pub(crate) fn open(
                         layer: handle.into(),
                         host: host_handle,
                         id,
+                        menu,
                         _host_watch: host_watch,
                     });
                 });
                 let _ = host_handle.update(cx, |_, window, _| window.refresh());
             }
-            Err(error) => {
+            (Ok(handle), None) => {
+                let _ = handle.update(cx, |_, window, _| window.remove_window());
+                let _ = host_handle.update(cx, |_, window, cx| on_refused(window, cx));
+            }
+            (Err(error), _) => {
                 log::warn!("menu window: pop-up refused, the menu stays in-window: {error:#}");
                 let _ = host_handle.update(cx, |_, window, cx| on_refused(window, cx));
             }

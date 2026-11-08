@@ -571,6 +571,13 @@ async function landDirect(
   now: Date
 ): Promise<void> {
   const fr = forgeRepo(repo)
+  // #FEED-207: the direct path re-checks too: nothing ever merges onto a
+  // landed branch (the next pass moves the units onto the live base).
+  if ((await landedBranches(repo, [base])).length > 0) {
+    await requeue(units.flat(), base, now)
+    await finishRun(run, `cancelled`, { untested: true, error: `${base} already landed: nothing lands onto it` })
+    return
+  }
   const prs = await loadPrs(units.flat())
   const landed: string[] = []
   for (const unit of units) {
@@ -918,4 +925,23 @@ export async function queueReport(pullRequestId: string): Promise<QueueReport | 
 export function resetMergeTrainForTests(): void {
   backoff.clear()
   inFlight.clear()
+}
+
+/** Tests: the direct landing of one run (its base landing meanwhile is a
+ *  race no single pass reproduces). */
+export async function landDirectForTests(repositoryId: string, runId: string): Promise<void> {
+  const [repo] = await db
+    .select({
+      id: repositories.id,
+      teamId: repositories.teamId,
+      fullName: repositories.fullName,
+      installationId: repositories.installationId,
+      defaultBranch: repositories.defaultBranch,
+      defaultBranchOverride: repositories.defaultBranchOverride,
+    })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId))
+    .limit(1)
+  const [run] = await db.select().from(mergeTrains).where(eq(mergeTrains.id, runId)).limit(1)
+  await landDirect(repo!, await forgeFor(forgeRepo(repo!)), run!, run!.units, run!.base, new Date())
 }

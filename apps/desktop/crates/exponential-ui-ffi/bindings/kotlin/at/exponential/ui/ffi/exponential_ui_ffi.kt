@@ -913,6 +913,14 @@ external fun uniffi_exponential_ui_ffi_checksum_func_string_table_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_swipe_blocks(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_swipe_lock(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_swipe_offset(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_swipe_settle(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_template_messages_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_text_direction(
@@ -1820,6 +1828,14 @@ external fun uniffi_exponential_ui_ffi_fn_func_string_table_json(`overridesJson`
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_swipe_blocks(`component`: RustBuffer.ByValue,`direction`: RustBuffer.ByValue,`overflowX`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_exponential_ui_ffi_fn_func_swipe_lock(`dx`: Double,`dy`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_swipe_offset(`index`: Int,`count`: Int,`offset`: Double,`width`: Double,`rtl`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+external fun uniffi_exponential_ui_ffi_fn_func_swipe_settle(`index`: Int,`count`: Int,`offset`: Double,`velocity`: Double,`width`: Double,`rtl`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Int
 external fun uniffi_exponential_ui_ffi_fn_func_template_messages_json(`packageJson`: RustBuffer.ByValue,`templateId`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_text_direction(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -12984,6 +13000,63 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(
     
         FfiConverterSequenceString.lower(`extensionIds`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200: whether a touch starting inside a node of `component` (its
+         * `direction` prop, its resolved `overflowX`) is that node's, not an
+         * enclosing pager's.
+         */ fun `swipeBlocks`(`component`: kotlin.String, `direction`: kotlin.String?, `overflowX`: kotlin.String?): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_blocks(
+    
+        FfiConverterString.lower(`component`),FfiConverterOptionalString.lower(`direction`),FfiConverterOptionalString.lower(`overflowX`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200 (fixtures/swipe.json): the swipe pager's axis lock for a touch
+         * that moved (`dx`, `dy`): `pending`, `horizontal` or `vertical`.
+         */ fun `swipeLock`(`dx`: kotlin.Double, `dy`: kotlin.Double): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_lock(
+    
+        FfiConverterDouble.lower(`dx`),FfiConverterDouble.lower(`dy`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200: the offset a pager's pages are DRAWN at while the finger is at
+         * `offset` (screen px; resisted past an end, at most one page).
+         */ fun `swipeOffset`(`index`: kotlin.UInt, `count`: kotlin.UInt, `offset`: kotlin.Double, `width`: kotlin.Double, `rtl`: kotlin.Boolean): kotlin.Double {
+            return FfiConverterDouble.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_offset(
+    
+        FfiConverterUInt.lower(`index`),FfiConverterUInt.lower(`count`),FfiConverterDouble.lower(`offset`),FfiConverterDouble.lower(`width`),FfiConverterBoolean.lower(`rtl`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200: the page a released swipe settles on (`offset` screen px,
+         * `velocity` px/ms at the release).
+         */ fun `swipeSettle`(`index`: kotlin.UInt, `count`: kotlin.UInt, `offset`: kotlin.Double, `velocity`: kotlin.Double, `width`: kotlin.Double, `rtl`: kotlin.Boolean): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_settle(
+    
+        FfiConverterUInt.lower(`index`),FfiConverterUInt.lower(`count`),FfiConverterDouble.lower(`offset`),FfiConverterDouble.lower(`velocity`),FfiConverterDouble.lower(`width`),FfiConverterBoolean.lower(`rtl`),_status)
 }
     )
     }

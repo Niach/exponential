@@ -45,6 +45,8 @@ export const RECORD_UPDATED_WIDTH = 136
 /** A date-time cell's formatted `Nov 12, 2026, 3:30 AM` (the Data tab's raw editor keeps 152). */
 export const RECORD_DATE_TIME_WIDTH = 188
 export const RECORD_MENU_WIDTH = 80
+/** FEED-202: a `currency` column without the author's width. */
+export const RECORD_CURRENCY_WIDTH = 96
 /** A string longer than this (its `maxLength`) is a Textarea. */
 export const RECORD_LONG_TEXT = 200
 export const RECORD_FORM_ROOT = `/recordForm`
@@ -146,21 +148,42 @@ export function recordFormFields(kind: RecordKind, path: string): RecordFormFiel
  *  8 px a letter, its 8 + 8 padding and the 16 + 4 sort arrow. */
 const recordHeaderWidth = (label: string) => label.length * 8 + 36
 
+/** FEED-202: what an author's column object may set over the field's
+ *  defaults (Table's column shape; never a slot). */
+const COLUMN_KEYS = [`label`, `type`, `currency`, `decimals`, `align`, `width`, `format`, `truncate`, `sortable`] as const
+
+/** A RecordTable's `columns` entry: a field name or a column object
+ *  (`{key, …}`), keyed by its field. */
+export type RecordColumnEntry = string | Json
+const entryKey = (e: unknown): string | undefined => (typeof e === `string` ? e : isObject(e) && typeof e.key === `string` ? e.key : undefined)
+
+/** The shown fields of `columns` (default every one), files left out. */
+function shownEntries(kind: RecordKind, columns: readonly unknown[] | undefined): { key: string; entry?: Json }[] {
+  const entries = columns ?? recordColumns(kind)
+  return entries.flatMap((e) => {
+    const key = entryKey(e)
+    if (key === undefined || !kind.schema.properties[key] || isFile(kind.schema.properties[key]!)) return []
+    return [isObject(e) ? { key, entry: e } : { key }]
+  })
+}
+
 /** The table columns: the chosen fields (default every one, files left
- *  out), typed and sized like the Data tab, then `updatedAt`, then the
- *  row menu (when editable). */
-export function recordTableColumns(kind: RecordKind, columns: readonly string[] | undefined, editable: boolean): Json[] {
-  const names = (columns ?? recordColumns(kind)).filter((n) => kind.schema.properties[n] && !isFile(kind.schema.properties[n]!))
-  const out: Json[] = names.map((key) => {
+ *  out), typed and sized like the Data tab, an author's column object
+ *  over them, then `updatedAt`, then the row menu (when editable). */
+export function recordTableColumns(kind: RecordKind, columns: readonly unknown[] | undefined, editable: boolean): Json[] {
+  const out: Json[] = shownEntries(kind, columns).map(({ key, entry }) => {
     const f = kind.schema.properties[key]!
     const col: Json = { key, label: fieldLabel(key), sortable: true }
     if (f.type === `number` || f.type === `integer`) Object.assign(col, { type: `number`, align: `end` })
     else if (f.type === `boolean`) col.type = `boolean`
     else if (f.format === `date`) col.type = `date`
     else if (f.format === `date-time`) col.type = `dateTime`
-    const width = f.format === `date-time` ? RECORD_DATE_TIME_WIDTH : f.type === `string` ? (f.format ? RECORD_COLUMN_WIDTHS[f.format] : undefined) : RECORD_COLUMN_WIDTHS[f.type]
-    if (width !== undefined) col.width = Math.max(width, recordHeaderWidth(col.label as string))
-    else col.truncate = true
+    for (const k of COLUMN_KEYS) if (entry?.[k] != null && !(k === `type` && entry[k] === `slot`)) col[k] = entry[k]
+    if (entry?.width == null) {
+      const width = col.type === `currency` ? RECORD_CURRENCY_WIDTH : f.format === `date-time` ? RECORD_DATE_TIME_WIDTH : f.type === `string` ? (f.format ? RECORD_COLUMN_WIDTHS[f.format] : undefined) : RECORD_COLUMN_WIDTHS[f.type]
+      if (width !== undefined) col.width = Math.max(width, recordHeaderWidth(String(col.label)))
+      else if (col.truncate === undefined) col.truncate = true
+    }
     return col
   })
   out.push({ key: `updatedAt`, label: `Updated`, type: `relativeTime`, width: RECORD_UPDATED_WIDTH, sortable: true })
@@ -290,13 +313,33 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     }
     const base = `${RECORD_TABLE_ROOT}/${id}`
     const editable = node.editable !== false && !options.readOnly
-    const columns = Array.isArray(node.columns) ? node.columns.filter((x): x is string => typeof x === `string`) : undefined
+    const columns = Array.isArray(node.columns) ? (node.columns as unknown[]) : undefined
     const draft = `${base}/editor/draft`
     const fields = recordFormFields(kind, draft)
     node.title = kind.title ?? fieldLabel(kindName)
     node.cols = recordTableColumns(kind, columns, editable)
-    node.rows = { "@path": `${base}/rows/rows` }
-    node.count = { "@call": `pluralize`, args: { value: { "@call": `coalesce`, args: { values: [{ "@path": `${base}/rows/count` }, 0] } }, one: `$string.recordCountOne`, other: `$string.recordCount` } }
+    const shown = shownEntries(kind, columns).map((e) => e.key)
+    // FEED-202: the search (over the shown text columns) and the enum
+    // filter narrow the rows through the core `filter`; the count, the
+    // totals and the phone rows follow.
+    const searchFields = node.search === true ? shown.filter((n) => kind.schema.properties[n]!.type === `string` && !kind.schema.properties[n]!.format) : []
+    const filterField = typeof node.filter === `string` ? kind.schema.properties[node.filter] : undefined
+    const filterBy = filterField?.type === `string` && filterField.enum ? (node.filter as string) : undefined
+    const narrow: Json = {}
+    if (searchFields.length) Object.assign(narrow, { query: { "@path": `${base}/search` }, fields: searchFields })
+    if (filterBy) narrow.where = { [filterBy]: { "@path": `${base}/filter` } }
+    const narrows = Object.keys(narrow).length > 0
+    const allRows = { "@path": `${base}/rows/rows` }
+    if (node.search !== undefined) node.search = searchFields.length > 0
+    if (searchFields.length) node.searchValue = { "@path": `${base}/search` }
+    if (filterBy) {
+      node.filterLabel = fieldLabel(filterBy)
+      node.filterOptions = [{ label: `$string.all`, value: `` }, ...filterField!.enum!.map((v) => ({ label: v, value: v }))]
+      node.filterValue = { "@path": `${base}/filter` }
+    } else delete node.filter
+    node.rows = narrows ? { "@call": `filter`, args: { items: allRows, ...narrow } } : allRows
+    const total = narrows ? { "@call": `len`, args: { value: node.rows } } : { "@call": `coalesce`, args: { values: [{ "@path": `${base}/rows/count` }, 0] } }
+    node.count = { "@call": `pluralize`, args: { value: total, one: `$string.recordCountOne`, other: `$string.recordCount` } }
     node.loading = { "@call": `not`, args: { value: { "@path": `${base}/rows` } } }
     if (options.readOnly) node.add = false
     node.editable = editable
@@ -322,11 +365,12 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     } else node.add = false
     out.push(node)
     // The phone list's row: the first column as the title, the second as
-    // the subtitle, the relative update time as the meta.
-    const shown = (columns ?? recordColumns(kind)).filter((n) => kind.schema.properties[n] && !isFile(kind.schema.properties[n]!))
+    // the subtitle, the relative update time as the meta; hidden when the
+    // search or the filter leaves it out.
     const row: Json = { id: `${id}__row`, component: `Row`, title: { "@call": `coalesce`, args: { values: [{ "@call": `text`, args: { value: { "@path": shown[0] ?? `id` } } }, `—`] } } }
     if (shown[1]) row.subtitle = { "@call": `coalesce`, args: { values: [{ "@call": `text`, args: { value: { "@path": shown[1] } } }, ``] } }
     row.meta = { "@call": `formatRelativeTime`, args: { value: { "@path": `updatedAt` } } }
+    if (narrows) row.visible = { "@call": `lt`, args: { a: 0, b: { "@call": `len`, args: { value: { "@call": `filter`, args: { items: [{ "@path": `` }], ...narrow } } } } } }
     if (editable) {
       row.on = { press: editAction(base, fields) }
       // The row's own Delete (the table's Delete cell is hidden on phones).

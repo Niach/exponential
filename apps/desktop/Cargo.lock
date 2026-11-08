@@ -327,7 +327,7 @@ checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
 name = "api"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "api",
@@ -1681,7 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "codemode"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "domain",
  "emcp",
@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "coding"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "api",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "chrono",
  "eengine",
@@ -2762,7 +2762,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "ecore",
  "serde",
@@ -2771,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ede-protocol",
  "emcp",
@@ -2785,7 +2785,7 @@ dependencies = [
 
 [[package]]
 name = "ede-shell"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "api",
  "base64 0.22.1",
@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "serde_json",
  "toml 0.8.23",
@@ -2840,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "eui-core",
  "libc",
@@ -2957,7 +2957,7 @@ checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
 name = "elocal"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "api",
  "domain",
@@ -3078,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -3485,7 +3485,7 @@ dependencies = [
 
 [[package]]
 name = "exp-cli"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "api",
@@ -10806,7 +10806,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steer"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "api",
  "coding",
@@ -11008,7 +11008,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "api",
  "domain",
@@ -11232,7 +11232,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "eagent",
@@ -11259,7 +11259,7 @@ dependencies = [
 
 [[package]]
 name = "theme"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "gpui-component",
  "gpui-pre",
@@ -12415,7 +12415,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "api",
@@ -12472,7 +12472,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-data"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "ede-protocol",
  "libc",
@@ -12484,7 +12484,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-docs"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "eui-core",
  "serde_json",
@@ -12492,7 +12492,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-gpui"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "ede-ui",
  "eui-core",
@@ -12511,7 +12511,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-model"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "serde",
  "serde_json",
@@ -12749,7 +12749,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

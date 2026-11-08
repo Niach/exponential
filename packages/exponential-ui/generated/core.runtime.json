@@ -624,6 +624,9 @@
         "truncate": {
           "type": "boolean",
           "default": false
+        },
+        "format": {
+          "type": "string"
         }
       }
     },
@@ -2178,6 +2181,10 @@
         "addable": {
           "type": "boolean",
           "default": false
+        },
+        "swipeable": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [
@@ -3210,6 +3217,10 @@
           "default": "default"
         },
         "stickyHeader": {
+          "type": "boolean",
+          "default": false
+        },
+        "totals": {
           "type": "boolean",
           "default": false
         }
@@ -4882,10 +4893,18 @@
           "type": "string"
         },
         "columns": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "type": "array"
+        },
+        "search": {
+          "type": "boolean",
+          "default": false
+        },
+        "filter": {
+          "type": "string"
+        },
+        "totals": {
+          "type": "boolean",
+          "default": false
         },
         "add": {
           "type": "boolean",
@@ -4976,6 +4995,28 @@
             "shape": "option"
           },
           "bindable": true,
+          "host": true
+        },
+        "searchValue": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "filterValue": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "filterLabel": {
+          "type": "string",
+          "host": true
+        },
+        "filterOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
           "host": true
         }
       }

@@ -66,6 +66,8 @@ pub mod agent;
 pub mod codex_app_server;
 pub mod codex_login_picker;
 pub mod detect;
+// EXP-1513: the vendor's own installer for a missing CLI.
+pub mod install;
 pub mod login;
 pub mod login_picker;
 pub mod login_screen;
