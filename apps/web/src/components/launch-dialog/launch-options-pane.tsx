@@ -15,7 +15,6 @@ import {
 
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
-import { contract } from "@exp/domain-contract"
 
 // The agent options cluster (EXP-257; the launch dialog's right half until
 // EXP-825 retired that dialog for the Agent page composer, whose inline
