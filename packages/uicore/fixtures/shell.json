@@ -1,13 +1,7 @@
 {
-  "$comment": "EDE-46 (eDE IDE-look shell, 2026-11-06): THE SHELL REDUCER the IDE and eDE both host (ide = shell + uicore, ede = compositor + uicore): reduce(state, event) -> state, pure, no clock, no I/O, plus the selectors the documents read; the uicore-model crate replays every case in Rust. STATE (every key always present): rail (the 272 px sidebar collapsed to the 56 px icon rail); sidebar {pinnedOpen, workspacesOpen, sessionsOpen} (folded sections); switcher {current {kind local|team, id, name}, entries [...]} (the desktop/team switcher top-left; `initial` has one local desktop `Local`); windows [{id, app, title, focused, workspace, minimized}] in the order the reducer learned them (window.opened appends, no event restacks, so the taskbar never jumps); mru [id] most recent first; workspaces {active (0-based, as ede-protocol), count}; taskbar {pinned [app], hover app|null, previews app|null, menu app|null}; startMenu {open, query, category (`all` by default)}; chat {open}; altTab {open, selected: an index into altTabOrder(state), which is the mru on one workspace}. CASES: `reduce` = {name, state, event, expected}: `state` lists complete top-level keys over `initial` (a key left out = initial's), `expected` lists the top-level keys that changed, complete; every key left out must be unchanged. Each selector = {name, state, args?, expected} with the full return value; startMenuApps/startMenuCategories take `apps` and `favourites` from the fixture's top level unless `args` gives them. EVENTS: rail.toggle flips rail. sidebar.toggle {section pinned|workspaces|sessions} flips that section (unknown: nothing). switcher.pick {entryKind, id} makes a listed entry current (unlisted: nothing; kind and id both match); EDE-65: the switcher lives in the start menu, so a listed pick also closes it (open false, query ``, category `all`). switcher.set {entries} replaces the list, keeps current when its kind+id is still listed (taking the listed name), else the first entry; an empty list changes nothing (there is always a local desktop). window.opened {id, app, title, workspace} appends {focused false, minimized false} and puts the id at the END of the mru (a known id: nothing); the compositor's window.focused follows. window.closed {id} removes it from windows and mru, closes taskbar.previews when its app has no window left, and keeps altTab.selected in range (no window left: Alt-Tab closes). window.focused {id} focuses it, blurs every other, restores it when minimized, moves it to the front of the mru (unknown: nothing). window.titled {id, title}. window.minimized {id}: minimized true, focused false, mru unchanged. window.restored {id}: minimized false, focus unchanged. window.moved {id, workspace}: changes its workspace when 0 <= workspace < count, then keeps altTab.selected in range. workspace.switched {active}: 0 <= active < count, else nothing; keeps altTab.selected in range. workspace.count {count}: max(1, count); an active index or a window beyond it moves to the last workspace (Mint's rule). taskbar.pin {app} appends once; taskbar.unpin removes; taskbar.hover {app} / taskbar.unhover set hover. taskbar.previews {app|null} and taskbar.menu {app|null}: ONE POPUP AT A TIME: a non-null app closes the other taskbar popup and the start menu (open false, query and category cleared); null closes just that popup. startMenu.open sets open and closes the taskbar previews and menu, keeping an existing query and category; startMenu.close sets open false, query ``, category `all`; startMenu.toggle is one or the other; startMenu.query {query} stores the text as typed (the selector lowercases and trims); startMenu.category {category}. chat.toggle flips chat.open; the chat is independent of every popup. altTab.next / altTab.prev: order = altTabOrder(state); no window: nothing; closed: open with selected = 1 for next and n-1 for prev when n >= 2, else 0; open: step by one, wrapping. altTab.commit: the window at order[selected] gets the window.focused treatment, then altTab = {open false, selected 0}; closed: nothing. altTab.cancel: {open false, selected 0}, focus unchanged. SELECTORS: taskbarButtons(state) -> [{app, pinned, windows [id], focused, minimized, running}]: Mint's grouped window list, pinned apps first in pin order (a pinned app without a window on the active workspace is still a button, running false, windows []), then the running unpinned apps in the order of their first window in `windows`; only the ACTIVE workspace's windows count, a group's `windows` keep the compositor order, focused = any window focused, minimized = every window minimized (and at least one), running = at least one window. taskbarPress(state, app) -> {action}: Mint's click: no window on the active workspace -> {action launch}; one: focused and not minimized -> {action minimize, id}, else {action focus, id}; several -> {action previews}. taskbarScroll(state, app, direction up|down) -> {action focus, id} | null: cycles the group's windows (active workspace, compositor order) from the focused one, down = next, up = previous, wrapping; none focused: down = the first, up = the last; a single window = itself; no window = null. workspaceBadges(state) -> [{index, active, count}] for every workspace, count = its windows, minimized included. altTabOrder(state) -> [id]: the mru filtered to windows that exist, the active workspace's first, then the others, each part in mru order, minimized included. startMenuApps(state, apps, favourites) -> [{id, name, comment, category}]: apps = [{id, name, comment, categories [freedesktop], keywords}]. Groups (Mint's main groups, ids in this order): all, favourites, exponential (ids starting `at.exponential.`), accessories (Utility), administration (System, Settings), education (Education), games (Game), graphics (Graphics), internet (Network), office (Office), programming (Development), science (Science), sound-video (AudioVideo, Audio, Video), other (none of the above); an app belongs to every group its categories name and `category` in the output is its first group in that order. query = state.startMenu.query trimmed and lowercased; with >= 1 char the category is ignored and the result is ranked: 0 = the name (lowercased) starts with the query, 1 = every query word starts a word of the name, 2 = every word is found in the name, comment or keywords (lowercased), no match = out; ties by lowercase name then id. Without a query: `all` = every app by name, `favourites` = the favourite ids in their order (missing ones skipped), a group = its members by name, anything else = []. startMenuCategories(apps, favourites) -> [{id, label, count}] in Mint's order (All applications, Favourites, Exponential, Accessories, Administration, Education, Games, Graphics, Internet, Office, Programming, Science, Sound & Video, Other), only the non-empty groups plus All and Favourites always; favourites counts the installed ones. EDE-56 (Local desktops + accounts): a switcher entry may carry `account` (the Exponential account's id) and `accountName` (its email) for a team of a connected account; a local desktop has neither. switcherSections(state) -> [{kind local|account, id, label, entries [{kind, id, name, account?, accountName?, current}]}]: the Local desktops section first (`id` local, label `Local desktops`, every local entry in listed order), then one section per account in the order its first entry appears (`id` = the account, label = its accountName, else the account), each entry marked `current` when it is the switcher's current one (kind and id); a team entry without an account joins a section `id` `` labelled `Exponential`. EDE-65 (the start menu's search, Apps then Issues): startMenuIssues(state, issues) -> [{id, identifier, title, status, icon, source, sourceId, context}]: `issues` = the issue-search engine's hits (domain-contract issue-search.json's rank over ONE pool: every connected team's synced issues and every Local desktop's, cross-source) in its order, each {id, identifier, title, status (the anchor), source local|team, sourceId, sourceName, board}; nothing while the trimmed query is empty (the menu shows the category's apps); else the first 8 (START_MENU_ISSUE_LIMIT) in the given order, icon = `status-` + the anchor with `_` as `-` (an absent or unknown anchor: `ui-issue`), context = `<sourceName> · <board>` (no board: the sourceName). The document lists the ranked apps (startMenuApps) first and the issues under them, each group labelled while both have rows; opening an issue hands its identifier to the Exponential app (`exponential://issue/<IDENT>`). startMenuIssues takes `issues` from the fixture's top level unless `args` gives them.",
+  "$comment": "EDE-46 (eDE IDE-look shell, 2026-11-06): THE SHELL REDUCER the IDE and eDE both host (ide = shell + uicore, ede = compositor + uicore): reduce(state, event) -> state, pure, no clock, no I/O, plus the selectors the documents read; the uicore-model crate replays every case in Rust. STATE (every key always present): switcher {current {kind local|team, id, name}, entries [...]} (the desktop/team switcher top-left; `initial` has one local desktop `Local`); windows [{id, app, title, focused, workspace, minimized}] in the order the reducer learned them (window.opened appends, no event restacks, so the taskbar never jumps); mru [id] most recent first; workspaces {active (0-based, as ede-protocol), count}; taskbar {pinned [app], hover app|null, previews app|null, menu app|null}; startMenu {open, query, category (`all` by default)}; chat {open}; altTab {open, selected: an index into altTabOrder(state), shown (the popup is up: a quick Alt+Tab commits before the shell's delay and never shows it), app (null, or the app whose windows Alt+` cycles)}. CASES: `reduce` = {name, state, event, expected}: `state` lists complete top-level keys over `initial` (a key left out = initial's), `expected` lists the top-level keys that changed, complete; every key left out must be unchanged. Each selector = {name, state, args?, expected} with the full return value; startMenuApps/startMenuCategories take `apps` and `favourites` from the fixture's top level unless `args` gives them. EVENTS: switcher.pick {entryKind, id} makes a listed entry current (unlisted: nothing; kind and id both match); EDE-65: the switcher lives in the start menu, so a listed pick also closes it (open false, query ``, category `all`). switcher.set {entries} replaces the list, keeps current when its kind+id is still listed (taking the listed name), else the first entry; an empty list changes nothing (there is always a local desktop). window.opened {id, app, title, workspace} appends {focused false, minimized false} and puts the id at the END of the mru (a known id: nothing); the compositor's window.focused follows. window.closed {id} removes it from windows and mru, closes taskbar.previews when its app has no window left, and keeps altTab.selected in range (no window left: Alt-Tab closes). window.focused {id} focuses it, blurs every other, restores it when minimized, moves it to the front of the mru (unknown: nothing). window.titled {id, title}. window.minimized {id}: minimized true, focused false, mru unchanged. window.restored {id}: minimized false, focus unchanged. window.moved {id, workspace}: changes its workspace when 0 <= workspace < count, then keeps altTab.selected in range. workspace.switched {active}: 0 <= active < count, else nothing; keeps altTab.selected in range. workspace.count {count}: max(1, count); an active index or a window beyond it moves to the last workspace (Mint's rule). taskbar.pin {app} appends once; taskbar.unpin removes; taskbar.hover {app} / taskbar.unhover set hover. taskbar.previews {app|null} and taskbar.menu {app|null}: ONE POPUP AT A TIME: a non-null app closes the other taskbar popup and the start menu (open false, query and category cleared); null closes just that popup. startMenu.open sets open and closes the taskbar previews and menu, keeping an existing query and category; startMenu.close sets open false, query ``, category `all`; startMenu.toggle is one or the other; startMenu.query {query} stores the text as typed (the selector lowercases and trims); startMenu.category {category}. chat.toggle flips chat.open; the chat is independent of every popup. EDE-65 (Mint's \"Icons and thumbnails\" Alt-Tab): altTab.next / altTab.prev: order = altTabOrder(state); no window: nothing; closed: open (shown false, app null) with selected = 1 for next and n-1 for prev when n >= 2, else 0; open: step by one, wrapping (an app scope stays). altTab.nextApp / altTab.prevApp (Alt+` / Shift+Alt+`): closed: the same with app = the app of the active workspace's most recent window, so the order holds only its windows; open: exactly altTab.next / altTab.prev. altTab.show (the shell's delay elapsed while Alt is held): open: shown true; closed: nothing. altTab.select {index} (a hovered entry, an arrow key's target): open and 0 <= index < n: selected = index; else nothing. altTab.commit: the window at order[selected] gets the window.focused treatment (a minimized one is restored), then altTab = {open false, selected 0, shown false, app null}; closed: nothing. altTab.cancel: that closed altTab, focus unchanged. SELECTORS: taskbarButtons(state) -> [{app, pinned, windows [id], focused, minimized, running}]: Mint's grouped window list, pinned apps first in pin order (a pinned app without a window on the active workspace is still a button, running false, windows []), then the running unpinned apps in the order of their first window in `windows`; only the ACTIVE workspace's windows count, a group's `windows` keep the compositor order, focused = any window focused, minimized = every window minimized (and at least one), running = at least one window. taskbarPress(state, app) -> {action}: Mint's click: no window on the active workspace -> {action launch}; one: focused and not minimized -> {action minimize, id}, else {action focus, id}; several -> {action previews}. taskbarScroll(state, app, direction up|down) -> {action focus, id} | null: cycles the group's windows (active workspace, compositor order) from the focused one, down = next, up = previous, wrapping; none focused: down = the first, up = the last; a single window = itself; no window = null. workspaceBadges(state) -> [{index, active, count}] for every workspace, count = its windows, minimized included. altTabOrder(state) -> [id]: the mru filtered to the active workspace's windows (Mint's default: other workspaces are not listed), minimized included; with altTab.app set only that app's windows. startMenuApps(state, apps, favourites) -> [{id, name, comment, category}]: apps = [{id, name, comment, categories [freedesktop], keywords}]. Groups (Mint's main groups, ids in this order): all, favourites, exponential (ids starting `at.exponential.`), accessories (Utility), administration (System, Settings), education (Education), games (Game), graphics (Graphics), internet (Network), office (Office), programming (Development), science (Science), sound-video (AudioVideo, Audio, Video), other (none of the above); an app belongs to every group its categories name and `category` in the output is its first group in that order. query = state.startMenu.query trimmed and lowercased; with >= 1 char the category is ignored and the result is ranked: 0 = the name (lowercased) starts with the query, 1 = every query word starts a word of the name, 2 = every word is found in the name, comment or keywords (lowercased), no match = out; ties by lowercase name then id. Without a query: `all` = every app by name, `favourites` = the favourite ids in their order (missing ones skipped), a group = its members by name, anything else = []. startMenuCategories(apps, favourites) -> [{id, label, count}] in Mint's order (All applications, Favourites, Exponential, Accessories, Administration, Education, Games, Graphics, Internet, Office, Programming, Science, Sound & Video, Other), only the non-empty groups plus All and Favourites always; favourites counts the installed ones. EDE-56 (Local desktops + accounts): a switcher entry may carry `account` (the Exponential account's id) and `accountName` (its email) for a team of a connected account; a local desktop has neither. switcherSections(state) -> [{kind local|account, id, label, entries [{kind, id, name, account?, accountName?, current}]}]: the Local desktops section first (`id` local, label `Local desktops`, every local entry in listed order), then one section per account in the order its first entry appears (`id` = the account, label = its accountName, else the account), each entry marked `current` when it is the switcher's current one (kind and id); a team entry without an account joins a section `id` `` labelled `Exponential`. EDE-65 (the start menu's search, Apps then Issues): startMenuIssues(state, issues) -> [{id, identifier, title, status, icon, source, sourceId, context}]: `issues` = the issue-search engine's hits (domain-contract issue-search.json's rank over ONE pool: every connected team's synced issues and every Local desktop's, cross-source) in its order, each {id, identifier, title, status (the anchor), source local|team, sourceId, sourceName, board}; nothing while the trimmed query is empty (the menu shows the category's apps); else the first 8 (START_MENU_ISSUE_LIMIT) in the given order, icon = `status-` + the anchor with `_` as `-` (an absent or unknown anchor: `ui-issue`), context = `<sourceName> · <board>` (no board: the sourceName). The document lists the ranked apps (startMenuApps) first and the issues under them, each group labelled while both have rows; opening an issue hands its identifier to the Exponential app (`exponential://issue/<IDENT>`). startMenuIssues takes `issues` from the fixture's top level unless `args` gives them. #EDE-65 (lane G): eDE's sidebar is the IDE's 56 px icon rail for good: no 272 px column, no rail toggle, no folded sections (rail, sidebar, rail.toggle and sidebar.toggle are gone), and it lists only the chats. chatRows(chats) -> [{id, title, icon, dot}] (the `chats` cases: {name, chats, expected}): chats = the host's root sessions of the current team or Local desktop [{id, title, agent, needsYou, busy, unread, at}]; the most recent `at` first (ISO strings compare as text, ties by id), at most 20; title trimmed, empty = `Untitled`; icon = `agent:claude` or `agent:codex` for those agents, an empty or missing agent = `agent:claude` (the default CLI, as the IDE's run mark), any other = `settings-agents`; dot = `amber` while it needs you, else `green` while busy, else `primary` while unread, else null (the IDE's agent dot before its unread dot).",
   "version": 1,
   "initial": {
-    "rail": false,
-    "sidebar": {
-      "pinnedOpen": true,
-      "workspacesOpen": true,
-      "sessionsOpen": true
-    },
     "switcher": {
       "current": {
         "kind": "local",
@@ -44,7 +38,9 @@
     },
     "altTab": {
       "open": false,
-      "selected": 0
+      "selected": 0,
+      "shown": false,
+      "app": null
     }
   },
   "apps": [
@@ -166,73 +162,6 @@
     "nemo"
   ],
   "reduce": [
-    {
-      "name": "rail.toggle collapses the sidebar to the icon rail",
-      "state": {},
-      "event": {
-        "kind": "rail.toggle"
-      },
-      "expected": {
-        "rail": true
-      }
-    },
-    {
-      "name": "rail.toggle again brings the full sidebar back",
-      "state": {
-        "rail": true
-      },
-      "event": {
-        "kind": "rail.toggle"
-      },
-      "expected": {
-        "rail": false
-      }
-    },
-    {
-      "name": "sidebar.toggle folds the pinned section",
-      "state": {},
-      "event": {
-        "kind": "sidebar.toggle",
-        "section": "pinned"
-      },
-      "expected": {
-        "sidebar": {
-          "pinnedOpen": false,
-          "workspacesOpen": true,
-          "sessionsOpen": true
-        }
-      }
-    },
-    {
-      "name": "sidebar.toggle on a folded section opens it again",
-      "state": {
-        "sidebar": {
-          "pinnedOpen": true,
-          "workspacesOpen": true,
-          "sessionsOpen": false
-        }
-      },
-      "event": {
-        "kind": "sidebar.toggle",
-        "section": "sessions"
-      },
-      "expected": {
-        "sidebar": {
-          "pinnedOpen": true,
-          "workspacesOpen": true,
-          "sessionsOpen": true
-        }
-      }
-    },
-    {
-      "name": "sidebar.toggle with an unknown section changes nothing",
-      "state": {},
-      "event": {
-        "kind": "sidebar.toggle",
-        "section": "boards"
-      },
-      "expected": {}
-    },
     {
       "name": "switcher.pick moves to a listed team",
       "state": {
@@ -1141,7 +1070,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 2
+          "selected": 2,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -1173,7 +1104,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 1
+          "selected": 1,
+          "shown": true,
+          "app": null
         }
       }
     },
@@ -1195,7 +1128,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 0
+          "selected": 0,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -1207,7 +1142,9 @@
         "mru": [],
         "altTab": {
           "open": false,
-          "selected": 0
+          "selected": 0,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2135,7 +2072,9 @@
       "expected": {
         "altTab": {
           "open": true,
-          "selected": 1
+          "selected": 1,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2162,7 +2101,9 @@
       "expected": {
         "altTab": {
           "open": true,
-          "selected": 0
+          "selected": 0,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2210,7 +2151,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 2
+          "selected": 2,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -2219,7 +2162,9 @@
       "expected": {
         "altTab": {
           "open": true,
-          "selected": 0
+          "selected": 0,
+          "shown": true,
+          "app": null
         }
       }
     },
@@ -2264,7 +2209,9 @@
       "expected": {
         "altTab": {
           "open": true,
-          "selected": 2
+          "selected": 2,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2304,7 +2251,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 0
+          "selected": 0,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -2313,7 +2262,9 @@
       "expected": {
         "altTab": {
           "open": true,
-          "selected": 2
+          "selected": 2,
+          "shown": true,
+          "app": null
         }
       }
     },
@@ -2353,7 +2304,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 1
+          "selected": 1,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -2393,7 +2346,9 @@
         ],
         "altTab": {
           "open": false,
-          "selected": 0
+          "selected": 0,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2473,7 +2428,9 @@
         ],
         "altTab": {
           "open": true,
-          "selected": 2
+          "selected": 2,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -2482,12 +2439,14 @@
       "expected": {
         "altTab": {
           "open": false,
-          "selected": 0
+          "selected": 0,
+          "shown": false,
+          "app": null
         }
       }
     },
     {
-      "name": "altTab.next counts the active workspace's windows before the other workspaces' ones",
+      "name": "altTab.next covers only the active workspace's windows (Mint's default)",
       "state": {
         "windows": [
           {
@@ -2531,7 +2490,9 @@
       "expected": {
         "altTab": {
           "open": true,
-          "selected": 1
+          "selected": 1,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2575,7 +2536,9 @@
         },
         "altTab": {
           "open": true,
-          "selected": 1
+          "selected": 1,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -2615,7 +2578,9 @@
         ],
         "altTab": {
           "open": false,
-          "selected": 0
+          "selected": 0,
+          "shown": false,
+          "app": null
         }
       }
     },
@@ -2659,7 +2624,9 @@
         },
         "altTab": {
           "open": true,
-          "selected": 2
+          "selected": 1,
+          "shown": true,
+          "app": null
         }
       },
       "event": {
@@ -2670,6 +2637,878 @@
         "workspaces": {
           "active": 1,
           "count": 2
+        },
+        "altTab": {
+          "open": true,
+          "selected": 0,
+          "shown": true,
+          "app": null
+        }
+      }
+    },
+    {
+      "name": "altTab.show after the delay shows the open switcher",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": false,
+          "app": null
+        }
+      },
+      "event": {
+        "kind": "altTab.show"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": null
+        }
+      }
+    },
+    {
+      "name": "altTab.show after a quick Alt+Tab already committed changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "altTab.show"
+      },
+      "expected": {}
+    },
+    {
+      "name": "altTab.commit before the switcher was shown flips to the previous window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": false,
+          "app": null
+        }
+      },
+      "event": {
+        "kind": "altTab.commit"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "altTab": {
+          "open": false,
+          "selected": 0,
+          "shown": false,
+          "app": null
+        }
+      }
+    },
+    {
+      "name": "altTab.select moves the selection to a hovered entry",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": null
+        }
+      },
+      "event": {
+        "kind": "altTab.select",
+        "index": 2
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 2,
+          "shown": true,
+          "app": null
+        }
+      }
+    },
+    {
+      "name": "altTab.select out of range changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": null
+        }
+      },
+      "event": {
+        "kind": "altTab.select",
+        "index": 3
+      },
+      "expected": {}
+    },
+    {
+      "name": "altTab.select while the switcher is closed changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "altTab.select",
+        "index": 1
+      },
+      "expected": {}
+    },
+    {
+      "name": "altTab.nextApp opens on the focused app's second most recent window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w4",
+            "app": "firefox",
+            "title": "Firefox (other workspace)",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w4",
+          "w2",
+          "w3"
+        ],
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        }
+      },
+      "event": {
+        "kind": "altTab.nextApp"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": false,
+          "app": "firefox"
+        }
+      }
+    },
+    {
+      "name": "altTab.prevApp opens on the focused app's least recent window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w5",
+            "app": "firefox",
+            "title": "Firefox 3",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3",
+          "w5"
+        ]
+      },
+      "event": {
+        "kind": "altTab.prevApp"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 2,
+          "shown": false,
+          "app": "firefox"
+        }
+      }
+    },
+    {
+      "name": "altTab.nextApp with the app's only window opens on it",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2"
+        ]
+      },
+      "event": {
+        "kind": "altTab.nextApp"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 0,
+          "shown": false,
+          "app": "firefox"
+        }
+      }
+    },
+    {
+      "name": "altTab.nextApp with no window changes nothing",
+      "state": {},
+      "event": {
+        "kind": "altTab.nextApp"
+      },
+      "expected": {}
+    },
+    {
+      "name": "altTab.nextApp while open steps like altTab.next and keeps the scope",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": "firefox"
+        }
+      },
+      "event": {
+        "kind": "altTab.nextApp"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 0,
+          "shown": true,
+          "app": "firefox"
+        }
+      }
+    },
+    {
+      "name": "altTab.next while an app's windows cycle stays within that app",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 0,
+          "shown": true,
+          "app": "firefox"
+        }
+      },
+      "event": {
+        "kind": "altTab.next"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": "firefox"
+        }
+      }
+    },
+    {
+      "name": "altTab.commit of an app's windows focuses the selected one and clears the scope",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": "firefox"
+        }
+      },
+      "event": {
+        "kind": "altTab.commit"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w3",
+          "w1",
+          "w2"
+        ],
+        "altTab": {
+          "open": false,
+          "selected": 0,
+          "shown": false,
+          "app": null
+        }
+      }
+    },
+    {
+      "name": "altTab.cancel clears the scope and hides the switcher",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": "firefox"
+        }
+      },
+      "event": {
+        "kind": "altTab.cancel"
+      },
+      "expected": {
+        "altTab": {
+          "open": false,
+          "selected": 0,
+          "shown": false,
+          "app": null
+        }
+      }
+    },
+    {
+      "name": "window.closed of the app's last other window keeps the selection in its order",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "firefox",
+            "title": "Mozilla Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": true,
+          "app": "firefox"
+        }
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w3"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 0,
+          "shown": true,
+          "app": "firefox"
+        }
+      }
+    },
+    {
+      "name": "altTab.commit restores a minimized window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": true
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1,
+          "shown": false,
+          "app": null
+        }
+      },
+      "event": {
+        "kind": "altTab.commit"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1"
+        ],
+        "altTab": {
+          "open": false,
+          "selected": 0,
+          "shown": false,
+          "app": null
         }
       }
     }
@@ -3551,7 +4390,7 @@
     ],
     "altTabOrder": [
       {
-        "name": "altTabOrder is the mru with the active workspace's windows first, minimized included",
+        "name": "altTabOrder is the mru of the active workspace's windows only, minimized included",
         "state": {
           "windows": [
             {
@@ -3600,9 +4439,7 @@
         },
         "expected": [
           "w3",
-          "w2",
-          "w1",
-          "w4"
+          "w2"
         ]
       },
       {
@@ -3644,6 +4481,74 @@
           "w2",
           "w1",
           "w3"
+        ]
+      },
+      {
+        "name": "altTabOrder while an app's windows cycle keeps that app's windows",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "Terminal",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "Mozilla Firefox",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w4",
+              "app": "firefox",
+              "title": "Firefox (other workspace)",
+              "focused": false,
+              "workspace": 1,
+              "minimized": false
+            },
+            {
+              "id": "w5",
+              "app": "nemo",
+              "title": "Files",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w5",
+            "w4",
+            "w3",
+            "w2",
+            "w1"
+          ],
+          "workspaces": {
+            "active": 0,
+            "count": 2
+          },
+          "altTab": {
+            "open": true,
+            "selected": 0,
+            "shown": true,
+            "app": "firefox"
+          }
+        },
+        "expected": [
+          "w3",
+          "w1"
         ]
       },
       {
@@ -4851,6 +5756,545 @@
       "sourceId": "local",
       "sourceName": "Local",
       "board": "Issues"
+    }
+  ],
+  "chats": [
+    {
+      "name": "no chats draw no rows",
+      "chats": [],
+      "expected": []
+    },
+    {
+      "name": "the most recent chat comes first and a tie goes by id",
+      "chats": [
+        {
+          "id": "b",
+          "title": "Chat b",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T09:00:00.000Z"
+        },
+        {
+          "id": "c",
+          "title": "Chat c",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T11:00:00.000Z"
+        },
+        {
+          "id": "a",
+          "title": "Chat a",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T09:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "c",
+          "title": "Chat c",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "a",
+          "title": "Chat a",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "b",
+          "title": "Chat b",
+          "icon": "agent:claude",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "a chat that needs you wears amber even while busy and unread",
+      "chats": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "agent": "claude",
+          "needsYou": true,
+          "busy": true,
+          "unread": true,
+          "at": "2026-11-08T10:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "icon": "agent:claude",
+          "dot": "amber"
+        }
+      ]
+    },
+    {
+      "name": "a busy chat wears green before its unread dot",
+      "chats": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": true,
+          "unread": true,
+          "at": "2026-11-08T10:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "icon": "agent:claude",
+          "dot": "green"
+        }
+      ]
+    },
+    {
+      "name": "an unread quiet chat wears the primary dot",
+      "chats": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": true,
+          "at": "2026-11-08T10:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "icon": "agent:claude",
+          "dot": "primary"
+        }
+      ]
+    },
+    {
+      "name": "the agent names the glyph and an unknown agent gets the agents icon",
+      "chats": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "agent": "codex",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "title": "Chat b",
+          "agent": "",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T11:00:00.000Z"
+        },
+        {
+          "id": "c",
+          "title": "Chat c",
+          "agent": "gemini",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T10:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "title": "Chat a",
+          "icon": "agent:codex",
+          "dot": null
+        },
+        {
+          "id": "b",
+          "title": "Chat b",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c",
+          "title": "Chat c",
+          "icon": "settings-agents",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "an empty title says Untitled and a title is trimmed",
+      "chats": [
+        {
+          "id": "a",
+          "title": "  Fix the printer  ",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "title": "   ",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T10:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "title": "Fix the printer",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "b",
+          "title": "Untitled",
+          "icon": "agent:claude",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "the rail keeps the twenty most recent chats",
+      "chats": [
+        {
+          "id": "c00",
+          "title": "Chat c00",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T00:00:00.000Z"
+        },
+        {
+          "id": "c01",
+          "title": "Chat c01",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T01:00:00.000Z"
+        },
+        {
+          "id": "c02",
+          "title": "Chat c02",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T02:00:00.000Z"
+        },
+        {
+          "id": "c03",
+          "title": "Chat c03",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T03:00:00.000Z"
+        },
+        {
+          "id": "c04",
+          "title": "Chat c04",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T04:00:00.000Z"
+        },
+        {
+          "id": "c05",
+          "title": "Chat c05",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T05:00:00.000Z"
+        },
+        {
+          "id": "c06",
+          "title": "Chat c06",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T06:00:00.000Z"
+        },
+        {
+          "id": "c07",
+          "title": "Chat c07",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T07:00:00.000Z"
+        },
+        {
+          "id": "c08",
+          "title": "Chat c08",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T08:00:00.000Z"
+        },
+        {
+          "id": "c09",
+          "title": "Chat c09",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T09:00:00.000Z"
+        },
+        {
+          "id": "c10",
+          "title": "Chat c10",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T10:00:00.000Z"
+        },
+        {
+          "id": "c11",
+          "title": "Chat c11",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T11:00:00.000Z"
+        },
+        {
+          "id": "c12",
+          "title": "Chat c12",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        {
+          "id": "c13",
+          "title": "Chat c13",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T13:00:00.000Z"
+        },
+        {
+          "id": "c14",
+          "title": "Chat c14",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T14:00:00.000Z"
+        },
+        {
+          "id": "c15",
+          "title": "Chat c15",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T15:00:00.000Z"
+        },
+        {
+          "id": "c16",
+          "title": "Chat c16",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T16:00:00.000Z"
+        },
+        {
+          "id": "c17",
+          "title": "Chat c17",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T17:00:00.000Z"
+        },
+        {
+          "id": "c18",
+          "title": "Chat c18",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T18:00:00.000Z"
+        },
+        {
+          "id": "c19",
+          "title": "Chat c19",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T19:00:00.000Z"
+        },
+        {
+          "id": "c20",
+          "title": "Chat c20",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T20:00:00.000Z"
+        },
+        {
+          "id": "c21",
+          "title": "Chat c21",
+          "agent": "claude",
+          "needsYou": false,
+          "busy": false,
+          "unread": false,
+          "at": "2026-11-08T21:00:00.000Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "c21",
+          "title": "Chat c21",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c20",
+          "title": "Chat c20",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c19",
+          "title": "Chat c19",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c18",
+          "title": "Chat c18",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c17",
+          "title": "Chat c17",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c16",
+          "title": "Chat c16",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c15",
+          "title": "Chat c15",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c14",
+          "title": "Chat c14",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c13",
+          "title": "Chat c13",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c12",
+          "title": "Chat c12",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c11",
+          "title": "Chat c11",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c10",
+          "title": "Chat c10",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c09",
+          "title": "Chat c09",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c08",
+          "title": "Chat c08",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c07",
+          "title": "Chat c07",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c06",
+          "title": "Chat c06",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c05",
+          "title": "Chat c05",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c04",
+          "title": "Chat c04",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c03",
+          "title": "Chat c03",
+          "icon": "agent:claude",
+          "dot": null
+        },
+        {
+          "id": "c02",
+          "title": "Chat c02",
+          "icon": "agent:claude",
+          "dot": null
+        }
+      ]
     }
   ]
 }

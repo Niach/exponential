@@ -26,8 +26,9 @@ use crate::navigation::{self, active_board_id, active_team_id, navigate, resolve
 use crate::settings::SettingsSection;
 
 /// What the sidebar document draws itself; the rest is the IDE's own until
-/// its region moves (the header, the footer).
-const PRUNED: &[&str] = &["header", "switcher_menu", "header_rail", "nav", "pinned", "workspaces", "sessions", "settings", "rail_settings"];
+/// its region moves (the header, the footer). `chats` is eDE's rail list
+/// (#EDE-65); the IDE lists its chats under Chats.
+const PRUNED: &[&str] = &["header", "switcher_menu", "header_rail", "chats"];
 
 /// The start menu without what only a desktop session has (the switcher:
 /// the IDE's sidebar header has its own).
@@ -548,7 +549,7 @@ impl HostPlugin for RegionHost {
                 Some(tone) => crate::sidebar::rail_dot(dot_color(serde_json::from_value(json!(tone)).ok()?, cx)).into_any_element(),
                 None => crate::sidebar::rail_badge_element(crate::sidebar::RailBadge::Count(badge.parse().ok()?, crate::surface::BadgeTone::Muted), 12., cx),
             };
-            return Some(div().relative().size(gpui::px(size)).child(inner).child(div().absolute().top(gpui::px(-6.)).right(gpui::px(-8.)).child(corner)).into_any_element());
+            return Some(uicore_gpui::glyphs::cornered(inner, corner, size));
         }
         let glyphs = self.glyphs.borrow();
         let element = match glyphs.get(name)? {
@@ -918,9 +919,9 @@ impl HostPlugin for TabHost {
     }
 }
 
-/// What the header region draws itself (the rows are [`SidebarRegion`]'s),
-/// and the eDE-only parts it has its own of.
-const HEADER_PRUNED: &[&str] = &["nav", "ide_nav", "scroll", "corner", "corner_rail", "inbox", "rail_inbox", "switcher_avatar", "switcher_chevron", "switcher_share", "switcher_new"];
+/// What the header region leaves to [`SidebarRegion`]: the rows and the
+/// corners.
+const HEADER_PRUNED: &[&str] = &["ide_nav", "scroll", "corner", "corner_rail"];
 
 /// The left column's header (#EXP-1725): the team switcher, the inbox,
 /// search and new, the rail toggle: `sidebar.json`'s header and its
@@ -1150,7 +1151,7 @@ mod tests {
     #[test]
     fn the_document_prunes_only_nodes_it_has() {
         let doc = uicore_docs::doc("sidebar").expect("the sidebar");
-        for id in PRUNED {
+        for id in PRUNED.iter().chain(HEADER_PRUNED) {
             assert!(doc.source.contains(&format!("\"id\": \"{id}\"")), "{id}");
         }
     }

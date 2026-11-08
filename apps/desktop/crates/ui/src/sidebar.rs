@@ -447,11 +447,8 @@ pub(crate) enum RailBadge {
 /// #EXP-1480 — THE rail status dot (a nav row's, an agent's needs-you, a
 /// team's live dot): the `sidebar.trailingDot` disc, web `SidebarMenuDot`.
 pub(crate) fn rail_dot(color: Hsla) -> gpui::Div {
-    div()
-        .size(px(theme::tokens::sidebar::TRAILING_DOT))
-        .flex_shrink_0()
-        .rounded_full()
-        .bg(color)
+    // #EDE-65: eDE's rail paints the same dot.
+    uicore_gpui::glyphs::dot(color)
 }
 
 /// One badge element at `glyph_px` (dots keep their fixed [`rail_dot`] size
@@ -806,11 +803,11 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::thread_row_mark_state(needs_you, busy)
 }
 
-/// #EXP-1724: the sidebar folds into its icon rail and back: the shell
-/// reducer's `rail.toggle` (`shell.json`), remembered, every window.
+/// #EXP-1724: the sidebar folds into its icon rail and back, remembered,
+/// every window. The IDE's own: #EDE-65 took `rail.toggle` out of the shell
+/// reducer (eDE's sidebar is the rail for good).
 pub(crate) fn toggle_rail(cx: &mut App) {
-    let state = uicore_model::ShellState { rail: crate::ui_prefs::rail(), ..Default::default() };
-    crate::ui_prefs::set_rail(uicore_model::reduce(&state, &uicore_model::ShellEvent::RailToggle).rail);
+    crate::ui_prefs::set_rail(!crate::ui_prefs::rail());
     cx.refresh_windows();
 }
 

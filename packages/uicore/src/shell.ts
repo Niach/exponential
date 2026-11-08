@@ -35,11 +35,7 @@ export interface ShellWindow {
   minimized: boolean
 }
 
-export type SidebarSection = `pinned` | `workspaces` | `sessions`
-
 export interface ShellState {
-  rail: boolean
-  sidebar: { pinnedOpen: boolean; workspacesOpen: boolean; sessionsOpen: boolean }
   switcher: { current: SwitcherEntry; entries: SwitcherEntry[] }
   windows: ShellWindow[]
   mru: string[]
@@ -47,12 +43,10 @@ export interface ShellState {
   taskbar: { pinned: string[]; hover: string | null; previews: string | null; menu: string | null }
   startMenu: { open: boolean; query: string; category: string }
   chat: { open: boolean }
-  altTab: { open: boolean; selected: number }
+  altTab: { open: boolean; selected: number; shown: boolean; app: string | null }
 }
 
 export type ShellEvent =
-  | { kind: `rail.toggle` }
-  | { kind: `sidebar.toggle`; section: SidebarSection }
   | { kind: `switcher.pick`; entryKind: SwitcherKind; id: string }
   | { kind: `switcher.set`; entries: SwitcherEntry[] }
   | { kind: `window.opened`; id: string; app: string; title: string; workspace: number }
@@ -78,6 +72,10 @@ export type ShellEvent =
   | { kind: `chat.toggle` }
   | { kind: `altTab.next` }
   | { kind: `altTab.prev` }
+  | { kind: `altTab.nextApp` }
+  | { kind: `altTab.prevApp` }
+  | { kind: `altTab.show` }
+  | { kind: `altTab.select`; index: number }
   | { kind: `altTab.commit` }
   | { kind: `altTab.cancel` }
 
@@ -92,7 +90,7 @@ export function hydrate(partial: Partial<ShellState> | undefined): ShellState {
 export const clone = (state: ShellState): ShellState => structuredClone(state)
 
 const closedStartMenu = (): ShellState[`startMenu`] => ({ open: false, query: ``, category: `all` })
-const closedAltTab = (): ShellState[`altTab`] => ({ open: false, selected: 0 })
+const closedAltTab = (): ShellState[`altTab`] => ({ open: false, selected: 0, shown: false, app: null })
 
 function focus(state: ShellState, id: string): void {
   if (!state.windows.some((w) => w.id === id)) return
@@ -115,14 +113,6 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
   const s = clone(given)
   const e = event as Record<string, unknown> & { kind: string }
   switch (e.kind) {
-    case `rail.toggle`:
-      s.rail = !s.rail
-      break
-    case `sidebar.toggle`: {
-      const key = `${e.section as string}Open` as keyof ShellState[`sidebar`]
-      if (key in s.sidebar) s.sidebar[key] = !s.sidebar[key]
-      break
-    }
     case `switcher.pick`: {
       const hit = s.switcher.entries.find((x) => x.kind === e.entryKind && x.id === e.id)
       if (hit) {
@@ -243,12 +233,29 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       s.chat.open = !s.chat.open
       break
     case `altTab.next`:
-    case `altTab.prev`: {
+    case `altTab.prev`:
+    case `altTab.nextApp`:
+    case `altTab.prevApp`: {
+      const forward = e.kind === `altTab.next` || e.kind === `altTab.nextApp`
+      if (s.altTab.open) {
+        const n = altTabOrder(s).length
+        if (n > 0) s.altTab.selected = (s.altTab.selected + (forward ? 1 : n - 1)) % n
+        break
+      }
+      const first = altTabOrder(s)[0]
+      if (first === undefined) break
+      const app = e.kind === `altTab.nextApp` || e.kind === `altTab.prevApp` ? (s.windows.find((w) => w.id === first)?.app ?? null) : null
+      s.altTab = { open: true, selected: 0, shown: false, app }
       const n = altTabOrder(s).length
-      if (n === 0) break
-      const forward = e.kind === `altTab.next`
-      if (!s.altTab.open) s.altTab = { open: true, selected: n >= 2 ? (forward ? 1 : n - 1) : 0 }
-      else s.altTab.selected = (s.altTab.selected + (forward ? 1 : n - 1)) % n
+      s.altTab.selected = n >= 2 ? (forward ? 1 : n - 1) : 0
+      break
+    }
+    case `altTab.show`:
+      if (s.altTab.open) s.altTab.shown = true
+      break
+    case `altTab.select`: {
+      const index = e.index as number
+      if (s.altTab.open && Number.isInteger(index) && index >= 0 && index < altTabOrder(s).length) s.altTab.selected = index
       break
     }
     case `altTab.commit`: {
@@ -355,12 +362,13 @@ export function switcherSections(state: ShellState): SwitcherSection[] {
   return sections
 }
 
-/** The switcher's order: the mru (minimized included), the active workspace's windows first, then the others. */
+/** The switcher's order: the active workspace's windows in mru order (minimized included); with `altTab.app` only that app's. */
 export function altTabOrder(state: ShellState): string[] {
-  const workspaceOf = new Map(state.windows.map((w) => [w.id, w.workspace]))
-  const here = state.mru.filter((id) => workspaceOf.get(id) === state.workspaces.active)
-  const elsewhere = state.mru.filter((id) => workspaceOf.has(id) && workspaceOf.get(id) !== state.workspaces.active)
-  return [...here, ...elsewhere]
+  const byId = new Map(state.windows.map((w) => [w.id, w]))
+  return state.mru.filter((id) => {
+    const w = byId.get(id)
+    return w !== undefined && w.workspace === state.workspaces.active && (state.altTab.app === null || w.app === state.altTab.app)
+  })
 }
 
 export interface StartMenuApp {
@@ -506,4 +514,47 @@ export function startMenuIssues(state: ShellState, issues: StartMenuIssue[]): St
     sourceId: i.sourceId,
     context: i.board ? `${i.sourceName} · ${i.board}` : i.sourceName,
   }))
+}
+
+/** #EDE-65: one chat the host knows (a root session of the current team or Local desktop). */
+export interface ChatInput {
+  id: string
+  title: string
+  agent?: string | null
+  needsYou: boolean
+  busy: boolean
+  unread: boolean
+  /** The last activity, ISO 8601. */
+  at: string
+}
+
+export type ChatDot = `amber` | `green` | `primary`
+
+export interface ChatRow {
+  id: string
+  title: string
+  icon: string
+  dot: ChatDot | null
+}
+
+/** The rail keeps this many chats. */
+export const CHATS_MAX = 20
+
+const chatIcon = (agent: string | null | undefined): string => {
+  const id = (agent ?? ``).trim()
+  if (id === `` || id === `claude`) return `agent:claude`
+  return id === `codex` ? `agent:codex` : `settings-agents`
+}
+
+/** #EDE-65: the rail's chats: the most recent first (ties by id), at most CHATS_MAX, the IDE's dots. */
+export function chatRows(chats: ChatInput[]): ChatRow[] {
+  return [...chats]
+    .sort((a, b) => (a.at === b.at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.at < b.at ? 1 : -1))
+    .slice(0, CHATS_MAX)
+    .map((c) => ({
+      id: c.id,
+      title: c.title.trim() || `Untitled`,
+      icon: chatIcon(c.agent),
+      dot: c.needsYou ? `amber` : c.busy ? `green` : c.unread ? `primary` : null,
+    }))
 }

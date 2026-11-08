@@ -4,7 +4,7 @@
 //! crash never takes the session down and the compositor never links gpui.
 //!
 //! Since #EDE-50 the shell is `compositor + uicore`: the pure shell model
-//! (`uicore-model`: rail, the taskbar's groups and pins, the start menu,
+//! (`uicore-model`: the taskbar's groups and pins, the start menu,
 //! Alt-Tab), what the documents bind (`uicore-data`: the [`Feed`], the
 //! desktop entries, the window list as reducer events) and the gpui host
 //! (`uicore-gpui`: [`Surfaces`], one layer-shell surface per document, popup
@@ -23,8 +23,8 @@
 //! supervisor knows an edit reached the screen. The data every document may
 //! bind: `/time` + `/date` + `/dateText` (local), `/windows` (the active workspace's
 //! windows over ede-protocol: id, title, app, focused, minimized), `/shell`
-//! (the model: rail, taskbar buttons, workspaces, the start menu's categories
-//! and apps, chat, Alt-Tab), `/apps` + `/query` (the launcher), `/switcher`
+//! (the model: taskbar buttons, workspaces, the start menu's categories
+//! and apps, chat, Alt-Tab; #EDE-65: `/shell/chats`, the rail's chats), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
 //! thumbnails), `/osd`, `/notifications` (#EDE-65: with the accounts'
 //! unread inbox merged in), `/needsYou`, `/tray`, `/traymenu`,
@@ -40,11 +40,11 @@
 //! {name}`, `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
 //! {page, key, value}` (#EDE-47: the pages `/pages` feeds), and the
-//! shell model's: `ede_rail` (toggle), `ede_pin {app}` / `ede_unpin {app}`,
+//! shell model's: `ede_pin {app}` / `ede_unpin {app}`,
 //! `ede_taskbar {app}` (Mint's click), `ede_taskbar_scroll {app, direction}`,
 //! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
-//! query?, category?}`, `ede_chat` (toggle), `ede_workspace {index}`,
-//! `ede_sidebar {section}` (fold a section); #EDE-65: `ede_issue
+//! query?, category?}`, `ede_chat` (toggle; #EDE-65: `{sessionId}`
+//! opens a chat of the rail), `ede_workspace {index}`; #EDE-65: `ede_issue
 //! {identifier, source, sourceId}` (a start-menu issue, opened in the
 //! Exponential app on its team or Local desktop); #EDE-56: `ede_switcher {action:
 //! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
@@ -61,13 +61,18 @@
 //!   --popup NAME  open a popup document right away (the goldens; `all` = every one)
 //!   --open NAME   open an on-demand layer document right away (the goldens)
 //!   --exit-after  quit after this many milliseconds (the headless check)
-//! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, windows) instead of the
-//! machine's, so a golden never depends on what is installed;
-//! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail;
+//! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, windows, chats) instead
+//! of the machine's, so a golden never depends on what is installed. Since
+//! #EDE-65 the sidebar is the IDE's 56 px icon rail for good (no 272 px
+//! column, no toggle): the chats only, standing on the taskbar, which holds
+//! the start, chat and new-issue buttons; a chat of the rail opens in eDE's
+//! chat (`exponential://session/<id>` only when the team's chat cannot),
+//! `ede_launch {new: issue}` hands off (`exponential://new-issue`);
 //! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you.
 
 mod accounts;
 mod chat;
+mod chats;
 mod engine;
 mod issues;
 mod assets;
@@ -264,8 +269,10 @@ struct Shell {
     surfaces: Surfaces,
     /// What every document binds.
     feed: Feed,
-    /// The shell model (#EDE-50): the taskbar, the start menu, the rail, Alt-Tab.
+    /// The shell model (#EDE-50): the taskbar, the start menu, Alt-Tab.
     model: ShellState,
+    /// #EDE-65: the rail's chats (the current team's or Local desktop's).
+    chats: Vec<uicore_model::chats::ChatInput>,
     ede: Option<ede_protocol::Client>,
     /// The installed applications, scanned at start (the launcher, the start menu).
     apps: Vec<apps::App>,
@@ -282,6 +289,8 @@ struct Shell {
     thumbs_tx: mpsc::Sender<(String, String)>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
+    /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
+    switcher_generation: u64,
     notifications: Notifications,
     /// #EDE-65: Needs you across the accounts' teams (the tray button, needs-you.json).
     needs_you: Vec<inbox::NeedsYouItem>,
@@ -303,12 +312,16 @@ struct Shell {
     pending_pick: Option<String>,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
+    /// #EDE-65: the current Local desktop's store changes (its chats).
+    local_sessions: Option<flume::Receiver<elocal::LocalDelta>>,
     /// #EDE-65 lane I: the agent picked on the chat's home.
     chat_agent: Option<String>,
     /// The chat on a team: its account, team and open session.
     chat_team: Option<team_chat::TeamChat>,
     /// The team chat's opener over the app's keyring (its account's).
     chat_opener: Option<(String, Arc<sync::sealed::Opener>)>,
+    /// The team's agents' glyphs (the hosts paint `ide:agent:<id>` from it).
+    chat_glyphs: AgentGlyphs,
     /// The chat document's literal composer props (placeholder, busy) as drawn.
     chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
@@ -342,7 +355,11 @@ struct Host {
     /// The hosted-popups hook fires inside a view update, while the shell
     /// may be borrowed: it reports over its own channel, never through the shell.
     hosted_tx: mpsc::Sender<HostedReport>,
+    /// The agents' glyphs the chat's icons name (shared with the shell).
+    glyphs: AgentGlyphs,
 }
+
+type AgentGlyphs = Rc<RefCell<HashMap<String, team_chat::AgentGlyph>>>;
 
 /// Does `document`'s header list `function`? (Tier C: a document grants no
 /// privileges; `exponential-ui` refuses such a document already, this is the
@@ -378,12 +395,36 @@ fn minimize(ede: &mut ede_protocol::Client, id: ede_protocol::WindowId) -> Resul
 }
 
 fn document(shell: &Shell, name: &str) -> Option<Document> {
-    shell.ui.lock().unwrap_or_else(|p| p.into_inner()).document(name).cloned()
+    let mut doc = shell.ui.lock().unwrap_or_else(|p| p.into_inner()).document(name).cloned()?;
+    drawn(&mut doc);
+    Some(doc)
+}
+
+/// A document as eDE draws it: the shared sidebar without the IDE's parts
+/// (#EDE-65).
+fn drawn(doc: &mut Document) {
+    if doc.name == "sidebar" {
+        uicore_gpui::inline::without(doc, uicore_gpui::inline::EDE_SIDEBAR_PRUNED);
+    }
 }
 
 impl HostPlugin for Host {
     fn icon(&self, name: &str) -> Option<gpui::SharedString> {
         assets::icon_path(name)
+    }
+
+    /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
+    /// its dot), and lane I: a team agent's icon in its colour by the IDE
+    /// rail's own name (`ide:agent:<id>`, its `shell_regions` glyphs), which
+    /// the host owns and paints from its glyph map.
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
+        use gpui::{prelude::*, px, svg};
+        let glyph = self.glyphs.try_borrow().ok().and_then(|g| g.get(name).cloned());
+        if let Some(glyph) = glyph {
+            let path = assets::icon_path(&glyph.icon)?;
+            return Some(svg().path(path).size(px(size)).text_color(gpui::rgb(glyph.color)).into_any_element());
+        }
+        uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path)
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
@@ -399,13 +440,6 @@ impl HostPlugin for Host {
                 }
             });
         }
-        // The sidebar's sections fold on their own change event (the
-        // component id names the section: pinned, workspaces, sessions).
-        if event.name == "sidebar" {
-            let section = event.component_id.trim_end_matches("-head").to_string();
-            let shell = self.shell.clone();
-            cx.defer(move |cx| dispatch(&shell, ShellEvent::SidebarToggle { section }, cx));
-        }
     }
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
@@ -418,7 +452,9 @@ impl HostPlugin for Host {
         let shell = self.shell.clone();
         match name {
             "ede_launch" => {
-                if let Some(command) = args.get("command").and_then(Value::as_str) {
+                if args.get("new").and_then(Value::as_str) == Some("issue") {
+                    new_issue(&self.shell.borrow());
+                } else if let Some(command) = args.get("command").and_then(Value::as_str) {
                     system::launch(command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
                     let engine_app = self.shell.borrow().engine.as_ref().is_some_and(|e| e.borrow().has(app));
@@ -622,7 +658,9 @@ impl HostPlugin for Host {
                 }
             }
             // The shell model (#EDE-50).
-            "ede_rail" => cx.defer(move |cx| rail_toggle(&shell, cx)),
+            // The IDE's rail toggle in the header it shares (#EXP-1725); eDE's
+            // sidebar is the rail for good (#EDE-65) and prunes that header.
+            "ede_rail" => {}
             "ede_pin" | "ede_unpin" => {
                 if let Some(app) = args.get("app").and_then(Value::as_str).map(String::from) {
                     let pin = name == "ede_pin";
@@ -806,6 +844,8 @@ impl HostPlugin for Host {
                 cx.defer(move |cx| {
                     let arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
                     match args.get("action").and_then(Value::as_str) {
+                        // #EDE-65: `{sessionId}` alone = a chat of the rail.
+                        None if !arg("sessionId").is_empty() => rail_chat_open(&shell, &arg("sessionId"), cx),
                         Some("send") => chat_send(&shell, &arg("text"), cx),
                         Some("answer") => chat_answer(&shell, &arg("messageId"), &arg("answer"), cx),
                         Some("pick") => {
@@ -825,11 +865,6 @@ impl HostPlugin for Host {
                 }
                 if event.surface_id == "expo" {
                     cx.defer(move |cx| overlay_close(&shell, "expo", cx));
-                }
-            }
-            "ede_sidebar" => {
-                if let Some(section) = args.get("section").and_then(Value::as_str).map(String::from) {
-                    cx.defer(move |cx| dispatch(&shell, ShellEvent::SidebarToggle { section }, cx));
                 }
             }
             other => tracing::warn!(function = other, "unknown host function"),
@@ -990,7 +1025,10 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
         if apps.is_empty() {
             return;
         }
-        match engine::Stores::open(engine::data_dir(), capabilities) {
+        // #EDE-65 J5b: the Local desktop's own records, files and vaults.
+        let Some(desktop) = local_desktop(shell) else { return };
+        let current = shell.borrow().workspaces.desktops.current().map(str::to_string);
+        match engine::Stores::open(engine::local_data_dir(&desktop.dir, &desktop.entry.id, current.as_deref(), &engine::data_dir()), capabilities) {
             Ok(stores) => (apps, stores),
             Err(e) => {
                 tracing::warn!("apps: {e}");
@@ -1001,7 +1039,7 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
     let eng = engine::boot(apps, &stores, cx);
     eng.borrow_mut().window_max = {
         let s = shell.borrow();
-        engine::window_max(output_size(&s), s.model.rail)
+        engine::window_max(output_size(&s))
     };
     engine::open_widgets(&eng, cx);
     if let Some(team) = &stores.synced {
@@ -1140,6 +1178,7 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         shell.borrow_mut().local = None;
     }
     chatting_changed(shell, cx);
+    chats_refresh(shell, cx);
     // #VAPP-273: the apps follow the desktop (local records or the team's).
     engine_boot(shell, cx);
 }
@@ -1236,7 +1275,7 @@ fn category_icon(id: &str) -> &'static str {
 }
 
 /// What the documents need on top of the reducer's `/shell`: names and
-/// icons for apps, the sidebar's lists, the start menu's favourites.
+/// icons for apps, the rail's chats, the start menu's favourites.
 fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
     if let Some(buttons) = value["taskbar"]["buttons"].as_array_mut() {
         for b in buttons {
@@ -1245,20 +1284,13 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
             b["icon"] = json!(app_icon(shell, &app));
         }
     }
-    let pinned: Vec<Value> = shell
-        .model
-        .taskbar
-        .pinned
-        .iter()
-        .map(|app| json!({"app": app, "name": app_name(shell, app), "icon": app_icon(shell, app), "focused": shell.model.windows.iter().any(|w| &w.app == app && w.focused)}))
-        .collect();
-    value["sidebar"]["pinned"] = Value::Array(pinned);
+    value["chats"] = chats::chats_json(&shell.chats);
+    // Settings' Workspaces page lists them.
     let workspaces: Vec<Value> = uicore_model::workspace_badges(&shell.model)
         .into_iter()
         .map(|b| json!({"index": b.index, "label": format!("Workspace {}", b.index + 1), "active": b.active, "count": b.count, "countText": if b.count == 0 { String::new() } else { b.count.to_string() }}))
         .collect();
-    value["sidebar"]["workspaces"] = Value::Array(workspaces);
-    value["sessions"] = json!([]);
+    value["workspaces"]["rows"] = Value::Array(workspaces);
     // #EDE-65: Connect only without an account, Share as a team only on a Local desktop.
     value["switcher"]["connection"] = accounts::connection_json(&shell.model.switcher.current, &shell.workspaces.signed_in());
     if let Some(entries) = value["switcher"]["entries"].as_array_mut() {
@@ -1357,35 +1389,43 @@ fn output_size(shell: &Shell) -> (u32, u32) {
         .unwrap_or((1280, 720))
 }
 
-/// The sidebar's header for the model's `rail` (the width and exclusive
-/// zone of `shell-layout.json`), and a stretched axis (anchored to both
-/// of its edges) sized to the output, since the window takes the size it
-/// asks for; any other document's as written.
+/// A stretched axis (anchored to both of its edges) sized to the output,
+/// since the window takes the size it asks for; the sidebar the rail's
+/// width and exclusive zone (`shell-layout.json`), standing on the taskbar
+/// (#EDE-65); any other document's as written.
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
-    layer_header(doc, output_size(shell), shell.model.rail)
+    let out = output_size(shell);
+    let mut header = layer_header(doc, out);
+    // The Alt-Tab popup hugs its tiles (#EDE-65).
+    if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == "switcher", &mut header) {
+        size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), out.0));
+    }
+    header
 }
 
 /// [`header_for`] on an output of `(out_w, out_h)` logical px.
-fn layer_header(doc: &Document, (out_w, out_h): (u32, u32), rail: bool) -> SurfaceHeader {
+fn layer_header(doc: &Document, (out_w, out_h): (u32, u32)) -> SurfaceHeader {
     let mut header = doc.surface.clone();
-    if let SurfaceHeader::Layer { size, exclusive_zone, anchor, .. } = &mut header {
-        let sidebar = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
+    if let SurfaceHeader::Layer { size, exclusive_zone, anchor, margin, .. } = &mut header {
+        let layout = shell_layout();
+        // #EDE-65: a stretched surface keeps its margins (Settings stands on the taskbar).
         if anchor.contains(&ede_ui::surface::Edge::Left) && anchor.contains(&ede_ui::surface::Edge::Right) {
-            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { sidebar } else { 0 }).max(1));
+            size.width = Some(out_w.saturating_sub(margin.left + margin.right).max(1));
         }
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
-            size.height = Some(out_h.max(1));
+            let taskbar = if doc.name == "sidebar" { layout.taskbar_height } else { 0 };
+            size.height = Some(out_h.saturating_sub(margin.top + margin.bottom + taskbar).max(1));
         }
         // #EDE-65 lane I: the chat fills the panel like a maximised window.
         if doc.name == "chat" {
-            let (w, h) = engine::window_max((out_w, out_h), rail);
+            let (w, h) = engine::window_max((out_w, out_h));
             size.width = Some(w);
             size.height = Some(h);
         }
         if doc.name == "sidebar" {
-            size.width = Some(sidebar);
+            size.width = Some(layout.rail_width);
             if *exclusive_zone > 0 {
-                *exclusive_zone = sidebar as i32;
+                *exclusive_zone = layout.rail_width as i32;
             }
         }
     }
@@ -1407,16 +1447,16 @@ fn size_root(doc: &mut Document, header: &SurfaceHeader) {
     }
 }
 
-/// The order layer documents open in: the ground first, then the sidebar
-/// (its exclusive zone takes the left edge), then the taskbar (the rest of
-/// the bottom edge), then the others by name. smithay arranges layer
-/// surfaces in the order they were mapped.
+/// The order layer documents open in: the ground first, then the taskbar
+/// (its exclusive zone takes the whole bottom edge, #EDE-65), then the
+/// sidebar (the rail on the left edge above it), then the others by name.
+/// smithay arranges layer surfaces in the order they were mapped.
 fn layer_rank(doc: &Document) -> (u8, String) {
     let rank = match (&doc.surface, doc.name.as_str()) {
         (SurfaceHeader::Layer { layer: DocLayer::Background, .. }, _) => 0,
-        (_, "sidebar") => 1,
-        (_, "taskbar") => 2,
-        (_, "panel") => 2,
+        (_, "taskbar") => 1,
+        (_, "panel") => 1,
+        (_, "sidebar") => 2,
         _ => 3,
     };
     (rank, doc.name.clone())
@@ -1428,6 +1468,7 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
         (header_for(&s, doc), s.feed.clone())
     };
     let mut doc = doc.clone();
+    drawn(&mut doc);
     patch_chat(&shell.borrow(), &mut doc);
     size_root(&mut doc, &header);
     doc.surface = header;
@@ -1525,21 +1566,20 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
     }
     previews_refresh(shell);
     overlays_refresh(shell);
+    // A window closed or renamed under the switcher: its tiles follow, and
+    // the last one gone closes it.
+    if shell.borrow().surfaces.is_open("switcher") {
+        if shell.borrow().model.alt_tab.shown {
+            switcher_refresh(shell);
+        } else {
+            switcher_close(shell, cx);
+        }
+    }
     model_changed(shell, cx);
 }
 
-/// The sidebar as the rail or the full column: the sidebar and the
-/// taskbar take their new widths in place (#EDE-65: re-opening them
-/// dropped both bars for a frame).
-fn rail_toggle(shell: &SharedShell, cx: &mut App) {
-    dispatch(shell, ShellEvent::RailToggle, cx);
-    relayout(shell, cx);
-    let rail = shell.borrow().model.rail;
-    settings::persist_shell(json!({"rail": rail}));
-}
-
 /// Every open layer document at the size its header asks for now (the
-/// output changed, the rail): resized in place, never re-opened (#EDE-65:
+/// output changed): resized in place, never re-opened (#EDE-65:
 /// after a VM window resize the taskbar kept its old width, centred, its
 /// first button floating mid-bar, and the ground and sidebar kept theirs).
 fn relayout(shell: &SharedShell, cx: &mut App) {
@@ -1626,6 +1666,112 @@ fn chat_toggle(shell: &SharedShell, cx: &mut App) {
     }
 }
 
+fn demo() -> bool {
+    std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// #EDE-65: the rail's chats from the current entry's sessions: the team's
+/// synced store or the Local desktop's (whose changes it then watches).
+fn chats_refresh(shell: &SharedShell, cx: &mut App) {
+    if demo() {
+        return;
+    }
+    let current = shell.borrow().model.switcher.current.clone();
+    let chats = if current.kind == uicore_model::SwitcherKind::Local {
+        shell.borrow_mut().local_sessions = None;
+        local_desktop(shell)
+            .map(|d| {
+                shell.borrow_mut().local_sessions = Some(d.store.subscribe());
+                chats::chat_inputs(&chats::sessions(d.store.rows("sessions").unwrap_or_default()), d.executor.team_id(), &Default::default())
+            })
+            .unwrap_or_default()
+    } else {
+        shell.borrow_mut().local_sessions = None;
+        let store = current.account.as_deref().and_then(|a| shell.borrow().workspaces.store(a));
+        match store {
+            Some(store) => {
+                let read = |shape: &str| sync::shapes::shape_by_name(shape).and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
+                let sessions = chats::sessions(read("sessions"));
+                let unread = chats::unread_roots(&sessions, &chats::rows(read("conversations")), &chats::rows(read("session_reads")), &current.id);
+                chats::chat_inputs(&sessions, &current.id, &unread)
+            }
+            None => Vec::new(),
+        }
+    };
+    if shell.borrow().chats != chats {
+        shell.borrow_mut().chats = chats;
+        model_changed(shell, cx);
+    }
+}
+
+/// Where a rail chat opens (#EDE-65): eDE's chat (lane I's document) on a
+/// Local desktop, and on a team whose chat has the session synced; the
+/// Exponential app (`exponential://session/<id>`) only as the fallback,
+/// when the team's chat cannot open it (no account store yet, or the
+/// session is not among its rows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RailChat {
+    Chat,
+    HandOff,
+}
+
+/// `team_has_session`: the team chat's rows carry the session (`None` = no
+/// team chat).
+fn rail_chat_route(on_local: bool, team_has_session: Option<bool>) -> RailChat {
+    match (on_local, team_has_session) {
+        (true, _) | (false, Some(true)) => RailChat::Chat,
+        _ => RailChat::HandOff,
+    }
+}
+
+/// `ede_chat {sessionId}`, a chat of the rail: the chat on that session,
+/// shown ([`rail_chat_route`]).
+fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
+    if id.is_empty() {
+        return;
+    }
+    let local = on_local(shell);
+    let team_has_session = if local || demo() { None } else { team_chat(shell).map(|(_, rows)| rows.account.sessions.iter().any(|s| s.id == id)) };
+    if !demo() && rail_chat_route(local, team_has_session) == RailChat::HandOff {
+        hand_off(&shell.borrow(), &accounts::session_deep_link(id));
+        return;
+    }
+    if !demo() {
+        chat_open(shell, Some(id), cx);
+    }
+    if !shell.borrow().model.chat.open {
+        chat_toggle(shell, cx);
+    }
+}
+
+/// #EDE-65: the new-issue button: the Exponential app's new issue (on the
+/// current team), until issues come into eDE.
+fn new_issue(shell: &Shell) {
+    let current = &shell.model.switcher.current;
+    let team = (current.kind == uicore_model::SwitcherKind::Team).then_some(current.id.as_str());
+    hand_off(shell, &accounts::new_issue_deep_link(team));
+}
+
+/// A deep link to the Exponential app: the running one, else a new one
+/// started with it (its single-instance guard reads the link off argv).
+fn hand_off(shell: &Shell, url: &str) {
+    if demo() {
+        tracing::info!(url, "hand-off (demo: not sent)");
+        return;
+    }
+    if accounts::ide_send(url) {
+        tracing::info!(url, "handed to the Exponential app");
+        return;
+    }
+    match EXPONENTIAL_APPS.iter().find_map(|id| app_entry(shell, id)) {
+        Some(app) => system::launch(&format!("{} '{url}'", app.exec)),
+        None => tracing::warn!(url, "no Exponential app to hand off to"),
+    }
+}
+
+/// The Exponential app's desktop entry.
+const EXPONENTIAL_APP: &str = "at.exponential";
+
 /// Is the switcher on a Local desktop?
 fn on_local(shell: &SharedShell) -> bool {
     shell.borrow().model.switcher.current.kind == uicore_model::SwitcherKind::Local
@@ -1676,9 +1822,15 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
         let s = shell.borrow();
         match (demo, s.chat_local.as_ref().filter(|_| local), team) {
             (true, _, _) if on_local(shell) => (local_runs::demo_input(), false),
-            (true, _, _) => (team_chat::demo_input(), false),
+            (true, _, _) => {
+                *s.chat_glyphs.borrow_mut() = team_chat::demo_glyphs();
+                (team_chat::demo_input(), false)
+            }
             (false, Some(chat), _) => (chat.input(), chat.agent.is_empty()),
-            (false, None, Some((chat, rows))) => (team_chat::input(&rows, &chat, now_ms()), false),
+            (false, None, Some((chat, rows))) => {
+                *s.chat_glyphs.borrow_mut() = team_chat::glyphs(&rows.account, &chat.team_id);
+                (team_chat::input(&rows, &chat, now_ms()), false)
+            }
             _ => (local_runs::assistant_home(), false),
         }
     };
@@ -1761,10 +1913,10 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if chat_local(shell) {
         let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
-        if let Err(e) = sent {
-            tracing::warn!("chat send: {e}");
+        match sent {
+            Ok(()) => chat_clear_draft(shell, cx),
+            Err(e) => failed_action(shell, "send", "the message", &e, cx),
         }
-        chat_clear_draft(shell, cx);
         return;
     }
     let Some((chat, rows)) = team_chat(shell) else {
@@ -1780,18 +1932,18 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     }
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
-    chat_clear_draft(shell, cx);
     let shell = shell.clone();
     cx.spawn(async move |cx| {
         let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
         match sent {
+            // The draft goes once the server took it; a failure keeps it.
             Ok(out) => {
                 if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
                     open.session_id = Some(out.session_id);
                 }
-                cx.update(|cx| chatting_changed(&shell, cx));
+                cx.update(|cx| chat_clear_draft(&shell, cx));
             }
-            Err(e) => tracing::warn!("chat send: {}", e.user_message()),
+            Err(e) => cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx)),
         }
     })
     .detach();
@@ -1804,8 +1956,9 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
         return;
     }
     if chat_local(shell) {
-        if let Some(Err(e)) = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label)) {
-            tracing::warn!("chat answer: {e}");
+        let answered = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label));
+        if let Some(Err(e)) = answered {
+            failed_action(shell, "answer", "the question", &e, cx);
         }
         chatting_changed(shell, cx);
         return;
@@ -1814,13 +1967,42 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
     let Some(account) = shell.borrow().workspaces.account(&account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let input = api::sessions::AnswerInput { message_id: message_id.to_string(), answer: Some(label.to_string()), answers: Some(json!([label])), ..Default::default() };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(e) = api::sessions::answer(&trpc, &input) {
-                tracing::warn!("chat answer: {}", e.user_message());
-            }
-        })
-        .detach();
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let answered = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
+        if let Err(e) = answered {
+            cx.update(|cx| failed_action(&shell, "answer", "the question", &e.user_message(), cx));
+        }
+    })
+    .detach();
+}
+
+/// A failed action the person just took (feedback-states.json `errors`):
+/// the toast `Couldn't <verb> <thing>` with the server's message, as one of
+/// the shell's own notifications (the IDE's toast on this desktop).
+fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx: &mut App) {
+    tracing::warn!("{verb} {thing}: {message}");
+    shell.borrow_mut().notifications.push(failed_toast(verb, thing, message, now_ms()));
+    notifications_changed(shell, cx);
+}
+
+/// The shell's own ids count down from the top, clear of the bus's.
+static OWN_NOTIFICATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+
+/// [`failed_action`]'s toast.
+fn failed_toast(verb: &str, thing: &str, message: &str, received_ms: i64) -> dbus::Notification {
+    dbus::Notification {
+        id: OWN_NOTIFICATION.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
+        app: "Exponential".into(),
+        summary: domain::action_error::title(verb, thing),
+        body: domain::action_error::description_of(message).unwrap_or_default(),
+        icon: String::new(),
+        actions: Vec::new(),
+        urgency: 1,
+        expires_at: Some(Instant::now() + INBOX_TOAST),
+        at: clock::time(),
+        received_ms,
+    }
 }
 
 /// A card's or a rail chat's session (`None` = New chat: the home).
@@ -1942,7 +2124,10 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
 fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
     tracing::info!(name, "hotkey");
     match name {
-        "switcher.next" | "switcher.prev" => switcher_step(shell, name == "switcher.prev", cx),
+        "switcher.next" => switcher_step(shell, ShellEvent::AltTabNext, cx),
+        "switcher.prev" => switcher_step(shell, ShellEvent::AltTabPrev, cx),
+        "switcher.next-app" => switcher_step(shell, ShellEvent::AltTabNextApp, cx),
+        "switcher.prev-app" => switcher_step(shell, ShellEvent::AltTabPrevApp, cx),
         "switcher.commit" => switcher_commit(shell, None, cx),
         "switcher.cancel" => switcher_close(shell, cx),
         "menu.toggle" => start_menu_toggle(shell, cx),
@@ -2004,35 +2189,92 @@ fn overlay_close(shell: &SharedShell, name: &str, cx: &mut App) {
     thumbnails_retarget(shell);
 }
 
-/// Alt+Tab: open the switcher on the first step, move the selection after.
-fn switcher_step(shell: &SharedShell, reverse: bool, cx: &mut App) {
+/// Cinnamon's `alttab-switcher-delay`: a quick Alt+Tab flips windows
+/// without the popup ever showing.
+const SWITCHER_DELAY: Duration = Duration::from_millis(100);
+
+/// Alt+Tab / Alt+`: the first step opens Alt-Tab and arms the delay, the
+/// next ones move the selection.
+fn switcher_step(shell: &SharedShell, event: ShellEvent, cx: &mut App) {
     let fresh = !shell.borrow().model.alt_tab.open;
-    dispatch(shell, if reverse { ShellEvent::AltTabPrev } else { ShellEvent::AltTabNext }, cx);
+    dispatch(shell, event, cx);
     if !shell.borrow().model.alt_tab.open {
         return;
     }
-    if fresh {
-        open_on_demand(shell, "switcher", cx);
+    if !fresh {
+        if shell.borrow().model.alt_tab.shown {
+            switcher_refresh(shell);
+            refresh(shell, cx);
+        }
+        return;
+    }
+    let generation = {
+        let mut s = shell.borrow_mut();
+        s.switcher_generation += 1;
+        s.switcher_generation
+    };
+    let s = shell.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(SWITCHER_DELAY).await;
+        cx.update(|cx| {
+            let current = s.borrow().switcher_generation == generation && s.borrow().model.alt_tab.open;
+            if current {
+                switcher_show(&s, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// The delay elapsed with Alt held: the popup, sized to its windows, centred.
+fn switcher_show(shell: &SharedShell, cx: &mut App) {
+    dispatch(shell, ShellEvent::AltTabShow, cx);
+    if !shell.borrow().model.alt_tab.shown {
+        return;
     }
     switcher_refresh(shell);
+    open_on_demand(shell, "switcher", cx);
     thumbnails_retarget(shell);
     refresh(shell, cx);
 }
 
-/// `/switcher`: the Alt-Tab order with the selection and the thumbnails.
+/// `/switcher`: the Alt-Tab order with the selection, the app icons, the
+/// thumbnails and the selected window's title (the line under the tiles).
 fn switcher_refresh(shell: &SharedShell) {
-    let mut s = shell.borrow_mut();
-    let order = uicore_model::alt_tab_order(&s.model);
-    let selected = s.model.alt_tab.selected;
+    let value = {
+        let s = shell.borrow();
+        switcher_feed(&s.model, |app| app_icon(&s, app), |id| s.thumbnails.get(id).cloned().unwrap_or_default())
+    };
+    shell.borrow_mut().feed.set("/switcher", value);
+}
+
+fn switcher_feed(model: &ShellState, icon: impl Fn(&str) -> String, thumbnail: impl Fn(&str) -> String) -> Value {
+    let order = uicore_model::alt_tab_order(model);
+    let selected = model.alt_tab.selected;
+    let mut title = String::new();
     let windows: Vec<Value> = order
         .iter()
         .enumerate()
         .filter_map(|(i, id)| {
-            let w = s.model.windows.iter().find(|w| &w.id == id)?;
-            Some(json!({"id": id, "title": w.title, "app": w.app, "selected": i == selected, "thumbnail": s.thumbnails.get(id).cloned().unwrap_or_default()}))
+            let w = model.windows.iter().find(|w| &w.id == id)?;
+            if i == selected {
+                title = w.title.clone();
+            }
+            Some(json!({"id": id, "title": w.title, "app": w.app, "icon": icon(&w.app), "minimized": w.minimized, "selected": i == selected, "thumbnail": thumbnail(id)}))
         })
         .collect();
-    s.feed.set("/switcher", json!({"windows": windows}));
+    json!({"windows": windows, "title": title})
+}
+
+/// The switcher's width for `n` tiles: Mint's popup hugs its entries,
+/// capped at the output. Tile 208 px (`tile` in switcher.json: a 192 px
+/// thumbnail and `$spacing.sm` around it), `sm` gaps, `lg` padding.
+fn switcher_width(n: usize, output_width: u32) -> u32 {
+    const TILE: u32 = 208;
+    const GAP: u32 = 8;
+    const PADDING: u32 = 16;
+    let n = n.max(1) as u32;
+    (2 * PADDING + n * TILE + (n - 1) * GAP).min(output_width.saturating_sub(2 * PADDING)).max(TILE + 2 * PADDING)
 }
 
 /// The windows the capture thread photographs: the switcher's while it is
@@ -2043,7 +2285,7 @@ fn thumbnails_retarget(shell: &SharedShell) {
         let s = shell.borrow();
         if s.surfaces.is_open("expo") || s.surfaces.is_open("scale") {
             s.model.windows.iter().map(|w| w.id.clone()).collect()
-        } else if s.model.alt_tab.open {
+        } else if s.model.alt_tab.shown {
             uicore_model::alt_tab_order(&s.model)
         } else if let Some(app) = s.model.taskbar.previews.as_deref() {
             s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
@@ -2124,7 +2366,7 @@ fn switcher_commit(shell: &SharedShell, pick: Option<ede_protocol::WindowId>, cx
 
 fn switcher_close(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::AltTabCancel, cx);
-    shell.borrow_mut().feed.set("/switcher", json!({"windows": []}));
+    shell.borrow_mut().feed.set("/switcher", json!({"windows": [], "title": ""}));
     close(shell, "switcher", cx);
     thumbnails_retarget(shell);
 }
@@ -2459,7 +2701,8 @@ fn main() {
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
-        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        // #EDE-65: the IDE's colours: the sidebar on the ground, no Sidebar fill.
+        let theme = uicore_gpui::inline::theme(&eui_core::themes::builtin_theme("exponential").expect("the exponential theme"));
         let mut feed = Feed::new();
         feed.set("/time", json!(clock::time()));
         feed.set("/date", json!(clock::date()));
@@ -2483,8 +2726,13 @@ fn main() {
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
-        // The goldens: the sample conversation (a demo starts on a Local desktop).
-        let chat = if demo { local_runs::demo_input() } else { local_runs::assistant_home() };
+        // The goldens: the sample conversation (Local, or a demo team's).
+        let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
+        let chat = match (demo, on_team) {
+            (true, false) => local_runs::demo_input(),
+            (true, true) => team_chat::demo_input(),
+            _ => local_runs::assistant_home(),
+        };
         feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
@@ -2505,15 +2753,11 @@ fn main() {
             feed.set("/services", json!({}));
             feed.set("/outputs", json!([]));
         }
-        // The model: the pins and the rail from the shell's own file (the demo: fixed pins).
+        // The model: the pins from the shell's own file (the demo: fixed pins).
         let mut model = ShellState::default();
         let saved = if demo { json!({"pinned": ["firefox", "nemo", "org.gnome.Calculator"]}) } else { settings::shell_json() };
         for app in saved.get("pinned").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
             model = reduce(&model, &ShellEvent::TaskbarPin { app: app.into() });
-        }
-        let rail = std::env::var_os("EDE_SHELL_RAIL").is_some_and(|v| !v.is_empty() && v != "0") || saved.get("rail").and_then(Value::as_bool).unwrap_or(false);
-        if rail {
-            model = reduce(&model, &ShellEvent::RailToggle);
         }
         // The switcher: the Local desktops and the accounts' teams, the
         // index's current desktop selected.
@@ -2538,12 +2782,17 @@ fn main() {
         feed.set("/applets", applets);
 
         let shell_cell: Rc<RefCell<Option<SharedShell>>> = Rc::new(RefCell::new(None));
+        // The agents' glyphs, shared by the shell and every host (a host is
+        // made while the shell is borrowed: it never borrows the shell for them).
+        let chat_glyphs: AgentGlyphs = Rc::new(RefCell::new(if demo { team_chat::demo_glyphs() } else { HashMap::new() }));
         let plugin_for: uicore_gpui::PluginFor = {
             let cell = shell_cell.clone();
             let hosted_tx = hosted_tx.clone();
+            let chat_glyphs = chat_glyphs.clone();
             Rc::new(move |document: &str| {
                 let shell = cell.borrow().clone().expect("the shell exists before a surface opens");
-                Rc::new(Host { shell, document: document.to_string(), hosted_tx: hosted_tx.clone() }) as Rc<dyn HostPlugin>
+                let glyphs = chat_glyphs.clone();
+                Rc::new(Host { shell, document: document.to_string(), hosted_tx: hosted_tx.clone(), glyphs }) as Rc<dyn HostPlugin>
             })
         };
         let on_frame: uicore_gpui::OnFrame = Rc::new(|name, digest| println!("{}", FrameLine::line_for_digest(name, digest)));
@@ -2555,6 +2804,7 @@ fn main() {
             surfaces,
             feed,
             model,
+            chats: if demo { chats::demo_chats() } else { Vec::new() },
             ede: ede_protocol::Client::connect_env().ok(),
             apps: installed,
             menu_apps,
@@ -2564,6 +2814,7 @@ fn main() {
             capturing: Arc::new(AtomicBool::new(false)),
             thumbs_tx,
             osd_until: None,
+            switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
                 demo: if demo {
@@ -2590,9 +2841,11 @@ fn main() {
             // #EDE-65: the team picked last, once its account's teams are listed.
             pending_pick: saved_team,
             chat_local: None,
+            local_sessions: None,
             chat_agent: None,
             chat_team: None,
             chat_opener: None,
+            chat_glyphs,
             chat_composer: Value::Null,
             engine: None,
             launches: system::LaunchGuard::default(),
@@ -2605,6 +2858,7 @@ fn main() {
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
+        chats_refresh(&shell, cx);
         history_refresh(&shell);
         overlays_refresh(&shell);
         exp_tray_refresh(&shell, cx);
@@ -2704,6 +2958,7 @@ fn main() {
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
                 let mut records_changed = false;
+                let mut chats_changed = false;
                 let mut tray_changed = false;
                 let mut team_chat_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
@@ -2717,6 +2972,8 @@ fn main() {
                         }
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
+                            // #EDE-65: the current team's chats.
+                            "sessions" | "conversations" | "session_reads" => chats_changed |= s.borrow().model.switcher.current.account.as_ref() == Some(account_id),
                             // #VAPP-273: the connected team's apps and records.
                             "apps" | "app_records" => {
                                 if s.borrow().team_stores.as_ref().is_some_and(|t| &t.account_id == account_id) {
@@ -2781,6 +3038,10 @@ fn main() {
                 if chat_changed {
                     cx.update(|cx| chatting_changed(&s, cx));
                 }
+                chats_changed |= s.borrow().local_sessions.as_ref().is_some_and(|rx| rx.drain().any(|d| d.table == "sessions"));
+                if chats_changed {
+                    cx.update(|cx| chats_refresh(&s, cx));
+                }
                 let (expired, inbox_expired) = s.borrow_mut().notifications.expire(Instant::now());
                 if inbox_expired && expired.is_empty() {
                     cx.update(|cx| notifications_changed(&s, cx));
@@ -2821,7 +3082,8 @@ fn main() {
         for name in open_now {
             // The goldens: the switcher opens as Alt+Tab would (the sample windows, the second selected).
             if name == "switcher" {
-                switcher_step(&shell, false, cx);
+                switcher_step(&shell, ShellEvent::AltTabNext, cx);
+                switcher_show(&shell, cx);
             } else {
                 open_on_demand(&shell, &name, cx);
             }
@@ -2882,6 +3144,59 @@ mod function_names {
 }
 
 #[cfg(test)]
+mod switcher {
+    use super::*;
+
+    fn opened(windows: &[(&str, &str, &str, usize, bool)]) -> ShellState {
+        let mut s = ShellState::default();
+        s.workspaces.count = 2;
+        for (id, app, title, workspace, _) in windows {
+            s = reduce(&s, &ShellEvent::WindowOpened { id: id.to_string(), app: app.to_string(), title: title.to_string(), workspace: *workspace });
+        }
+        for (id, ..) in windows.iter().rev() {
+            s = reduce(&s, &ShellEvent::WindowFocused { id: id.to_string() });
+        }
+        for (id, .., minimized) in windows {
+            if *minimized {
+                s = reduce(&s, &ShellEvent::WindowMinimized { id: id.to_string() });
+            }
+        }
+        s
+    }
+
+    /// #EDE-65: the current workspace's windows (minimized included) with
+    /// their app icons, the second most recent selected, its title under the tiles.
+    #[test]
+    fn the_feed_lists_this_workspaces_windows_with_icons_and_the_selected_title() {
+        let s = opened(&[("w1", "firefox", "Firefox", 0, false), ("w2", "nemo", "Files", 0, true), ("w3", "code", "Elsewhere", 1, false)]);
+        let s = reduce(&s, &ShellEvent::AltTabNext);
+        let feed = switcher_feed(&s, |app| format!("icon:{app}"), |id| format!("thumb:{id}"));
+        assert_eq!(feed["title"], "Files");
+        let windows = feed["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[1], json!({"id": "w2", "title": "Files", "app": "nemo", "icon": "icon:nemo", "minimized": true, "selected": true, "thumbnail": "thumb:w2"}));
+        assert_eq!(windows[0]["selected"], false);
+    }
+
+    #[test]
+    fn alt_grave_lists_only_the_focused_apps_windows() {
+        let s = opened(&[("w1", "firefox", "One", 0, false), ("w2", "nemo", "Files", 0, false), ("w3", "firefox", "Two", 0, false)]);
+        let s = reduce(&s, &ShellEvent::AltTabNextApp);
+        let feed = switcher_feed(&s, |_| String::new(), |_| String::new());
+        let ids: Vec<&str> = feed["windows"].as_array().unwrap().iter().filter_map(|w| w["id"].as_str()).collect();
+        assert_eq!(ids, ["w1", "w3"]);
+        assert_eq!(feed["title"], "Two");
+    }
+
+    #[test]
+    fn the_popup_hugs_its_tiles_and_stays_on_the_output() {
+        assert_eq!(switcher_width(3, 1920), 2 * 16 + 3 * 208 + 2 * 8);
+        assert_eq!(switcher_width(0, 1920), switcher_width(1, 1920));
+        assert_eq!(switcher_width(40, 1280), 1280 - 32);
+    }
+}
+
+#[cfg(test)]
 mod hosted_reports {
     use super::*;
 
@@ -2913,19 +3228,70 @@ mod layer_sizes {
     }
 
     /// #EDE-65: the stretched bars follow the output: a VM window resized
-    /// to 1920×1080 gives the taskbar the width right of the sidebar, the
-    /// ground and the sidebar the full height (eDE 0.2.6 kept the sizes of
-    /// the start, so the taskbar sat centred with its first button mid-bar).
+    /// to 1920×1080 gives the taskbar the whole bottom edge, the sidebar the
+    /// rail's 56 px standing on it, the ground the full output (eDE 0.2.6
+    /// kept the sizes of the start, so the taskbar sat centred with its
+    /// first button mid-bar). The rail is the sidebar for good: no 272.
     #[test]
     fn the_bars_take_the_outputs_size() {
         let (taskbar, sidebar, ground) = (factory("taskbar"), factory("sidebar"), factory("ground"));
-        for (out, rail) in [((1280, 720), false), ((1920, 1080), false), ((1920, 1080), true)] {
-            let side = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
-            assert_eq!(size(&layer_header(&taskbar, out, rail)), (Some(out.0 - side), Some(48), 48), "{out:?} rail {rail}");
-            assert_eq!(size(&layer_header(&sidebar, out, rail)), (Some(side), Some(out.1), side as i32), "{out:?} rail {rail}");
-            assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
+        for out in [(1280, 720), (1920, 1080)] {
+            assert_eq!(size(&layer_header(&taskbar, out)), (Some(out.0), Some(48), 48), "{out:?}");
+            assert_eq!(size(&layer_header(&sidebar, out)), (Some(56), Some(out.1 - 48), 56), "{out:?}");
+            assert_eq!(size(&layer_header(&ground, out)), (Some(out.0), Some(out.1), -1), "{out:?}");
         }
-        assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
+        assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
+    }
+
+    /// #EDE-65: Settings open into the sidebar like the IDE's: over the
+    /// rail and the ground, standing on the taskbar, the nav as wide as the
+    /// IDE's settings column.
+    #[test]
+    fn settings_take_the_sidebar_and_the_ground() {
+        let settings = factory("settings");
+        for out in [(1280, 720), (1920, 1080)] {
+            assert_eq!(size(&layer_header(&settings, out)), (Some(out.0), Some(out.1 - 48), -1), "{out:?}");
+        }
+        let SurfaceHeader::Layer { margin, on_demand, .. } = &settings.surface else { panic!("a layer") };
+        assert_eq!((margin.bottom, *on_demand), (shell_layout().taskbar_height, true));
+        let doc: Value = serde_json::from_str(uicore_docs::doc("settings").unwrap().source).unwrap();
+        let nav = &doc["root"]["children"][0];
+        assert_eq!((nav["component"].as_str(), nav["props"]["width"].as_u64()), (Some("Sidebar"), Some(shell_layout().settings_width as u64)));
+    }
+
+    /// The taskbar opens before the sidebar: its exclusive zone takes the
+    /// whole bottom edge, the rail stands on it.
+    /// #EDE-65 (after #2308): a team's rail chat opens in eDE's chat like a
+    /// Local one; the Exponential app only when the team chat cannot.
+    #[test]
+    fn a_rail_chat_opens_in_edes_chat_and_hands_off_only_as_the_fallback() {
+        assert_eq!(rail_chat_route(true, None), RailChat::Chat);
+        assert_eq!(rail_chat_route(false, Some(true)), RailChat::Chat);
+        assert_eq!(rail_chat_route(false, Some(false)), RailChat::HandOff, "a session the team chat has not synced");
+        assert_eq!(rail_chat_route(false, None), RailChat::HandOff, "no team chat (no account store yet)");
+    }
+
+    #[test]
+    fn the_taskbar_maps_before_the_rail() {
+        assert!(layer_rank(&factory("taskbar")) < layer_rank(&factory("sidebar")));
+    }
+
+    /// eDE draws the rail of the shared sidebar: the chats, none of the
+    /// IDE's header, nav or corners (#EDE-65).
+    #[test]
+    fn the_sidebar_is_the_chats_rail() {
+        let mut doc = factory("sidebar");
+        drawn(&mut doc);
+        let ede_ui::Body::Nested(tree) = &doc.body else { panic!("a nested sidebar") };
+        let text = serde_json::to_string(tree).unwrap();
+        for id in uicore_gpui::inline::EDE_SIDEBAR_PRUNED {
+            assert!(!text.contains(&format!("\"id\":\"{id}\"")), "{id} is drawn");
+        }
+        assert!(text.contains("\"id\":\"chat_row\""));
+        // Lane I's final call: a chat opens with ede_chat {sessionId}.
+        let doc: Value = serde_json::from_str(uicore_docs::doc("sidebar").unwrap().source).unwrap();
+        let row = serde_json::to_string(&doc["root"]).unwrap();
+        assert!(row.contains(r#""functionCall":{"@call":"ede_chat","args":{"sessionId":{"@path":"id"}}}"#), "the rail's chat calls ede_chat {{sessionId}}");
     }
 }
 
@@ -3014,3 +3380,16 @@ mod start_menu_document {
     }
 }
 
+
+#[cfg(test)]
+mod failed_actions {
+    #[test]
+    fn a_failed_send_toasts_the_fixture_s_title_with_the_server_s_sentence() {
+        let toast = super::failed_toast("send", "the message", " The session ended. ", 7);
+        assert_eq!((toast.summary.as_str(), toast.body.as_str(), toast.app.as_str()), ("Couldn't send the message", "The session ended.", "Exponential"));
+        assert!(toast.expires_at.is_some(), "a toast, not a sticky notification");
+        let dump = super::failed_toast("answer", "the question", "{\"code\":\"CONFLICT\"}", 7);
+        assert_eq!((dump.summary.as_str(), dump.body.as_str()), ("Couldn't answer the question", ""));
+        assert_ne!(toast.id, dump.id, "each its own id");
+    }
+}

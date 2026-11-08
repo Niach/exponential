@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/shell-layout.json" with { type: "json" }
-import { LAYOUT, sidebarWidth, widgetSize } from "./layout"
+import { LAYOUT, widgetSize } from "./layout"
 
 describe(`shell-layout.json`, () => {
   test(`layout.ts reads every number of the fixture`, () => {
     expect(LAYOUT).toEqual(fixture as unknown as typeof LAYOUT)
-    expect(LAYOUT.sidebarWidth).toBe(272)
     expect(LAYOUT.railWidth).toBe(56)
+    expect(LAYOUT.settingsWidth).toBe(272)
     expect(LAYOUT.taskbarHeight).toBe(48)
     expect(LAYOUT.panelMargin).toBe(10)
     expect(LAYOUT.panelRadius).toBe(12)
@@ -25,8 +25,7 @@ describe(`shell-layout.json`, () => {
     expect(widgetSize(`xl`)).toEqual({ width: 160, height: 160 })
   })
 
-  test(`the rail is the collapsed sidebar`, () => {
-    expect(sidebarWidth(false)).toBe(272)
-    expect(sidebarWidth(true)).toBe(56)
+  test(`the sidebar is the rail for good (#EDE-65): no 272 px column`, () => {
+    expect(`sidebarWidth` in LAYOUT).toBe(false)
   })
 })

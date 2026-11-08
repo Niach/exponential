@@ -85,6 +85,58 @@ pub fn data_dir() -> PathBuf {
     data.join("exponential-desktop").join("apps")
 }
 
+/// Beside the old shared store once a Local desktop took a copy of it.
+pub const CLAIMED_MARKER: &str = "claimed-by.json";
+
+/// #EDE-65 J5b: a Local desktop's apps keep their records, files and vaults
+/// in the desktop's own folder (`<desktop>/apps`): two desktops never share
+/// them, and they go wherever the desktop goes (a Share's archive, a purge).
+/// The ONE store every Local desktop used before ([`data_dir`]) is copied,
+/// once, into the index's CURRENT desktop (the one the person used it
+/// with; `current` = None: whichever opens first), a staging folder renamed
+/// into place; the original stays with [`CLAIMED_MARKER`] beside it.
+pub fn local_data_dir(desktop_dir: &Path, desktop_id: &str, current: Option<&str>, shared: &Path) -> PathBuf {
+    let dir = desktop_dir.join("apps");
+    let heir = current.is_none_or(|c| c == desktop_id);
+    if !heir || dir.exists() || !shared.join("records.sqlite").exists() || shared.join(CLAIMED_MARKER).exists() {
+        return dir;
+    }
+    let staging = desktop_dir.join(".apps-import");
+    let _ = std::fs::remove_dir_all(&staging);
+    let copied = copy_dir(shared, &staging).and_then(|()| std::fs::rename(&staging, &dir));
+    match copied {
+        Ok(()) => {
+            let marker = json!({"desktop": desktop_dir, "at": elocal::time::now()});
+            if let Err(e) = std::fs::write(shared.join(CLAIMED_MARKER), marker.to_string()) {
+                tracing::warn!("apps: {e}");
+            }
+            tracing::info!(desktop = %desktop_dir.display(), "the apps' shared records moved into the Local desktop");
+        }
+        Err(e) => {
+            tracing::warn!("apps: copying the shared records: {e}");
+            let _ = std::fs::remove_dir_all(&staging);
+        }
+    }
+    dir
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        if entry.file_name() == CLAIMED_MARKER {
+            continue;
+        }
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
 /// The apps of the factory directory, then the person's own, a file of the
 /// same name in the person's directory replacing the factory one; by file name.
 pub fn scan_installed(factory: &Path, personal: &Path) -> Vec<EngineApp> {
@@ -421,12 +473,11 @@ pub fn open_window(engine: &SharedEngine, app_id: &str, cx: &mut App) {
 }
 
 /// The most an app window takes on an output of `out` px: the ground's
-/// free area inside the sidebar (or the rail), the taskbar and the panel
-/// margins (shell-layout.json), never below 320×240.
-pub fn window_max(out: (u32, u32), rail: bool) -> (u32, u32) {
+/// free area inside the rail (#EDE-65: the sidebar for good), the taskbar
+/// and the panel margins (shell-layout.json), never below 320×240.
+pub fn window_max(out: (u32, u32)) -> (u32, u32) {
     let layout = shell_layout();
-    let side = if rail { layout.rail_width } else { layout.sidebar_width };
-    (out.0.saturating_sub(side + 2 * layout.panel_margin).max(320), out.1.saturating_sub(layout.taskbar_height + 2 * layout.panel_margin).max(240))
+    (out.0.saturating_sub(layout.rail_width + 2 * layout.panel_margin).max(320), out.1.saturating_sub(layout.taskbar_height + 2 * layout.panel_margin).max(240))
 }
 
 /// Where the `n`th widget of the column goes: its size for its class and
@@ -482,6 +533,52 @@ pub fn open_widgets(engine: &SharedEngine, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    /// #EDE-65 J5b: each Local desktop's apps have their own records; the
+    /// old shared store goes, copied once, to the index's current desktop
+    /// (the first to open only when none is current).
+    #[test]
+    fn a_local_desktop_owns_its_apps_records() {
+        let root = tempfile::tempdir().unwrap();
+        let (shared, used, other) = (root.path().join("apps"), root.path().join("d1"), root.path().join("d2"));
+        let seed = |shared: &Path| {
+            std::fs::create_dir_all(shared.join("files")).unwrap();
+            std::fs::write(shared.join("records.sqlite"), "old records").unwrap();
+            std::fs::write(shared.join("files").join("f1"), "a file").unwrap();
+        };
+        seed(&shared);
+        std::fs::create_dir_all(&used).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+
+        // Another desktop opens first: it starts empty, the store waits for the current one.
+        assert_eq!(super::local_data_dir(&other, "d2", Some("d1"), &shared), other.join("apps"));
+        assert!(!other.join("apps").exists());
+        assert!(!shared.join(super::CLAIMED_MARKER).exists());
+
+        let dir = super::local_data_dir(&used, "d1", Some("d1"), &shared);
+        assert_eq!(dir, used.join("apps"));
+        assert_eq!(std::fs::read_to_string(dir.join("records.sqlite")).unwrap(), "old records");
+        assert_eq!(std::fs::read_to_string(dir.join("files").join("f1")).unwrap(), "a file");
+        // The original stays, claimed; nobody gets it again.
+        assert_eq!(std::fs::read_to_string(shared.join("records.sqlite")).unwrap(), "old records");
+        assert!(shared.join(super::CLAIMED_MARKER).exists());
+        assert!(!used.join(".apps-import").exists());
+        super::local_data_dir(&other, "d2", Some("d2"), &shared);
+        assert!(!other.join("apps").exists());
+        std::fs::write(dir.join("records.sqlite"), "d1's records").unwrap();
+        super::local_data_dir(&used, "d1", Some("d1"), &shared);
+        assert_eq!(std::fs::read_to_string(dir.join("records.sqlite")).unwrap(), "d1's records");
+
+        // No current desktop: the first to open takes it.
+        let (shared, first) = (root.path().join("apps2"), root.path().join("d3"));
+        seed(&shared);
+        std::fs::create_dir_all(&first).unwrap();
+        let dir = super::local_data_dir(&first, "d3", None, &shared);
+        assert_eq!(std::fs::read_to_string(dir.join("records.sqlite")).unwrap(), "old records");
+        // An empty desktop's own store opens apart.
+        let stores = super::Stores::open(other.join("apps"), Vec::new()).unwrap();
+        assert_eq!(stores.data_dir, other.join("apps"));
+    }
+
     use super::*;
 
     const SAMPLE: &str = include_str!("../../../../../ede/apps/notes.app.json");
@@ -510,10 +607,9 @@ mod tests {
 
     #[test]
     fn an_app_window_fits_the_ground() {
-        assert_eq!(window_max((1920, 1080), false), (1628, 1012));
-        assert_eq!(window_max((1280, 720), false), (988, 652));
-        assert_eq!(window_max((1280, 720), true), (1204, 652));
-        assert_eq!(window_max((300, 200), false), (320, 240));
+        assert_eq!(window_max((1920, 1080)), (1844, 1012));
+        assert_eq!(window_max((1280, 720)), (1204, 652));
+        assert_eq!(window_max((300, 200)), (320, 240));
     }
 
     #[test]

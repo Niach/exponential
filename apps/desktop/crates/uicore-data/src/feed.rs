@@ -74,8 +74,9 @@ pub fn windows_feed(windows: &[ede_protocol::WindowInfo], active_workspace: usiz
 /// start menu's categories and apps, the Alt-Tab order).
 pub fn shell_feed(state: &ShellState, apps: &[StartMenuApp], favourites: &[String]) -> Value {
     json!({
-        "rail": state.rail,
-        "sidebar": state.sidebar,
+        // #EDE-65: the sidebar is the icon rail for good (sidebar.json's
+        // Sidebar folds on it; the IDE feeds its own rail state).
+        "rail": true,
         "switcher": {
             "current": state.switcher.current,
             "entries": state.switcher.entries,

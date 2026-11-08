@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-desktop-follows-exponential-desktop",
+    date: "2026-11-08",
+    title: "The desktop app follows Exponential Desktop",
+    summary: "On Exponential Desktop the app starts on the right account and desktop and follows you onto Local desktops; Alt-Tab, the icon rail, the shared chat and start-menu search arrive with eDE 0.2.9.",
+    body: r#"- **Follows Exponential Desktop**: on Exponential Desktop the app starts on the account that owns the desktop's team, where the switcher is, and follows you onto Local desktops.
+- **Exponential Desktop 0.2.9**: Alt-Tab with icons and thumbnails, the IDE's icon rail as the sidebar, the shared agent chat in its panel, the inbox in the bell, and start-menu search across every team and Local desktop."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_225: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-desktop-on-exponential-desktop",
     date: "2026-11-08",
     title: "The desktop app on Exponential Desktop",
