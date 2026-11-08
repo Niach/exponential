@@ -83,7 +83,7 @@ jobs:
 
       - name: Pin tuist
         run: |
-          mise use -g tuist@4.202.6
+          mise use -g tuist@4.215.1
           tuist version
 
       # EXP-1280: the app links the Exponential UI Swift painter (the plan card's
