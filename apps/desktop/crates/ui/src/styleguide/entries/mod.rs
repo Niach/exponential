@@ -81,6 +81,8 @@ pub(crate) mod record_form;
 pub(crate) mod settings_row;
 pub(crate) mod record_table;
 pub(crate) mod mosaic;
+// VAPP-290: the window frame (the eUI Window macro).
+pub(crate) mod window;
 // EXP-1586: the lightbox picture (the eUI zoom view).
 pub(crate) mod zoomable_image;
 pub(crate) mod motion;
@@ -114,6 +116,8 @@ pub(crate) mod entity_chip;
 pub(crate) mod results_tab;
 pub(crate) mod needs_you;
 pub(crate) mod ede_panel;
+pub(crate) mod site_cta_band;
+pub(crate) mod site_mega_menu;
 // #EXP-1645: the team mark + the Team image row.
 pub(crate) mod team_avatar;
 
@@ -183,6 +187,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: outline::ID, owner: outline::OWNER, render: outline::render },
     Entry { id: tree::ID, owner: tree::OWNER, render: tree::render },
     Entry { id: mosaic::ID, owner: mosaic::OWNER, render: mosaic::render },
+    Entry { id: window::ID, owner: window::OWNER, render: window::render },
     Entry { id: zoomable_image::ID, owner: zoomable_image::OWNER, render: zoomable_image::render },
     Entry { id: motion::ID, owner: motion::OWNER, render: motion::render },
     Entry { id: box_hover::ID, owner: box_hover::OWNER, render: box_hover::render },
@@ -241,4 +246,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: results_tab::ID, owner: results_tab::OWNER, render: results_tab::render },
     Entry { id: needs_you::ID, owner: needs_you::OWNER, render: needs_you::render },
     Entry { id: ede_panel::ID, owner: ede_panel::OWNER, render: ede_panel::render },
+    Entry { id: site_mega_menu::ID, owner: site_mega_menu::OWNER, render: site_mega_menu::render },
+    Entry { id: site_cta_band::ID, owner: site_cta_band::OWNER, render: site_cta_band::render },
 ];

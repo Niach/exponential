@@ -2102,7 +2102,7 @@
       "reason": "Carousel thumbnail picture: the web paints a bare <img> filling the thumbnail button (inset 0, no data-xui-id); its box is the thumbnail's, which is compared."
     },
     {
-      "id": "media-img.fallback",
+      "id": "media_img.fallback",
       "only": "ref",
       "cases": 64,
       "reason": "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."

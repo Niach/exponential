@@ -1,7 +1,8 @@
 ---
 /* Download: one card per platform, straight to the asset or the store. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
-import Duo from "../components/landing/Duo.astro"
+import EuiSurface from "../components/eui/EuiSurface.tsx"
+import Framed from "../components/landing/Framed.astro"
 import PlatformLogo from "../components/landing/PlatformLogo.astro"
 import { LINKS } from "../components/landing/links.ts"
 import { seoHead } from "../components/landing/seo.ts"
@@ -14,6 +15,17 @@ const PLATFORMS = [
   { id: `ios`, name: `iOS`, requirement: `iOS 17.4+ · App Store`, href: LINKS.downloads.ios },
   { id: `android`, name: `Android`, requirement: `Android 8+ · Google Play`, href: LINKS.downloads.android },
 ] as const
+
+/* The phones: a code per store, painted by genUI at build time. */
+const PHONES = {
+  id: `phones`,
+  component: `Stack`,
+  props: { direction: `horizontal`, gap: `xl`, justify: `center`, wrap: true },
+  children: [
+    { id: `qr_ios`, component: `QrCode`, props: { value: LINKS.downloads.ios, label: `iPhone and iPad`, size: 168 } },
+    { id: `qr_android`, component: `QrCode`, props: { value: LINKS.downloads.android, label: `Android`, size: 168 } },
+  ],
+}
 ---
 
 <StarlightPage
@@ -26,7 +38,7 @@ const PLATFORMS = [
   }}
 >
   <div class="exp-landing">
-    <section class="exp-section not-content">
+    <section class="exp-band exp-band-first not-content">
       <div class="exp-platform-grid">
         {
           PLATFORMS.map((p) => (
@@ -43,6 +55,18 @@ const PLATFORMS = [
       </p>
     </section>
 
-    <Duo desktop={shot(`board`, `desktop`, `A board in the desktop app`)} phone={shot(`board`, `android`, `The same board on Android`)} />
+    <section class="exp-band not-content" id="phones">
+      <div class="exp-band-head">
+        <h2>On your phone</h2>
+      </div>
+      <EuiSurface id="phones" tree={PHONES} />
+    </section>
+
+    <section class="exp-band not-content" id="desktop">
+      <div class="exp-band-head">
+        <h2>Native on the desktop</h2>
+      </div>
+      <Framed id="board" title="Exponential" {...shot(`board`, `desktop`, `A board in the desktop app`)} />
+    </section>
   </div>
 </StarlightPage>
