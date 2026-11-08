@@ -16,7 +16,7 @@ import { checkArgs, allowedCallers, declaredFunction, INDEX_FUNCTION, requiresUs
 import { ACCEPT_V09, A2UI_VERSION } from "../catalog"
 import { checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "../entry"
 import type { ExtensionDef } from "../types"
-import { emptyUpgrade09State, upgradeMessage09, upgradePackageBody09 } from "../upgrade09"
+import { emptyUpgrade09State, upgradeMessage09In, upgradePackageBody09 } from "../upgrade09"
 import { A2UI_MESSAGE_KINDS, errorMessage, HOST_MESSAGE_KINDS, MESSAGE_KINDS, rendererFunctionResponse } from "./contract"
 import type { HostErrorCode, HostOp } from "./contract"
 import { isRecordMacroBinding } from "./record-macros"
@@ -155,8 +155,7 @@ export class HostRouter {
     const envelope = checkEnvelope(message, acceptV09)
     if (envelope.kind === `refused`) return [this.invalid(surfaceIdOf(message), envelope.reason)]
     if (envelope.kind === `upgrade`) {
-      const { messages, state } = upgradeMessage09(message, this.upgradeState)
-      this.upgradeState = state
+      const messages = upgradeMessage09In(message, this.upgradeState)
       const ops: HostOp[] = []
       for (const m of messages) {
         // The upgraded form is 1.0: never bridged twice.

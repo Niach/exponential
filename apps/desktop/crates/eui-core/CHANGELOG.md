@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A streamed 0.9 surface costs linear again: the upgrade bridge advances its id maps in place and keeps their inverse, instead of copying both per message (`upgrade_message09_in`, #EXP-1742).
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
