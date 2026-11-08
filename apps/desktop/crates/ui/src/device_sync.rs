@@ -136,6 +136,10 @@ fn claim_login(inflight: &Mutex<HashSet<String>>, id: &str) -> bool {
 /// `start_control_channel`). Restarting for the same account replaces the
 /// old loop.
 pub fn start_device_sync(account: &api::Account, cx: &mut App) {
+    // #EXP-1727: a Local desktop is no device of any account.
+    if account.is_local() {
+        return;
+    }
     let state_entity = state(cx);
     let account_id = account.id.clone();
     let stop = Arc::new(AtomicBool::new(false));
