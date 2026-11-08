@@ -146,7 +146,10 @@ impl Workspaces {
     /// The entry the desktops index says is current (a Local desktop).
     pub fn current_local(&self) -> Option<SwitcherEntry> {
         if self.demo {
-            return demo_entries().into_iter().next();
+            // The goldens: `EDE_SHELL_DEMO_TEAM=<id>` starts on that demo team.
+            let team = std::env::var("EDE_SHELL_DEMO_TEAM").ok().filter(|t| !t.is_empty());
+            let entries = demo_entries();
+            return team.and_then(|t| entries.iter().find(|e| e.id == t).cloned()).or_else(|| entries.into_iter().next());
         }
         let id = self.desktops.current()?;
         let entry = self.desktops.get(id)?;
