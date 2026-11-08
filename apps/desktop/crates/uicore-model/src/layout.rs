@@ -16,6 +16,8 @@ pub struct Size {
 pub struct ShellLayout {
     pub version: u32,
     pub rail_width: u32,
+    /// #EDE-65: the settings nav's column, where the rail is while Settings are open.
+    pub settings_width: u32,
     pub taskbar_height: u32,
     pub panel_margin: u32,
     pub panel_radius: u32,
@@ -59,7 +61,7 @@ mod tests {
     #[test]
     fn the_numbers_are_the_fixtures() {
         let l = shell_layout();
-        assert_eq!((l.rail_width, l.taskbar_height), (56, 48));
+        assert_eq!((l.rail_width, l.settings_width, l.taskbar_height), (56, 272, 48));
         assert_eq!((l.panel_margin, l.panel_radius), (10, 12));
         assert_eq!(l.start_menu, Size { width: 760, height: 620 });
         assert_eq!(l.widgets.size_px("s"), Size { width: 160, height: 160 });

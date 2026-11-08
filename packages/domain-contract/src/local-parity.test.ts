@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/local-parity.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { anchorForCategory, applyIssuePatch, assistantRow, createCommentRow, createIssueRow, isLocalProcedure, issueIdentifier, localEmail, localRefusal, nextIssueNumber, seedRows, sendRows, type Row } from "./local-parity"
+import { anchorForCategory, applyIssuePatch, assistantRow, createCommentRow, createIssueRow, draftConsumedRefusal, draftRow, isLocalProcedure, issueIdentifier, localEmail, localRefusal, nextIssueNumber, seedRows, sendRows, type Row } from "./local-parity"
 
 const ids = (list: readonly string[]) => {
   let i = 0
@@ -38,6 +38,12 @@ describe(`local parity (EDE-55)`, () => {
   })
   test.each(fixture.issues.update.cases)(`applyIssuePatch: $name`, (c) => {
     expect(applyIssuePatch(c.row as Row, c.patch as Row, team.statuses, c.now)).toEqual(c.expected)
+  })
+  test.each(fixture.drafts.upsert.cases)(`draftRow: $name`, (c) => {
+    expect(draftRow(c.input as Row, { identity: team.identity, existing: c.existing as Row | null, now: c.now })).toEqual(c.expected)
+  })
+  test(`draftConsumedRefusal`, () => {
+    expect(draftConsumedRefusal(`GEN-7`)).toBe(`This draft was already created as GEN-7`)
   })
   test.each(fixture.comments.cases)(`createCommentRow: $name`, (c) => {
     expect(createCommentRow(c.input as Row, { teamId: team.teamId, identity: team.identity, existing: c.existing, id: c.id, now: c.now })).toEqual(c.expected)

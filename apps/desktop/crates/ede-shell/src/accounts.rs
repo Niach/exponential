@@ -27,7 +27,8 @@ pub struct Workspaces {
 /// The shapes the shell syncs per account: the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
 /// published packages) and their records, for a connected desktop;
-/// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`).
+/// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`),
+/// and the viewer's read marks (the rail's unread dot, the IDE's rule).
 pub(crate) const SHAPES: &[&str] = &[
     "teams",
     "team_members",
@@ -45,6 +46,7 @@ pub(crate) const SHAPES: &[&str] = &[
     // same shape) and the people its transcript names.
     "messages",
     "users",
+    "session_reads",
 ];
 
 impl Workspaces {
@@ -146,7 +148,10 @@ impl Workspaces {
     /// The entry the desktops index says is current (a Local desktop).
     pub fn current_local(&self) -> Option<SwitcherEntry> {
         if self.demo {
-            return demo_entries().into_iter().next();
+            // The goldens: `EDE_SHELL_DEMO_TEAM=<id>` starts on that demo team.
+            let team = std::env::var("EDE_SHELL_DEMO_TEAM").ok().filter(|t| !t.is_empty());
+            let entries = demo_entries();
+            return team.and_then(|t| entries.iter().find(|e| e.id == t).cloned()).or_else(|| entries.into_iter().next());
         }
         let id = self.desktops.current()?;
         let entry = self.desktops.get(id)?;
@@ -365,6 +370,9 @@ mod tests {
 
     #[test]
     fn the_chats_sync_with_the_teams() {
-        assert!(SHAPES.contains(&"sessions"));
+        for shape in ["sessions", "conversations", "session_reads"] {
+            assert!(SHAPES.contains(&shape), "{shape}");
+            assert!(sync::shapes::shape_by_name(shape).is_some(), "{shape} is a synced shape");
+        }
     }
 }

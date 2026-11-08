@@ -7,6 +7,8 @@ import fixture from "../fixtures/shell-layout.json" with { type: "json" }
 export interface ShellLayout {
   version: number
   railWidth: number
+  /** #EDE-65: the settings nav's column, where the rail is while Settings are open. */
+  settingsWidth: number
   taskbarHeight: number
   panelMargin: number
   panelRadius: number
@@ -20,7 +22,8 @@ export interface ShellLayout {
   widgets: { cell: number; gap: number; margin: number; sizes: Record<string, [number, number]> }
 }
 
-export const LAYOUT: ShellLayout = fixture
+// JSON infers number[] where the type says [w, h].
+export const LAYOUT: ShellLayout = fixture as unknown as ShellLayout
 
 /** A widget's size in px for its class (`s` when unknown). */
 export function widgetSize(size: string): { width: number; height: number } {
