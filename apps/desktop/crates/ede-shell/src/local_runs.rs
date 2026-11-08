@@ -144,6 +144,13 @@ impl LocalChat {
         self.send(label)
     }
 
+    /// The open session's `cli` (#EDE-65 J5), else the CLI the runs use.
+    pub fn session_cli(&self) -> Option<String> {
+        let session = self.session_id.as_ref()?;
+        let row = self.desktop.store.row("sessions", session).ok().flatten();
+        row.and_then(|r| r.get("cli").and_then(Value::as_str).map(str::to_string)).filter(|c| !c.is_empty()).or_else(|| (!self.agent.is_empty()).then(|| self.agent.clone()))
+    }
+
     /// New chat: the next send starts a session.
     pub fn new_chat(&mut self) {
         self.session_id = None;

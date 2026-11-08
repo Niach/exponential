@@ -25,12 +25,8 @@
 //!   `sessions.configure`), `/model <alias>` a message the CLI acts on.
 
 use steer::activity::SessionAgent;
-use steer::commands::{catalog_for, SteerCommand};
+use steer::commands::SteerCommand;
 
-/// Rows the menu will draw at most (web `filterSteerCommands`' cap; the
-/// catalog is shorter than this today and the cap is the parity, not a
-/// design).
-const MENU_LIMIT: usize = 8;
 
 /// Which agent a synced session row runs. A row that names none predates the
 /// column — contract order puts claude first, so claude it is.
@@ -61,10 +57,7 @@ fn agent_from_id(agent: Option<&str>, acp: bool) -> SessionAgent {
 /// bare command token (web `matchSlashDraft`). Deliberately untrimmed: the
 /// rule is about the whole draft, so a trailing space closes the menu.
 pub(crate) fn slash_query(draft: &str) -> Option<&str> {
-    let rest = draft.strip_prefix('/')?;
-    rest.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-')
-        .then_some(rest)
+    domain::slash_menu::slash_query(draft)
 }
 
 /// One row of the `/` menu (owned, so the composer can hold it).
@@ -94,17 +87,7 @@ impl From<SteerCommand> for MenuCommand {
 /// advertises (`config_state.commands`): those stay hidden on every
 /// platform.
 pub(crate) fn menu_matches(draft: &str, agent: SessionAgent) -> Vec<MenuCommand> {
-    let Some(query) = slash_query(draft) else {
-        return Vec::new();
-    };
-    let needle = query.to_ascii_lowercase();
-    let mut rows: Vec<MenuCommand> = catalog_for(agent)
-        .into_iter()
-        .map(MenuCommand::from)
-        .filter(|row| row.name.to_ascii_lowercase().starts_with(&needle))
-        .collect();
-    rows.truncate(MENU_LIMIT);
-    rows
+    domain::slash_menu::menu_matches(draft, agent.id()).into_iter().map(MenuCommand::from).collect()
 }
 
 /// NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
@@ -201,11 +184,7 @@ pub(crate) const ATTACHMENTS_BLOCK_COMMAND: &str = "Remove the attachments to se
 /// What accepting `command` puts in the composer — with the trailing space
 /// when there is an argument to type, without when there is not.
 pub(crate) fn insertion(command: &MenuCommand) -> String {
-    if command.arg_hint.is_empty() {
-        format!("/{}", command.name)
-    } else {
-        format!("/{} ", command.name)
-    }
+    domain::slash_menu::insertion(&command.name, &command.arg_hint)
 }
 
 // ── Composer chip copy (byte-identical ×4) ──────────────────────────────────

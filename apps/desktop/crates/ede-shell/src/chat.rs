@@ -97,9 +97,43 @@ fn chat_row(row: &SessionThreadRow, messages: &HashMap<&str, &MessageRow>, name:
     })
 }
 
+/// The agent CLI a session's `cli` names for the `/` menu (the IDE's
+/// `agent_of`): `codex`, else `claude` (an absent or unknown one too).
+pub fn session_agent(cli: Option<&str>) -> &'static str {
+    match cli.map(str::trim) {
+        Some(id) if id.eq_ignore_ascii_case("codex") => "codex",
+        _ => "claude",
+    }
+}
+
+/// THE `/` menu (`domain::slash_menu`, the IDE's rules) as `/chatMenu`
+/// binds it: open while the draft is a bare command token with matches
+/// for `cli` (`None` = no session yet: no builtins).
+pub fn slash_menu(draft: &str, cli: Option<&str>) -> serde_json::Value {
+    let rows: Vec<serde_json::Value> = cli
+        .map(|cli| domain::slash_menu::menu_matches(draft, cli))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| serde_json::json!({"name": c.name, "command": format!("/{}", c.name), "description": c.description, "hint": c.arg_hint, "insert": domain::slash_menu::insertion(c.name, c.arg_hint)}))
+        .collect();
+    serde_json::json!({"open": !rows.is_empty(), "rows": rows})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_slash_menu_lists_the_session_cli_s_builtins_while_the_draft_is_a_command() {
+        let menu = slash_menu("/co", Some("claude"));
+        assert_eq!(menu["open"], true);
+        assert_eq!(menu["rows"][0]["command"], "/compact");
+        assert_eq!(menu["rows"][0]["insert"], "/compact ");
+        assert_eq!(slash_menu("/co ", Some("claude"))["open"], false, "a space closes it");
+        assert_eq!(slash_menu("/", None)["open"], false, "the home has no builtins");
+        assert_eq!(session_agent(Some("Codex")), "codex");
+        assert_eq!(session_agent(None), "claude");
+    }
     use domain::chats::DividerKind;
 
     fn message(id: &str, at: &str) -> MessageRow {

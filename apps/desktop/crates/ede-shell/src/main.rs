@@ -316,6 +316,10 @@ struct Shell {
     local_sessions: Option<flume::Receiver<elocal::LocalDelta>>,
     /// #EDE-65 lane I: the agent picked on the chat's home.
     chat_agent: Option<String>,
+    /// The composer's text as it last reported it (the `/` menu reads it).
+    chat_draft: String,
+    /// The open session's CLI (`claude` | `codex`); `None` on the home.
+    chat_cli: Option<String>,
     /// The chat on a team: its account, team and open session.
     chat_team: Option<team_chat::TeamChat>,
     /// The team chat's opener over the app's keyring (its account's).
@@ -855,6 +859,12 @@ impl HostPlugin for Host {
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
                         Some("stop") => {}
+                        Some("draft") => {
+                            shell.borrow_mut().chat_draft = arg("text");
+                            chat_menu_changed(&shell);
+                            refresh(&shell, cx);
+                        }
+                        Some("slash") => chat_set_draft(&shell, &arg("insert"), cx),
                         _ => chat_toggle(&shell, cx),
                     }
                 });
@@ -1788,26 +1798,33 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
     let local = !demo && chat_local(shell);
     let team = if demo || local { None } else { team_chat(shell) };
-    let (mut input, no_cli) = {
+    // The open session's CLI (the `/` menu's builtins), `None` = the CLI default.
+    let (mut input, no_cli, cli) = {
         let s = shell.borrow();
         match (demo, s.chat_local.as_ref().filter(|_| local), team) {
-            (true, _, _) if on_local(shell) => (local_runs::demo_input(), false),
+            (true, _, _) if on_local(shell) => (local_runs::demo_input(), false, None),
             (true, _, _) => {
                 *s.chat_glyphs.borrow_mut() = team_chat::demo_glyphs();
-                (team_chat::demo_input(), false)
+                (team_chat::demo_input(), false, None)
             }
             (false, Some(chat), _) => {
                 *s.chat_glyphs.borrow_mut() = chat.agents().1;
-                (chat.input(), chat.agent.is_empty())
+                (chat.input(), chat.agent.is_empty(), chat.session_cli())
             }
             (false, None, Some((chat, rows))) => {
                 *s.chat_glyphs.borrow_mut() = team_chat::glyphs(&rows.account, &chat.team_id);
-                (team_chat::input(&rows, &chat, now_ms()), false)
+                let cli = chat.session_id.as_deref().and_then(|id| rows.account.sessions.iter().find(|r| r.id == id)).and_then(|r| r.cli.clone());
+                (team_chat::input(&rows, &chat, now_ms()), false, cli)
             }
-            _ => (local_runs::assistant_home(), false),
+            _ => (local_runs::assistant_home(), false, None),
         }
     };
+    // A session's menu offers its CLI's builtins; the home (no session) none.
+    shell.borrow_mut().chat_cli = input.session_id.as_ref().map(|_| chat::session_agent(cli.as_deref()).to_string());
+    chat_menu_changed(shell);
     input.agent_id = shell.borrow().chat_agent.clone().or(input.agent_id);
+    // eDE's composer has THE `/` menu: the conversation promises it (chat.json slashCommands).
+    input.slash_commands = true;
     let view = uicore_model::chat::chat_view(&input);
     let mut value = serde_json::to_value(&view).unwrap_or_default();
     value["noCli"] = json!(no_cli);
@@ -1999,9 +2016,29 @@ fn chat_open(shell: &SharedShell, session_id: Option<&str>, cx: &mut App) {
 
 /// The draft is the document's: hand it an empty one, then let it own it again.
 fn chat_clear_draft(shell: &SharedShell, cx: &mut App) {
+    shell.borrow_mut().chat_draft.clear();
     shell.borrow_mut().feed.set("/chat", json!({"draft": ""}));
     chatting_changed(shell, cx);
     shell.borrow_mut().feed.remove("/chat");
+}
+
+/// The composer's text set by the host (a `/` menu row's insertion), then
+/// the document's own again.
+fn chat_set_draft(shell: &SharedShell, text: &str, cx: &mut App) {
+    shell.borrow_mut().chat_draft = text.to_string();
+    chat_menu_changed(shell);
+    shell.borrow_mut().feed.set("/chat", json!({"draft": text}));
+    refresh(shell, cx);
+    shell.borrow_mut().feed.remove("/chat");
+}
+
+/// THE `/` menu over the composer's draft (`/chatMenu`).
+fn chat_menu_changed(shell: &SharedShell) {
+    let menu = {
+        let s = shell.borrow();
+        chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref())
+    };
+    shell.borrow_mut().feed.set("/chatMenu", menu);
 }
 
 /// The start menu: the popup document `start-menu` (or the older `menu`),
@@ -2708,6 +2745,11 @@ fn main() {
             _ => local_runs::assistant_home(),
         };
         feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
+        // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
+        if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
+            feed.set("/chat", json!({"draft": draft}));
+            feed.set("/chatMenu", chat::slash_menu(&draft, Some("claude")));
+        }
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/tray", json!([{"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}, {"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""}]));
@@ -2817,6 +2859,8 @@ fn main() {
             chat_local: None,
             local_sessions: None,
             chat_agent: None,
+            chat_draft: String::new(),
+            chat_cli: None,
             chat_team: None,
             chat_opener: None,
             chat_glyphs,
