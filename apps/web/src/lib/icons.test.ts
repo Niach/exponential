@@ -524,9 +524,9 @@ describe(`icon call sites`, () => {
       [`Statuses`, `Statuses`],
       [`Storage`, `Storage`],
       // EXP-862: the web Boards group flattened like the desktop's, so the
-      // shared static entry is Archived boards (per-board rows are injected
+      // shared static entry is All boards (#NEW-37) (per-board rows are injected
       // at render on both clients).
-      [`Archived boards`, `ArchivedBoards`],
+      [`All boards`, `AllBoards`],
       [`Repositories`, `Repositories`],
       [`Prompts`, `Prompts`],
       [`Widget`, `Widget`],

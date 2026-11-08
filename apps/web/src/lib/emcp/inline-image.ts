@@ -30,7 +30,7 @@ export interface InlineImage {
 }
 
 // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
-type SharpFactory = typeof import("sharp")
+type SharpFactory = typeof import("sharp").default
 
 let sharpLoad: Promise<SharpFactory | null> | undefined
 let loggedLoadFailure = false
@@ -43,12 +43,7 @@ async function loadSharp(): Promise<SharpFactory | null> {
     sharpLoad ??
     (sharpLoad = (async () => {
       try {
-        // sharp is CommonJS (`export =`), so the ESM namespace carries the
-        // factory on `default` while the type is the callable itself.
-        const loaded = (await import(`sharp`)) as unknown as SharpFactory & {
-          default?: SharpFactory
-        }
-        return loaded.default ?? loaded
+        return (await import(`sharp`)).default
       } catch (error) {
         if (!loggedLoadFailure) {
           loggedLoadFailure = true
