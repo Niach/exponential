@@ -159,14 +159,6 @@ thread_local! {
     pub(crate) static TRANSCRIPT_MENU_TEXT: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
-/// EXP-1228: `element` opens [`open_transcript_menu`] on a right press its
-/// children did not claim (`controls::claim_right_click`).
-pub(crate) fn with_transcript_menu<E: gpui::InteractiveElement>(element: E) -> E {
-    element.on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
-        open_transcript_menu(event.position, window, cx)
-    })
-}
-
 /// How long a body may run before it folds behind "Show more" (web
 /// `clampable`: >600 chars or >6 lines).
 const CLAMP_CHARS: usize = 600;
@@ -541,9 +533,6 @@ pub(crate) struct SteerSessionView {
     /// EXP-1650: an app editor's chat draws no "No transcript" replay banner
     /// (web shows only "Session ended" there) — [`Self::hide_empty_replay`].
     hide_empty_replay: bool,
-    /// #EXP-1678: a join replay has landed in the feed (at least once): the
-    /// chat's child probe reads the Queue only once it is there.
-    replayed: bool,
     /// The composer controls' element ids.
     composer_ids: ComposerIds,
     sending: bool,
@@ -896,7 +885,6 @@ impl SteerSessionView {
             pending_images: PendingImages::default(),
             tree_scope: false,
             hide_empty_replay: false,
-            replayed: false,
             composer_ids: ComposerIds::session(),
             sending: false,
             notice: None,
@@ -2206,7 +2194,6 @@ impl SteerSessionView {
                 }
                 self.feed.apply_synced_from(first_seq);
                 self.history_truncated = truncated;
-                self.replayed = true;
             }
             // EXP-783: an older page, requested by scrolling past the top of
             // what this client holds. It is PREPENDED, so every visible row
@@ -2504,7 +2491,6 @@ impl SteerSessionView {
                     // Re-minted ids: see the `ViewerEvent::Synced` arm.
                     this.edit_memo.clear();
                     this.feed.force_swap();
-                    this.replayed = true;
                     this.refresh_derived();
                     this.note_feed_moved(pulse);
                     this.note_compaction(was_compacting, cx);
@@ -2655,6 +2641,36 @@ impl SteerSessionView {
         let Some(message_id) = self.card_message_id(&card, cx) else { return };
         let input = api::sessions::AnswerInput { message_id, dismissed: Some(true), ..Default::default() };
         self.answer_via_server(&key, Vec::new(), Vec::new(), input, item_id, cx);
+    }
+
+    /// #EXP-1562 (`?card=`): a waiting card in this view (a tool-posted
+    /// Conversation card, or an engine ask's feed card by its row): its
+    /// list row scrolled to the centre and the card ringed.
+    pub(crate) fn reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
+        let items = self.feed.items();
+        let row_holding = |hit: &dyn Fn(&FeedItem) -> bool| {
+            self.rows
+                .iter()
+                .position(|spec| spec.item_indices().iter().filter_map(|&index| items.get(index)).any(|item| hit(item)))
+        };
+        let ix = match self.conv_cards.iter().position(|row| row.id() == message_id) {
+            Some(card) if self.conv_head().contains(&card) => Some(0),
+            Some(card) => match self.conv_tail().iter().position(|&tail| tail == card) {
+                Some(at) => Some(self.rows.len() + self.orphan_workflows.len() + at),
+                None => row_holding(&|item| self.conv_anchors.get(&item.id).is_some_and(|cards| cards.contains(&card))),
+            },
+            None => {
+                let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+                row_holding(&|item| {
+                    item.question()
+                        .is_some_and(|card| card_row_id(&messages, &card.question_id).as_deref() == Some(message_id))
+                })
+            }
+        };
+        match ix {
+            Some(ix) => crate::waiting_cards::reveal_in_list(&self.list, ix, message_id, cx),
+            None => crate::waiting_cards::highlight(message_id, cx),
+        }
     }
 
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
@@ -6926,25 +6942,6 @@ impl SteerSessionView {
         Some(block.into_any_element())
     }
 
-    /// EXP-1323 — a chat's LIVE TAIL (`session-chat.json`
-    /// `liveSessionId`): the end of the Conversation, read off THIS view's
-    /// relay state: the Working row while the agent works.
-    pub(crate) fn live_tail(&self, _window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // N-12: THE Queue left the Conversation for the Dock; the tail keeps
-        // only the Working row (web `SessionLiveTail`).
-        if self.session_over() || !self.working_now() {
-            return None;
-        }
-        Some(
-            v_flex()
-                .id(SharedString::from(domain::session_tree::SESSION_CHAT.test_ids.live_tail.clone()))
-                .w_full()
-                .min_w_0()
-                .child(self.render_working_row(cx))
-                .into_any_element(),
-        )
-    }
-
     /// EXP-861: the messages the agent has not read yet — held behind an
     /// open compaction, or sent mid-turn and awaiting the agent's replay
     /// (EXP-873) — one line each, directly above the composer. A held line
@@ -8117,20 +8114,6 @@ impl SteerSessionView {
     /// N-12: THE Queue as the `tasks` DockCard reads it; `None` when nothing
     /// is to do or the session is over. #EXP-1545: a chat reads each Live
     /// child's through its own view.
-    /// #EXP-1678 (dock.json ONE CHILD STREAM): this viewer as the chat's
-    /// child probe reads it, `attached_ms` after the chat attached it.
-    pub(crate) fn probe_stream(&self, attached_ms: u64) -> domain::dock::ChildStream {
-        use domain::dock::{ChildStream, ChildStreamPhase};
-        let phase = match &self.phase {
-            ViewerPhase::Connecting | ViewerPhase::Reconnecting => ChildStreamPhase::Connecting,
-            ViewerPhase::Live => ChildStreamPhase::Live,
-            ViewerPhase::Starting => ChildStreamPhase::Starting,
-            ViewerPhase::Ended { .. } => ChildStreamPhase::Ended,
-            ViewerPhase::Unauthorized { .. } => ChildStreamPhase::Closed,
-        };
-        ChildStream { phase, replayed: self.replayed, attached_ms }
-    }
-
     pub(crate) fn dock_queue(&self) -> Option<domain::dock::DockQueue> {
         use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo};
         // #EXP-1538: a session that is over shows none of the stream's slots.
@@ -8312,22 +8295,6 @@ impl SteerSessionView {
     pub(crate) fn render_composer_card(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         self.ensure_mcp_loaded(cx);
         Some(self.render_composer(window, cx))
-    }
-
-    /// THE composer card for a screen hosting this view as a ROOT session's
-    /// composer (the chat screen, the agent channel), for its Dock's
-    /// band: the SAME composer the session view paints, targeting this
-    /// session. `None` for a reader who may not steer.
-    pub(crate) fn render_session_composer(
-        &mut self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        self.refresh_derived();
-        if !self.composer_visible() {
-            return None;
-        }
-        self.render_composer_card(window, cx)
     }
 
     /// Host this view as a ROOT session's composer (the chat screen, the
