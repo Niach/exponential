@@ -65,8 +65,10 @@ final class MessageConversationTests: XCTestCase {
         }
     }
 
-    /// The local store keys the same way: `SessionQueries.messages` joins the
-    /// synced `conversations`, so every case replays against GRDB too.
+    /// The local store keys the same way: #EXP-1730's server trigger fills
+    /// `messages.session_id` from the conversation (NULL on a dm/channel
+    /// row) and `SessionQueries.messages` keys by it, so every case replays
+    /// against GRDB too.
     func testSessionQueriesReplayEveryCase() throws {
         let (defaults, cases) = try cases()
         for testCase in cases {
@@ -77,27 +79,20 @@ final class MessageConversationTests: XCTestCase {
             let queue = try DatabaseQueue()
             try DatabaseManager.makeMigrator().migrate(queue)
             let rows = try XCTUnwrap(testCase["messages"] as? [[String: Any]])
+            let sessionOf = MessageConversations.conversationSessions(conversations)
             try queue.write { db in
-                for conversation in conversations {
-                    try ConversationEntity(
-                        id: conversation.id,
-                        teamId: "t",
-                        kind: conversation.sessionId == nil ? "dm" : "session",
-                        sessionId: conversation.sessionId,
-                        createdAt: "2026-01-01T00:00:00Z",
-                        updatedAt: "2026-01-01T00:00:00Z"
-                    ).insert(db)
-                }
                 for (index, row) in rows.enumerated() {
+                    let conversationId = try XCTUnwrap(row["conversationId"] as? String)
                     try MessageEntity(
                         id: try XCTUnwrap(row["id"] as? String),
-                        conversationId: try XCTUnwrap(row["conversationId"] as? String),
+                        conversationId: conversationId,
                         rootId: "s-root",
                         teamId: "t",
                         authorKind: "user",
                         // Input order = creation order.
                         createdAt: "2026-01-01T00:00:0\(index)Z",
-                        updatedAt: "2026-01-01T00:00:00Z"
+                        updatedAt: "2026-01-01T00:00:00Z",
+                        sessionId: sessionOf[conversationId]
                     ).insert(db)
                 }
             }
