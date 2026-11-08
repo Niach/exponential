@@ -646,6 +646,8 @@ pub const NAV_SOURCE_CONTROL: ExpIcon = ExpIcon::GitMerge;
 pub const NAV_TEAM_SWITCHER: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `nav-terminal` -> Lucide `square-terminal`.
 pub const NAV_TERMINAL: ExpIcon = ExpIcon::SquareTerminal;
+/// Registry concept `nav-threads` -> Lucide `list-tree`.
+pub const NAV_THREADS: ExpIcon = ExpIcon::ListTree;
 /// Registry concept `notification-agent-message` -> Lucide `bot`.
 pub const NOTIFICATION_AGENT_MESSAGE: ExpIcon = ExpIcon::Bot;
 /// Registry concept `notification-agent-signed-out` -> Lucide `log-out`.
@@ -792,6 +794,8 @@ pub const STATUS_TODO: ExpIcon = ExpIcon::Circle;
 pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `support-resolved` -> Lucide `circle-check`.
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `thread-results` -> Lucide `images`.
+pub const THREAD_RESULTS: ExpIcon = ExpIcon::Images;
 /// Registry concept `tool-script` -> Lucide `braces`.
 pub const TOOL_SCRIPT: ExpIcon = ExpIcon::Braces;
 /// Registry concept `trace-background` -> Lucide `repeat`.
@@ -1179,6 +1183,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-source-control" => NAV_SOURCE_CONTROL,
         "nav-team-switcher" => NAV_TEAM_SWITCHER,
         "nav-terminal" => NAV_TERMINAL,
+        "nav-threads" => NAV_THREADS,
         "notification-agent-message" => NOTIFICATION_AGENT_MESSAGE,
         "notification-agent-signed-out" => NOTIFICATION_AGENT_SIGNED_OUT,
         "notification-issue-assigned" => NOTIFICATION_ISSUE_ASSIGNED,
@@ -1252,6 +1257,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "status-todo" => STATUS_TODO,
         "support-open" => SUPPORT_OPEN,
         "support-resolved" => SUPPORT_RESOLVED,
+        "thread-results" => THREAD_RESULTS,
         "tool-script" => TOOL_SCRIPT,
         "trace-background" => TRACE_BACKGROUND,
         "trace-chevron" => TRACE_CHEVRON,

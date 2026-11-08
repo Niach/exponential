@@ -538,6 +538,7 @@ public enum AppIcons {
         "nav-source-control": "git-merge",
         "nav-team-switcher": "chevrons-up-down",
         "nav-terminal": "square-terminal",
+        "nav-threads": "list-tree",
         "notification-agent-message": "bot",
         "notification-agent-signed-out": "log-out",
         "notification-issue-assigned": "user-plus",
@@ -611,6 +612,7 @@ public enum AppIcons {
         "status-todo": "circle",
         "support-open": "circle-dot",
         "support-resolved": "circle-check",
+        "thread-results": "images",
         "tool-script": "braces",
         "trace-background": "repeat",
         "trace-chevron": "chevron-right",
@@ -972,6 +974,8 @@ public enum AppIcons {
     public static let navTeamSwitcher: String = "chevrons-up-down"
     /// Concept `nav-terminal`.
     public static let navTerminal: String = "square-terminal"
+    /// Concept `nav-threads`.
+    public static let navThreads: String = "list-tree"
     /// Concept `notification-agent-message`.
     public static let notificationAgentMessage: String = "bot"
     /// Concept `notification-agent-signed-out`.
@@ -1118,6 +1122,8 @@ public enum AppIcons {
     public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
+    /// Concept `thread-results`.
+    public static let threadResults: String = "images"
     /// Concept `tool-script`.
     public static let toolScript: String = "braces"
     /// Concept `trace-background`.
