@@ -238,6 +238,7 @@ impl AllBoardsPane {
         let board_for_click = board.clone();
         board_row(
             board.icon.as_deref(),
+            board.color.as_deref(),
             &board.name,
             purge_countdown(board.purge_at.as_deref(), chrono::Utc::now()),
             glass_pill_button(
@@ -259,6 +260,7 @@ impl AllBoardsPane {
         let board_for_click = board.clone();
         board_row(
             board.icon.as_deref(),
+            board.color.as_deref(),
             &board.name,
             archived_on(board.archived_at.as_deref()),
             glass_pill_button(
@@ -278,9 +280,10 @@ impl AllBoardsPane {
 
 /// One put-away board row. EXP-1076: a board is an ENTITY, so its list is
 /// the hairline LADDER: `flat_row` at the settings row rhythm (the web
-/// `SETTINGS_LIST_CLASS` twin): glyph, name, the caption, the action pill.
+/// `SETTINGS_LIST_CLASS` twin): the tinted glyph, name, the caption, the action pill.
 fn board_row(
     icon: Option<&str>,
+    color: Option<&str>,
     name: &str,
     caption: SharedString,
     action: gpui_component::button::Button,
@@ -294,7 +297,10 @@ fn board_row(
         .gap_3()
         .px_3()
         .py_2()
-        .child(board_icon_name_glyph(icon.unwrap_or_default()))
+        // The board's own colour, like the live rows and web's `BoardGlyph`.
+        .child(board_icon_name_glyph(icon.unwrap_or_default()).text_color(
+            color.and_then(parse_hex_color).unwrap_or(cx.theme().muted_foreground),
+        ))
         .child(board_name(name))
         .child(
             div()
