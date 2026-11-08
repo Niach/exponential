@@ -47,6 +47,7 @@
         "outline",
         "tree",
         "mosaic",
+        "window",
         "zoomable-image",
         "motion",
         "box-hover",
@@ -112,7 +113,9 @@
         "sealed-locked",
         "results-tab",
         "needs-you",
-        "ede-panel"
+        "ede-panel",
+        "site-mega-menu",
+        "site-cta-band"
       ]
     },
     {
@@ -157,6 +160,7 @@
     "record-table": "VAPP-217",
     "settings-row": "VAPP-280",
     "mosaic": "EXP-1495",
+    "window": "VAPP-290",
     "zoomable-image": "EXP-1586",
     "motion": "EXP-1604",
     "box-hover": "EDE-65",
@@ -214,6 +218,8 @@
     "sealed-locked": "EXP-1459",
     "results-tab": "FEED-191",
     "needs-you": "FEED-191",
-    "ede-panel": "EDE-42"
+    "ede-panel": "EDE-42",
+    "site-mega-menu": "EXP-1740",
+    "site-cta-band": "EXP-1740"
   }
 }
