@@ -411,14 +411,54 @@ pub fn bootstrap(cx: &mut App) {
         return;
     }
 
-    // #EXP-1727: the window reopens where it was: on a Local desktop.
-    if crate::ui_prefs::on_local_desktop() && crate::local_desktops::enter_current(cx) {
-        return;
+    // #EDE-65: on Exponential Desktop the app starts where eDE's switcher is
+    // (it starts after the shell, so it never hears the shell's start link;
+    // a link that arrives later still wins).
+    match on_exponential_desktop().then(|| ede_pick(elocal::ede_legacy_root().as_deref())) {
+        Some(EdePick::Local) => {
+            if crate::local_desktops::enter_current(cx) {
+                return;
+            }
+        }
+        Some(EdePick::Team(team_id)) => {
+            crate::ui_prefs::set_on_local_desktop(false);
+            crate::navigation::remember_team(cx, team_id);
+        }
+        // #EXP-1727: the window reopens where it was: on a Local desktop.
+        None => {
+            if crate::ui_prefs::on_local_desktop() && crate::local_desktops::enter_current(cx) {
+                return;
+            }
+        }
     }
     let auth = AuthContext::global(cx).clone();
     if let Some(account) = auth.auth.signed_in_accounts().into_iter().next() {
         connect_account(&account, cx);
     }
+}
+
+/// The session is Exponential Desktop (eDE sets `XDG_CURRENT_DESKTOP`).
+fn on_exponential_desktop() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| desktops.split(':').any(|d| d == "Exponential"))
+}
+
+/// #EDE-65: where eDE's switcher is: the team its `switcher.json` names,
+/// else the Local desktop the shared index calls current (eDE's
+/// `set_current`; a Local pick forgets the team, and a shell with no pick
+/// yet starts on Local).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EdePick {
+    Local,
+    Team(String),
+}
+
+pub(crate) fn ede_pick(ede_config: Option<&std::path::Path>) -> EdePick {
+    let saved = ede_config
+        .and_then(|dir| std::fs::read_to_string(dir.join("switcher.json")).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .filter(|v| v["kind"] == "team")
+        .and_then(|v| v["id"].as_str().filter(|id| !id.is_empty()).map(str::to_string));
+    saved.map_or(EdePick::Local, EdePick::Team)
 }
 
 /// DEV-ONLY (§11.4 headless verification). Validates the injected token via
@@ -472,6 +512,47 @@ fn dev_inject_session(server: String, token: String, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-65: the app starts after eDE's shell, so it reads where the
+    /// switcher is: a picked team from `switcher.json`, else Local.
+    #[test]
+    fn the_app_starts_where_edes_switcher_is() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(ede_pick(None), EdePick::Local);
+        assert_eq!(ede_pick(Some(dir.path())), EdePick::Local, "no pick yet: eDE starts on Local");
+        std::fs::write(dir.path().join("switcher.json"), r#"{"kind":"team","id":"e891ab20"}"#).unwrap();
+        assert_eq!(ede_pick(Some(dir.path())), EdePick::Team("e891ab20".into()));
+        std::fs::write(dir.path().join("switcher.json"), r#"{"kind":"local","id":"87858284"}"#).unwrap();
+        assert_eq!(ede_pick(Some(dir.path())), EdePick::Local);
+        std::fs::write(dir.path().join("switcher.json"), "not json").unwrap();
+        assert_eq!(ede_pick(Some(dir.path())), EdePick::Local);
+    }
+
+    /// #EDE-65: on Local the app opens the desktop eDE's switcher made
+    /// current in the shared index, not the one the app had open last.
+    #[gpui::test]
+    fn a_local_start_opens_the_desktop_ede_made_current(cx: &mut gpui::TestAppContext) {
+        cx.executor().allow_parking();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let mut ede = elocal::Desktops::open(&path).unwrap();
+        let first = ede.current().unwrap().to_string();
+        let work = ede.create("Work").unwrap().id;
+        assert!(ede.set_current(&first).unwrap());
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::local_desktops::install(path.clone(), cx);
+        });
+        // eDE picks Work after the app opened the index.
+        assert!(ede.set_current(&work).unwrap());
+        cx.update(|cx| {
+            assert!(crate::local_desktops::enter_current(cx));
+            assert_eq!(Store::global(cx).session(cx).account_id(), Some(format!("local-{work}").as_str()));
+        });
+        std::mem::forget(dir);
+        let _ = cx.add_window_view(|_, _| gpui::Empty);
+    }
 
     /// EXP-367: "Reset IDE data" only recurses into a repos root the home
     /// directory PROPERLY contains — every shared parent is refused.
