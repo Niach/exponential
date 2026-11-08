@@ -1,6 +1,6 @@
 {
-  "id": "e512acac-99d5-425c-9770-18cad9927643",
-  "prevId": "9f14464a-171e-452f-b6b6-f5cd1d9b7545",
+  "id": "48493612-6333-4e99-9f71-f3dac2dff07b",
+  "prevId": "e512acac-99d5-425c-9770-18cad9927643",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -12941,20 +12941,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "speak_replies": {
-          "name": "speak_replies",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "push_to_talk": {
-          "name": "push_to_talk",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "ptt_shortcut": {
           "name": "ptt_shortcut",
