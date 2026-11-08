@@ -33,6 +33,7 @@
 //! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
 //! `ede_focus {window}`, `ede_close {window}`, `ede_minimize {window}`,
 //! `ede_lock`, `ede_logout`, `ede_power {action}`, `ede_select {window}`,
+//! `ede_alt_tab_select {window}` (#EDE-65: a hovered Alt-Tab tile),
 //! `ede_notify_open {id}`, `ede_notify_close {id, toast?}`, `ede_notify_action
 //! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
 //! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
@@ -534,6 +535,12 @@ impl HostPlugin for Host {
             "ede_select" => {
                 if let Some(id) = window_arg(args) {
                     cx.defer(move |cx| switcher_commit(&shell, Some(id), cx));
+                }
+            }
+            // #EDE-65: the pointer entered a tile (its Box `on.hover`): Mint selects it.
+            "ede_alt_tab_select" => {
+                if let Some(id) = args.get("window").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| switcher_hover(&shell, &id, cx));
                 }
             }
             // #EDE-65: a row's press; an inbox entry hands off to the Exponential app.
@@ -1757,9 +1764,9 @@ fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
 /// #EDE-65: the new-issue button: the Exponential app's new issue (on the
 /// current team), until issues come into eDE.
 fn new_issue(shell: &Shell) {
+    // #EDE-65 J3: a Local desktop's team id IS its desktop id, so the app opens the new issue there.
     let current = &shell.model.switcher.current;
-    let team = (current.kind == uicore_model::SwitcherKind::Team).then_some(current.id.as_str());
-    hand_off(shell, &accounts::new_issue_deep_link(team));
+    hand_off(shell, &accounts::new_issue_deep_link(Some(current.id.as_str()).filter(|id| !id.is_empty())));
 }
 
 /// A deep link to the Exponential app: the running one, else a new one
@@ -2403,6 +2410,24 @@ fn switcher_commit(shell: &SharedShell, pick: Option<ede_protocol::WindowId>, cx
     }
     dispatch(shell, ShellEvent::AltTabCommit, cx);
     switcher_close(shell, cx);
+}
+
+/// The hovered tile's `altTab.select`: its index in the Alt-Tab order
+/// (closed, or a window not listed: none).
+fn alt_tab_hover(model: &ShellState, window: &str) -> Option<ShellEvent> {
+    if !model.alt_tab.open {
+        return None;
+    }
+    let index = uicore_model::alt_tab_order(model).iter().position(|id| id == window)?;
+    (index != model.alt_tab.selected).then_some(ShellEvent::AltTabSelect { index: index as i64 })
+}
+
+/// #EDE-65: a hovered tile becomes the selection; the tiles and the title follow.
+fn switcher_hover(shell: &SharedShell, window: &str, cx: &mut App) {
+    let Some(event) = alt_tab_hover(&shell.borrow().model, window) else { return };
+    dispatch(shell, event, cx);
+    switcher_refresh(shell);
+    refresh(shell, cx);
 }
 
 fn switcher_close(shell: &SharedShell, cx: &mut App) {
@@ -3234,6 +3259,36 @@ mod switcher {
         let ids: Vec<&str> = feed["windows"].as_array().unwrap().iter().filter_map(|w| w["id"].as_str()).collect();
         assert_eq!(ids, ["w1", "w3"]);
         assert_eq!(feed["title"], "Two");
+    }
+
+    /// #EDE-65: Mint's hover: the pointer entering a tile selects it, the
+    /// title under the tiles follows; the selected tile, a window not listed
+    /// or a closed switcher change nothing.
+    #[test]
+    fn a_hovered_tile_becomes_the_selection() {
+        let s = opened(&[("w1", "firefox", "Firefox", 0, false), ("w2", "nemo", "Files", 0, false), ("w3", "code", "Code", 0, false), ("w4", "code", "Elsewhere", 1, false)]);
+        assert_eq!(alt_tab_hover(&s, "w3"), None, "closed");
+        let s = reduce(&s, &ShellEvent::AltTabNext);
+        assert_eq!(s.alt_tab.selected, 1);
+        let event = alt_tab_hover(&s, "w3").expect("w3 is the third tile");
+        assert_eq!(event, ShellEvent::AltTabSelect { index: 2 });
+        let s = reduce(&s, &event);
+        let feed = switcher_feed(&s, |_| String::new(), |_| String::new());
+        let selected: Vec<bool> = feed["windows"].as_array().unwrap().iter().map(|w| w["selected"] == true).collect();
+        assert_eq!(selected, [false, false, true]);
+        assert_eq!(feed["title"], "Code");
+        assert_eq!(alt_tab_hover(&s, "w3"), None, "already selected");
+        assert_eq!(alt_tab_hover(&s, "w4"), None, "another workspace");
+        assert_eq!(alt_tab_hover(&s, "w9"), None, "unknown");
+    }
+
+    /// The factory switcher's tile calls it with its window on `on.hover`.
+    #[test]
+    fn the_switcher_tile_selects_on_hover() {
+        let doc = uicore_docs::DOCS.iter().find(|d| d.name == "switcher").expect("the switcher document");
+        let parsed: Value = serde_json::from_str(doc.source).unwrap();
+        let tile = parsed["root"]["children"].as_array().unwrap().iter().find(|c| c["id"] == "tile").expect("the tile");
+        assert_eq!(tile["on"]["hover"], json!({"functionCall": {"@call": "ede_alt_tab_select", "args": {"window": {"@path": "id"}}}}));
     }
 
     #[test]

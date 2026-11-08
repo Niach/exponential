@@ -302,22 +302,72 @@ pub(crate) fn parse_new_issue_deep_link(url: &str) -> Option<Option<String>> {
     Some((!team.is_empty()).then(|| team.to_string()))
 }
 
-/// A new issue on the team's board (the window's active one), as the
-/// sidebar's new button opens it.
+/// A new issue on the team's board (the window's active one, else the
+/// team's first), as the sidebar's new button opens it. #EDE-65 J3: a Local
+/// desktop's id names its team, so the app opens that desktop first; the
+/// resident app (no window on eDE) brings one up, and the page opens once
+/// the team's boards are there ([`land_when_ready`]).
 fn open_new_issue_deep_link(team_id: Option<String>, cx: &mut App) {
-    let team_id = team_id.filter(|id| Store::global(cx).collections().teams.read(cx).get(id).is_some());
-    if let Some(window) = crate::navigation::active_or_primary_window(cx) {
-        let _ = window.update(cx, |_, window, cx| {
-            if let Some(team) = team_id {
-                crate::navigation::switch_team(window, cx, team);
-            }
-            let nav = crate::navigation::nav_for_window(window, cx);
-            match crate::navigation::active_board_id(&nav, cx) {
-                Some(board) => crate::issue_draft_screen::open_new_from_rail(window, cx, board),
-                None => log::info!("[ui] open-urls: new-issue deep link with no board — ignored"),
-            }
-        });
+    if let Some(id) = team_id.as_deref() {
+        let synced = Store::global(cx).collections().teams.read(cx).get(id).is_some();
+        if !synced && crate::local_desktops::open_id(cx).as_deref() != Some(id) && crate::local_desktops::knows(id, cx) {
+            crate::local_desktops::enter(id, cx);
+        }
     }
+    land_when_ready(&NEW_ISSUE_LINK, cx, move |cx| {
+        let collections = Store::global(cx).collections().clone();
+        let team = team_id.clone().filter(|id| collections.teams.read(cx).get(id).is_some());
+        if team_id.is_some() && team.is_none() {
+            return false;
+        }
+        let Some(window) = crate::navigation::active_or_primary_window(cx) else { return false };
+        window
+            .update(cx, |_, window, cx| {
+                if let Some(team) = team.clone() {
+                    crate::navigation::switch_team(window, cx, team);
+                }
+                let nav = crate::navigation::nav_for_window(window, cx);
+                let first = || team.as_ref().and_then(|t| collections.boards_in_team(t, cx).first().map(|b| b.id.clone()));
+                let Some(board) = crate::navigation::active_board_id(&nav, cx).or_else(first) else { return false };
+                #[cfg(test)]
+                OPENED_NEW_ISSUE.with(|o| *o.borrow_mut() = Some(board.clone()));
+                crate::issue_draft_screen::open_new_from_rail(window, cx, board);
+                true
+            })
+            .unwrap_or(false)
+    });
+}
+
+/// The latest new-issue link (a newer one ends an older one's wait).
+static NEW_ISSUE_LINK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// #EDE-65: a link that needs a window and the store's rows: the resident
+/// app (no window on eDE) opens one, then `land` runs until it lands (true),
+/// every [`ISSUE_LINK_TICK`] for [`ISSUE_LINK_WAIT`]; a newer link of the
+/// same kind (`slot`) ends the wait.
+fn land_when_ready(slot: &'static std::sync::atomic::AtomicU64, cx: &mut App, mut land: impl FnMut(&mut App) -> bool + 'static) {
+    use std::sync::atomic::Ordering;
+    let generation = slot.fetch_add(1, Ordering::SeqCst) + 1;
+    if cx.windows().is_empty() && crate::window_hooks::resident_device(cx) {
+        crate::talk_host::open_ide(cx);
+    }
+    if land(cx) {
+        return;
+    }
+    cx.spawn(async move |cx| {
+        let tries = ISSUE_LINK_WAIT.as_millis() / ISSUE_LINK_TICK.as_millis();
+        for _ in 0..tries {
+            cx.background_executor().timer(ISSUE_LINK_TICK).await;
+            if slot.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            if cx.update(|cx| land(cx)) {
+                return;
+            }
+        }
+        log::info!("[ui] open-urls: a deep link found nothing to open within {ISSUE_LINK_WAIT:?} — ignored");
+    })
+    .detach();
 }
 
 /// The window switches to the team (a resident app without a window opens
@@ -356,27 +406,14 @@ fn open_team_deep_link(team_id: String, cx: &mut App) {
 /// store to load (a newer issue link replaces it); unknown after
 /// [`ISSUE_LINK_WAIT`], it logs and no-ops, consistent with unhandled deep links.
 fn open_issue_deep_link(identifier: &str, cx: &mut App) {
-    let generation = ISSUE_LINK.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    if let Some(found) = find_issue(identifier, cx) {
-        open_found_issue(found, cx);
-        return;
-    }
     let identifier = identifier.to_string();
-    cx.spawn(async move |cx| {
-        let tries = ISSUE_LINK_WAIT.as_millis() / ISSUE_LINK_TICK.as_millis();
-        for _ in 0..tries {
-            cx.background_executor().timer(ISSUE_LINK_TICK).await;
-            if ISSUE_LINK.load(std::sync::atomic::Ordering::SeqCst) != generation {
-                return;
-            }
-            if let Some(found) = cx.update(|cx| find_issue(&identifier, cx)) {
-                cx.update(|cx| open_found_issue(found, cx));
-                return;
-            }
+    land_when_ready(&ISSUE_LINK, cx, move |cx| match find_issue(&identifier, cx) {
+        Some(found) => {
+            open_found_issue(found, cx);
+            true
         }
-        log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
-    })
-    .detach();
+        None => false,
+    });
 }
 
 /// How long an issue link waits for its team or Local desktop to load.
@@ -412,11 +449,18 @@ fn open_found_issue((issue_id, board_id): (String, String), cx: &mut App) {
 thread_local! {
     /// The issue the last issue link resolved to (the tests read it).
     static OPENED_ISSUE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// The board the last new-issue link opened its page on.
+    static OPENED_NEW_ISSUE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
 pub(crate) fn opened_issue() -> Option<String> {
     OPENED_ISSUE.with(|o| o.borrow().clone())
+}
+
+#[cfg(test)]
+pub(crate) fn opened_new_issue() -> Option<String> {
+    OPENED_NEW_ISSUE.with(|o| o.borrow().clone())
 }
 
 /// The login-surface message when the callback lands but the exchange /
@@ -783,5 +827,42 @@ mod tests {
         assert_eq!(opened_issue(), Some(created.issue.id.clone()));
         std::mem::forget(dir);
         let _ = cx.add_window_view(|_, _| gpui::Empty);
+    }
+
+    /// #EDE-65 J3: eDE's new-issue button on a Local desktop sends
+    /// `new-issue/<desktop id>`: the app (on an account, or another
+    /// desktop) opens that desktop and its new-issue page on its board.
+    #[gpui::test]
+    fn the_new_issue_link_opens_on_its_local_desktop(cx: &mut gpui::TestAppContext) {
+        cx.executor().allow_parking();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let (first, work) = {
+            let mut desktops = elocal::Desktops::open(&path).unwrap();
+            let first = desktops.current().unwrap().to_string();
+            (first, desktops.create("Work").unwrap().id)
+        };
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::local_desktops::install(path, cx);
+            assert!(crate::local_desktops::enter(&first, cx));
+        });
+        let _window = cx.add_window_view(|_, _| gpui::Empty);
+        cx.update(|cx| handle_open_urls(vec![format!("exponential://new-issue/{work}")], cx));
+        cx.update(|cx| assert_eq!(crate::local_desktops::open_id(cx).as_deref(), Some(work.as_str())));
+        let board = cx.update(|cx| Store::global(cx).collections().boards_in_team(&work, cx).first().map(|b| b.id.clone()));
+        for _ in 0..200 {
+            cx.executor().advance_clock(ISSUE_LINK_TICK);
+            cx.run_until_parked();
+            if opened_new_issue().is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let board = board.or_else(|| cx.update(|cx| Store::global(cx).collections().boards_in_team(&work, cx).first().map(|b| b.id.clone())));
+        assert!(board.is_some());
+        assert_eq!(opened_new_issue(), board);
+        std::mem::forget(dir);
     }
 }
