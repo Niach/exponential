@@ -411,7 +411,7 @@
                 }
               },
               {
-                "id": "c2-card-press",
+                "id": "c2-card_press",
                 "component": "Card",
                 "props": {
                   "title": "Expenses",
@@ -420,7 +420,7 @@
                 },
                 "children": [
                   {
-                    "id": "c2-card-press-t",
+                    "id": "c2-card_press_t",
                     "component": "Text",
                     "props": {
                       "text": "Rent, travel, software",
@@ -9106,7 +9106,7 @@
                 }
               },
               {
-                "id": "c3-tile-press",
+                "id": "c3-tile_press",
                 "component": "StatTile",
                 "props": {
                   "label": "Income",

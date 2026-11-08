@@ -4285,6 +4285,15 @@
           "style": {
             "backgroundColor": "$color.accent"
           }
+        },
+        {
+          "when": {
+            "pressable": true,
+            "state": "pressed"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
         }
       ],
       "title": [
