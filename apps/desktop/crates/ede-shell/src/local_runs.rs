@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use elocal::runs::{AcpRunner, HostTools, LocalRuns, Runner};
+use elocal::runs::{HostTools, LocalRuns};
 use std::collections::HashMap;
 
 use domain::rows::{MessageRow, SessionRow};
@@ -32,17 +32,10 @@ impl LocalChat {
     /// the shell's own tools on the run's hub (#VAPP-273: `shell_edit`).
     pub fn start(desktop: Arc<elocal::LocalDesktop>, host: Option<HostTools>) -> Self {
         let cwd = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-        let mut agent = String::new();
-        let mut runner: Option<Arc<dyn Runner>> = None;
-        for candidate in [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex] {
-            let acp = AcpRunner::new(candidate);
-            if acp.available() {
-                agent = candidate.id().to_string();
-                runner = Some(Arc::new(acp));
-                break;
-            }
-        }
-        let runs = runner.and_then(|runner| match LocalRuns::start_with(desktop.clone(), runner, cwd, host) {
+        // Every usable CLI (#EDE-65 J5): a session runs the one it names, the first by default.
+        let runners = elocal::runs::installed_runners();
+        let agent = runners.first().map(|r| r.id().to_string()).unwrap_or_default();
+        let runs = (!runners.is_empty()).then_some(runners).and_then(|runners| match LocalRuns::start_with_runners(desktop.clone(), runners, cwd, host) {
             Ok(runs) => Some(runs),
             Err(e) => {
                 tracing::warn!("local runs: {e}");

@@ -420,9 +420,15 @@ pub fn bootstrap(cx: &mut App) {
                 return;
             }
         }
-        Some(EdePick::Team(team_id)) => {
+        Some(EdePick::Team { team_id, account_id }) => {
             crate::ui_prefs::set_on_local_desktop(false);
             crate::navigation::remember_team(cx, team_id);
+            // The account that owns the team, not just the first signed-in one.
+            let auth = AuthContext::global(cx).clone();
+            if let Some(account) = pick_account(auth.auth.signed_in_accounts(), account_id.as_deref()) {
+                connect_account(&account, cx);
+            }
+            return;
         }
         // #EXP-1727: the window reopens where it was: on a Local desktop.
         None => {
@@ -449,16 +455,32 @@ fn on_exponential_desktop() -> bool {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum EdePick {
     Local,
-    Team(String),
+    /// The team and the account eDE's switcher listed it under (older
+    /// files name no account).
+    Team { team_id: String, account_id: Option<String> },
+}
+
+/// The signed-in account to connect: the one named, else the first.
+pub(crate) fn pick_account(accounts: Vec<api::accounts::Account>, wanted: Option<&str>) -> Option<api::accounts::Account> {
+    let named = wanted.and_then(|id| accounts.iter().position(|a| a.id == id));
+    let mut accounts = accounts;
+    match named {
+        Some(i) => Some(accounts.swap_remove(i)),
+        None => accounts.into_iter().next(),
+    }
 }
 
 pub(crate) fn ede_pick(ede_config: Option<&std::path::Path>) -> EdePick {
     let saved = ede_config
         .and_then(|dir| std::fs::read_to_string(dir.join("switcher.json")).ok())
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .filter(|v| v["kind"] == "team")
-        .and_then(|v| v["id"].as_str().filter(|id| !id.is_empty()).map(str::to_string));
-    saved.map_or(EdePick::Local, EdePick::Team)
+        .filter(|v| v["kind"] == "team");
+    let Some(saved) = saved else { return EdePick::Local };
+    let text = |key: &str| saved[key].as_str().filter(|v| !v.is_empty()).map(str::to_string);
+    match text("id") {
+        Some(team_id) => EdePick::Team { team_id, account_id: text("account") },
+        None => EdePick::Local,
+    }
 }
 
 /// DEV-ONLY (§11.4 headless verification). Validates the injected token via
@@ -521,11 +543,29 @@ mod tests {
         assert_eq!(ede_pick(None), EdePick::Local);
         assert_eq!(ede_pick(Some(dir.path())), EdePick::Local, "no pick yet: eDE starts on Local");
         std::fs::write(dir.path().join("switcher.json"), r#"{"kind":"team","id":"e891ab20"}"#).unwrap();
-        assert_eq!(ede_pick(Some(dir.path())), EdePick::Team("e891ab20".into()));
+        assert_eq!(ede_pick(Some(dir.path())), EdePick::Team { team_id: "e891ab20".into(), account_id: None });
+        // What eDE writes since: the account the switcher listed the team under.
+        std::fs::write(dir.path().join("switcher.json"), r#"{"kind":"team","id":"e891ab20","account":"a2"}"#).unwrap();
+        assert_eq!(ede_pick(Some(dir.path())), EdePick::Team { team_id: "e891ab20".into(), account_id: Some("a2".into()) });
         std::fs::write(dir.path().join("switcher.json"), r#"{"kind":"local","id":"87858284"}"#).unwrap();
         assert_eq!(ede_pick(Some(dir.path())), EdePick::Local);
         std::fs::write(dir.path().join("switcher.json"), "not json").unwrap();
         assert_eq!(ede_pick(Some(dir.path())), EdePick::Local);
+    }
+
+    /// #EDE-65: two signed-in accounts: the app connects the one that owns
+    /// eDE's team, the first only when eDE named none (or one signed out).
+    #[test]
+    fn the_teams_own_account_connects() {
+        let account = |id: &str| -> api::accounts::Account {
+            serde_json::from_value(serde_json::json!({"id": id, "instanceUrl": "https://app.exponential.at", "userId": format!("u-{id}"), "email": format!("{id}@example.com")})).unwrap()
+        };
+        let two = || vec![account("a1"), account("a2")];
+        assert_eq!(pick_account(two(), Some("a2")).unwrap().id, "a2");
+        assert_eq!(pick_account(two(), Some("a1")).unwrap().id, "a1");
+        assert_eq!(pick_account(two(), None).unwrap().id, "a1");
+        assert_eq!(pick_account(two(), Some("gone")).unwrap().id, "a1");
+        assert_eq!(pick_account(Vec::new(), Some("a2")), None);
     }
 
     /// #EDE-65: on Local the app opens the desktop eDE's switcher made

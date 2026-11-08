@@ -148,7 +148,8 @@ fn finish_link(result: Result<String, SharedString>, cx: &mut App) {
 /// Routes OAuth callbacks, the EXP-368 `exponential://github-connected`
 /// hand-back, the §4.2 `exponential://invite/<token>` deep link and the
 /// EXP-4 `exponential://issue/<IDENTIFIER>` deep link and the #EDE-65
-/// `exponential://team/<id>` one (eDE's switcher); anything else is ignored.
+/// `exponential://team/<id>` and `exponential://local/<desktop id>` ones
+/// (eDE's switcher); anything else is ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
         // EXP-368: checked before parse_oauth_callback — the host-agnostic
@@ -182,6 +183,10 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             open_team_deep_link(team_id, cx);
             continue;
         }
+        if let Some(desktop_id) = parse_local_deep_link(&url) {
+            open_local_deep_link(&desktop_id, cx);
+            continue;
+        }
         if let Some(link) = parse_session_deep_link(&url) {
             open_session_deep_link(link, cx);
             continue;
@@ -210,6 +215,26 @@ pub(crate) fn parse_team_deep_link(url: &str) -> Option<String> {
     let rest = url.strip_prefix(prefix.as_str())?;
     let id = rest.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
     (!id.is_empty()).then(|| id.to_string())
+}
+
+/// #EDE-65 `exponential://local/<desktop id>` → `Some(id)`: eDE's switcher
+/// picked a Local desktop (the machine's one index, so the IDE knows it).
+pub(crate) fn parse_local_deep_link(url: &str) -> Option<String> {
+    let prefix = format!("{}://local/", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?;
+    let id = rest.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// The app opens the Local desktop as its "account" (the switcher's own
+/// pick, `local_desktops::enter`); the one already open stays as it is.
+fn open_local_deep_link(desktop_id: &str, cx: &mut App) {
+    if crate::local_desktops::open_id(cx).as_deref() == Some(desktop_id) {
+        return;
+    }
+    if !crate::local_desktops::enter(desktop_id, cx) {
+        log::info!("[ui] open-urls: local deep link {desktop_id} matches no Local desktop — ignored");
+    }
 }
 
 /// #EDE-65 `exponential://session/<id>[?opens=plan|card|results|chat&message=<id>]`:
@@ -263,8 +288,19 @@ fn open_session_deep_link(link: SessionDeepLink, cx: &mut App) {
 
 /// The window switches to the team (a resident app without a window opens
 /// on it next time); a team this app has not synced (another account's) is
-/// ignored like an unknown issue link.
+/// ignored like an unknown issue link. On a Local desktop the app goes
+/// back to the account first, the team remembered for when it has synced.
 fn open_team_deep_link(team_id: String, cx: &mut App) {
+    if crate::local_desktops::open_id(cx).is_some_and(|open| open != team_id) {
+        crate::local_desktops::leave(cx);
+        match crate::navigation::active_or_primary_window(cx) {
+            Some(window) => {
+                let _ = window.update(cx, |_, window, cx| crate::navigation::switch_team(window, cx, team_id));
+            }
+            None => crate::navigation::remember_team(cx, team_id),
+        }
+        return;
+    }
     if Store::global(cx).collections().teams.read(cx).get(&team_id).is_none() {
         log::info!("[ui] open-urls: team deep link {team_id} matches no synced team — ignored");
         return;
@@ -555,8 +591,19 @@ mod tests {
         assert_eq!(parse_team_deep_link("exponential://team/t1/?x=1").as_deref(), Some("t1"));
         assert_eq!(parse_team_deep_link("exponential://team/"), None);
         assert_eq!(parse_team_deep_link("exponential://issue/EXP-1"), None);
+        assert_eq!(parse_team_deep_link("exponential://local/d1"), None);
         assert!(api::login::parse_oauth_callback(url).is_none());
         assert_eq!(parse_issue_deep_link(url), None);
+    }
+
+    /// #EDE-65: eDE's switcher picks a Local desktop.
+    #[test]
+    fn parses_local_deep_links() {
+        assert_eq!(parse_local_deep_link("exponential://local/87858284-4a75-4d80-9c77-fdebc809cbab"), Some("87858284-4a75-4d80-9c77-fdebc809cbab".into()));
+        assert_eq!(parse_local_deep_link("exponential://local/d1/?x=1"), Some("d1".into()));
+        assert_eq!(parse_local_deep_link("exponential://local/"), None);
+        assert_eq!(parse_local_deep_link("exponential://team/t1"), None);
+        assert!(api::login::parse_oauth_callback("exponential://local/d1").is_none());
     }
 
     /// #EDE-65: eDE's tray sends `exponential://session/<id>`, a Needs you
