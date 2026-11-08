@@ -51,6 +51,8 @@ import {
   AskPrompt,
   ChatDock,
   ChatConversation,
+  chatDockedIds,
+  type ChatSuggestionActions,
   TranscriptDivider,
   useLiveArrivals,
   ASK_CARD_COPY,
@@ -105,7 +107,7 @@ import {
   type TranscriptRowLayout,
 } from "@exp/domain-contract/transcript-grouping"
 import { useXrefAgent } from "@/hooks/use-session-nav"
-import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
+import type { SessionXref as SessionXrefModel, TreeIssue } from "@exp/domain-contract/session-tree"
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -168,7 +170,8 @@ import {
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
-import { useAnswerMessage } from "@/hooks/use-answer-message"
+import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import { useSession } from "@/hooks/use-session"
 import { useOpenPlan } from "@/hooks/use-open-plan"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { FeedText } from "@/components/feed-text"
@@ -318,7 +321,23 @@ export function AgentSessionView({
   composerFloats = false,
   onOpenSession,
   origin = null,
+  tree,
+  issues,
+  dockChildren,
+  suggestions,
+  renderIssueRef,
 }: {
+  /** #EXP-1732 (the Chat tab = the ROOT's session view): every session of
+   *  the tree (the suggested-tasks card's started children). */
+  tree?: readonly SessionRow[]
+  /** The tree's issues (a filed suggestion's identifier). */
+  issues?: readonly TreeIssue[]
+  /** #EXP-1545: the root's children (a Live child's Queue in THE Dock). */
+  dockChildren?: readonly DockChild[]
+  /** EXP-1323: the suggested-tasks card's actions (absent = read-only). */
+  suggestions?: ChatSuggestionActions
+  /** A filed suggestion's issue (THE issue chip). */
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
   /** #EXP-1736: a cross-session bubble was pressed (the host's back stack). */
@@ -419,8 +438,25 @@ export function AgentSessionView({
   // answerable.
   /** N-12: THE Dock's band height = the transcript's bottom padding. */
   const [dockHeight, setDockHeight] = useState(0)
-  const sessionDock = useSessionDock(session)
+  const sessionDock = useSessionDock(session, dockChildren)
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
+  // #EXP-1732: what the retired Conversation body drew off the synced
+  // messages, ported here: the suggested-tasks card (open = THE Dock's card,
+  // settled = inline, EXP-1323) and the viewer's queued messages with their
+  // X (EXP-1317).
+  const unqueue = useUnqueueMessage()
+  const { data: auth } = useSession()
+  const viewerId = auth?.user?.id ?? null
+  const chatRows = useMemo(
+    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES),
+    [session, sessionMessages, tree, issues]
+  )
+  const suggestionRows = useMemo(() => chatRows.filter((row) => row.type === `suggestions`), [chatRows])
+  const queuedRows = useMemo(() => chatRows.filter((row) => row.type === `message`), [chatRows])
+  const dockedIds = useMemo(
+    () => (suggestions ? chatDockedIds(suggestionRows, noSessionName) : NO_DOCKED),
+    [suggestions, suggestionRows]
+  )
   // Chat 58cb32df (chats.json SURFACE CARD): an agent's inline preview
   // (`session_self_show`) sits right after the call that posted it, like a
   // tool-posted card; a `reply` press sends its text as the next message.
@@ -444,7 +480,12 @@ export function AgentSessionView({
         const row = toolCards.find((r) => r.id === id) ?? surfaceCards.find((r) => r.id === id)
         if (!row) return null
         return (
-          <div key={`${keyPrefix}-${id}`} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-tool-card">
+          <div
+            key={`${keyPrefix}-${id}`}
+            className={TRANSCRIPT_GAP_CLASS.gapBlock}
+            data-testid="session-tool-card"
+            data-card-id={id}
+          >
             <ChatConversation
               rows={[row]}
               renderText={renderChatText}
@@ -1018,6 +1059,25 @@ export function AgentSessionView({
                     />
                   </div>
                 ))}
+                {/* #EXP-1732: the settled suggested-tasks cards (an open one
+                    is THE Dock's) and the viewer's queued messages. */}
+                {suggestionRows.length + queuedRows.length > 0 && (
+                  <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
+                    <ChatConversation
+                      rows={[...suggestionRows, ...queuedRows]}
+                      renderText={renderChatText}
+                      attachmentSrc={attachmentUrl}
+                      chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
+                      viewerId={viewerId}
+                      onUnqueue={(rowId) => void unqueue(rowId)}
+                      onOpenSession={onOpenSession}
+                      suggestions={suggestions}
+                      docked={dockedIds}
+                      renderIssueRef={renderIssueRef}
+                      pending={cardsPending}
+                    />
+                  </div>
+                )}
                 {/* EXP-389: the agent-is-busy footer under the newest event. */}
                 {working && (
                   <div
@@ -1054,7 +1114,10 @@ export function AgentSessionView({
               queued messages and the status banners, then the composer (a
               phone's floats in the work bar instead). */}
           <ChatDock
-            rows={NO_ROWS}
+            rows={suggestions ? suggestionRows : NO_ROWS}
+            suggestions={suggestions}
+            onOpenSession={onOpenSession}
+            renderIssueRef={renderIssueRef}
             sessionName={noSessionName}
             renderText={renderChatText}
             attachmentSrc={attachmentUrl}
@@ -1083,6 +1146,34 @@ export function AgentSessionView({
 const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
 const noSessionName = () => null
 const NO_ROWS: SessionChatRow[] = []
+const NO_TREE: readonly SessionRow[] = []
+const NO_ISSUES: readonly TreeIssue[] = []
+const NO_DOCKED: ReadonlySet<string> = new Set()
+
+/** #EXP-1732: the session's suggested-tasks cards and the person's queued
+ *  messages (`consumedAt` null) in THE chat row form, oldest first. */
+function chatExtraRows(
+  session: SessionRow,
+  messages: readonly MessageRowLike[],
+  tree: readonly SessionRow[],
+  issues: readonly TreeIssue[]
+): SessionChatRow[] {
+  const picks = messages.filter(
+    (message) =>
+      (message.card as { kind?: unknown } | null)?.kind === `suggestions` ||
+      (message.authorKind === `user` && message.consumedAt === null)
+  )
+  if (picks.length === 0) return []
+  return buildSessionChat({
+    root: toTreeSession(session),
+    sessions: tree.map(toTreeSession),
+    sessionIssues: [],
+    issues,
+    messages: picks.map(toTreeMessage),
+    pullRequests: [],
+    now: new Date().toISOString(),
+  }).rows.filter((row) => row.type === `suggestions` || (row.type === `message` && row.queued))
+}
 const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
 /** EXP-1280: this session's TOOL-posted cards (ask-dock.json

@@ -1,4 +1,5 @@
-import { chatPendingAsks } from "@exp/domain-contract/ask-dock"
+import { chatPendingAsks, chatSessionNames } from "@exp/domain-contract/ask-dock"
+import { WAITING_CARDS_CONSTANTS } from "@exp/domain-contract/waiting-cards"
 import { CHATS_COPY, type ChatLead } from "@exp/domain-contract/chats"
 import {
   sessionScreen,
@@ -7,10 +8,11 @@ import {
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
-import { useEffect, useMemo, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
+  CardHighlightContext,
   ChatLeadDisc,
   conceptIcon,
   Menu,
@@ -22,7 +24,9 @@ import {
   PlanPage,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
-import { IssueRefOutlet } from "@/components/issue-ref-provider"
+import { IssueChip as IssueRefChip } from "@/components/issue-chip"
+import { IssueRefOutlet, useIssueRefs } from "@/components/issue-ref-provider"
+import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { ChatGuideMerge, chatGuidePullRequest } from "@/components/chat/chat-guide"
@@ -270,22 +274,66 @@ export function ChatScreen({
     )
   )
 
-  // #FEED-191 (needs-you.json): `?card=` lands on the Chat tab (the root's
-  // session view holds the card; #EXP-1732: it has no card scroll, so the
-  // param just leaves the URL).
+  // #EXP-1562 / #FEED-191 (needs-you.json): `?card=` scrolls the Chat tab
+  // (the root's session view: its cards carry `data-card-id`) to that card
+  // and rings it (phones: the Chat tab first).
+  const [scrollTo, setScrollTo] = useState<{ id: string; at: number } | null>(null)
+  const [highlight, setHighlight] = useState<string | null>(null)
   useEffect(() => {
-    if (!search.card) return
+    if (!scrollTo) return
+    // The session view may still be mounting: look for the card a few frames.
+    let frames = 0
+    let raf = 0
+    const find = () => {
+      const card = document.querySelector(`[data-card-id="${CSS.escape(scrollTo.id)}"]`)
+      if (card) {
+        card.scrollIntoView({ block: `center`, behavior: `smooth` })
+        setHighlight(scrollTo.id)
+      } else if (frames++ < 120) raf = requestAnimationFrame(find)
+    }
+    raf = requestAnimationFrame(find)
+    return () => cancelAnimationFrame(raf)
+  }, [scrollTo])
+  // A card (or `?plan=`) older than the loaded page pages it in.
+  const deepLink = search.card ?? (search.open === `plan` ? search.plan : undefined)
+  const deepLinkHere = deepLink ? view.rows.some((row) => row.id === deepLink) : false
+  useEffect(() => {
+    if (!search.card || !deepLinkHere) return
+    setScrollTo({ id: search.card, at: Date.now() })
     const { card: _card, ...rest } = search
     onNavigate(isMobile && screen.layout !== `chat` ? { tab: `chat`, ...keepBack } : rest, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.card])
-  // A `?plan=` older than the loaded page pages it in.
-  const planLink = search.open === `plan` ? search.plan : undefined
-  const planHere = planLink ? view.rows.some((row) => row.id === planLink) : false
+  }, [search.card, deepLinkHere])
   useEffect(() => {
-    if (planLink && !planHere && messagePage.ready && messagePage.more) messagePage.loadMore()
+    if (deepLink && !deepLinkHere && messagePage.ready && messagePage.more) messagePage.loadMore()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planLink, planHere, messagePage.ready, messagePage.more, messagePage.loaded])
+  }, [deepLink, deepLinkHere, messagePage.ready, messagePage.more, messagePage.loaded])
+  useEffect(() => {
+    if (!highlight) return
+    const timer = setTimeout(() => setHighlight(null), WAITING_CARDS_CONSTANTS.highlightMs)
+    return () => clearTimeout(timer)
+  }, [highlight, scrollTo])
+
+  // EXP-1323 / #EXP-1545: the Chat tab's suggested tasks (Start, Start all,
+  // Do it here, Start on… / with…, File, Dismiss), a Live child's Queue in
+  // THE Dock, a filed suggestion's issue chip.
+  const agentFor = useCallback(
+    (sessionId: string) => rowsById.get(sessionId)?.cli ?? root.cli,
+    [rowsById, root.cli]
+  )
+  const suggestions = useSuggestionActions({ teamId: team.id, enabled: permissions.isMember, agentFor })
+  const sessionName = useMemo(() => chatSessionNames(view.tabs), [view.tabs])
+  const dockChildren = useMemo(
+    () =>
+      rows
+        .filter((row) => row.id !== root.id)
+        .map((row) => ({ session: row, name: sessionName(row.id) ?? row.title ?? `` })),
+    [rows, root.id, sessionName]
+  )
+  const treeIssues = useMemo(
+    () => [...issuesById.values()].map((issue) => ({ id: issue.id, identifier: issue.identifier, title: issue.title })),
+    [issuesById]
+  )
 
   const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
   const menu = useChatTabMenu({
@@ -308,6 +356,14 @@ export function ChatScreen({
       origin={view.origin}
       onOpenXref={openRowSession}
       surface={root.agentId ? `agent` : `session`}
+      browseTeamId={team.id}
+      chat={{
+        tree: rows,
+        issues: treeIssues,
+        dockChildren,
+        suggestions,
+        renderIssueRef: renderFiledIssue,
+      }}
     />
   )
 
@@ -449,6 +505,7 @@ export function ChatScreen({
     // EXP-1347: an issue pill of one of this chat's issues opens it in place.
     <IssueRefOutlet issueIds={issueIds} onOpen={openIssue}>
       <MenuGestureHost menus={issueMenus}>
+          <CardHighlightContext.Provider value={highlight}>
           <SessionScreenFrame
             screen={screen}
             testId="chat-page"
@@ -483,6 +540,7 @@ export function ChatScreen({
             onCloseItem={closeItem}
             overlay={agent?.overlay}
           />
+          </CardHighlightContext.Provider>
       </MenuGestureHost>
       {chatActions.dialog}
     </IssueRefOutlet>
@@ -520,4 +578,16 @@ function ChatPlanBody({
       }
     />
   )
+}
+
+/** EXP-1323: a filed suggestion's issue = THE issue chip once it resolves
+ *  (same team, synced), else its identifier. */
+const renderFiledIssue = (_issueId: string, identifier: string | null) =>
+  identifier ? <FiledIssueRef identifier={identifier} /> : null
+
+function FiledIssueRef({ identifier }: { identifier: string }) {
+  const issueRefs = useIssueRefs()
+  const resolved = issueRefs?.resolve(identifier) ?? null
+  if (!resolved) return <>{identifier}</>
+  return <IssueRefChip issue={resolved} onClick={() => issueRefs?.open(resolved.identifier)} />
 }
