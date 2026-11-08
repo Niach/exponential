@@ -297,7 +297,7 @@ export interface ComponentProps {
   Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean }
   Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic }
   Tree: { items: Shapes["treeItem"][]; expanded?: string[] | Dynamic; value?: string | Dynamic; label?: string }
-  MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic }
+  MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }
   TreeGuides: { depth: number; elbowAt?: number; tee?: boolean; passThrough?: number[] }
   Unknown: { component: string; catalogId?: string }
   Motion: { layers?: Record<string, unknown>[]; size?: number[]; duration?: number; fps?: number; assets?: Record<string, unknown>; markers?: Record<string, unknown>[]; lottie?: Record<string, unknown>; src?: string; autoplay?: boolean; loop?: boolean; plays?: number; direction?: MotionDirectionValue; speed?: number; segment?: number[]; marker?: string; progress?: number | Dynamic; play?: boolean | Dynamic; poster?: number; fit?: MotionFitValue; slots?: Record<string, unknown>; stateMachine?: Record<string, unknown>; inputs?: Record<string, unknown> | Dynamic; label?: string; style?: Style }

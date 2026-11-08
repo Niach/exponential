@@ -5848,9 +5848,10 @@
       "lite": true,
       "children": "none",
       "slots": [
-        "attachment"
+        "attachment",
+        "avatar"
       ],
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "props": {
         "text": {
           "type": "markdown",
@@ -5879,8 +5880,21 @@
           "type": "string",
           "bindable": true,
           "description": "Caption above, in only."
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "A press target firing `press` (`on.press` or `href` imply it)."
+        },
+        "href": {
+          "type": "url",
+          "bindable": true,
+          "description": "The URL a press opens; implies `pressable`."
         }
       },
+      "events": [
+        "press"
+      ],
       "example": {
         "text": "Is the printer fixed?",
         "side": "out",

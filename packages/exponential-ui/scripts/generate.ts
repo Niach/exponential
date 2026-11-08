@@ -587,6 +587,8 @@ function boundMacroCases(): ComponentCase[] {
 const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
   // #EXP-1674: an href press target.
   Row: { href: { title: `Docs`, href: `https://ui.exponential.at` } },
+  // #EXP-1736: an incoming bubble that opens its sender (a cross-session sender).
+  MessageBubble: { href: { side: `in`, href: `https://ui.exponential.at` } },
   Button: { href: { label: `Docs`, href: `https://ui.exponential.at` }, "loading=true+pendingLabel": { loading: true, pendingLabel: `Submitting` } },
   // EXP-1548: wider than its box: the table scrolls sideways, cells wrap,
   // the `truncate` column keeps one line with an ellipsis.
@@ -1377,8 +1379,20 @@ function railTreeCases(): ComponentCase[] {
   }]
 }
 
+/** #EXP-1736: the sender's avatar left of an incoming bubble (an `out` one
+ *  drops the slot), with the press that opens the sender. */
+function messageBubbleCases(): ComponentCase[] {
+  const avatar: NestedNode = { id: `bubble-avatar`, component: `Avatar`, props: { name: `Release agent` } }
+  const props = { text: `Merged; the tag is pushed.`, author: `Release agent`, time: `18:04`, href: `https://ui.exponential.at` }
+  return [
+    { name: `MessageBubble/avatar:in`, node: { id: `bubble`, component: `MessageBubble`, props, slots: { avatar } } },
+    { name: `MessageBubble/avatar:out`, node: { id: `bubble`, component: `MessageBubble`, props: { ...props, side: `out` }, slots: { avatar } } },
+    { name: `MessageBubble/avatar:press`, node: { id: `bubble`, component: `MessageBubble`, props: { text: props.text, author: props.author }, slots: { avatar }, on: { press: { event: { name: `openSender` } } } } },
+  ]
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
