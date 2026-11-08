@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       # EXP-566: the view-catalog drift gates + the store writer's tests.
       - name: Screenshot store tests
@@ -160,7 +160,7 @@ jobs:
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Site tests
         run: bun --filter @exp/site test
@@ -216,7 +216,7 @@ jobs:
         with:
           dir: apps/ede
       - uses: ./.github/actions/cargo-fetch
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Capture the eDE views
         run: bun run shots -- --platform ede --skip-seed
@@ -264,7 +264,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/exponential
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Apply migrations from scratch
         run: bun run migrate
@@ -343,7 +343,7 @@ jobs:
       S3_REGION: garage
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Dev stack (Postgres, Electric, Garage, Caddy)
         run: |
@@ -408,7 +408,7 @@ jobs:
       # EXP-375 — the Rust licence inventory can only be collected where cargo
       # is. The pure-bun `web` job re-runs the merge and byte-compares the
       # notices; this proves the inventory it merges is still current.
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Re-collect the Rust licence inventory
         run: bun run --filter @exp/licenses collect:rust
@@ -446,7 +446,7 @@ jobs:
         run: |
           cargo build --locked -p enet-core --example relay_peer
           cargo install iroh-relay --version "$IROH_RELAY_VERSION" --features server --locked --root "$RUNNER_TEMP/iroh-relay"
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Smoke
         working-directory: apps/web
@@ -478,7 +478,7 @@ jobs:
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
       - run: scripts/build-eagent-wasm.sh
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Replay
         working-directory: packages/eagent
@@ -665,7 +665,7 @@ jobs:
       # EXP-375 — the Android inventory is the TRANSITIVELY RESOLVED runtime
       # graph (compose-bom and firebase-bom expand to artifacts
       # libs.versions.toml never names), so it needs a real gradle resolve.
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Generate the Android licence report
         working-directory: apps/android
