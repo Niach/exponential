@@ -499,6 +499,29 @@ fun ChatScreen(
             }
         }
     }
+    // A viewer who cannot steer the chat reads the suggestions (no actions):
+    // every card then sits inline, none on the Dock.
+    val dockSuggestions = if (canSteer) suggestionActions else null
+    // EXP-1323 / #EXP-1732: a suggestions card with an open item (and actions)
+    // rides the Dock; every other one (settled: the started session's card,
+    // `Sent here`, `Filed EXP-9`) sits inline at the END of the root's
+    // transcript, or under its empty-feed placeholder.
+    val inlineSuggestions = remember(view?.rows, dockSuggestions != null) {
+        val rows = view?.rows.orEmpty()
+        val docked = if (dockSuggestions != null) chatSuggestionSources(rows).map { it.id }.toSet() else emptySet()
+        rows.filterIsInstance<SessionTree.SessionChatRow.Suggestions>().filter { it.id !in docked }
+    }
+    val rootFooter: (@Composable () -> Unit)? = if (inlineSuggestions.isEmpty()) {
+        null
+    } else {
+        {
+            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                inlineSuggestions.forEach { row ->
+                    key(row.id) { ChatSuggestionsCard(row = row, actions = dockSuggestions, onOpenSession = openChatSession) }
+                }
+            }
+        }
+    }
     // #EXP-1732: the Chat tab's Dock = the root's own (its Queue, else a Live
     // child's) plus the root's suggested tasks, over THE composer.
     val rootDock: @Composable (com.exponential.app.ui.session.SessionDock) -> Unit = { sd ->
@@ -508,7 +531,7 @@ fun ChatScreen(
             sources = sessionDock.sources,
             sessionSheet = sessionDock.sheet,
             action = sessionDock.action,
-            suggestions = suggestionActions,
+            suggestions = dockSuggestions,
             onOpenSession = openChatSession,
         )
     }
@@ -578,6 +601,7 @@ fun ChatScreen(
                         onOpenIssue = openIssueHere,
                         onOpenOrigin = { id, isRoot -> if (isRoot) onOpenChat(id) else onOpenSession(id) },
                         dock = if (sessionId == viewModel.rootId) rootDock else null,
+                        feedFooter = if (sessionId == viewModel.rootId) rootFooter else null,
                     )
                 },
                 headerLead = headerLead,

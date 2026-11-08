@@ -550,19 +550,24 @@ internal fun SessionPage(
     deviceMenu: SessionComposerDevice? = null,
     /** #EXP-1732: the host's Dock (the chat root's suggested tasks). */
     dock: (@Composable (SessionDock) -> Unit)? = null,
+    /** #EXP-1732: the host's rows at the transcript's end / under the
+     *  empty-feed placeholder (the chat root's settled suggestions). */
+    feedFooter: (@Composable () -> Unit)? = null,
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
     ) { factory -> factory.create(sessionId) }
-    RunFace(
-        viewModel = viewModel,
-        padding = padding,
-        onOpenIssue = onOpenIssue,
-        trailingBarSlot = null,
-        onOpenOrigin = onOpenOrigin ?: { _, _ -> },
-        deviceMenu = deviceMenu,
-        dock = dock,
-    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalFeedFooter provides feedFooter) {
+        RunFace(
+            viewModel = viewModel,
+            padding = padding,
+            onOpenIssue = onOpenIssue,
+            trailingBarSlot = null,
+            onOpenOrigin = onOpenOrigin ?: { _, _ -> },
+            deviceMenu = deviceMenu,
+            dock = dock,
+        )
+    }
 }
 
 /**
@@ -1114,12 +1119,16 @@ private fun RunFaceContent(
             // (so it scrolls with it), or sits above a placeholder.
             if (bodyPlaceholder) {
                 Spacer(Modifier.height(topInset))
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(bottom = bandClearance),
-                ) { placeholderBody() }
+                ) {
+                    Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
+                    // #EXP-1732: the host's rows under the empty-feed placeholder.
+                    LocalFeedFooter.current?.invoke()
+                }
             } else {
                 ActivityFeed(
                     feed = feed,
@@ -1855,6 +1864,7 @@ private fun ActivityFeed(
     // that card (the main stream only: feed-header · load-earlier · the head
     // cards · the rows, each row carrying the cards its calls posted).
     val cardScroll = LocalCardScrollRequest.current
+    val feedFooter = LocalFeedFooter.current
     // #FEED-191: a way in (a Needs you row) may ask before the rows load: the
     // request is live for its highlight, so a row landing in that time retries.
     LaunchedEffect(cardScroll, rows.size, sessionCards.head.size) {
@@ -2194,6 +2204,13 @@ private fun ActivityFeed(
                             agent = workingAgent,
                         )
                     }
+                }
+            }
+            // #EXP-1732: the host's rows at the end of the main transcript
+            // (a chat root's settled suggestions card).
+            if (feedFooter != null) {
+                item(key = "feed-footer") {
+                    TranscriptRow(TranscriptGap.None) { feedFooter() }
                 }
             }
             }
@@ -3902,6 +3919,11 @@ internal val LocalCardHighlight = androidx.compose.runtime.compositionLocalOf<St
 data class CardScrollRequest(val id: String, val nonce: Int)
 
 /** #EXP-1562: the pending scroll request the conversation list consumes. */
+/** #EXP-1732: rows a host draws at the END of a session view's main
+ *  transcript, and under its empty-feed placeholder (a chat root's settled
+ *  suggestions card); null = none. */
+internal val LocalFeedFooter = androidx.compose.runtime.compositionLocalOf<(@Composable () -> Unit)?> { null }
+
 internal val LocalCardScrollRequest = androidx.compose.runtime.compositionLocalOf<CardScrollRequest?> { null }
 
 /** #EXP-1562: scroll item [index] to the CENTRE of the list's viewport. */
