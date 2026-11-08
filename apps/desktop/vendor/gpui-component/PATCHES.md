@@ -33,6 +33,9 @@ re-apply the change below (or drop the patch once upstream carries it).
   `Button` gains `accessibility_label()`, and the AccessKit name is that,
   else the label, else the tooltip text (upstream named only labelled
   buttons, so every icon button was an unnamed `Button` node).
+- #EXP-1752, an open menu updates live: `src/menu/popup_menu.rs`
+  `PopupMenu::refresh` is `rebuild` keeping the selected row (and so the
+  open submenu) when the rebuilt menu still has it.
 - Packaging only: `Cargo.toml` resolves the upstream workspace's inherited
   keys (`*.workspace = true`, edition, lints) to the values of the upstream
   workspace manifest at that rev; `tests/` dropped. No other source is

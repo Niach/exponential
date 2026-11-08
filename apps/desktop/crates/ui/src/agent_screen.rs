@@ -1091,6 +1091,17 @@ impl AgentScreenView {
             teams: assistant && crate::teams_pick::several_teams(cx),
             ..ComposerMenuConditions::default()
         };
+        // #EXP-1752: the open menu follows the editor's devices live.
+        let content_key = {
+            use std::hash::{Hash as _, Hasher as _};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            if let Some(device) = &editor_device {
+                device.device_id.hash(&mut hasher);
+                device.rows.hash(&mut hasher);
+            }
+            (editor_runner.is_some(), prompts.len(), assistant, conditions.teams).hash(&mut hasher);
+            hasher.finish()
+        };
         let teams_view = view.clone();
         let teams_change = self.teams_change(cx);
         let trigger = crate::composer::composer_tool("agent-plus", registry::UI_ADD, cx)
@@ -1201,6 +1212,7 @@ impl AgentScreenView {
             menu
         })
         .anchor(gpui::Anchor::BottomLeft)
+        .live(content_key)
         .into_any_element()
     }
 
