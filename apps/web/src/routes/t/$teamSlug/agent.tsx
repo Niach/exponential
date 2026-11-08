@@ -15,7 +15,6 @@ import {
   ChatSelectionSpecimen,
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
-  SessionXrefSpecimen,
   PrChecksSpecimen,
   ResultsTabSpecimen,
   NeedsYouSpecimen,
@@ -95,7 +94,7 @@ const str = (value: unknown): string | undefined =>
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
-// buttons; EXP-1681 `call-pill` THE floating call pill; S-3 `session-xref` THE session link, #EXP-1611 `pr-checks` the
+// buttons; EXP-1681 `call-pill` THE floating call pill; #EXP-1611 `pr-checks` the
 // Merge pill's check states + the Checks submenu; #FEED-191
 // `results-tab` THE Results tab body, `needs-you` THE Needs you list; EXP-1558
 // `mention-pill` / `schedule-picker` / `pr-row` / `sealed-locked` the
@@ -122,7 +121,6 @@ const DEV_VIEWS = [
   `voice-call-overlay`,
   `call-controls`,
   `call-pill`,
-  `session-xref`,
   `pr-checks`,
   `results-tab`,
   `needs-you`,
@@ -188,8 +186,6 @@ function AgentRoute() {
           <ChatSelectionSpecimen />
         ) : dev === `chat-transcript` ? (
           <ChatTranscriptSpecimen single />
-        ) : dev === `session-xref` ? (
-          <SessionXrefSpecimen />
         ) : dev === `pr-checks` ? (
           <PrChecksSpecimen />
         ) : dev === `results-tab` ? (

@@ -105,6 +105,7 @@ import {
   type TranscriptRowLayout,
 } from "@exp/domain-contract/transcript-grouping"
 import { useXrefAgent } from "@/hooks/use-session-nav"
+import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -316,11 +317,15 @@ export function AgentSessionView({
   composer,
   composerFloats = false,
   onOpenSession,
+  origin = null,
 }: {
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
   /** #EXP-1736: a cross-session bubble was pressed (the host's back stack). */
   onOpenSession?: (sessionId: string) => void
+  /** S-3 / #EXP-1736: who started the session (from the synced rows): the
+   *  feed's first prompt reads as that session's bubble. */
+  origin?: SessionXrefModel | null
   /** The route's header (back to the chat, the title, Stop). */
   header?: ReactNode
   /** The reply box under the feed (`SessionComposer`). */
@@ -400,21 +405,6 @@ export function AgentSessionView({
   const rows = useMemo(
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
-  )
-  // #EXP-1736 (transcript-grouping.json): ONE transcript: the agent's prose
-  // and the session inputs are bubbles under their sender's avatar + name
-  // (the session itself, its agent, a parent or child), the work rows sit
-  // in the agent's column, the cards across.
-  const sessionCardModel = useSessionCard(session)
-  const xrefAgent = useXrefAgent()
-  const feedLayouts = useMemo(
-    () =>
-      feedTranscriptLayout(rows, {
-        sessionId: session.id,
-        title: sessionCardModel?.name ?? session.title ?? ``,
-        agentId: session.agentId ?? null,
-      }),
-    [rows, session.id, sessionCardModel?.name, session.title, session.agentId]
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
@@ -535,6 +525,31 @@ export function AgentSessionView({
     () => steerCommandsFor(catalogAgent),
     [catalogAgent]
   )
+  // #EXP-1736 (transcript-grouping.json): ONE transcript: the agent's prose
+  // and the session inputs are bubbles under their sender's avatar + name
+  // (the session itself, its agent, a parent or child), the work rows sit
+  // in the agent's column, the cards across.
+  const sessionCardModel = useSessionCard(session)
+  const xrefAgent = useXrefAgent()
+  const feedLayouts = useMemo(
+    () =>
+      feedTranscriptLayout(
+        rows,
+        {
+          sessionId: session.id,
+          title: sessionCardModel?.name ?? session.title ?? ``,
+          agentId: session.agentId ?? null,
+        },
+        // ONE origin rule (data first): the feed's first prompt is the
+        // origin's while the window holds the feed's start.
+        {
+          origin,
+          fromStart: windowStart === 0 && !snapshotCanLoadEarlier,
+          isCommand: (text) => parseSteerCommand(text, agentCommands) !== null,
+        }
+      ),
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands]
+  )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
     live,
@@ -631,7 +646,9 @@ export function AgentSessionView({
     // #EXP-1736: the sender's column; two bubbles in a row take the
     // grouping's gap, everything else keeps the ladder (EXP-787).
     const layout = feedLayouts.get(feedRowKey(row))
-    const bubbles = index > 0 && isBubbleRow(row) && isBubbleRow(list[index - 1]!)
+    const isBubble = (r: (typeof list)[number]) =>
+      isBubbleRow(r) && feedLayouts.get(feedRowKey(r))?.side !== `full`
+    const bubbles = index > 0 && isBubble(row) && isBubble(list[index - 1]!)
     const sender = layout?.sender ?? null
     const wrap = (content: ReactNode) => (
       <TranscriptRow
@@ -760,12 +777,13 @@ export function AgentSessionView({
         const command = parseSteerCommand(item.text, agentCommands)
         if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
         // #EXP-1736: another session's input = that session's bubble.
+        // (ONE origin rule: the first prompt may be the origin's.)
         const cross = crossSessionInput(item.text)
-        const link = cross ? sender?.link ?? null : null
+        const link = layout?.side === `other` ? (sender?.link ?? null) : null
         return wrap(
           <UserMessageBubble
             text={cross ? cross.body : item.text}
-            side={cross ? `in` : `out`}
+            side={layout?.side === `other` ? `in` : `out`}
             author={bubbleName}
             onPress={link && onOpenSession ? () => onOpenSession(link) : undefined}
           />
@@ -1131,9 +1149,12 @@ const FEED_VIEWER = `viewer`
  *  trace, the rest full rows. */
 export function feedTranscriptLayout(
   rows: readonly FeedRowLike[],
-  chat: { sessionId: string; title: string; agentId: string | null }
+  chat: { sessionId: string; title: string; agentId: string | null },
+  options: { origin?: SessionXrefModel | null; fromStart?: boolean; isCommand?: (text: string) => boolean } = {}
 ): Map<string, TranscriptRowLayout> {
   const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
+  const origin = options.origin ?? null
+  if (origin) sessions.set(origin.sessionId, { id: origin.sessionId, title: origin.name, agentId: origin.agentId })
   const items: TranscriptItem[] = rows.map((row) => {
     const id = feedRowKey(row)
     if (row.kind === `toolRun` || row.kind === `expRun` || row.kind === `edits` || row.kind === `subagent`) {
@@ -1145,10 +1166,12 @@ export function feedTranscriptLayout(
       case `narration`:
         return { id, kind: `message`, authorKind: `agent` }
       case `user_message`: {
-        if (commandDivider(item.text ?? ``)) return { id, kind: `full` }
+        if (commandDivider(item.text ?? ``) || options.isCommand?.(item.text ?? ``)) return { id, kind: `full` }
         const cross = crossSessionInput(item.text ?? ``)
         if (cross) {
-          sessions.set(cross.sessionId, { id: cross.sessionId, title: cross.name, agentId: null })
+          if (!sessions.has(cross.sessionId)) {
+            sessions.set(cross.sessionId, { id: cross.sessionId, title: cross.name, agentId: null })
+          }
           return { id, kind: `message`, authorKind: `agent`, authorSessionId: cross.sessionId }
         }
         return { id, kind: `message`, authorKind: `user`, authorId: FEED_VIEWER }
@@ -1164,7 +1187,7 @@ export function feedTranscriptLayout(
   })
   const layouts = transcriptLayout({
     viewerId: FEED_VIEWER,
-    chat: { ...chat, originSessionId: null },
+    chat: { ...chat, originSessionId: origin?.sessionId ?? null, fromStart: options.fromStart ?? true },
     members: [],
     agents: [],
     sessions: [...sessions.values()],

@@ -337,6 +337,7 @@ pub(super) fn conversation_rows(
         &case.view.title,
         None,
         case.view.origin.as_ref(),
+        true,
         cx,
     );
     input.viewer_id = rows.iter().find_map(|row| match row {
@@ -368,6 +369,7 @@ pub(super) fn grouped_sample(images: &Entity<ImageCache>, cx: &mut App) -> AnyEl
             title: "Triage".into(),
             agent_id: Some("sg-ag1".into()),
             origin_session_id: None,
+            from_start: true,
         },
         members: vec![TranscriptMember { id: "sg-u2".into(), name: "Dana Reyes".into() }],
         agents: vec![TranscriptAgent { id: "sg-ag1".into(), name: "Triage".into() }],

@@ -1222,9 +1222,11 @@ impl SteerSessionView {
     /// agent's narration = its message, a person's prompt = the viewer's own
     /// unless it parses as a session input ([`domain::transcript_grouping::cross_session_input`],
     /// that session's message), the work lines (tools, thoughts, edits,
-    /// subagents) = trace, every card full. The S-3 origin's prompt (the
-    /// window's first prompt, when the feed starts there) = the origin's.
-    fn refresh_transcript_layout(&mut self, start: usize, cx: &App) {
+    /// subagents) = trace, every card full. The S-3 origin (from the rows:
+    /// the host's, else the parent) + `from_start` (the window holds the
+    /// feed's very first row) go to the grouping, whose ONE origin rule
+    /// turns the first message into the origin's bubble.
+    fn refresh_transcript_layout(&mut self, from_start: bool, cx: &App) {
         use domain::transcript_grouping::{
             cross_session_input, transcript_layout, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptItemKind,
         };
@@ -1247,7 +1249,8 @@ impl SteerSessionView {
                 session_id: self.session_id.clone(),
                 title,
                 agent_id: row.and_then(|row| row.agent_id.clone()).filter(|id| !id.is_empty()),
-                origin_session_id: None,
+                origin_session_id: origin.as_ref().map(|origin| origin.id.clone()),
+                from_start,
             },
             ..TranscriptInput::default()
         };
@@ -1256,11 +1259,6 @@ impl SteerSessionView {
                 input.agents.push(domain::transcript_grouping::TranscriptAgent { id: agent.to_string(), name });
             }
         }
-        // The origin takes the FIRST prompt only when the window holds the
-        // feed's start (else that prompt is above it).
-        let mut origin_open = origin.is_some() && start == 0;
-        let mut origin_taken = false;
-        let origin_id = origin.as_ref().map(|origin| origin.id.clone());
         input.sessions.extend(origin);
         let mut kinds: Vec<TranscriptItemKind> = Vec::with_capacity(self.rows.len());
         for spec in &self.rows {
@@ -1268,7 +1266,6 @@ impl SteerSessionView {
             let item = match spec {
                 FeedRowSpec::Single { item, .. } => match items.get(*item).map(|item| (item, &item.kind)) {
                     Some((_, FeedKind::Narration { .. })) => {
-                        origin_open = false;
                         TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_AGENT, None, None)
                     }
                     Some((_, FeedKind::UserMessage { text, .. }))
@@ -1287,11 +1284,6 @@ impl SteerSessionView {
                                     Some(parsed.session_id.as_str()),
                                 )
                             }
-                            // The origin's prompt: not the viewer's own.
-                            None if std::mem::take(&mut origin_open) => {
-                                origin_taken = true;
-                                TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, None, None)
-                            }
                             None => TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None),
                         }
                     }
@@ -1307,11 +1299,6 @@ impl SteerSessionView {
             };
             kinds.push(item.kind);
             input.items.push(item);
-        }
-        // Only a prompt the origin took names it (a narration above the
-        // first prompt never reads as the origin's).
-        if origin_taken {
-            input.chat.origin_session_id = origin_id;
         }
         let layouts = transcript_layout(&input);
         self.row_layout_at = self.rows.iter().enumerate().map(|(ix, spec)| (spec.id(), ix)).collect();
@@ -1733,8 +1720,12 @@ impl SteerSessionView {
         self.prune_dropped_rows();
         // Session 58cb32df: the conversation's own cards beside the relay rows.
         self.refresh_conversation_cards(focus.is_none(), cx);
-        // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps).
-        self.refresh_transcript_layout(start, cx);
+        // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
+        // the origin only when the main transcript's window holds the feed's
+        // first row (nothing above it, no device page left to load).
+        let from_start =
+            focus.is_none() && start == 0 && (!self.history_truncated || self.history_exhausted);
+        self.refresh_transcript_layout(from_start, cx);
         // The "Working…" line belongs to the main transcript — a subagent's
         // tab has its own running spinner in the strip.
         self.working = focus.is_none() && self.working_now();

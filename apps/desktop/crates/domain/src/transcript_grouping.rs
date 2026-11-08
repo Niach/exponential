@@ -133,14 +133,24 @@ impl TranscriptItem {
 }
 
 /// The chat whose transcript this is.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscriptChat {
     /// The session whose conversation this is.
     pub session_id: String,
     pub title: String,
     pub agent_id: Option<String>,
-    /// The session that started it (session-chat.json `origin`), else `None`.
+    /// The session that started it (session-chat.json `origin`, from the
+    /// synced rows), else `None`.
     pub origin_session_id: Option<String>,
+    /// The items begin at the conversation's first message (no earlier rows
+    /// to load). The origin applies only then.
+    pub from_start: bool,
+}
+
+impl Default for TranscriptChat {
+    fn default() -> Self {
+        Self { session_id: String::new(), title: String::new(), agent_id: None, origin_session_id: None, from_start: true }
+    }
 }
 
 /// A member the transcript can name.
@@ -292,7 +302,7 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
         },
     };
     let viewer = input.viewer_id.as_deref().filter(|viewer| !viewer.is_empty());
-    let mut origin_pending = chat.origin_session_id.as_deref().is_some_and(|id| !id.is_empty());
+    let mut origin_pending = chat.from_start && chat.origin_session_id.as_deref().is_some_and(|id| !id.is_empty());
     let layout = layout();
 
     let mut out: Vec<TranscriptRowLayout> = Vec::with_capacity(input.items.len());
@@ -310,33 +320,29 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
             (TranscriptSide::Other, Some(own_agent.clone()))
         } else {
             let own = author_kind == Some("user") && viewer.is_some() && item.author_id.as_deref() == viewer;
-            let picked = if let Some(cross) = from_session(author_session) {
+            let cross = from_session(author_session);
+            // The origin: the conversation's first message, unless it names
+            // its own sender; no later row.
+            let origin = if origin_pending && cross.is_none() {
+                from_session(chat.origin_session_id.as_deref())
+            } else {
+                None
+            };
+            origin_pending = false;
+            if let Some(cross) = cross {
                 (TranscriptSide::Other, Some(cross))
+            } else if let Some(origin) = origin {
+                (TranscriptSide::Other, Some(origin))
             } else if own {
                 (TranscriptSide::Own, None)
+            } else if author_kind == Some("user") {
+                let id = item.author_id.clone().unwrap_or_default();
+                let name =
+                    members.get(id.as_str()).map_or_else(|| copy().former_member.clone(), |name| name.to_string());
+                (TranscriptSide::Other, Some(TranscriptSender { kind: SenderKind::Member, id, name, link: None }))
             } else {
-                let origin = if origin_pending && author_session.is_none() {
-                    from_session(chat.origin_session_id.as_deref())
-                } else {
-                    None
-                };
-                let sender = match origin {
-                    Some(origin) => origin,
-                    None if author_kind == Some("user") => {
-                        let id = item.author_id.clone().unwrap_or_default();
-                        let name = members
-                            .get(id.as_str())
-                            .map_or_else(|| copy().former_member.clone(), |name| name.to_string());
-                        TranscriptSender { kind: SenderKind::Member, id, name, link: None }
-                    }
-                    None => own_agent.clone(),
-                };
-                (TranscriptSide::Other, Some(sender))
-            };
-            if !own && author_session.is_none() {
-                origin_pending = false;
+                (TranscriptSide::Other, Some(own_agent.clone()))
             }
-            picked
         };
         let key = match side {
             TranscriptSide::Full => None,
@@ -439,6 +445,7 @@ mod tests {
                 title: chat["title"].as_str().unwrap().to_string(),
                 agent_id: opt(&chat["agentId"]),
                 origin_session_id: opt(&chat["originSessionId"]),
+                from_start: chat["fromStart"].as_bool().unwrap_or(true),
             },
             members: value["members"]
                 .as_array()

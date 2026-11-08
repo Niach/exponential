@@ -168,12 +168,12 @@ describe(`desktop attribution`, () => {
     // `_screen` is a wrapper suffix like `_dialog`: `session_screen.rs` is the
     // steering view's own module, not the auth glue `session.rs` names.
     // EXP-1259's `work-card`, `script-card` and `comment-call-card` are its
-    // feed's cards, so they ride along, and EXP-1299's `session` view and
-    // S-3's `session-xref` link drive the same screen. EXP-1558: the
+    // feed's cards, so they ride along, and EXP-1299's `session` view
+    // drives the same screen. EXP-1558: the
     // `session-row` styleguide twin shares the stem, and `session-slash-menu`
     // types into this screen's composer.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`, `session-xref`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -741,7 +741,7 @@ describe(`fail-safe`, () => {
     expect(named.broad).toEqual([])
     // The two ui modules also draw EXP-1259's feed cards; the engine and
     // feed files alone claim the same feed-drawn shots.
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`, `session-xref`])
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`])
     const feedOnly = affectedScope({
       changedFiles: [
         `apps/desktop/crates/steer/src/viewer.rs`,

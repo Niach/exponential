@@ -20,6 +20,7 @@ import {
 } from "@/hooks/use-session-tree"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useSessionNav } from "@/hooks/use-session-nav"
+import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
@@ -107,12 +108,16 @@ export function InPlaceSession({
   row,
   topInset = 0,
   floating = false,
+  origin = null,
   onOpenXref,
 }: {
   row: SessionRow
   /** Phones: the overlay header band's height. */
   topInset?: number
   floating?: boolean
+  /** S-3: who started it (the chat view's `origin` with it in focus):
+   *  #EXP-1736 its first prompt reads as that session's bubble. */
+  origin?: SessionXrefModel | null
   /** #EXP-1736: a cross-session bubble opens that session (the back stack). */
   onOpenXref?: (sessionId: string) => void
 }) {
@@ -133,6 +138,7 @@ export function InPlaceSession({
         session={row}
         header={header}
         composerFloats={floating}
+        origin={origin}
         onOpenSession={onOpenXref}
         composer={
           floating ? (
@@ -229,6 +235,7 @@ export function SessionScreen({
     <AgentSessionView
       session={row}
       header={header}
+      origin={view?.origin ?? null}
       onOpenSession={nav.open}
       // EXP-1316: phones reply through THE floating composer capsule.
       composerFloats={isMobile}

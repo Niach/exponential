@@ -788,6 +788,10 @@ export interface ChatConversationProps {
   chat?: { sessionId: string; title: string; agentId: string | null } | null
   /** #EXP-1736: a member's name + picture (their bubbles' avatar + name). */
   member?: (userId: string) => UserAvatarUser | null
+  /** #EXP-1736: the rows begin at the conversation's first message (no
+   *  `Load earlier` above them): only then the first one can be the
+   *  origin's (absent = true). */
+  fromStart?: boolean
   attachmentSrc: (attachmentId: string) => string
   /** A session card was tapped (its raw view). */
   onOpenSession?: (sessionId: string) => void
@@ -862,6 +866,7 @@ export function chatTranscriptLayout(
     viewerId?: string | null
     member?: (userId: string) => UserAvatarUser | null
     docked?: ReadonlySet<string>
+    fromStart?: boolean
   }
 ): Map<string, TranscriptRowLayout> {
   const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
@@ -896,7 +901,7 @@ export function chatTranscriptLayout(
   const chat = options.chat ?? { sessionId: ``, title: ``, agentId: null }
   const layouts = transcriptLayout({
     viewerId: options.viewerId ?? null,
-    chat: { ...chat, originSessionId: options.origin?.sessionId ?? null },
+    chat: { ...chat, originSessionId: options.origin?.sessionId ?? null, fromStart: options.fromStart ?? true },
     members: [...members].map(([id, name]) => ({ id, name })),
     agents: chat.agentId ? [{ id: chat.agentId, name: chat.title }] : [],
     sessions: [...sessions.values()],
@@ -940,6 +945,7 @@ export function ChatConversation(props: ChatConversationProps) {
     renderText,
     chat,
     member,
+    fromStart = true,
     attachmentSrc,
     onOpenSession,
     onOpenXref,
@@ -1006,8 +1012,8 @@ export function ChatConversation(props: ChatConversationProps) {
   }
   // #EXP-1736 (transcript-grouping.json): who sent each row, the groups.
   const layouts = useMemo(
-    () => chatTranscriptLayout(rows, { chat, origin, viewerId, member, docked }),
-    [rows, chat, origin, viewerId, member, docked]
+    () => chatTranscriptLayout(rows, { chat, origin, viewerId, member, docked, fromStart }),
+    [rows, chat, origin, viewerId, member, docked, fromStart]
   )
   const renderRow = (row: SessionChatRow): ReactNode => {
     const body = renderRowBody(row)

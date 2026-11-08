@@ -1310,6 +1310,7 @@ impl AgentScreenView {
             &title,
             agent_id.as_deref(),
             None,
+            start == 0,
             cx,
         );
         input.items = self.rows[start..].iter().map(crate::session_chat::transcript_item).collect();

@@ -515,6 +515,7 @@ export function ChatScreen({
         row={sessionInPlace}
         topInset={topInset}
         floating={isMobile}
+        origin={view.origin}
         onOpenXref={nav.open}
       />
     )
@@ -946,6 +947,7 @@ function ConversationBody({
             attachmentSrc={attachmentSrc}
             chat={chatSender}
             member={memberOf}
+            fromStart={!transcript.canLoadEarlier}
             onOpenSession={onOpenSession}
             onOpenXref={onOpenXref}
             xrefAgent={xrefAgent}

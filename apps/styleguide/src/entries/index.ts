@@ -43,7 +43,6 @@ import { entry as sessionChat } from "./session-chat.tsx"
 import { entry as composerAgentRow } from "./composer-agent-row.tsx"
 import { entry as workCard } from "./work-card.tsx"
 import { entry as chatParts } from "./chat-parts.tsx"
-import { entry as sessionXref } from "./session-xref.tsx"
 import { entry as askDock } from "./ask-dock.tsx"
 import { entry as dockCard } from "./dock-card.tsx"
 import { entry as planCard } from "./plan-card.tsx"
@@ -120,7 +119,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   toast,
   jumpToBottom,
   stripChip,
-  sessionXref,
   mentionPill,
   entityChip,
   callControls,

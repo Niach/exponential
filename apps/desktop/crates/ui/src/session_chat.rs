@@ -1209,7 +1209,7 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
                 .hover(|style| style.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
                 .active(|style| style.opacity(0.85))
                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
-                .on_click(move |_, window, cx| crate::session_xref::open_xref(&session_id, window, cx))
+                .on_click(move |_, window, cx| crate::navigation::open_session_link(&session_id, window, cx))
         });
     v_flex()
         .w_full()
@@ -1363,15 +1363,17 @@ pub(crate) fn xref_session(xref: &domain::session_tree::SessionXref) -> domain::
 }
 
 /// #EXP-1736: the grouping input of a conversation's `rows`: the viewer,
-/// the chat (its session, title, agent, the S-3 `origin` that started it),
-/// the members and agents it names off the synced rows, the sessions its
-/// links know (every row's xref + the origin).
+/// the chat (its session, title, agent, the S-3 `origin` that started it
+/// and whether `rows` begin at the conversation's first row: the origin
+/// sends that first message), the members and agents it names off the
+/// synced rows, the sessions its links know (every row's xref + the origin).
 pub(crate) fn conversation_input<'a>(
     rows: impl IntoIterator<Item = &'a SessionChatRow>,
     session_id: &str,
     title: &str,
     agent_id: Option<&str>,
     origin: Option<&domain::session_tree::SessionXref>,
+    from_start: bool,
     cx: &App,
 ) -> domain::transcript_grouping::TranscriptInput {
     use domain::transcript_grouping::{TranscriptAgent, TranscriptChat, TranscriptInput, TranscriptMember};
@@ -1383,6 +1385,7 @@ pub(crate) fn conversation_input<'a>(
             title: title.to_string(),
             agent_id: agent_id.filter(|id| !id.is_empty()).map(str::to_string),
             origin_session_id: origin.map(|origin| origin.session_id.clone()),
+            from_start,
         },
         ..TranscriptInput::default()
     };
@@ -4034,7 +4037,8 @@ impl SessionChatScreenView {
         self.conv.rows = self.conv.all[start..].to_vec();
         let chip_gen = self.chip_gen;
         // #EXP-1736: who sent each row, the groups, the gaps; the S-3
-        // origin's prompt = the origin session's bubble.
+        // origin sends the conversation's first message (when the window
+        // holds it: no `Load earlier` above).
         let origin = if model.view.focus_id.is_none() { model.view.origin.as_ref() } else { None };
         let window_rows: Vec<&SessionChatRow> = self.conv.rows.iter().map(|&index| &model.view.rows[index]).collect();
         let mut input = conversation_input(
@@ -4043,6 +4047,7 @@ impl SessionChatScreenView {
             &model.view.title,
             model.root.agent_id.as_deref(),
             origin,
+            start == 0,
             cx,
         );
         input.items = window_rows.iter().map(|row| transcript_item(row)).collect();
