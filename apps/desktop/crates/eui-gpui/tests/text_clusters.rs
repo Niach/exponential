@@ -114,6 +114,9 @@ fn has_colour_emoji() -> bool {
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .is_some_and(|f| f.split(',').any(|f| f.trim() == "Noto Color Emoji"));
+    // CI installs the font and sets this: a skip there would guard nothing.
+    let required = std::env::var("EUI_REQUIRE_COLOUR_EMOJI").is_ok_and(|v| v == "1");
+    assert!(found || !required, "EUI_REQUIRE_COLOUR_EMOJI=1 but fc-match finds no Noto Color Emoji");
     if !found {
         eprintln!("no Noto Color Emoji on this machine: skipped");
     }
