@@ -25,8 +25,11 @@ export interface TranscriptChat {
   sessionId: string
   title: string
   agentId: string | null
-  /** The session that started it (session-chat.json `origin`), else null. */
+  /** The session that started it (session-chat.json `origin`, from the
+   *  synced rows), else null. */
   originSessionId: string | null
+  /** The items begin at the conversation's first message (absent = true). */
+  fromStart?: boolean
 }
 
 export interface TranscriptInput {
@@ -70,7 +73,7 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
   const ownAgent: TranscriptSender = chat.agentId
     ? { kind: `agent`, id: chat.agentId, name: agents.get(chat.agentId) ?? chat.title, link: null }
     : { kind: `session`, id: chat.sessionId, name: chat.title, link: null }
-  let originPending = Boolean(chat.originSessionId)
+  let originPending = Boolean(chat.originSessionId) && chat.fromStart !== false
 
   const out: TranscriptRowLayout[] = []
   let prevKey: string | null = null
@@ -86,21 +89,25 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
     } else {
       const own = item.authorKind === `user` && Boolean(input.viewerId) && item.authorId === input.viewerId
       const cross = fromSession(item.authorSessionId)
+      // The origin: the conversation's first message, unless it names its
+      // own sender; no later row.
+      const origin = originPending && !cross ? fromSession(chat.originSessionId) : null
+      originPending = false
       if (cross) {
         side = `other`
         sender = cross
+      } else if (origin) {
+        side = `other`
+        sender = origin
       } else if (own) {
         side = `own`
       } else {
         side = `other`
-        const origin = originPending && !item.authorSessionId ? fromSession(chat.originSessionId) : null
-        if (origin) sender = origin
-        else if (item.authorKind === `user`) {
+        if (item.authorKind === `user`) {
           const id = item.authorId ?? ``
           sender = { kind: `member`, id, name: members.get(id) ?? TRANSCRIPT_COPY.formerMember, link: null }
         } else sender = ownAgent
       }
-      if (!own && !item.authorSessionId) originPending = false
     }
     const key = side === `full` ? null : side === `own` ? `own` : `${sender!.kind}:${sender!.id}:${sender!.link ?? ``}`
     const sameGroup = key !== null && key === prevKey
