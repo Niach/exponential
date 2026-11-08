@@ -99,7 +99,7 @@ console.log(`[fix-server-trace] ssr-util repair: ${repaired} chunk(s)`)
 // '@noble/hashes/crypto'" once sealed-content's x25519 reached the core
 // server chunk (#1433). Copy the non-node siblings of every `node` export
 // target, and link each such duplicate to itself so self-imports stay inside it.
-import { lstatSync, realpathSync, symlinkSync } from "node:fs"
+import { lstatSync, readlinkSync, realpathSync, rmSync, symlinkSync } from "node:fs"
 import { relative } from "node:path"
 
 const serverModules = join(webRoot, `.output/server/node_modules`)
@@ -145,6 +145,86 @@ const installedCopy = (name: string, version: string): string | undefined => {
     return existsSync(manifest) && JSON.parse(readFileSync(manifest, `utf8`)).version === version
   })
 }
+
+// Fourth repair, #2372: with two versions of one package in the closure the
+// trace can hoist the NESTED one. better-call 1.4.0 takes @better-auth/utils
+// ^0.5.0 while better-auth 1.6.34 pins 0.4.2 (the repo hoists 0.4.2); the
+// trace linked node_modules/@better-auth/utils to 0.5.1 with only the files
+// better-call uses, so the bundled app's `@better-auth/utils/random` failed
+// to resolve and every request answered 500. For every bare import of the
+// bundled chunks that does not resolve, point the hoisted link at the
+// version the repo itself hoists (what dev, tests and typecheck resolve),
+// and keep it only when that makes the import resolve.
+let hoistsRepointed = 0
+{
+  const byName = new Map<string, Map<string, string>>()
+  for (const copy of versionedCopies()) {
+    const pkg = JSON.parse(readFileSync(join(copy, `package.json`), `utf8`))
+    if (!pkg.name || !pkg.version) continue
+    if (!byName.has(pkg.name)) byName.set(pkg.name, new Map())
+    byName.get(pkg.name)!.set(pkg.version, copy)
+  }
+  const bundled = [join(webRoot, `.output/server/index.mjs`)]
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(join(dir, entry.name))
+      else if (entry.name.endsWith(`.mjs`)) bundled.push(join(dir, entry.name))
+    }
+  }
+  walk(join(webRoot, `.output/server/chunks`))
+  const specifiers = new Set<string>()
+  for (const file of bundled) {
+    for (const match of readFileSync(file, `utf8`).matchAll(/(?:from|import)\s*\(?\s*"([^".\/#][^"]*)"/g)) {
+      specifiers.add(match[1]!)
+    }
+  }
+  // In a fresh process: Bun caches resolutions, failed ones included.
+  const resolves = (specifier: string) =>
+    Bun.spawnSync([
+      process.execPath,
+      `-e`,
+      `Bun.resolveSync(${JSON.stringify(specifier)}, ${JSON.stringify(join(webRoot, `.output/server/chunks/_`))})`,
+    ]).exitCode === 0
+  for (const specifier of specifiers) {
+    const parts = specifier.split(`/`)
+    const name = specifier.startsWith(`@`) ? parts.slice(0, 2).join(`/`) : parts[0]!
+    const copies = byName.get(name)
+    if (!copies || copies.size < 2 || resolves(specifier)) continue
+    const hoisted = join(serverModules, name)
+    const repoManifest = join(repoRoot, `node_modules`, name, `package.json`)
+    if (!existsSync(repoManifest) || !existsSync(hoisted) || !lstatSync(hoisted).isSymbolicLink()) continue
+    const want = copies.get(JSON.parse(readFileSync(repoManifest, `utf8`)).version)
+    if (!want || realpathSync(hoisted) === realpathSync(want)) continue
+    // The trace copied only what the nested users import; fill the export
+    // targets of the copy that becomes hoisted from the installed package.
+    const manifest = JSON.parse(readFileSync(join(want, `package.json`), `utf8`))
+    const source = installedCopy(name, manifest.version)
+    const targets = new Set<string>()
+    const leaves = (value: unknown) => {
+      if (typeof value === `string`) {
+        if (value.startsWith(`./`) && !value.includes(`*`)) targets.add(value)
+      } else if (value && typeof value === `object`) for (const v of Object.values(value)) leaves(v)
+    }
+    leaves(manifest.exports)
+    for (const target of targets) {
+      if (!source || existsSync(join(want, target)) || !existsSync(join(source, target))) continue
+      mkdirSync(dirname(join(want, target)), { recursive: true })
+      copyFileSync(join(source, target), join(want, target))
+    }
+    const previous = readlinkSync(hoisted)
+    rmSync(hoisted)
+    symlinkSync(relative(dirname(hoisted), want), hoisted, `dir`)
+    if (resolves(specifier)) {
+      console.log(`[fix-server-trace] hoisted ${name} → ${relative(serverModules, want)} (\`${specifier}\` did not resolve)`)
+      hoistsRepointed += 1
+    } else {
+      rmSync(hoisted)
+      symlinkSync(previous, hoisted, `dir`)
+    }
+  }
+}
+console.log(`[fix-server-trace] hoist repair: ${hoistsRepointed} package(s)`)
 
 let targetsCopied = 0
 let selfLinks = 0

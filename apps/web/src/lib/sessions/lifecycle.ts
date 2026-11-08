@@ -32,7 +32,8 @@ import { trainEdge } from "@/lib/merge-train/edge"
 /** Best-effort relay kills for rows already flipped to ended: each goes
  *  down the control socket of the session's device, under its host account
  *  (`sessionDeviceOwner`: the host row, else the starter), resolved for
- *  every id in ONE query. A row naming no device is skipped. */
+ *  every id in ONE query. A row naming no device is skipped, and so is a
+ *  CLI subagent row (#EXP-1731). */
 export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise<void> {
   if (sessionIds.length === 0) return
   const config = getSteerRelayConfig()
@@ -44,7 +45,9 @@ export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise
       hostUserId: sql<string>`COALESCE((SELECT h.user_id FROM ${devices} h WHERE ${hostRowCondition(`h`)} LIMIT 1), ${sessions.userId})`,
     })
     .from(sessions)
-    .where(inArray(sessions.id, sessionIds))
+    // #EXP-1731: a CLI subagent has no process of its own to kill (its
+    // parent's runs it).
+    .where(and(inArray(sessions.id, sessionIds), isNull(sessions.subagentKey)))
   await Promise.all(
     rows
       .filter((row) => row.deviceId)
