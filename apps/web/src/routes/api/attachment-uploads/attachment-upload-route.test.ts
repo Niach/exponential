@@ -191,7 +191,7 @@ describe(`PUT /api/attachment-uploads/$token`, () => {
     )
   })
 
-  it(`also takes a multipart "file" part (the sessions_results curl shape)`, async () => {
+  it(`also takes a multipart "file" part (the curl -F shape)`, async () => {
     // A real multipart Request cannot be built here: jsdom's `File` is not
     // undici's and its parser asserts on it. The route only reads the header
     // and `formData()`, so a stub carries the part.

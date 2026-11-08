@@ -67,6 +67,35 @@ impl serde::Serialize for ReplyCard {
     }
 }
 
+/// EXP-1731: one CLI subagent edge as its child `sessions` row (Exponential:
+/// `sessions.subagent` under the run's session). `key` is the CLI's own id
+/// of the subagent; the first edge of a key writes the row, a later
+/// `Running` is progress, `Ended` ends it with its `summary`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentRow {
+    pub key: String,
+    pub status: SubagentRowStatus,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub failed: bool,
+}
+
+/// [`SubagentRow::status`] — the server's `running | ended`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubagentRowStatus {
+    Running,
+    Ended,
+}
+
+impl SubagentRowStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Ended => "ended",
+        }
+    }
+}
+
 /// EXP-1322: one option of a question card: its label and, when the feed
 /// option carries one, its description (the thread card shows it like the
 /// session view's card). The answer names the option by its label.

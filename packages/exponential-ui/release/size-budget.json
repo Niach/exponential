@@ -1,8 +1,8 @@
 {
-  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>. Doubled per Danny 2026-10-26: budgets were tripping CI on every small change; every budget = 2× its measured size (CI where measured, else sizes.json; the per-machine overrides 2× their measure = budget / 1.025), so the check still fails a real blow-up past 2×. VAPP-160: the entries that import catalog/style.json (eui index, schema, conformance, host, web; the element standalone) lowered by exactly the bytes + gzip that importing generated/style.runtime.json (no `$comment`s) saved, measured before/after on one machine. VAPP-275: the host contract's runtime slice (generated/host.runtime.json, only what src/host/contract.ts and exposes.ts read) replaced the whole catalog/host.json in every entry that imports the host contract: eui index, host and conformance and the element standalone lowered by exactly the bytes + gzip saved (measured before/after on one machine). eui/web gzip raised 50,500 → 54,000 for real renderer code (Markdown, Tabs strip, the inline calendar, the brand icon: 52,516 on master) plus the measured growth of the open round-7 PRs (Sidebar rail +136, foldable Row + Tree +455, anchored + hosted popovers +855). VAPP-281: eui/web gzip 54,000 → 54,100: with #2121 (Tree) merged the stack measures 54,016 (Tree landed above its estimate; the popovers grew as estimated), +84 slack. VAPP-289: eui index and host +8 B (the runtime catalog's Box `events` gains `,\"hover\"`), eui schema +53 B (that plus the Box description's `on.hover` sentence), all from 65096ff6527 (#2288, Box on.hover ×5): set to exactly the bytes + gzip measured with CI's bun 1.4.4.",
+  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>. Doubled per Danny 2026-10-26: budgets were tripping CI on every small change; every budget = 2× its measured size (CI where measured, else sizes.json; the per-machine overrides 2× their measure = budget / 1.025), so the check still fails a real blow-up past 2×. VAPP-160: the entries that import catalog/style.json (eui index, schema, conformance, host, web; the element standalone) lowered by exactly the bytes + gzip that importing generated/style.runtime.json (no `$comment`s) saved, measured before/after on one machine. VAPP-275: the host contract's runtime slice (generated/host.runtime.json, only what src/host/contract.ts and exposes.ts read) replaced the whole catalog/host.json in every entry that imports the host contract: eui index, host and conformance and the element standalone lowered by exactly the bytes + gzip saved (measured before/after on one machine). eui/web gzip raised 50,500 → 54,000 for real renderer code (Markdown, Tabs strip, the inline calendar, the brand icon: 52,516 on master) plus the measured growth of the open round-7 PRs (Sidebar rail +136, foldable Row + Tree +455, anchored + hosted popovers +855). VAPP-281: eui/web gzip 54,000 → 54,100: with #2121 (Tree) merged the stack measures 54,016 (Tree landed above its estimate; the popovers grew as estimated), +84 slack. VAPP-289: eui index and host +8 B (the runtime catalog's Box `events` gains `,\"hover\"`), eui schema +53 B (that plus the Box description's `on.hover` sentence), all from 65096ff6527 (#2288, Box on.hover ×5): set to exactly the bytes + gzip measured with CI's bun 1.4.4. EXP-1740 (9ad315767d0, the Window component in the core catalog): eui index +1834 B / +261 gz, schema +1548 / +207, host +1734 / +221, set to exactly what CI's bun 1.4.4 measures.",
   "@exponential_app/eui/index": {
-    "bytes": 694819,
-    "gzip": 189918
+    "bytes": 696653,
+    "gzip": 190180
   },
   "@exponential_app/eui-react/index": {
     "bytes": 283892,
@@ -21,16 +21,16 @@
     "gzip": 68064
   },
   "@exponential_app/eui/schema": {
-    "bytes": 271295,
-    "gzip": 64443
+    "bytes": 272843,
+    "gzip": 64650
   },
   "@exponential_app/eui/conformance": {
     "bytes": 4061810,
     "gzip": 344841
   },
   "@exponential_app/eui/host": {
-    "bytes": 598231,
-    "gzip": 153819
+    "bytes": 599965,
+    "gzip": 154042
   },
   "@exponential_app/eui/web": {
     "bytes": 304014,
