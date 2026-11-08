@@ -7,6 +7,9 @@ package com.exponential.app.domain
 // locked to `fixtures/message-conversation.json` by MessageConversationTest.
 // Mirrors: desktop `domain::message_conversation`, iOS ExpCore
 // `MessageConversation.swift`.
+// #EXP-1730 phase A: the app no longer keys through conversations (it reads
+// `messages.session_id`, [SessionTree.messages]); this stays only as the
+// fixture replay until the fixture moves to the one-tree rule.
 
 object MessageConversation {
 

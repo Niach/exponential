@@ -2,7 +2,6 @@ package com.exponential.app.domain
 
 import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.db.AgentDefinitionEntity
-import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.MessageEntity
@@ -1840,19 +1839,13 @@ object SessionTree {
         return parents
     }
 
-    /** NEW-8: a `conversations` row as the keying input of [messages]. */
-    fun conversation(row: ConversationEntity): MessageConversation.Conversation =
-        MessageConversation.Conversation(id = row.id, sessionId = row.sessionId)
+    /** #EXP-1730: the rows keyed by their own `messages.session_id`; a row
+     *  without one (a dm/channel message) is left out, input order kept. */
+    fun messages(rows: List<MessageEntity>): List<Message> =
+        rows.mapNotNull { row -> row.sessionId?.takeIf { it.isNotEmpty() }?.let { message(row, it) } }
 
-    /** NEW-8: the rows keyed through their conversation
-     *  ([MessageConversation.keyMessagesBySession]): dm/channel and
-     *  not-yet-synced conversations are left out, input order kept. */
-    fun messages(rows: List<MessageEntity>, conversations: List<ConversationEntity>): List<Message> =
-        MessageConversation.keyMessagesBySession(rows, conversations.map(::conversation)) { it.conversationId }
-            .map { (row, sessionId) -> message(row, sessionId) }
-
-    /** [sessionId] = the session the row's conversation belongs to (resolved
-     *  by [messages] or by a DAO query scoped to that session's conversation). */
+    /** [sessionId] = the session the row belongs to (resolved by [messages]
+     *  or by a DAO query scoped to that session). */
     fun message(row: MessageEntity, sessionId: String): Message {
         // EXP-1459: the DAO already opened what this install can; what stays
         // sealed is LOCKED (empty body, the card's clear part).

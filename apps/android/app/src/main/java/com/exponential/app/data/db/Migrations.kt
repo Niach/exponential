@@ -281,3 +281,28 @@ val MIGRATION_119_120: Migration = object : Migration(119, 120) {
         )
     }
 }
+
+/**
+ * v121 (#EXP-1730 phase A, the one-tree model): `messages.session_id` (+ its
+ * index; every message reader keys by it), `sessions.digest` (the list
+ * digest, mirrored server-side from the conversation), `agents.defaults`
+ * (the runner picks as one object) and `apps.agent_id`. The local
+ * `conversations` table goes (no reader left) with its shape offset. The
+ * messages, sessions, agents and apps shapes refetch, so synced rows
+ * re-arrive carrying the columns.
+ */
+val MIGRATION_120_121: Migration = object : Migration(120, 121) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `session_id` TEXT")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_session_id` ON `messages` (`session_id`)")
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `digest` TEXT")
+        db.execSQL("ALTER TABLE `agents` ADD COLUMN `defaults` TEXT")
+        db.execSQL("ALTER TABLE `apps` ADD COLUMN `agent_id` TEXT")
+        db.execSQL("DROP TABLE IF EXISTS `conversations`")
+        db.execSQL("DELETE FROM `electric_offsets` WHERE `shape` = 'conversations'")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` IN ('messages', 'sessions', 'agents', 'apps')",
+        )
+    }
+}
