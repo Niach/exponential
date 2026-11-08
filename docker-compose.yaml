@@ -22,7 +22,7 @@ services:
   electric:
     # Pinned (like postgres/garage) so an upstream protocol change can't land
     # silently in every dev environment — bump deliberately.
-    image: electricsql/electric:1.4.11
+    image: electricsql/electric:1.8.1
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/exponential?sslmode=disable
       ELECTRIC_INSECURE: true
