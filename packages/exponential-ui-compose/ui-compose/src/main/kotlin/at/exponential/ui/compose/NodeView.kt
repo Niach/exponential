@@ -48,6 +48,7 @@ import at.exponential.ui.ffi.animationFrameJson
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
+import at.exponential.ui.model.boxHover
 import at.exponential.ui.model.fire
 import at.exponential.ui.model.isStripTab
 import at.exponential.ui.model.tabDrag
@@ -256,6 +257,25 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         Modifier
     }
 
+    // #EDE-65: the pointer entering a Box fires its `on.hover` (like a
+    // Motion's `MotionDriver.hover`); leaving fires nothing.
+    val boxEnter = if (node.component == "Box" && node.part == null && !inert) {
+        Modifier.pointerInput("${node.id}.boxHover") {
+            awaitPointerEventScope {
+                while (true) {
+                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                    when (e.type) {
+                        PointerEventType.Enter -> model.boxHover(node.id, true)
+                        PointerEventType.Exit -> model.boxHover(node.id, false)
+                        else -> {}
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     // A toast pauses its timer while pressed (touch) or hovered (a mouse):
     // two holds, so a click under a hovering mouse keeps it paused.
     val toast = if (node.ownerComponent == "Toast" && node.part == "root") {
@@ -311,6 +331,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(pressedScale)
             .skeletonPulse(node.component == "Skeleton" && node.isLeaf, model.reducedMotion)
             .then(hover)
+            .then(boxEnter)
             .then(toast)
             .then(press)
             .then(resizeHandle(node, model, !invisible) { inputMode.inputMode == InputMode.Keyboard })

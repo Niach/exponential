@@ -10,6 +10,7 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.OverlayPresentation
+import at.exponential.ui.model.boxHover
 import at.exponential.ui.model.checked
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.INPUT_DEBOUNCE_MS
@@ -400,6 +401,41 @@ class InteractionTest {
             assertEquals("$name: events", c["events"]?.array.orEmpty().map { it.string }, host.actions.map { it.name })
             for (a in host.actions.filter { it.name == "fold" }) assertEquals("$name: fold context", c["after"]?.bool, a.context["open"]?.bool)
             assertEquals("$name: expanded after", c["after"]?.bool, m.node(m.idx("issues.head"))?.accessibility?.get("expanded")?.bool)
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `boxHover` (#EDE-65): the pointer
+     * entering a Box fires its `on.hover` (no payload), leaving fires
+     * nothing, a pressable Box still presses; [boxHover] is what the
+     * painter's pointer Enter / Exit calls.
+     */
+    @Test
+    fun boxHoverCasesFireOnEntering() {
+        val f = Fixtures.json("interactions-round1.json")["boxHover"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("box-hover", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            m.setViewport(390f, 800f)
+            for (step in c["steps"]?.array.orEmpty()) {
+                val enter = step["enter"]?.string
+                val leave = step["leave"]?.string
+                val press = step["press"]?.string
+                when {
+                    enter != null -> m.boxHover(enter, true)
+                    leave != null -> m.boxHover(leave, false)
+                    press != null -> m.press(press)
+                    else -> error("$name: unknown step ${step.json}")
+                }
+            }
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
         }
     }
 
