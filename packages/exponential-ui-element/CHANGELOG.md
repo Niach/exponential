@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.20.0 (2026-11-08)
+
 - `Window` (VAPP-290) through the Solid painter.
 
 ## 0.19.1 (2026-11-07)
