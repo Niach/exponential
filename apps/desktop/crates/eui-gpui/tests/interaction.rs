@@ -1391,6 +1391,29 @@ fn a_mixed_checkbox_presses_to_checked_and_reads_mixed(cx: &mut TestAppContext) 
     }
 }
 
+/// #EXP-1739 overlayAnchor on gpui: a wheel over the container holding a
+/// Popover's anchor scrolls it, and the Popover closes (the core raises it,
+/// the view takes it with the scroll); a frame that moves nothing keeps it.
+#[gpui::test]
+fn a_wheel_over_the_anchors_container_closes_its_popover(cx: &mut TestAppContext) {
+    let fixture: Value = serde_json::from_str(include_str!("../../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap();
+    let tree = json!({"id": "root", "component": "Box", "children": [fixture["overlayAnchor"]["surface"].clone()]});
+    let (view, _, cx) = surface(cx, tree, false);
+    view.update(cx, |v, _| v.record_bounds(true));
+    draw(cx);
+    let open = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.layers().iter().any(|l| l.owner == "pop"));
+    assert!(open(&view, cx), "opens against its anchor");
+    draw(cx);
+    assert!(open(&view, cx), "a frame that moves nothing keeps it");
+    let list = view.read_with(cx, |v, _| v.painted_bounds("list").expect("the container painted"));
+    // Low in the container, clear of the Popover hanging under the anchor.
+    let at = list.bottom_left() + gpui::point(px(10.0), px(-10.0));
+    cx.simulate_event(ScrollWheelEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-40.0))), ..Default::default() });
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.surface().scroll_offset("list").1) > 0.0, "the wheel scrolled the container");
+    assert!(!open(&view, cx), "the Popover closed with its anchor's scroll");
+}
+
 /// #EDE-65: a Box's `on.hover` through the painter: interactions-round1.json
 /// `boxHover` (real pointer moves enter / leave a tile, a click presses it),
 /// the actions the host sees, in order.

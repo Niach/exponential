@@ -975,7 +975,7 @@ impl SurfaceView {
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx, cx),
             ("Avatar", _) => natives::avatar(&lcx),
-            ("Image", _) => natives::image(&lcx, self.image_surround(n), window, cx),
+            ("Image", _) => natives::image(&lcx, self.image_surround(n), self.cache.ids.get(i).map(|id| (id, &self.held_images)), window, cx),
             // An exiting layer paints nothing live (the view is the open tree's).
             ("ZoomableImage", _) if self.ghosting.get() => return None,
             ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,
