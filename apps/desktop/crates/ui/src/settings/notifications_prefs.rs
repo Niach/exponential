@@ -553,6 +553,11 @@ mod tests {
             code: "#27272aff".into(),
             radius_lg: 12.,
             radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "Lilex".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
         };
         let tree: eui_core::NestedNode = serde_json::from_value(document(&ink)).expect("parses");
         assert_eq!(tree.id, "root");
