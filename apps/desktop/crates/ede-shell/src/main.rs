@@ -323,6 +323,8 @@ struct Shell {
     chat_cli: Option<String>,
     /// The current team's or Local desktop's prompts (the `/` menu's second group).
     chat_prompts: Vec<domain::rows::PromptRow>,
+    /// Who `@` can name in the current chat.
+    chat_members: Vec<chat::Member>,
     /// The draft a pick closed the menu on (it stays shut for it, the IDE's rule).
     chat_menu_dismissed: Option<String>,
     /// The chat on a team: its account, team and open session.
@@ -870,11 +872,15 @@ impl HostPlugin for Host {
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
                         Some("stop") => {}
-                        Some("draft") => {
-                            shell.borrow_mut().chat_draft = arg("text");
-                            chat_menu_changed(&shell);
-                            refresh(&shell, cx);
-                        }
+                        Some("draft") => match chat::commit_emoji(&arg("text")) {
+                            // EXP-551: a closed exact `:shortcode:` becomes its emoji at once.
+                            Some(committed) => chat_set_draft(&shell, &committed, cx),
+                            None => {
+                                shell.borrow_mut().chat_draft = arg("text");
+                                chat_menu_changed(&shell);
+                                refresh(&shell, cx);
+                            }
+                        },
                         Some("slash") if !arg("prompt").is_empty() => chat_load_prompt(&shell, &arg("prompt"), cx),
                         Some("slash") => {
                             shell.borrow_mut().chat_menu_dismissed = Some(arg("insert"));
@@ -1684,6 +1690,10 @@ fn chat_toggle(shell: &SharedShell, cx: &mut App) {
     let open = shell.borrow().model.chat.open;
     if open {
         chatting_changed(shell, cx);
+        // `#` ranks the start menu's issue pool: build it when nothing did yet.
+        if shell.borrow().issue_index.is_empty() {
+            issues_reindex(shell, cx);
+        }
         open_on_demand(shell, "chat", cx);
         refresh(shell, cx);
     } else {
@@ -1844,30 +1854,32 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     let local = !demo && chat_local(shell);
     let team = if demo || local { None } else { team_chat(shell) };
     // The open session's CLI (the `/` menu's builtins), `None` = the CLI default.
-    let (mut input, no_cli, cli, prompts) = {
+    let (mut input, no_cli, cli, prompts, members) = {
         let s = shell.borrow();
         match (demo, s.chat_local.as_ref().filter(|_| local), team) {
-            (true, _, _) if on_local(shell) => (local_runs::demo_input(), false, None, Vec::new()),
+            (true, _, _) if on_local(shell) => (local_runs::demo_input(), false, None, Vec::new(), Vec::new()),
             (true, _, _) => {
                 *s.chat_glyphs.borrow_mut() = team_chat::demo_glyphs();
-                (team_chat::demo_input(), false, None, Vec::new())
+                (team_chat::demo_input(), false, None, Vec::new(), Vec::new())
             }
             (false, Some(chat), _) => {
                 *s.chat_glyphs.borrow_mut() = chat.agents().1;
-                (chat.input(), chat.agent.is_empty(), chat.session_cli(), chat.prompts())
+                (chat.input(), chat.agent.is_empty(), chat.session_cli(), chat.prompts(), Vec::new())
             }
             (false, None, Some((chat, rows))) => {
                 *s.chat_glyphs.borrow_mut() = team_chat::glyphs(&rows.account, &chat.team_id);
                 let cli = chat.session_id.as_deref().and_then(|id| rows.account.sessions.iter().find(|r| r.id == id)).and_then(|r| r.cli.clone());
                 let prompts = inbox_prompts(&rows, &chat.team_id);
-                (team_chat::input(&rows, &chat, now_ms()), false, cli, prompts)
+                let members = team_chat::members(&rows, &chat.team_id);
+                (team_chat::input(&rows, &chat, now_ms()), false, cli, prompts, members)
             }
-            _ => (local_runs::assistant_home(), false, None, Vec::new()),
+            _ => (local_runs::assistant_home(), false, None, Vec::new(), Vec::new()),
         }
     };
     // A session's menu offers its CLI's builtins; the home (no session) none.
     shell.borrow_mut().chat_cli = input.session_id.as_ref().map(|_| chat::session_agent(cli.as_deref()).to_string());
     shell.borrow_mut().chat_prompts = chat::ordered_prompts(prompts);
+    shell.borrow_mut().chat_members = members;
     chat_menu_changed(shell);
     input.agent_id = shell.borrow().chat_agent.clone().or(input.agent_id);
     // eDE's composer has THE `/` menu: the conversation promises it (chat.json slashCommands).
@@ -1934,6 +1946,7 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
         messages: inbox::read_rows(&store, "messages"),
         users: inbox::read_rows(&store, "users"),
         prompts: inbox::read_rows(&store, "prompts"),
+        members: inbox::read_rows(&store, "team_members"),
     };
     // Sealed chats open with the keys the Exponential app holds.
     let opener = match shell.borrow().chat_opener.clone().filter(|(id, _)| *id == account_id) {
@@ -2088,7 +2101,11 @@ fn chat_menu_changed(shell: &SharedShell) {
         if s.chat_menu_dismissed.as_deref() == Some(s.chat_draft.as_str()) {
             json!({"open": false, "rows": []})
         } else {
-            chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref(), &s.chat_prompts)
+            // `@` / `#` behind the caret first, else THE `/` menu.
+            let current = &s.model.switcher.current;
+            let query = domain::typeahead::detect_trigger(&s.chat_draft, s.chat_draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::IssueRef).map(|t| t.query);
+            let ranked = query.map(|q| issues::rank_in(&s.issue_index, &current.kind, &current.id, &q, domain::typeahead::MAX_ITEMS)).unwrap_or_default();
+            chat::mention_menu(&s.chat_draft, &s.chat_members, &ranked).unwrap_or_else(|| chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref(), &s.chat_prompts))
         }
     };
     shell.borrow_mut().feed.set("/chatMenu", menu);
@@ -2859,7 +2876,8 @@ fn main() {
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
             feed.set("/chat", json!({"draft": draft}));
-            feed.set("/chatMenu", chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
+            let menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
+            feed.set("/chatMenu", menu);
         }
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
@@ -2973,6 +2991,7 @@ fn main() {
             chat_draft: String::new(),
             chat_cli: None,
             chat_prompts: Vec::new(),
+            chat_members: Vec::new(),
             chat_menu_dismissed: None,
             chat_team: None,
             chat_opener: None,

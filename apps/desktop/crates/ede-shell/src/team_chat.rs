@@ -31,6 +31,23 @@ pub struct TeamRows {
     pub users: Vec<User>,
     /// The account's prompts (the `/` menu's second group).
     pub prompts: Vec<domain::rows::PromptRow>,
+    /// The account's memberships (who `@` can name, with `users`).
+    pub members: Vec<domain::rows::TeamMember>,
+}
+
+/// The team's people as `@` lists them: its members' users (a user without
+/// an email cannot be mentioned: the interchange form is `@<email>`).
+pub fn members(rows: &TeamRows, team_id: &str) -> Vec<crate::chat::Member> {
+    let users: HashMap<&str, &User> = rows.users.iter().map(|u| (u.id.as_str(), u)).collect();
+    rows.members
+        .iter()
+        .filter(|m| m.team_id == team_id)
+        .filter_map(|m| users.get(m.user_id.as_str()))
+        .filter_map(|u| {
+            let email = u.email.clone().filter(|e| !e.is_empty())?;
+            Some(crate::chat::Member { name: u.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| email.clone()), email })
+        })
+        .collect()
 }
 
 /// The shapes the chat reads: a delta on one repaints an open team chat.
@@ -239,7 +256,7 @@ mod tests {
             serde_json::from_value(json!({"id": "m3", "conversation_id": "c-other", "session_id": "s7", "root_id": "s7", "author_kind": "agent", "body": "elsewhere", "created_at": "2026-11-08T09:16:00Z"})).unwrap(),
         ];
         let users = vec![serde_json::from_value(json!({"id": "u1", "name": "Dana Reyes", "email": "dana@example.com"})).unwrap()];
-        TeamRows { account, messages, users, prompts: Vec::new() }
+        TeamRows { account, messages, users, prompts: Vec::new(), members: Vec::new() }
     }
 
     fn chat(session: Option<&str>) -> TeamChat {
