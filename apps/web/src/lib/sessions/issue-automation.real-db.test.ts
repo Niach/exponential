@@ -305,6 +305,23 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(await w.status(topIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
   })
 
+  it(`#FEED-207: a PR merged into its parent's branch after the parent landed never marks done`, async () => {
+    const w = await world()
+    const bottomIssue = await w.issue(`Bottom`)
+    const topIssue = await w.issue(`Top`)
+    const rootId = await w.worker([bottomIssue.id, topIssue.id])
+    const bottom = await w.openPr({ rootId, head: `exp/bottom`, issueIds: [bottomIssue.id] })
+    const top = await w.openPr({ rootId, head: `exp/top`, base: `exp/bottom`, issueIds: [topIssue.id] })
+    expect(top.basePullRequestId).toBe(bottom.id)
+
+    await applyPullRequestMerged({ pullRequestId: bottom.id, mergedAt: new Date(Date.now() - 60_000), actorUserId: w.owner })
+    expect(await w.status(bottomIssue.id)).toMatchObject({ status: `done` })
+    // The top merges into exp/bottom, a branch already squashed into main.
+    await applyPullRequestMerged({ pullRequestId: top.id, actorUserId: w.owner })
+    expect(await loadPullRequest(top.id)).toMatchObject({ state: `merged`, base: `exp/bottom` })
+    expect(await w.status(topIssue.id)).toMatchObject({ status: `in_review` })
+  })
+
   it(`a merge delivered with its base lands a PR retargeted onto the default branch`, async () => {
     // The `edited` (base change) delivery never arrived: the stored base
     // still names the live bottom PR, but the merge carries `main`.
