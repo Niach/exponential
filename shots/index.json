@@ -1654,8 +1654,8 @@
         "file": "shots/composer-menu/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 25304,
-        "sha256": "3196f5c8a5ec33ae1d966a213770f1cf036488f440576e9fc30e8962292150b4"
+        "bytes": 23428,
+        "sha256": "14dc27d2c8cf22e88a5012c06e9f725d9f6a1d3303e6cee7baeb405ac021786b"
       },
       "web": {
         "file": "shots/composer-menu/web.webp",
@@ -5457,8 +5457,8 @@
         "file": "shots/machine-settings/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 29206,
-        "sha256": "d80494d614905848a6261b13dec7f31c9e04288dc3334a4c6def1a02edcae992"
+        "bytes": 25014,
+        "sha256": "a0a345c445510cddd6bb5acdb576bfc7ec336224e13c02b7ee3087b05b2895de"
       },
       "web": {
         "file": "shots/machine-settings/web.webp",
