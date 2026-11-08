@@ -175,15 +175,15 @@
         "file": "shots/app/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 89790,
-        "sha256": "a568088658073f20faa6d455223ea3767073e61fb5efad1c5195a9467ebe2956"
+        "bytes": 47372,
+        "sha256": "0d4dd19fb818e87aea817b50250490d17cd00e287e4a90687e9de442fd4cdb63"
       },
       "web-mobile": {
         "file": "shots/app/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 42264,
-        "sha256": "1bc775c7247f783de59e1693589e0375e4a3f98988a1ab5b2bc5ca73e7a5afe8"
+        "bytes": 24760,
+        "sha256": "5e03aeb3aba21dcca10d283101c8eb89e83cd56145e718c47ee5f8bcca873a05"
       }
     },
     "app-calendar": {
@@ -397,15 +397,15 @@
         "file": "shots/app-draft/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42390,
-        "sha256": "f3207d98e8ddfe1416c95935193d254ba12dc7b3e8dbb6142d159ed88c031d05"
+        "bytes": 43652,
+        "sha256": "a694a264ccc0743f9fa74d27c5391c867068d2726ef6bd310143c7a543d39019"
       },
       "web-mobile": {
         "file": "shots/app-draft/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20190,
-        "sha256": "74ab5fa870c3e075bfdf864ba440216a0431c73ecc90c08aa2f7a7e208c8d698"
+        "bytes": 22538,
+        "sha256": "aaa98fda0a93cc0904eb3a98f43c6d8f2b9ad23b303bcf3d53f4921b0dbf0a05"
       }
     },
     "app-export": {
