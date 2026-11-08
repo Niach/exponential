@@ -245,7 +245,8 @@ fn read_saved_team(path: &Path) -> Option<String> {
 }
 
 fn write_current(path: &Path, entry: &SwitcherEntry) -> std::io::Result<()> {
-    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id}).to_string())
+    // The account too (#EDE-65): the Exponential app starts on the team's own account.
+    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id, "account": entry.account}).to_string())
 }
 
 /// #EDE-65: what the switcher and the chat say about the connection: is an
@@ -326,8 +327,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("switcher.json");
         assert_eq!(read_saved_team(&path), None);
-        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a1", "danny@example.com")).unwrap();
+        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a2", "work@example.com")).unwrap();
         assert_eq!(read_saved_team(&path).as_deref(), Some("t1"));
+        // The Exponential app reads the team's account from it (ui `session::ede_pick`).
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"kind": "team", "id": "t1", "account": "a2"}));
         write_current(&path, &SwitcherEntry::local("local", "Local")).unwrap();
         assert_eq!(read_saved_team(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
