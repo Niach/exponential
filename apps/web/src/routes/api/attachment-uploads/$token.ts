@@ -44,7 +44,7 @@ import {
 // Content-Type: the row's type is the one the tool call canonicalized.
 //
 // Body: PUT (or POST) the raw bytes; a multipart `file` part is accepted too
-// so a `curl -F file=@…` line copied from sessions_results still works.
+// so a `curl -F file=@…` line still works alongside `curl -T`.
 
 /** The statuses `errorToResponse` has no tRPC code for (411, 413). */
 class UploadStatusError extends Error {

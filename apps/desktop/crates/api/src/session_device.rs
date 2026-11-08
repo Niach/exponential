@@ -428,6 +428,49 @@ pub fn reply(
     Ok(output.message_id)
 }
 
+pub use eagent::engine::reply::{SubagentRow, SubagentRowStatus};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubagentInput<'a> {
+    session_id: &'a str,
+    key: &'a str,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<&'a str>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    failed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubagentOutput {
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+/// #EXP-1731: `sessions.subagent` — mutation: one CLI subagent edge under
+/// `session_id` (its parent) as its child `sessions` row. The first edge of
+/// `row.key` writes the row, a later `running` is progress, `ended` ends it
+/// with its summary; the server never wakes the parent for it. Returns the
+/// child row id (`None` = the server ignored the edge).
+pub fn subagent(trpc: &TrpcClient, session_id: &str, row: &SubagentRow) -> Result<Option<String>, ApiError> {
+    let output: SubagentOutput = trpc.mutation(
+        "sessions.subagent",
+        &SubagentInput {
+            session_id,
+            key: &row.key,
+            status: row.status.as_str(),
+            title: row.title.as_deref(),
+            summary: row.summary.as_deref(),
+            failed: row.failed,
+        },
+    )?;
+    Ok(output.session_id)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LeftoverInput<'a> {
@@ -601,6 +644,39 @@ mod tests {
                 "GET /api/trpc/sessions.brief?input=%7B%22sessionId%22%3A%22{SESSION}%22%7D HTTP/1.1"
             )),
             "{request}"
+        );
+    }
+
+    /// #EXP-1731: a subagent edge posts its key and status, the absent
+    /// title/summary and a false `failed` stay off the wire.
+    #[test]
+    fn subagent_posts_the_edge_and_decodes_the_child_row() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"sessionId":"child-1"}}}"#);
+        let row = SubagentRow {
+            key: "task-1".to_string(),
+            status: SubagentRowStatus::Running,
+            title: None,
+            summary: None,
+            failed: false,
+        };
+        assert_eq!(subagent(&client(&base), SESSION, &row).unwrap().as_deref(), Some("child-1"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/sessions.subagent HTTP/1.1"), "{request}");
+        assert_eq!(body_of(&request), format!(r#"{{"sessionId":"{SESSION}","key":"task-1","status":"running"}}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"sessionId":null}}}"#);
+        let ended = SubagentRow {
+            status: SubagentRowStatus::Ended,
+            title: Some("Find the callers".to_string()),
+            summary: Some("Found 3".to_string()),
+            failed: true,
+            ..row
+        };
+        assert_eq!(subagent(&client(&base), SESSION, &ended).unwrap(), None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            body_of(&request),
+            format!(r#"{{"sessionId":"{SESSION}","key":"task-1","status":"ended","title":"Find the callers","summary":"Found 3","failed":true}}"#)
         );
     }
 
