@@ -7,6 +7,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - An open anchored overlay (Popover, Menu, Tooltip, a picker's popup) closes once its anchor scrolls, moves or leaves the tree (#EXP-1739): the core closes it on a scroll of a container holding the anchor or on a pass that finds the anchor moved or gone (raised through `take_events`); web `watchAnchor` (`@exponential_app/eui/web`) does the same for React and Solid. `fixtures/interactions-round1.json` `overlayAnchor`, replayed ×5.
 
+## 0.19.1 (2026-11-07)
+
+- Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 8, web: the shared Motion painter reads packed VERSION 2 and paints `text` ops (Canvas2D `fillText` in the theme's sans/mono at the CSS weight, physical align, the `fontBoundingBoxAscent/Descent` baseline rule, size × the transform's scale; `paintText`, `MotionTextFonts`). `CanvasView` (`@exponential_app/eui/web`): the Canvas native's web half over the WASM `CanvasPlayer` (recompile on size/shapes, resample on theme/mode, pointer press/move/leave through `canvasToDrawing`). `box-css` emits `@container (min-width|max-width: N)` as a real `@container (width …)` query with the parent made an `inline-size` container. `CHECKBOX_CLASSES` gain the indeterminate look; `.xui-Progress-value` sets tabular numerals. Web conformance baseline re-recorded.

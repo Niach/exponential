@@ -45,7 +45,7 @@ media3 = "1.11.1"
 # EXP-1280: the Exponential UI Compose painter (`:ui-compose`, included by
 # path for the plan card's inline surface) resolves these through THIS
 # catalog; pinned to packages/exponential-ui-compose/gradle/libs.versions.toml.
-jna = "5.17.0"
+jna = "5.18.1"
 robolectric = "4.15.1"
 roborazzi = "1.46.1"
 junit = "4.13.2"

@@ -335,15 +335,23 @@ pub(crate) fn team_glyph(size: f32) -> gpui::AnyElement {
 /// [`team_glyph`]. `size` is the side in px: 28 in the rail header, 20 in its
 /// menu.
 pub(crate) fn team_avatar(icon_url: Option<&str>, size: f32, cx: &mut App) -> gpui::AnyElement {
-    let image = match team_mark(icon_url) {
-        TeamMark::Image { src } => {
-            match team_images(cx).update(cx, |images, cx| images.slot(&src, cx)) {
-                MarkdownImageSlot::Ready(image) => Some(image),
-                _ => None,
-            }
-        }
+    let image = team_image(icon_url, cx);
+    team_avatar_of(image, size)
+}
+
+/// #EXP-1725: a team's loaded image, if it has one (the cache fetches it).
+pub(crate) fn team_image(icon_url: Option<&str>, cx: &mut App) -> Option<crate::markdown::CachedImage> {
+    match team_mark(icon_url) {
+        TeamMark::Image { src } => match team_images(cx).update(cx, |images, cx| images.slot(&src, cx)) {
+            MarkdownImageSlot::Ready(image) => Some(image),
+            _ => None,
+        },
         TeamMark::Glyph => None,
-    };
+    }
+}
+
+/// [`team_avatar`] over an image already resolved ([`team_image`]).
+pub(crate) fn team_avatar_of(image: Option<crate::markdown::CachedImage>, size: f32) -> gpui::AnyElement {
     let frame = div()
         .flex_shrink_0()
         .size(px(size))

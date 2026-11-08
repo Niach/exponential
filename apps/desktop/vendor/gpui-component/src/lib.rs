@@ -50,6 +50,7 @@ pub mod list;
 pub mod menu;
 pub mod native_menu;
 pub mod notification;
+pub mod overlay_anchor;
 pub mod pagination;
 pub mod plot;
 pub mod popover;

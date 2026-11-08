@@ -7,6 +7,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - An anchored overlay closes once its anchor scrolls, moves or leaves the tree (#EXP-1739, through the core).
 
+## 0.19.1 (2026-11-07)
+
+- Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe (its type, side padding reserved in the line, corners, in quotes too), a bullet is 0.36 em at 0.46 em into the indent on the line's middle (`fixtures/markdown-inline.json` `documentPaint`). `MarkdownChipStyle.code`.

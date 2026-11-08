@@ -96,7 +96,7 @@ impl Root {
 
     /// Create a new Root view.
     pub fn new(view: impl Into<AnyView>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        #[cfg(all(target_os = "macos", not(test)))]
+        #[cfg(all(target_os = "macos", not(test), not(feature = "test-support")))]
         gpui_base::install_window_hit_test_forwarder(window);
 
         Self {
@@ -592,7 +592,9 @@ impl Render for Root {
             .child(TextSelectionLayer)
             .child(self.view.clone())
             .child(self.tooltip_overlay.clone())
-            .child(self.native_menu_overlay.clone());
+            .child(self.native_menu_overlay.clone())
+            // #EXP-1739: after everything that can be an overlay's source.
+            .child(crate::overlay_anchor::sweep_layer());
 
         if self.bordered {
             window_border()

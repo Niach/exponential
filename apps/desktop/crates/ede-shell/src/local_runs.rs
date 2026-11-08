@@ -112,9 +112,16 @@ impl LocalChat {
     }
 }
 
-/// `/chatting` on a team (an account): the Assistant lives in the Exponential app.
-pub fn remote_feed() -> Value {
-    json!({"local": false, "agent": "", "title": "Assistant", "status": "", "busy": false, "messages": []})
+/// `/chatting` on a team (an account): the Assistant lives in the Exponential
+/// app; #EDE-65: the status names the team and the account it is connected
+/// through (the chat opens the app, it never asks to connect what is).
+pub fn remote_feed(team: &str, account: &str) -> Value {
+    let connected = match (team.is_empty(), account.is_empty()) {
+        (false, false) => format!("{team} · {account}"),
+        (false, true) => team.to_string(),
+        _ => account.to_string(),
+    };
+    json!({"local": false, "agent": "", "title": "Assistant", "status": connected, "busy": false, "messages": []})
 }
 
 /// The goldens: a short local conversation.
@@ -123,4 +130,14 @@ pub fn demo_feed() -> Value {
         {"id": "m1", "author": "Danny", "body": "Which issues are still open on this desktop?"},
         {"id": "m2", "author": "claude", "body": "Two are open on **General**:\n\n- GEN-1 Set up the printer\n- GEN-2 Back up the photos\n\nWant me to take one?"}
     ]})
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_team_chat_names_the_team_and_its_account() {
+        let feed = super::remote_feed("Exponential", "danny@example.com");
+        assert_eq!((feed["local"].as_bool(), feed["status"].as_str()), (Some(false), Some("Exponential · danny@example.com")));
+        assert_eq!(super::remote_feed("", "danny@example.com")["status"], "danny@example.com");
+    }
 }

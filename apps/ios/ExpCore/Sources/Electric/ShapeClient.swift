@@ -483,7 +483,8 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // After a 409 / inline must-refetch, this is the re-fetch with fresh
         // data. Prepend .mustRefetch so applyBatch does DELETE + INSERTs in
         // one transaction — ValueObservation never sees an empty table.
-        if refetching {
+        // A first snapshot (no cursor) replaces the table too.
+        if shapeSnapshotReplacesTable(saved) {
             messages.insert(.mustRefetch, at: 0)
         }
 
@@ -626,4 +627,14 @@ public enum ShapeError: Error {
     /// #EXP-1623: HTTP 404, the server does not serve this shape (yet);
     /// run() re-asks every `unknownShapeRetry`.
     case unknownShape
+}
+
+/// The poll from `saved` is a snapshot that REPLACES the table: a
+/// post-409 refetch, or a first snapshot with no cursor at all. Rows the
+/// table holds without a cursor (an older build that never stored this
+/// shape's, a reset offsets table) would otherwise outlive their deletion
+/// on the server: a deleted conversation's messages showed twice next to
+/// the new one's (Android `ShapeClient`, the same rule).
+func shapeSnapshotReplacesTable(_ saved: ElectricOffset?) -> Bool {
+    saved == nil || saved?.needsRefetch == true
 }

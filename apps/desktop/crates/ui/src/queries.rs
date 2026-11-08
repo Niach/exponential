@@ -399,6 +399,16 @@ pub fn trpc_client(cx: &App) -> Option<api::TrpcClient> {
     Some(api::TrpcClient::new(&account.instance_url, provider))
 }
 
+/// #EXP-1727: a client for `account`: a Local desktop's executor, else the
+/// instance with the account's call-time token.
+pub(crate) fn client_for(account: &api::Account, cx: &App) -> Option<api::TrpcClient> {
+    if account.is_local() {
+        return crate::local_desktops::client(cx);
+    }
+    let auth = cx.try_global::<AuthContext>()?;
+    Some(api::TrpcClient::new(&account.instance_url, auth.auth.token_provider(&account.id)))
+}
+
 /// The auth-gated attachment transport bound to the active account (§4.5's
 /// single image path: upload for the editors, bearer-fetched bytes for
 /// rendering `/api/attachments/{id}`). `None` unless signed in.

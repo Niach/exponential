@@ -7,6 +7,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).
 
+## 0.19.1 (2026-11-07)
+
+- Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 8: the `Canvas` native (`CanvasView`: role img named by `label`, the Motion box, `pointer` events), Checkbox `indeterminate` (`checked="indeterminate"`, the `ui-minus` glyph, `aria-checked=mixed`, the press rule of `interactions-round1.json` `checkbox`), the primitive Checkbox's dash. Snapshots re-recorded (Progress header, Checkbox recipe prop).
