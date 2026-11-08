@@ -258,6 +258,39 @@ final class AppsTests: XCTestCase {
         }
     }
 
+    // #EXP-1729: `editorHeader` replays `editorHeaderCases` (the WHOLE
+    // value); its copy pins.
+    func testEditorHeaderCases() throws {
+        let block = try XCTUnwrap(try fixture()["editorHeader"] as? [String: Any])
+        XCTAssertEqual(block["copy"] as? [String: String], [
+            "queued": Apps.EditorHeaderCopy.queued,
+            "needsInput": Apps.EditorHeaderCopy.needsInput,
+            "working": Apps.EditorHeaderCopy.working,
+            "noDeviceOnline": Apps.EditorHeaderCopy.noDeviceOnline,
+        ])
+        for item in try cases("editorHeaderCases") {
+            let root = (item["root"] as? [String: Any]).map {
+                (
+                    status: $0["status"] as? String ?? "",
+                    busy: $0["busy"] as? Bool ?? false,
+                    needsInput: $0["needsInput"] as? Bool ?? false
+                )
+            }
+            let device = (item["device"] as? [String: Any]).map {
+                (name: $0["name"] as? String ?? "", online: $0["online"] as? Bool ?? false)
+            }
+            let expected = try XCTUnwrap(item["expected"] as? [String: Any])
+            XCTAssertEqual(
+                Apps.editorHeader(root: root, device: device),
+                Apps.EditorHeader(
+                    subtitle: try XCTUnwrap(expected["subtitle"] as? String),
+                    tone: try XCTUnwrap(Apps.EditorHeaderTone(rawValue: expected["tone"] as? String ?? ""))
+                ),
+                item["name"] as? String ?? ""
+            )
+        }
+    }
+
     func testAutomationRowCases() throws {
         let block = try XCTUnwrap(try fixture()["automationRowCases"] as? [String: Any])
         let list = try XCTUnwrap(block["cases"] as? [[String: Any]])

@@ -81,7 +81,7 @@ public final class SessionSealer: @unchecked Sendable {
                     SELECT * FROM "sessions" WHERE "agent_id" = ? AND "user_id" = ? AND "parent_id" IS NULL
                     ORDER BY "created_at" DESC LIMIT 1
                     """, arguments: [agentId, me])
-            case let .app(appId, _, _, _):
+            case let .app(appId, _, _, _, _, _, _):
                 guard let me else { return nil }
                 root = try SessionEntity.fetchOne(db, sql: """
                     SELECT * FROM "sessions" WHERE "app_id" = ? AND "user_id" = ? AND "parent_id" IS NULL
