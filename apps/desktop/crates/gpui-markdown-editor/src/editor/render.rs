@@ -1029,7 +1029,7 @@ impl Render for Editor {
             .relative()
             .bg(theme.colors.editor_background)
             .font(editor_text_font(&theme.fonts.ui_family))
-            .on_modifiers_changed(move |event, window, _| {
+            .on_modifiers_changed(move |event, window, cx| {
                 if event.modifiers.secondary(cx) != follow_modifier_active {
                     window.refresh();
                 }
