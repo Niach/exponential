@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// pushTokens.register (EXP-1428): released clients keep sending
-// {token, platform}; new ones add the push relay capability + their X25519
-// push public key (both or neither), which the row stores so sendToUsers can
-// seal to it. A re-register without them falls back to the /send shim.
+// pushTokens.register (EXP-1428, NEW-14): every client sends its token with
+// the push relay capability + its X25519 push public key, which the row
+// stores so sendToUsers can seal to it. A bare {token, platform} is refused:
+// the /send shim that served it is gone.
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
@@ -29,26 +29,24 @@ beforeEach(() => {
 })
 
 describe(`pushTokens.register`, () => {
-  it(`keeps the released {token, platform} shape working`, async () => {
-    await caller().register({ token: `t1`, platform: `ios` })
-    expect(db.rows(`fcm_tokens`)).toMatchObject([
-      { userId: `u1`, token: `t1`, platform: `ios`, relayCapability: null, pushPublicKey: null },
-    ])
+  it(`refuses the old bare {token, platform} shape`, async () => {
+    await expect(caller().register({ token: `t1`, platform: `ios` } as never)).rejects.toThrow()
+    expect(db.rows(`fcm_tokens`)).toHaveLength(0)
   })
 
-  it(`stores a capability + push public key, and clears them on a plain re-register`, async () => {
+  it(`stores a capability + push public key, and a re-register replaces them`, async () => {
     await caller().register({ token: `t1`, platform: `android`, capability: `cap_abc`, pushPublicKey: PUB })
     expect(db.rows(`fcm_tokens`)).toMatchObject([
-      { token: `t1`, relayCapability: `cap_abc`, pushPublicKey: PUB },
+      { userId: `u1`, token: `t1`, platform: `android`, relayCapability: `cap_abc`, pushPublicKey: PUB },
     ])
-    await caller().register({ token: `t1`, platform: `android` })
+    await caller().register({ token: `t1`, platform: `android`, capability: `cap_def`, pushPublicKey: PUB })
     expect(db.rows(`fcm_tokens`)).toHaveLength(1)
-    expect(db.rows(`fcm_tokens`)[0]).toMatchObject({ relayCapability: null, pushPublicKey: null })
+    expect(db.rows(`fcm_tokens`)[0]).toMatchObject({ relayCapability: `cap_def`, pushPublicKey: PUB })
   })
 
-  it(`refuses one without the other, a non-cap_ capability and a bad key`, async () => {
-    await expect(caller().register({ token: `t`, platform: `ios`, capability: `cap_x` })).rejects.toThrow()
-    await expect(caller().register({ token: `t`, platform: `ios`, pushPublicKey: PUB })).rejects.toThrow()
+  it(`refuses a missing capability or key, a non-cap_ capability and a bad key`, async () => {
+    await expect(caller().register({ token: `t`, platform: `ios`, capability: `cap_x` } as never)).rejects.toThrow()
+    await expect(caller().register({ token: `t`, platform: `ios`, pushPublicKey: PUB } as never)).rejects.toThrow()
     await expect(
       caller().register({ token: `t`, platform: `ios`, capability: `key_x`, pushPublicKey: PUB })
     ).rejects.toThrow()
