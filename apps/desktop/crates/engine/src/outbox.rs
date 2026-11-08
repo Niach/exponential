@@ -41,7 +41,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use api::session_device::{ListenerCopy, ListenerTree, ReplyCard, ReplyExtras, ReplyResult};
+use api::session_device::{ListenerCopy, ListenerTree, ReplyCard, ReplyExtras, ReplyResult, SubagentRow};
 use api::ApiError;
 use serde_json::Value;
 use coding::sealing;
@@ -84,6 +84,11 @@ pub trait ConversationApi: Send + Sync + 'static {
         Ok(Vec::new())
     }
     fn consume(&self, session_id: &str, message_ids: &[String]) -> Result<(), ApiError>;
+    /// #EXP-1731: `sessions.subagent`, one CLI subagent edge under
+    /// `session_id` (a fake that does not care records nothing).
+    fn subagent(&self, _session_id: &str, _row: &SubagentRow) -> Result<(), ApiError> {
+        Ok(())
+    }
 }
 
 impl ConversationApi for api::TrpcClient {
@@ -103,6 +108,10 @@ impl ConversationApi for api::TrpcClient {
 
     fn consume(&self, session_id: &str, message_ids: &[String]) -> Result<(), ApiError> {
         api::session_device::consume(self, session_id, message_ids)
+    }
+
+    fn subagent(&self, session_id: &str, row: &SubagentRow) -> Result<(), ApiError> {
+        api::session_device::subagent(self, session_id, row).map(|_| ())
     }
 }
 
@@ -279,9 +288,17 @@ pub(crate) fn ask_text(session_id: &str, card: &Value) -> Option<String> {
     }
 }
 
+/// What the reply worker posts, in queue order: a Conversation row, or
+/// (#EXP-1731) a CLI subagent's child-row edge — one queue, so an `ended`
+/// never overtakes its `running`, nor the subagent card beside it.
+enum Outgoing {
+    Reply(Reply),
+    Subagent(SubagentRow),
+}
+
 /// One run's outbox. Cheap to share; the workers own clones of the state.
 pub struct Outbox {
-    replies: flume::Sender<Reply>,
+    replies: flume::Sender<Outgoing>,
     consumes: flume::Sender<String>,
     shared: Arc<Shared>,
     done: Vec<flume::Receiver<()>>,
@@ -304,7 +321,7 @@ impl Outbox {
     /// Spawn both workers for `session_id`.
     pub fn spawn(api: Arc<dyn ConversationApi>, session_id: &str) -> Outbox {
         let shared = Arc::new(Shared::default());
-        let (replies, reply_rx) = flume::unbounded::<Reply>();
+        let (replies, reply_rx) = flume::unbounded::<Outgoing>();
         let (consumes, consume_rx) = flume::unbounded::<String>();
         let mut done = Vec::new();
 
@@ -319,7 +336,22 @@ impl Outbox {
                 // sealed line that needs copies, then kept current off each
                 // sealed reply's result.
                 let mut listeners: Option<Vec<ListenerTree>> = None;
-                while let Some(reply) = next(&reply_rx, &shared.closing) {
+                while let Some(item) = next(&reply_rx, &shared.closing) {
+                    let reply = match item {
+                        Outgoing::Reply(reply) => reply,
+                        Outgoing::Subagent(mut row) => {
+                            // #FEED-192: a keyed tree takes no plaintext from the device: its
+                            // subagent rows go out without the model's title and summary.
+                            if sealing::root_of(&session_id).is_some_and(|root| sealing::tree_keyed(&root)) {
+                                row.title = None;
+                                row.summary = None;
+                            }
+                            let _ = with_retry(&shared.closing, "sessions.subagent", false, || {
+                                api.subagent(&session_id, &row)
+                            });
+                            continue;
+                        }
+                    };
                     let (body, card, plain_card) = sealed_reply(&session_id, &reply);
                     let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
                         || card.as_ref().is_some_and(|card| card.get("sealed").is_some());
@@ -396,7 +428,15 @@ impl Outbox {
     /// Queue rows for the Conversation, in order.
     pub fn post(&self, replies: Vec<Reply>) {
         for reply in replies {
-            let _ = self.replies.send(reply);
+            let _ = self.replies.send(Outgoing::Reply(reply));
+        }
+    }
+
+    /// #EXP-1731: queue CLI subagent edges (`sessions.subagent`), in order,
+    /// behind whatever replies are already queued.
+    pub fn post_subagents(&self, rows: Vec<SubagentRow>) {
+        for row in rows {
+            let _ = self.replies.send(Outgoing::Subagent(row));
         }
     }
 
@@ -632,6 +672,8 @@ mod tests {
     enum Call {
         Reply(String, Option<serde_json::Value>),
         Consume(Vec<String>),
+        /// #EXP-1731: `sessions.subagent` — the key and the status.
+        Subagent(String, String),
     }
 
     /// Records every call; the first `fail_replies` replies fail with a
@@ -680,6 +722,14 @@ mod tests {
             self.calls.lock().unwrap().push(Call::Consume(ids.to_vec()));
             Ok(())
         }
+
+        fn subagent(&self, _session: &str, row: &SubagentRow) -> Result<(), ApiError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(Call::Subagent(row.key.clone(), row.status.as_str().to_string()));
+            Ok(())
+        }
     }
 
     fn question(id: &str) -> ReplyCard {
@@ -714,6 +764,33 @@ mod tests {
         );
         outbox.resolve_question("q-1");
         assert!(outbox.open_cards().is_empty());
+    }
+
+    /// #EXP-1731: a subagent's edges ride the reply queue — an `ended`
+    /// never overtakes its `running`, nor the card queued before it.
+    #[test]
+    fn subagent_edges_post_in_order_with_the_replies() {
+        let fake = Arc::new(Fake::default());
+        let outbox = Outbox::spawn(fake.clone(), "sess-1");
+        let row = |status| SubagentRow {
+            key: "task-1".into(),
+            status,
+            title: Some("Find the callers".into()),
+            summary: None,
+            failed: false,
+        };
+        outbox.post_subagents(vec![row(api::session_device::SubagentRowStatus::Running)]);
+        outbox.post(vec![Reply { body: "mid".into(), card: None }]);
+        outbox.post_subagents(vec![row(api::session_device::SubagentRowStatus::Ended)]);
+        outbox.close(Duration::from_secs(5));
+        assert_eq!(
+            *fake.calls.lock().unwrap(),
+            vec![
+                Call::Subagent("task-1".into(), "running".into()),
+                Call::Reply("mid".into(), None),
+                Call::Subagent("task-1".into(), "ended".into()),
+            ]
+        );
     }
 
     /// A transient failure is retried and nothing behind it overtakes it.

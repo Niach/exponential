@@ -280,7 +280,7 @@ export const voiceRouter = router({
   update: authedProcedure
     .input(
       z.object({
-        voiceDeviceId: z.string().min(1).max(128).nullable().optional(),
+        // Stays non-strict: floor clients still send the retired `voiceDeviceId`.
         agentId: z.string().uuid().nullable().optional(),
         pttShortcut: z.string().max(VOICE_SHORTCUT_MAX).optional(),
         wakeWord: z.boolean().optional(),
@@ -314,10 +314,10 @@ export const voiceRouter = router({
         throw new TRPCError({ code: `BAD_REQUEST`, message: `That key can't be a push-to-talk binding` })
       }
       const before = await voiceSettingsOf(db, userId)
-      // S-3: the voice device is the Assistant's (Runs on): an old client's
-      // `voiceDeviceId` is ignored; `agentId` may pick which of the member's
-      // Assistants (one per team) holds the voice, nothing else.
-      const { voiceDeviceId: _legacyDevice, agentId: pickedAgent, ...changes } = input
+      // S-3: the voice device is the Assistant's (Runs on); an unknown key is
+      // stripped. `agentId` may pick which of the member's Assistants (one per
+      // team) holds the voice, nothing else.
+      const { agentId: pickedAgent, ...changes } = input
       const voice =
         pickedAgent === undefined || pickedAgent === null
           ? { voiceDeviceId: before.voiceDeviceId, agentId: before.agentId }
