@@ -2201,8 +2201,10 @@ impl IssuePicker {
         let exclude: std::collections::HashSet<String> =
             [self.exclude_issue_id.clone()].into_iter().collect();
         let order = {
-            let rows: Vec<domain::issue_search::SearchRow<'_>> =
-                issues.iter().map(Into::into).collect();
+            let rows: Vec<domain::issue_search::SearchRow<'_>> = issues
+                .iter()
+                .map(|issue| crate::picker::search_list::issue_search_row(issue, cx))
+                .collect();
             domain::issue_search::rank(&rows, &query, ISSUE_PICKER_LIMIT, &exclude)
         };
         order.into_iter().map(|ix| issues[ix].clone()).collect()

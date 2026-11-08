@@ -639,7 +639,7 @@
         "anchorDelayMs": 2500,
         "env": {
           "EXP_DEV_TOOL": "board",
-          "EXP_DEV_SEARCH_QUERY": "cold start"
+          "EXP_DEV_SEARCH_QUERY": "by:alex"
         }
       },
       "diffTolerance": 0.0005

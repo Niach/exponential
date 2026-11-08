@@ -144,7 +144,7 @@ final class StyleguideScreenshots: XCTestCase {
     private static let guideTitle = "Group board issues by assignee"
     /// APP-15: its thread carries the seeded quick replies.
     private static let batchGuideTitle = "Batch-edit labels from the board"
-    private static let searchQuery = "cold start"
+    private static let searchQuery = "by:alex"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
     private static let seededBoardName = "Mobile App"

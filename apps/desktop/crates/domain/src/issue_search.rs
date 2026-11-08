@@ -20,6 +20,14 @@
 //!   title substring                                          40
 //!   description word prefix                                  20
 //!   description substring                                    15
+//!   creator name word prefix (the member or the agent)       10
+//!
+//! #NEW-21: a `by:<name>` token is a CREATOR filter, not a scored word: the
+//! row stays only when its member's or agent's name has a word starting with
+//! <name>, or the member's email starts with it (`by:lukas`, `by:lukas.m`,
+//! `by:@triage`: one leading `@` dropped; an empty `by:` is ignored). A row
+//! with no creator never matches one. A query of `by:` tokens alone lists
+//! the matching rows in the empty-query order below.
 //!
 //! EXP-922: the ordering is THREE keys above the score, in this order:
 //!
@@ -48,6 +56,11 @@ const SCORE_TITLE_WORD_PREFIX: i32 = 50;
 const SCORE_TITLE_CONTAINS: i32 = 40;
 const SCORE_DESCRIPTION_WORD_PREFIX: i32 = 20;
 const SCORE_DESCRIPTION_CONTAINS: i32 = 15;
+const SCORE_CREATOR_WORD_PREFIX: i32 = 10;
+
+/// #NEW-21: the token prefix that turns a word into a creator filter (web
+/// `ISSUE_SEARCH_CREATOR_PREFIX`).
+pub const CREATOR_PREFIX: &str = "by:";
 
 /// The `limit` every consumer gets without asking (web
 /// `ISSUE_SEARCH_DEFAULT_LIMIT`) — and, since EXP-922, the one every SEARCH
@@ -86,6 +99,11 @@ pub struct SearchRow<'a> {
     /// EXP-922: the builtin status ANCHOR (`issues.status`) the row
     /// dual-writes. Absent/unknown = treated as open.
     pub status: Option<&'a str>,
+    /// #NEW-21: the member who filed it (`issues.creator_id`'s name + email).
+    pub creator_name: Option<&'a str>,
+    pub creator_email: Option<&'a str>,
+    /// #NEW-21: the agent whose session filed it (`issues.creator_agent_id`).
+    pub creator_agent_name: Option<&'a str>,
 }
 
 impl<'a> SearchRow<'a> {
@@ -100,6 +118,9 @@ impl<'a> SearchRow<'a> {
             created_at: None,
             updated_at: None,
             status: None,
+            creator_name: None,
+            creator_email: None,
+            creator_agent_name: None,
         }
     }
 
@@ -119,6 +140,20 @@ impl<'a> SearchRow<'a> {
         self.status = status;
         self
     }
+
+    /// #NEW-21: who filed it: the member's name + email and the agent's name,
+    /// for `by:` filters and the creator-name score.
+    pub fn with_creator(
+        mut self,
+        name: Option<&'a str>,
+        email: Option<&'a str>,
+        agent_name: Option<&'a str>,
+    ) -> Self {
+        self.creator_name = name;
+        self.creator_email = email;
+        self.creator_agent_name = agent_name;
+        self
+    }
 }
 
 /// The synced row's view — every surface that searches the `issues`
@@ -134,6 +169,9 @@ impl<'a> From<&'a crate::rows::Issue> for SearchRow<'a> {
             created_at: issue.created_at.as_deref(),
             updated_at: issue.updated_at.as_deref(),
             status: issue.status.as_wire(),
+            creator_name: None,
+            creator_email: None,
+            creator_agent_name: None,
         }
     }
 }
@@ -154,6 +192,33 @@ pub fn tokens(query: &str) -> Vec<String> {
         .filter(|token| !token.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// #NEW-21: the query split into its scored words and its `by:` creator
+/// needles (prefix and one leading `@` dropped, empties ignored). Web
+/// `parseIssueSearchQuery`.
+pub struct ParsedQuery {
+    pub words: Vec<String>,
+    pub creators: Vec<String>,
+}
+
+pub fn parse_query(query: &str) -> ParsedQuery {
+    let mut parsed = ParsedQuery {
+        words: Vec::new(),
+        creators: Vec::new(),
+    };
+    for token in tokens(query) {
+        match token.strip_prefix(CREATOR_PREFIX) {
+            None => parsed.words.push(token),
+            Some(needle) => {
+                let needle = needle.strip_prefix('@').unwrap_or(needle);
+                if !needle.is_empty() {
+                    parsed.creators.push(needle.to_string());
+                }
+            }
+        }
+    }
+    parsed
 }
 
 /// Web `words()` — split on every non-alphanumeric char, empties dropped.
@@ -194,6 +259,9 @@ struct Prepared<'a> {
     raw_description: &'a str,
     description: OnceCell<String>,
     description_words: OnceCell<Vec<String>>,
+    /// #NEW-21: the member's and the agent's name words, and the email.
+    creator_words: Vec<String>,
+    creator_email: String,
 }
 
 impl Prepared<'_> {
@@ -217,6 +285,12 @@ fn prepare<'a>(row: &SearchRow<'a>) -> Prepared<'a> {
         raw_description: row.description.unwrap_or(""),
         description: OnceCell::new(),
         description_words: OnceCell::new(),
+        creator_words: words(&row.creator_name.unwrap_or("").to_lowercase())
+            .into_iter()
+            .chain(words(&row.creator_agent_name.unwrap_or("").to_lowercase()))
+            .map(str::to_string)
+            .collect(),
+        creator_email: row.creator_email.unwrap_or("").to_lowercase(),
     }
 }
 
@@ -251,7 +325,18 @@ fn token_score(row: &Prepared<'_>, token: &str) -> Option<i32> {
     if row.description().contains(token) {
         return Some(SCORE_DESCRIPTION_CONTAINS);
     }
+    if row.creator_words.iter().any(|word| word.starts_with(token)) {
+        return Some(SCORE_CREATOR_WORD_PREFIX);
+    }
     None
+}
+
+/// #NEW-21: whether a prepared row was filed by every `by:` needle.
+fn matches_creators(row: &Prepared<'_>, creators: &[String]) -> bool {
+    creators.iter().all(|needle| {
+        row.creator_words.iter().any(|word| word.starts_with(needle.as_str()))
+            || (!row.creator_email.is_empty() && row.creator_email.starts_with(needle.as_str()))
+    })
 }
 
 /// A matched row's two ranking facts: the summed score, and whether any token
@@ -289,11 +374,14 @@ pub fn rank(
     limit: usize,
     exclude: &HashSet<String>,
 ) -> Vec<usize> {
-    let query_tokens = tokens(query);
-    let pool = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| !exclude.contains(row.id));
+    let ParsedQuery {
+        words: query_tokens,
+        creators,
+    } = parse_query(query);
+    let pool = rows.iter().enumerate().filter(|(_, row)| {
+        !exclude.contains(row.id)
+            && (creators.is_empty() || matches_creators(&prepare(row), &creators))
+    });
     if query_tokens.is_empty() {
         let mut ordered: Vec<(usize, &SearchRow<'_>)> = pool.collect();
         ordered.sort_by(|(_, a), (_, b)| compare_open(a, b).then_with(|| compare_created(a, b)));
@@ -495,6 +583,12 @@ mod tests {
         updated_at: Option<String>,
         #[serde(default)]
         status: Option<String>,
+        #[serde(default)]
+        creator_name: Option<String>,
+        #[serde(default)]
+        creator_email: Option<String>,
+        #[serde(default)]
+        creator_agent_name: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -531,6 +625,9 @@ mod tests {
             created_at: row.created_at.as_deref(),
             updated_at: row.updated_at.as_deref(),
             status: row.status.as_deref(),
+            creator_name: row.creator_name.as_deref(),
+            creator_email: row.creator_email.as_deref(),
+            creator_agent_name: row.creator_agent_name.as_deref(),
         }
     }
 
@@ -573,6 +670,9 @@ mod tests {
                                     created_at: None,
                                     updated_at: None,
                                     status: None,
+                                    creator_name: None,
+                                    creator_email: None,
+                                    creator_agent_name: None,
                                 })
                             })
                     },

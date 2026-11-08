@@ -14,11 +14,17 @@
 // the title OR the identifier, a leading `#` is dropped. Description and
 // comment SUBSTRING fallbacks stay out on purpose — they would detoast and
 // scan megabytes of markdown per keystroke; whole-word matches ride FTS.
+//
+// #NEW-21: the creator, like the client engine. A bare token may also hit
+// the creating member's or agent's name in the ILIKE fallback, and every
+// `by:<name>` token narrows every branch to issues whose member name/agent
+// name has a word starting with it (space-separated words here) or whose
+// member email starts with it. A `by:`-only query is the creator filter alone.
 import { sql, type SQL } from "drizzle-orm"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import {
   ISSUE_SEARCH_CLOSED_STATUSES,
-  issueSearchTokens,
+  parseIssueSearchQuery,
 } from "@/lib/issue-search"
 
 /**
@@ -51,15 +57,39 @@ function scopeSql(alias: `i` | `c`, scope: IssueSearchScope): SQL {
   )})`
 }
 
-/** The FTS query text: the client's tokens re-joined, so `#87`, `fix #87`
- *  and `87` all ask Postgres for the same words. */
+/** The FTS query text: the client's scored words re-joined (no `by:`
+ *  tokens), so `#87`, `fix #87` and `87` all ask Postgres for the same words. */
 export function issueSearchFtsQuery(query: string): string {
-  return issueSearchTokens(query).join(` `)
+  return parseIssueSearchQuery(query).words.join(` `)
+}
+
+/** #NEW-21: issue alias `i` was filed by every `by:` needle. */
+function creatorFilterSql(creators: readonly string[]): SQL {
+  return sql.join(
+    creators.map((needle) => {
+      const prefix = `${escapeLikePattern(needle)}%`
+      const word = `% ${escapeLikePattern(needle)}%`
+      return sql`(exists (select 1 from users u where u.id = i.creator_id and (u.name ilike ${prefix} or u.name ilike ${word} or u.email ilike ${prefix})) or exists (select 1 from agents a where a.id = i.creator_agent_id and (a.name ilike ${prefix} or a.name ilike ${word})))`
+    }),
+    sql` and `
+  )
 }
 
 /** `ts_rank` of issue alias `i` for `query` — the relevance sort key. */
 export function issueSearchRankSql(query: string): SQL {
   return sql`ts_rank(${ISSUE_TSVECTOR}, websearch_to_tsquery('english', ${issueSearchFtsQuery(query)}))`
+}
+
+/**
+ * #NEW-21: the tie-break after the rank: most recently updated, or for a
+ * `by:`-only query (no scored words, rank 0 everywhere) newest CREATED, the
+ * client engine's empty-query order, so its hits never reshuffle once the
+ * local rows (and their creators) sync.
+ */
+export function issueSearchRecencySql(query: string): SQL {
+  return parseIssueSearchQuery(query).words.length === 0
+    ? sql`i.created_at desc`
+    : sql`i.updated_at desc`
 }
 
 /**
@@ -105,15 +135,28 @@ export function issueSearchMatchIds(
   scope: IssueSearchScope,
   options: { readonly limit?: number } = {}
 ): SQL {
-  const fts = issueSearchFtsQuery(query)
-  const tokens = issueSearchTokens(query)
-  if (fts === `` && tokens.length === 0) {
+  const { words: tokens, creators } = parseIssueSearchQuery(query)
+  const fts = tokens.join(` `)
+  if (tokens.length === 0 && creators.length === 0) {
     return sql`select null::uuid as id where false`
   }
+  const { limit } = options
+  if (tokens.length === 0) {
+    const only = sql`
+    select i.id from issues i
+    where ${scopeSql(`i`, scope)}
+      and ${creatorFilterSql(creators)}`
+    return limit === undefined ? only : sql`${only}
+    limit ${limit}`
+  }
+  const byIssue = creators.length > 0 ? sql`
+      and ${creatorFilterSql(creators)}` : sql``
+  const byComment = creators.length > 0 ? sql`
+      and exists (select 1 from issues i where i.id = c.issue_id and ${creatorFilterSql(creators)})` : sql``
   const tokenMatch = sql.join(
     tokens.map((token) => {
       const like = `%${escapeLikePattern(token)}%`
-      return sql`(i.title ilike ${like} or i.identifier ilike ${like})`
+      return sql`(i.title ilike ${like} or i.identifier ilike ${like} or exists (select 1 from users u where u.id = i.creator_id and u.name ilike ${like}) or exists (select 1 from agents a where a.id = i.creator_agent_id and a.name ilike ${like}))`
     }),
     sql` and `
   )
@@ -121,17 +164,16 @@ export function issueSearchMatchIds(
     sql`
     select i.id from issues i
     where ${scopeSql(`i`, scope)}
-      and ${ISSUE_TSVECTOR} @@ websearch_to_tsquery('english', ${fts})`,
+      and ${ISSUE_TSVECTOR} @@ websearch_to_tsquery('english', ${fts})${byIssue}`,
     sql`
     select c.issue_id as id from comments c
     where ${scopeSql(`c`, scope)}
-      and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${fts})`,
+      and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${fts})${byComment}`,
     sql`
     select i.id from issues i
     where ${scopeSql(`i`, scope)}
-      and ${tokenMatch}`,
+      and ${tokenMatch}${byIssue}`,
   ]
-  const { limit } = options
   if (limit === undefined) {
     return sql`${sql.join(branches, sql`
     union`)}
