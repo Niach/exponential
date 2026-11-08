@@ -201,6 +201,7 @@ pub fn demo_input() -> ChatInput {
         icon: agent_icon("a2"),
         bubbles: true,
         agent_id: Some("a2".into()),
+        slash_commands: true,
         agents,
         rows: vec![
             message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a thread:", "09:02"),
