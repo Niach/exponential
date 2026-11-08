@@ -36,8 +36,7 @@ pub use enet_core::sealed::{
 
 /// The keyring file beside the install's eNet identity.
 pub fn keyring_path(data_dir: &Path, account_id: &str, daemon: bool) -> PathBuf {
-    let file = if daemon { "cli-seal-keys" } else { "seal-keys" };
-    data_dir.join("accounts").join(account_id).join(file)
+    api::seal_keyring_path(data_dir, account_id, daemon)
 }
 
 /// A missing secret is re-fetched at most this often per root.
@@ -84,17 +83,8 @@ impl Keyring {
     pub fn load(path: PathBuf) -> Self {
         let mut state = State::default();
         if let Ok(text) = std::fs::read_to_string(&path) {
-            match serde_json::from_str::<Value>(&text) {
-                Ok(doc) => {
-                    for (root, epochs) in doc.get("keys").and_then(Value::as_object).into_iter().flatten() {
-                        for (epoch, secret) in epochs.as_object().into_iter().flatten() {
-                            let (Ok(epoch), Some(secret)) = (epoch.parse::<u32>(), secret.as_str().and_then(decode32)) else {
-                                continue;
-                            };
-                            state.secrets.entry(root.clone()).or_default().insert(epoch, secret);
-                        }
-                    }
-                }
+            match enet_core::sealed::keyring_secrets(&text) {
+                Ok(secrets) => state.secrets = secrets,
                 Err(err) => log::warn!("sealing: {} is malformed, starting empty: {err}", path.display()),
             }
         }
@@ -273,10 +263,6 @@ impl Keyring {
             log::warn!("sealing: writing {} failed: {err}", path.display());
         }
     }
-}
-
-fn decode32(text: &str) -> Option<[u8; 32]> {
-    b64url_decode(text)?.try_into().ok()
 }
 
 fn read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {

@@ -41,6 +41,10 @@ pub(crate) const SHAPES: &[&str] = &[
     "conversations",
     "agents",
     "pull_requests",
+    // #EDE-65 lane I: the agent chat's conversations (the IDE syncs the
+    // same shape) and the people its transcript names.
+    "messages",
+    "users",
 ];
 
 impl Workspaces {
