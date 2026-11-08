@@ -440,7 +440,7 @@ private val AgentPhase.isWaitingForStream: Boolean
  * content slot, one instance per shown run (`key(shownSessionId)`).
  */
 @Composable
-fun RunFace(
+internal fun RunFace(
     viewModel: AgentSessionViewModel,
     padding: PaddingValues,
     // EXP-760: a chipped identifier in the feed opens that issue.
@@ -461,6 +461,9 @@ fun RunFace(
     /** #FEED-204 / #EXP-1738: an app editor's Device › row (pick-and-move),
      *  passed through to THE composer; null = every other session. */
     deviceMenu: SessionComposerDevice? = null,
+    /** #EXP-1732: a host's Dock over THE composer (the chat root's: its
+     *  suggested tasks + a Live child's Queue); null = [SessionDockCards]. */
+    dock: (@Composable (SessionDock) -> Unit)? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
     // `exponential_sessions_show` row to draw its picture; live, so the tile
@@ -470,7 +473,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin, deviceMenu)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin, deviceMenu, dock)
     }
 }
 
@@ -537,7 +540,7 @@ fun AgentSessionScreen(
  * [onOpenIssue] = the CHAT's handler (EXP-1347: a linked issue opens its tab).
  */
 @Composable
-fun SessionPage(
+internal fun SessionPage(
     sessionId: String,
     padding: PaddingValues,
     onOpenIssue: (issueId: String) -> Unit,
@@ -545,6 +548,8 @@ fun SessionPage(
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
     /** #EXP-1738: the app editor's Device › row (pick-and-move). */
     deviceMenu: SessionComposerDevice? = null,
+    /** #EXP-1732: the host's Dock (the chat root's suggested tasks). */
+    dock: (@Composable (SessionDock) -> Unit)? = null,
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
@@ -556,6 +561,7 @@ fun SessionPage(
         trailingBarSlot = null,
         onOpenOrigin = onOpenOrigin ?: { _, _ -> },
         deviceMenu = deviceMenu,
+        dock = dock,
     )
 }
 
@@ -649,6 +655,7 @@ private fun RunFaceContent(
     mergeBarSlot: (@Composable () -> Unit)?,
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
     deviceMenu: SessionComposerDevice? = null,
+    dockOverride: (@Composable (SessionDock) -> Unit)? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     // S-3: who started this session, the feed's first line.
@@ -965,7 +972,7 @@ private fun RunFaceContent(
     // S-3 (dock.json, ask-dock.json): a waiting plan or question is
     // never a DockCard: no plan/question source, no auto-open; the
     // card stays inline in the transcript, answerable.
-    val dock: @Composable (SessionDock) -> Unit = { sessionDock -> SessionDockCards(sessionDock) }
+    val dock: @Composable (SessionDock) -> Unit = dockOverride ?: { sessionDock -> SessionDockCards(sessionDock) }
     // The placeholder states (no feed yet): connecting, an ended run's
     // history fetch, an old desktop (S-3: no paused host).
     val noFeedIdle = session?.let { steerNoFeedState(ended = sessionEnded, busy = it.busy) } == SteerNoFeedState.Idle

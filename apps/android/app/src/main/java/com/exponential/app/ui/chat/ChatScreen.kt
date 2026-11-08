@@ -138,7 +138,6 @@ fun ChatScreen(
     val root by viewModel.root.collectAsStateWithLifecycle()
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val users by viewModel.users.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
@@ -151,6 +150,8 @@ fun ChatScreen(
     val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
     val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
     val isMember by viewModel.isMember.collectAsStateWithLifecycle()
+    val startDevices by viewModel.startDevices.collectAsStateWithLifecycle()
+    val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val noticeToaster = LocalToaster.current
@@ -408,6 +409,109 @@ fun ChatScreen(
         IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target -> openIssueHere(target.issueId) }
     }
 
+    // #EXP-1464 (chat-row-action.json `open`): a session opens where it
+    // lives (inbox-route.json `sessionTarget`): my agent conversation root =
+    // its channel, a chat root = its chat, a chat's child or anything under
+    // an agent = its own session view (a Dock suggestion's started session).
+    val openChatSession: (String) -> Unit = { id ->
+        when (val target = if (id == viewModel.rootId) null else viewModel.sessionTarget(id)) {
+            is InboxRoute.SessionTarget.Agent -> onOpenChat(id)
+            is InboxRoute.SessionTarget.Chat ->
+                target.sessionId?.let(onOpenSession) ?: onOpenChat(target.chatId)
+            is InboxRoute.SessionTarget.Session -> onOpenSession(target.sessionId)
+            null -> if (viewModel.isOtherRoot(id)) onOpenChat(id) else onOpenSession(id)
+        }
+    }
+    // EXP-1323: the root's suggested tasks (THE Dock card while one is open:
+    // Start, Start all, Do it here, Start on…, Start with…, File, Dismiss).
+    val suggestionActions = ChatSuggestionActions(
+        onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
+        onStartAll = viewModel::startAllSuggestions,
+        onHere = viewModel::suggestionHere,
+        onDismiss = viewModel::dismissSuggestion,
+        onFile = viewModel::fileSuggestion,
+        devices = startDevices.map { SuggestionDevice(it.deviceId, it.deviceLabel, deviceIcon(it)) },
+        // Contract `codingModel` (fable · opus · sonnet · haiku), never a Default row.
+        models = DomainContract.codingModelValues.map { it to modelLabel(it) },
+        pending = suggestionPending,
+    )
+    // #EXP-1545 (dock.json CHAT QUEUE): each Live child's Queue (its
+    // per-session relay slots, LOCAL FIRST); the Dock shows ONE tasks card.
+    val childDocks by viewModel.childDocks.collectAsStateWithLifecycle()
+    val childQueues = HashMap<String, com.exponential.app.domain.TaskQueue?>()
+    for ((id, child) in childDocks) {
+        key(id) {
+            childQueues[id] = com.exponential.app.ui.session.rememberSessionTaskQueue(
+                child.activity.feed,
+                child.activity.taskList,
+                child.activity.backgroundTasks,
+            ).takeIf { child.slots }
+        }
+    }
+    val treeNames = remember(items) { items.sessions.associate { it.sessionId to it.name } }
+    var childTodoOpen by rememberSaveable { mutableStateOf(true) }
+    var childCompletedOpen by rememberSaveable { mutableStateOf(false) }
+    val chatDock: (com.exponential.app.ui.session.SessionDock) -> com.exponential.app.ui.session.SessionDock = { sd ->
+        val rootQueue = sd.sources.filterIsInstance<Dock.Source.Tasks>().firstOrNull()?.queue
+        val candidates = tree.map { row ->
+            val root = row.id == viewModel.rootId
+            val queue = if (root) rootQueue else childQueues[row.id]
+            Dock.ChatQueueCandidate(
+                sessionId = row.id,
+                name = treeNames[row.id] ?: row.title.orEmpty(),
+                root = root,
+                ended = row.isEnded,
+                activeAt = (row.lastTurnAt ?: row.startedAt)?.let(com.exponential.app.domain.WireTimestamps::parseEpochMs),
+                open = queue?.todo?.items?.isNotEmpty() == true,
+            )
+        }
+        val chosen = Dock.chatDockQueue(candidates)
+        when {
+            chosen?.sessionId == viewModel.rootId -> sd
+            chosen == null -> com.exponential.app.ui.session.SessionDock(
+                sd.sources.filter { it !is Dock.Source.Tasks }, sd.sheet, sd.action,
+            )
+            else -> {
+                val queue = childQueues[chosen.sessionId]
+                com.exponential.app.ui.session.SessionDock(
+                    sources = sd.sources.map { if (it is Dock.Source.Tasks) Dock.Source.Tasks(queue, chosen.sessionName) else it },
+                    // The card's sheet opens THAT child's Trace.
+                    sheet = { row, scope, close ->
+                        if (row.kind == Dock.Kind.Tasks) {
+                            DockSheetBody {
+                                if (queue != null) {
+                                    com.exponential.app.ui.components.TaskQueueView(
+                                        queue = queue,
+                                        todoOpen = childTodoOpen,
+                                        onTodoOpenChange = { childTodoOpen = it },
+                                        completedOpen = childCompletedOpen,
+                                        onCompletedOpenChange = { childCompletedOpen = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        } else {
+                            sd.sheet(this, row, scope, close)
+                        }
+                    },
+                    action = sd.action,
+                )
+            }
+        }
+    }
+    // #EXP-1732: the Chat tab's Dock = the root's own (its Queue, else a Live
+    // child's) plus the root's suggested tasks, over THE composer.
+    val rootDock: @Composable (com.exponential.app.ui.session.SessionDock) -> Unit = { sd ->
+        val sessionDock = chatDock(sd)
+        ChatDock(
+            rows = view?.rows.orEmpty(),
+            sources = sessionDock.sources,
+            sessionSheet = sessionDock.sheet,
+            action = sessionDock.action,
+            suggestions = suggestionActions,
+            onOpenSession = openChatSession,
+        )
+    }
     val onDecidePlan: ChatPlanDecision = { id, d, settled ->
         viewModel.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
     }
@@ -473,6 +577,7 @@ fun ChatScreen(
                         padding = padding,
                         onOpenIssue = openIssueHere,
                         onOpenOrigin = { id, isRoot -> if (isRoot) onOpenChat(id) else onOpenSession(id) },
+                        dock = if (sessionId == viewModel.rootId) rootDock else null,
                     )
                 },
                 headerLead = headerLead,
