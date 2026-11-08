@@ -5450,8 +5450,8 @@
         "file": "shots/machine-settings/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33322,
-        "sha256": "19cfb8d8991b3bfc29456a103658f92d363e383768a6c3c289ed230418010fe0"
+        "bytes": 35144,
+        "sha256": "200090fa2acd0d95246b19f3038ff2d15aa5976e4d147f9585af81a29e0d3a45"
       },
       "ios": {
         "file": "shots/machine-settings/ios.webp",
