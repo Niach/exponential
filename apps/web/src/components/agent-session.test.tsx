@@ -502,6 +502,33 @@ describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
     expect(screen.getByTestId(`session-chat-extras`).textContent).toContain(`Split the store`)
   })
 
+  it(`an empty feed (connecting) still shows the first queued message and a settled card, under the placeholder`, () => {
+    messages = [
+      { ...base, id: `m-first`, authorKind: `user`, authorId: `u1`, body: `Fix the login`, consumedAt: null, card: null },
+      suggestions([{ id: `a`, title: `Split the store`, text: `` }]),
+    ]
+    snapshot = snap({ phase: { kind: `connecting` }, feed: [] })
+    render(
+      <TooltipProvider>
+        <AgentSessionView session={session} composer={<div />} />
+      </TooltipProvider>
+    )
+    const placeholder = screen.getByTestId(`transcript-placeholder`)
+    const extras = screen.getByTestId(`session-placeholder-extras`)
+    expect(extras.textContent).toContain(`Fix the login`)
+    expect(extras.textContent).toContain(`Split the store`)
+    expect(placeholder.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Same column: one scroller holds both.
+    expect(placeholder.parentElement).toBe(extras.parentElement)
+  })
+
+  it(`no extras = nothing under the placeholder`, () => {
+    snapshot = snap({ phase: { kind: `connecting` }, feed: [] })
+    render(<AgentSessionView session={session} composer={<div />} />)
+    expect(screen.getByTestId(`transcript-placeholder`)).toBeTruthy()
+    expect(screen.queryByTestId(`session-placeholder-extras`)).toBeNull()
+  })
+
   it(`a tool-posted card carries its message id for the ?card= deep link`, () => {
     messages = [
       {

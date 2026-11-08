@@ -904,6 +904,35 @@ export function AgentSessionView({
     const timer = window.setTimeout(() => setStalled(true), TRANSCRIPT_STALL_MS)
     return () => window.clearTimeout(timer)
   }, [waitingForRoom])
+  // #EXP-1732: the settled suggested-tasks cards (an open one is THE
+  // Dock's) and the viewer's queued messages (a person's FIRST message
+  // included) show under any empty-feed placeholder too, same column.
+  const chatExtras =
+    suggestionRows.length + queuedRows.length > 0 ? (
+      <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
+        <ChatConversation
+          rows={[...suggestionRows, ...queuedRows]}
+          renderText={renderChatText}
+          attachmentSrc={attachmentUrl}
+          chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
+          viewerId={viewerId}
+          onUnqueue={(rowId) => void unqueue(rowId)}
+          onOpenSession={onOpenSession}
+          suggestions={suggestions}
+          docked={dockedIds}
+          renderIssueRef={renderIssueRef}
+          pending={cardsPending}
+        />
+      </div>
+    ) : null
+  const placeholderShown =
+    noFeedAway ||
+    (feedPlaceholder && starting) ||
+    noFeedIdle ||
+    (waitingForRoom && stalled) ||
+    (feedPlaceholder && (phase.kind === `connecting` || phase.kind === `starting`)) ||
+    (feedPlaceholder && live) ||
+    (feedPlaceholder && deviceOffline && phase.kind === `ended`)
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -947,7 +976,9 @@ export function AgentSessionView({
             onScroll={follow.onScroll}
             // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
             className={cn(
-              `agent-feed h-full overflow-y-auto overscroll-contain`,
+              // #EXP-1732: a column, so a placeholder takes the room the
+              // extras under it leave.
+              `agent-feed flex h-full flex-col overflow-y-auto overscroll-contain`,
               !isMobile && DETAIL_FADE_BOTTOM_CLASS
             )}
             style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
@@ -966,7 +997,7 @@ export function AgentSessionView({
               /* N-11: no status row over the feed; before the first turn the
                  column holds the placeholder rows over "Starting on …". */
               <div
-                className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                className={cn(TRANSCRIPT_COLUMN, `flex shrink-0 flex-col gap-2 py-4`)}
                 data-testid="transcript-placeholder"
               >
                 <SkeletonRows rowHeight={36} className="-mx-3" />
@@ -984,7 +1015,7 @@ export function AgentSessionView({
               /* EXP-1259 D8.3: placeholder rows in the column, the phase as
                  a muted caption. */
               <div
-                className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                className={cn(TRANSCRIPT_COLUMN, `flex shrink-0 flex-col gap-2 py-4`)}
                 data-testid="transcript-placeholder"
               >
                 <SkeletonRows rowHeight={36} className="-mx-3" />
@@ -1012,7 +1043,7 @@ export function AgentSessionView({
             ) : activeAgent !== null ? (
               <div
                 ref={follow.contentRef}
-                className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
+                className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 <AgentConversation
@@ -1024,7 +1055,7 @@ export function AgentSessionView({
             ) : (
               <div
                 ref={follow.contentRef}
-                className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
+                className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 {canLoadEarlier ? <LoadEarlierButton onClick={loadEarlier} /> : null}
@@ -1059,25 +1090,7 @@ export function AgentSessionView({
                     />
                   </div>
                 ))}
-                {/* #EXP-1732: the settled suggested-tasks cards (an open one
-                    is THE Dock's) and the viewer's queued messages. */}
-                {suggestionRows.length + queuedRows.length > 0 && (
-                  <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
-                    <ChatConversation
-                      rows={[...suggestionRows, ...queuedRows]}
-                      renderText={renderChatText}
-                      attachmentSrc={attachmentUrl}
-                      chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
-                      viewerId={viewerId}
-                      onUnqueue={(rowId) => void unqueue(rowId)}
-                      onOpenSession={onOpenSession}
-                      suggestions={suggestions}
-                      docked={dockedIds}
-                      renderIssueRef={renderIssueRef}
-                      pending={cardsPending}
-                    />
-                  </div>
-                )}
+                {chatExtras}
                 {/* EXP-389: the agent-is-busy footer under the newest event. */}
                 {working && (
                   <div
@@ -1099,6 +1112,15 @@ export function AgentSessionView({
                     />
                   </div>
                 )}
+              </div>
+            )}
+            {placeholderShown && chatExtras && (
+              <div
+                className={cn(`shrink-0 py-2`, TRANSCRIPT_COLUMN)}
+                style={{ paddingBottom: dockHeight + DOCK_GAP }}
+                data-testid="session-placeholder-extras"
+              >
+                {chatExtras}
               </div>
             )}
           </div>
@@ -1343,7 +1365,7 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
 // connecting spinner, which is not an empty state) in the scroller.
 function CenteredState({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
       {children}
     </div>
   )
