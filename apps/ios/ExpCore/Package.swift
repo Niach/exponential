@@ -11,7 +11,7 @@ let package = Package(
     name: "ExpCore",
     platforms: [.macOS("14.4"), .iOS("17.4")],
     products: [.library(name: "ExpCore", targets: ["ExpCore"])],
-    dependencies: [.package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.10.0")],
+    dependencies: [.package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.12.0")],
     targets: [
         .target(
             name: "ExpCore",
