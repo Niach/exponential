@@ -116,6 +116,13 @@ impl AboutPane {
     pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         Self::new(window, cx)
     }
+
+    /// The notice scrolled to its last row (the pictures' end state).
+    #[cfg(test)]
+    pub(crate) fn show_end(&mut self, cx: &mut gpui::Context<Self>) {
+        let last = notice_rows().len().saturating_sub(1) as u32;
+        self.view.update(cx, |view, cx| view.scroll_to_index("notice_rows", last, Some("end"), cx));
+    }
 }
 
 /// The data-model path the pane's projection is written at.

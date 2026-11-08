@@ -176,3 +176,9 @@ fn settings_storage_failed() {
 fn settings_about() {
     shoot_pane("about", AboutPane::for_shots, |_, _| {});
 }
+
+#[test]
+#[ignore]
+fn settings_about_end() {
+    shoot_pane("about-end", AboutPane::for_shots, |pane, cx| pane.show_end(cx));
+}
