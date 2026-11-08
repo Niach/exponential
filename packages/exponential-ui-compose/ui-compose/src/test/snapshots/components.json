@@ -39548,6 +39548,123 @@
       }
     ]
   },
+  "Window\/example" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          56
+        ],
+        "id" : "window",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          34
+        ],
+        "id" : "window.chrome"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          12.5,
+          118,
+          10
+        ],
+        "id" : "window.chrome.dots"
+      },
+      {
+        "bg" : "#a1a1a1",
+        "component" : "Box",
+        "frame" : [
+          13,
+          12.5,
+          10,
+          10
+        ],
+        "id" : "window.chrome.dots.dot.0",
+        "opacity" : 0.30000001192092896,
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a1a1a1",
+        "component" : "Box",
+        "frame" : [
+          29,
+          12.5,
+          10,
+          10
+        ],
+        "id" : "window.chrome.dots.dot.1",
+        "opacity" : 0.30000001192092896,
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a1a1a1",
+        "component" : "Box",
+        "frame" : [
+          45,
+          12.5,
+          10,
+          10
+        ],
+        "id" : "window.chrome.dots.dot.2",
+        "opacity" : 0.30000001192092896,
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          139,
+          7.5,
+          112,
+          20
+        ],
+        "id" : "window.chrome.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          259,
+          17.5,
+          118,
+          0
+        ],
+        "id" : "window.chrome.end"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          35,
+          388,
+          20
+        ],
+        "id" : "window.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          35,
+          388,
+          20
+        ],
+        "id" : "window-child"
+      }
+    ]
+  },
   "ZoomableImage\/controls=always" : {
     "height" : 243.75,
     "nodes" : [
