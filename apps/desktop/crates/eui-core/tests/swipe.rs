@@ -93,7 +93,7 @@ mod surface {
     }
 
     fn shown(s: &mut Surface, out: &LayoutOutput, id: &str) -> bool {
-        s.nodes().iter().find(|n| n.id == id).is_some_and(|n| out.frames.iter().any(|f| f.index == n.index))
+        s.nodes().iter().find(|n| n.id == id).is_some_and(|n| out.frames.iter().any(|f| f.index == n.index && f.w > 0.0))
     }
 
     fn dx(s: &mut Surface, id: &str) -> f32 {
@@ -155,13 +155,14 @@ mod surface {
         assert!(!events.iter().any(|e| matches!(e, OutEvent::Action { .. })));
         relayout(&mut s);
         assert_eq!(dx(&mut s, "p1"), 0.0);
-        // Page 0, dragged right: no neighbour there.
-        swipe(&mut s, "end", width, 1.0);
-        relayout(&mut s);
-        assert_eq!(dx(&mut s, "p0"), -width);
+        // Page 0, dragged right: no neighbour there, nothing pages.
         let i = index(&mut s, "tabs.tab.0");
         s.event(i, "press", None);
         relayout(&mut s);
+        let events = swipe(&mut s, "end", width, 1.0);
+        assert!(!events.iter().any(|e| matches!(e, OutEvent::Action { .. })));
+        relayout(&mut s);
+        assert_eq!((dx(&mut s, "p0"), dx(&mut s, "p1")), (0.0, width));
         swipe(&mut s, "move", 100.0, 0.0);
         relayout(&mut s);
         assert!((dx(&mut s, "p0") - 30.0).abs() < 0.01);
