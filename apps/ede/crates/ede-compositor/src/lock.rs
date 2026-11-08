@@ -11,11 +11,11 @@
 use smithay::{
     output::Output,
     reexports::{
-        wayland_protocols::ext::session_lock::v1::server::{ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, ext_session_lock_v1},
-        wayland_server::{protocol::wl_output::WlOutput, Client, DataInit, Dispatch, DisplayHandle, Resource},
+        wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1,
+        wayland_server::{protocol::wl_output::WlOutput, Resource},
     },
     utils::SERIAL_COUNTER,
-    wayland::session_lock::{LockSurface, SessionLockHandler, SessionLockManagerState, SessionLockState, SessionLocker},
+    wayland::session_lock::{LockSurface, SessionLockHandler, SessionLockManagerState, SessionLocker},
 };
 
 use crate::state::Ede;
@@ -150,7 +150,7 @@ impl Ede {
         let pointer = self.seat.get_pointer().unwrap();
         // A drag in progress ends; nothing behind the lock keeps input.
         if pointer.is_grabbed() {
-            pointer.unset_grab(self, serial, 0);
+            pointer.unset_grab(self, serial, smithay::backend::input::InputTime::from_millis(0));
         }
         let keyboard = self.seat.get_keyboard().unwrap();
         if keyboard.is_grabbed() {
@@ -202,8 +202,8 @@ impl SessionLockHandler for Ede {
     }
 
     fn unlock(&mut self) {
-        // Only reached for the client holding the lock (see the dispatch
-        // guard below).
+        // smithay only calls it for the lock object holding the
+        // (confirmed) lock.
         self.lock = LockState::Unlocked;
         self.idle.activity();
         tracing::info!("session unlocked");
@@ -217,7 +217,7 @@ impl SessionLockHandler for Ede {
     fn new_surface(&mut self, surface: LockSurface, wl_output: WlOutput) {
         let Some(output) = Output::from_resource(&wl_output) else { return };
         let LockState::Locked(l) = &mut self.lock else { return };
-        if l.lock.id().same_client_as(&surface.wl_surface().id()) {
+        if surface.ext_session_lock() == &l.lock {
             if let Some(mode) = output.current_mode() {
                 let size = mode.size.to_f64().to_logical(output.current_scale().fractional_scale()).to_i32_round::<i32>();
                 surface.with_pending_state(|s| s.size = Some((size.w as u32, size.h as u32).into()));
@@ -230,45 +230,3 @@ impl SessionLockHandler for Ede {
     }
 }
 
-// smithay's own dispatch for ext_session_lock_v1, behind one guard: smithay
-// calls `unlock` even for a lock object that never got `locked` (it only
-// posts a protocol error), so a refused second client could unlock the
-// session. Here only the client holding the lock reaches it.
-impl Dispatch<ext_session_lock_v1::ExtSessionLockV1, SessionLockState> for Ede {
-    fn request(
-        state: &mut Self,
-        client: &Client,
-        resource: &ext_session_lock_v1::ExtSessionLockV1,
-        request: ext_session_lock_v1::Request,
-        data: &SessionLockState,
-        dh: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
-    ) {
-        let holder = matches!(&state.lock, LockState::Locked(l) if l.lock == *resource);
-        let request = match request {
-            ext_session_lock_v1::Request::UnlockAndDestroy if !holder || !state.lock_confirmed() => {
-                resource.post_error(ext_session_lock_v1::Error::InvalidUnlock, "this lock does not hold the session");
-                return;
-            }
-            // A refused (`finished`) lock object has nothing to draw on.
-            ext_session_lock_v1::Request::GetLockSurface { id, .. } if !holder => {
-                data_init.post_error(id, ext_session_lock_v1::Error::InvalidUnlock as u32, "this lock was finished");
-                return;
-            }
-            request => request,
-        };
-        <SessionLockManagerState as Dispatch<ext_session_lock_v1::ExtSessionLockV1, SessionLockState, Self>>::request(
-            state, client, resource, request, data, dh, data_init,
-        );
-    }
-}
-
-smithay::reexports::wayland_server::delegate_global_dispatch!(Ede: [
-    smithay::reexports::wayland_protocols::ext::session_lock::v1::server::ext_session_lock_manager_v1::ExtSessionLockManagerV1: smithay::wayland::session_lock::SessionLockManagerGlobalData
-] => SessionLockManagerState);
-smithay::reexports::wayland_server::delegate_dispatch!(Ede: [
-    smithay::reexports::wayland_protocols::ext::session_lock::v1::server::ext_session_lock_manager_v1::ExtSessionLockManagerV1: ()
-] => SessionLockManagerState);
-smithay::reexports::wayland_server::delegate_dispatch!(Ede: [
-    ExtSessionLockSurfaceV1: smithay::wayland::session_lock::ExtLockSurfaceUserData
-] => SessionLockManagerState);

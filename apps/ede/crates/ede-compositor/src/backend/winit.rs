@@ -28,7 +28,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
     let mode = Mode { size: backend.window_size(), refresh: 60_000 };
     let output = Output::new(
         "winit".to_string(),
-        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (nested)".into() },
+        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (nested)".into(), serial_number: "Unknown".into() },
     );
     let _global = output.create_global::<Ede>(&state.display_handle);
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));

@@ -7,7 +7,6 @@
 //! wp-viewporter) reaches every surface as its preferred scale.
 
 use smithay::{
-    delegate_fractional_scale, delegate_viewporter,
     desktop::layer_map_for_output,
     output::{Mode, Output, Scale},
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -138,5 +137,3 @@ impl FractionalScaleHandler for Ede {
         set_surface_scale(&surface, scale);
     }
 }
-delegate_fractional_scale!(Ede);
-delegate_viewporter!(Ede);

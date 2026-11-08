@@ -7,7 +7,6 @@
 use std::{os::unix::io::OwnedFd, process::Stdio};
 
 use smithay::{
-    delegate_xwayland_shell,
     desktop::Window,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     input::pointer::{Focus, GrabStartData},
@@ -45,8 +44,10 @@ impl Ede {
             }
         }
         // smithay runs `Xwayland` from PATH: the .deb's own 24.1+ goes first.
+        // The rest of the environment passes through (GPU drivers found via
+        // LD_LIBRARY_PATH and the like).
         let path = crate::doctor::xwayland_search_path(std::env::var_os("PATH").as_deref(), std::path::Path::new(crate::doctor::BUNDLED_XWAYLAND_DIR));
-        let spawned = XWayland::spawn(&self.display_handle, None, [("PATH", path)], true, Stdio::null(), Stdio::inherit(), |_| ());
+        let spawned = XWayland::spawn_with_inherited_env(&self.display_handle, None, [("PATH", path)], std::iter::empty::<&str>(), true, Stdio::null(), Stdio::inherit(), |_| ());
         let (xwayland, client) = match spawned {
             Ok(x) => x,
             Err(e) => {
@@ -57,7 +58,7 @@ impl Ede {
         };
         let inserted = self.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, display_number } => {
-                match X11Wm::start_wm(state.loop_handle.clone(), x11_socket, client.clone()) {
+                match X11Wm::start_wm(state.loop_handle.clone(), &state.display_handle, x11_socket, client.clone()) {
                     Ok(wm) => {
                         tracing::info!("Xwayland ready on :{display_number}");
                         state.xwm = Some(wm);
@@ -95,7 +96,6 @@ impl XWaylandShellHandler for Ede {
         }
     }
 }
-delegate_xwayland_shell!(Ede);
 
 impl XwmHandler for Ede {
     fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
@@ -126,7 +126,7 @@ impl XwmHandler for Ede {
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
-        let loc = surface.geometry().loc;
+        let loc = surface.last_configure().loc;
         self.space.map_element(Window::new_x11_window(surface), loc, true);
     }
 
@@ -178,7 +178,7 @@ impl XwmHandler for Ede {
                 return;
             }
         }
-        let mut geo = surface.geometry();
+        let mut geo = surface.last_configure();
         if mapped.is_none() {
             geo.loc = (x.unwrap_or(geo.loc.x), y.unwrap_or(geo.loc.y)).into();
         }

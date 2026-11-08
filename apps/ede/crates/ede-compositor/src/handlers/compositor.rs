@@ -1,6 +1,5 @@
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_shm,
     reexports::wayland_server::{
         protocol::{wl_buffer, wl_surface::WlSurface},
         Client,
@@ -63,5 +62,3 @@ impl ShmHandler for Ede {
     }
 }
 
-delegate_compositor!(Ede);
-delegate_shm!(Ede);
