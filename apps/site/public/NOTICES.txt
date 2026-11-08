@@ -30,7 +30,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-483 third-party components are distributed as part of this build. They are
+500 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -44,7 +44,7 @@ section for the policy.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 67 components:
+Applies to the following 82 components:
 
   @astrojs/compiler-binding-android-arm64 0.5.2
   @astrojs/compiler-binding-darwin-arm64 0.5.2
@@ -93,20 +93,35 @@ Applies to the following 67 components:
   @radix-ui/react-use-size 1.1.1
   @radix-ui/rect 1.1.1
   @rolldown/binding-android-arm-eabi 1.2.15
+  @rolldown/binding-android-arm-eabi 1.2.16
   @rolldown/binding-android-arm64 1.2.15
+  @rolldown/binding-android-arm64 1.2.16
   @rolldown/binding-darwin-arm64 1.2.15
+  @rolldown/binding-darwin-arm64 1.2.16
   @rolldown/binding-darwin-x64 1.2.15
+  @rolldown/binding-darwin-x64 1.2.16
   @rolldown/binding-freebsd-x64 1.2.15
+  @rolldown/binding-freebsd-x64 1.2.16
   @rolldown/binding-linux-arm-gnueabihf 1.2.15
+  @rolldown/binding-linux-arm-gnueabihf 1.2.16
   @rolldown/binding-linux-arm64-gnu 1.2.15
+  @rolldown/binding-linux-arm64-gnu 1.2.16
   @rolldown/binding-linux-arm64-musl 1.2.15
+  @rolldown/binding-linux-arm64-musl 1.2.16
   @rolldown/binding-linux-ppc64-gnu 1.2.15
+  @rolldown/binding-linux-ppc64-gnu 1.2.16
   @rolldown/binding-linux-s390x-gnu 1.2.15
+  @rolldown/binding-linux-s390x-gnu 1.2.16
   @rolldown/binding-linux-x64-gnu 1.2.15
+  @rolldown/binding-linux-x64-gnu 1.2.16
   @rolldown/binding-linux-x64-musl 1.2.15
+  @rolldown/binding-linux-x64-musl 1.2.16
   @rolldown/binding-openharmony-arm64 1.2.15
+  @rolldown/binding-openharmony-arm64 1.2.16
   @rolldown/binding-win32-arm64-msvc 1.2.15
+  @rolldown/binding-win32-arm64-msvc 1.2.16
   @rolldown/binding-win32-x64-msvc 1.2.15
+  @rolldown/binding-win32-x64-msvc 1.2.16
   @tybys/wasm-util 0.10.4
   am-i-vibing 0.5.0
   fsevents 2.3.3
@@ -2735,6 +2750,45 @@ MIT
 
 Applies to the following 2 components:
 
+  @oxc-project/types 0.155.0
+    Copyright (c) 2023 Boshen
+    Copyright (c) 2024-present VoidZero Inc. & Contributors
+  @oxc-project/types 0.156.0
+    Copyright (c) 2023 Boshen
+    Copyright (c) 2024-present VoidZero Inc. & Contributors
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2024-present VoidZero Inc. & Contributors
+Copyright (c) 2023 Boshen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
   clsx 2.1.1
     Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
   klona 2.0.6
@@ -3043,6 +3097,46 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  rolldown 1.2.15
+    Copyright (c) 2024-present VoidZero Inc. & Contributors
+  rolldown 1.2.16
+    Copyright (c) 2024-present VoidZero Inc. & Contributors
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2024-present VoidZero Inc. & Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+end of terms and conditions
+
+The licenses of externally maintained libraries from which parts of the Software is derived are listed [here](https://github.com/rolldown/rolldown/blob/main/THIRD-PARTY-LICENSE).
 
 
 ------------------------------------------------------------------------------
@@ -4440,42 +4534,6 @@ Applies to the following component:
 MIT License
 
 Copyright (c) 2024 pilcrowOnPaper
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  @oxc-project/types 0.155.0
-    Copyright (c) 2023 Boshen
-    Copyright (c) 2024-present VoidZero Inc. & Contributors
-
-..............................................................................
-
-MIT License
-
-Copyright (c) 2024-present VoidZero Inc. & Contributors
-Copyright (c) 2023 Boshen
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -6741,44 +6799,6 @@ MIT
 
 Applies to the following component:
 
-  rolldown 1.2.15
-    Copyright (c) 2024-present VoidZero Inc. & Contributors
-
-..............................................................................
-
-MIT License
-
-Copyright (c) 2024-present VoidZero Inc. & Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-end of terms and conditions
-
-The licenses of externally maintained libraries from which parts of the Software is derived are listed [here](https://github.com/rolldown/rolldown/blob/main/THIRD-PARTY-LICENSE).
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
   satteri 0.10.5
     Copyright (c) 2026 Bruits
 
@@ -7410,7 +7430,7 @@ MIT
 
 Applies to the following component:
 
-  vite 8.3.5
+  vite 8.3.6
     COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
     WHETHER
     Copyright (C) 2018-2022 Guy Bedford
