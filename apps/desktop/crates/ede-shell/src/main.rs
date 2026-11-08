@@ -1124,20 +1124,24 @@ fn output_size(shell: &Shell) -> (u32, u32) {
 /// of its edges) sized to the output, since the window takes the size it
 /// asks for; any other document's as written.
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
+    layer_header(doc, output_size(shell), shell.model.rail)
+}
+
+/// [`header_for`] on an output of `(out_w, out_h)` logical px.
+fn layer_header(doc: &Document, (out_w, out_h): (u32, u32), rail: bool) -> SurfaceHeader {
     let mut header = doc.surface.clone();
     if let SurfaceHeader::Layer { size, exclusive_zone, anchor, .. } = &mut header {
-        let (out_w, out_h) = output_size(shell);
+        let sidebar = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
         if anchor.contains(&ede_ui::surface::Edge::Left) && anchor.contains(&ede_ui::surface::Edge::Right) {
-            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { if shell.model.rail { shell_layout().rail_width } else { shell_layout().sidebar_width } } else { 0 }).max(1));
+            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { sidebar } else { 0 }).max(1));
         }
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
             size.height = Some(out_h.max(1));
         }
         if doc.name == "sidebar" {
-            let width = if shell.model.rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
-            size.width = Some(width);
+            size.width = Some(sidebar);
             if *exclusive_zone > 0 {
-                *exclusive_zone = width as i32;
+                *exclusive_zone = sidebar as i32;
             }
         }
     }
@@ -1276,20 +1280,39 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
     model_changed(shell, cx);
 }
 
-/// The sidebar as the rail or the full column: the sidebar re-opens at its
-/// new width, and the taskbar after it (the arrangement follows the
-/// mapping order).
+/// The sidebar as the rail or the full column: the sidebar and the
+/// taskbar take their new widths in place (#EDE-65: re-opening them
+/// dropped both bars for a frame).
 fn rail_toggle(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::RailToggle, cx);
-    let reopen: Vec<Document> = ["sidebar", "taskbar"].iter().filter_map(|n| document(&shell.borrow(), n)).filter(|d| shell.borrow().surfaces.is_open(&d.name)).collect();
-    for d in &reopen {
-        close(shell, &d.name, cx);
-    }
-    for d in &reopen {
-        open_layer(shell, d, cx);
-    }
+    relayout(shell, cx);
     let rail = shell.borrow().model.rail;
     settings::persist_shell(json!({"rail": rail}));
+}
+
+/// Every open layer document at the size its header asks for now (the
+/// output changed, the rail): resized in place, never re-opened (#EDE-65:
+/// after a VM window resize the taskbar kept its old width, centred, its
+/// first button floating mid-bar, and the ground and sidebar kept theirs).
+fn relayout(shell: &SharedShell, cx: &mut App) {
+    let docs: Vec<Document> = {
+        let s = shell.borrow();
+        let names: Vec<String> = s.surfaces.open_names().map(String::from).collect();
+        names.iter().filter_map(|n| document(&s, n)).filter(|d| matches!(d.surface, SurfaceHeader::Layer { .. })).collect()
+    };
+    for doc in docs {
+        let (header, feed) = {
+            let s = shell.borrow();
+            (header_for(&s, &doc), s.feed.clone())
+        };
+        if header == doc.surface {
+            continue;
+        }
+        let mut doc = doc;
+        size_root(&mut doc, &header);
+        doc.surface = header;
+        shell.borrow_mut().surfaces.resize_layer(&doc, &feed, cx);
+    }
 }
 
 /// Mint's click on a taskbar button: launch, focus, minimize, or the
@@ -2119,8 +2142,12 @@ fn main() {
                     sh.feed.set("/applets", applets);
                     dirty = true;
                 }
-                while let Ok(()) = outputs_rx.try_recv() {
+                if outputs_rx.try_iter().count() > 0 {
+                    let before = output_size(&s.borrow());
                     outputs_refresh(&s);
+                    if output_size(&s.borrow()) != before {
+                        cx.update(|cx| relayout(&s, cx));
+                    }
                     dirty = true;
                 }
                 while let Ok((document, layers)) = hosted_rx.try_recv() {
@@ -2274,5 +2301,35 @@ mod function_names {
             }
         }
         assert!(checked > 40, "the headers were read ({checked})");
+    }
+}
+
+#[cfg(test)]
+mod layer_sizes {
+    use super::*;
+
+    fn factory(name: &str) -> Document {
+        uicore_gpui::inline::document(uicore_docs::DOCS.iter().find(|d| d.name == name).expect(name))
+    }
+
+    fn size(header: &SurfaceHeader) -> (Option<u32>, Option<u32>, i32) {
+        let SurfaceHeader::Layer { size, exclusive_zone, .. } = header else { panic!("a layer header") };
+        (size.width, size.height, *exclusive_zone)
+    }
+
+    /// #EDE-65: the stretched bars follow the output: a VM window resized
+    /// to 1920×1080 gives the taskbar the width right of the sidebar, the
+    /// ground and the sidebar the full height (eDE 0.2.6 kept the sizes of
+    /// the start, so the taskbar sat centred with its first button mid-bar).
+    #[test]
+    fn the_bars_take_the_outputs_size() {
+        let (taskbar, sidebar, ground) = (factory("taskbar"), factory("sidebar"), factory("ground"));
+        for (out, rail) in [((1280, 720), false), ((1920, 1080), false), ((1920, 1080), true)] {
+            let side = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
+            assert_eq!(size(&layer_header(&taskbar, out, rail)), (Some(out.0 - side), Some(48), 48), "{out:?} rail {rail}");
+            assert_eq!(size(&layer_header(&sidebar, out, rail)), (Some(side), Some(out.1), side as i32), "{out:?} rail {rail}");
+            assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
+        }
+        assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
     }
 }
