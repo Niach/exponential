@@ -19,7 +19,7 @@ import XCTest
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_composer-menu · sg_chat-issues ·
-///   sg_machine-settings · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
+///   sg_machine-settings · sg_settings-agents · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
 ///   sg_session-row · sg_pr-row ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
@@ -174,6 +174,8 @@ final class StyleguideScreenshots: XCTestCase {
     private static let demoAccountEmail = "demo@exponential.at"
     /// The Triage agent (`DEMO_AGENT_ID`): its channel and settings page.
     private static let agentName = "Triage"
+    /// #EXP-1735: the seeded lead Assistant's member (the demo user).
+    private static let leadName = "Alex Carter"
     /// `DEMO_AGENT_REQUEST`, the person's ask in Triage's channel.
     private static let agentRequest = "Label the Android ones too"
     /// The cold-start thread's child session (`DEMO_SESSION_ID`).
@@ -876,10 +878,30 @@ final class StyleguideScreenshots: XCTestCase {
         // server, login, daily Schedule row and the server-only instructions
         // (`sessions.getAgent`, so gate on their text). A detour: nothing is
         // edited, Back returns to the team settings.
-        if ScreenshotShots.isWanted("sg_settings-team-agent") {
+        // #EXP-1735: on the way, sg_settings-agents = the Agents page's top:
+        // the Lead Assistant row naming the seeded lead (the demo user, read
+        // through `agents.lead`) over the agents list.
+        let wantsAgentsPage = ScreenshotShots.isWanted("sg_settings-agents")
+        if ScreenshotShots.isWanted("sg_settings-team-agent") || wantsAgentsPage {
             let agentsRow = teamSettingsRow(app, "Agents")
             scrollUntilVisible(app, agentsRow, attempts: 4)
             agentsRow.tap()
+            if wantsAgentsPage {
+                let lead = anyElement(app, identified: "settings-agents-lead")
+                expect(lead, within: Wait.sync, "The Agents page drew no Lead Assistant row")
+                let named = app.descendants(matching: .any).matching(
+                    NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "settings-agents-lead", Self.leadName)
+                ).firstMatch
+                let nested = lead.descendants(matching: .any).matching(
+                    NSPredicate(format: "label CONTAINS %@", Self.leadName)
+                ).firstMatch
+                let deadline = Date().addingTimeInterval(Wait.network)
+                while !named.exists && !nested.exists && Date() < deadline { settle(1) }
+                XCTAssertTrue(named.exists || nested.exists, "The Lead Assistant row never named \(Self.leadName) (agents.lead)")
+                snapshot("sg_settings-agents", settle: 2)
+            }
+        }
+        if ScreenshotShots.isWanted("sg_settings-team-agent") {
             let agentRow = app.buttons
                 .matching(identifier: "agent-settings-row")
                 .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
@@ -895,6 +917,8 @@ final class StyleguideScreenshots: XCTestCase {
             snapshot("sg_settings-team-agent", settle: 2)
             goBack(app)
             expect(agentRow, within: Wait.nav, "Did not return to the Agents page")
+            goBack(app)
+        } else if wantsAgentsPage {
             goBack(app)
         }
 

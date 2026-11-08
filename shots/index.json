@@ -6497,12 +6497,26 @@
       }
     },
     "settings-agents": {
+      "android": {
+        "file": "shots/settings-agents/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 27684,
+        "sha256": "4bfbaec0f22c520af01ed2071d82319e7fe487c349f26eed5e2910a3dda2061b"
+      },
       "desktop": {
         "file": "shots/settings-agents/desktop.webp",
         "width": 1800,
         "height": 1126,
         "bytes": 36206,
         "sha256": "e51902970501bd090a34f9679641e43e5fe401fb22e9ea343016fda29bdfc483"
+      },
+      "ios": {
+        "file": "shots/settings-agents/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 26100,
+        "sha256": "424c18b9bb35f567c55ecbeddddb5901bff4e6174e9917ce3431eccc9019d1b7"
       },
       "web": {
         "file": "shots/settings-agents/web.webp",
