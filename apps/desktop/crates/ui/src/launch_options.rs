@@ -360,6 +360,7 @@ pub(crate) fn inline_pin_trigger_with(
 ) -> Button {
     use gpui::prelude::FluentBuilder as _;
     Button::new(id)
+        .accessibility_label(label.clone())
         .ghost()
         .cursor_pointer()
         .h_auto()
@@ -377,6 +378,7 @@ pub(crate) fn inline_pin_trigger_with(
 /// session composer's Device pin inside the card; the name lives in the
 /// picker and the tooltip.
 pub(crate) fn inline_pin_glyph_trigger(id: SharedString, icon: ExpIcon, cx: &App) -> Button {
+    // a11y: named by the caller (its label, tooltip or `accessibility_label`).
     Button::new(id)
         .ghost()
         .cursor_pointer()

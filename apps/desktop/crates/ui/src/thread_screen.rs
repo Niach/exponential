@@ -921,7 +921,8 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
         SharedString::from(THREAD.test_ids.guide_menu.clone()),
         Icon::new(registry::UI_MORE),
         cx,
-    );
+    )
+    .accessibility_label("More");
     Some(
         div()
             .flex_shrink_0()
@@ -1159,6 +1160,7 @@ pub(crate) fn unqueue_button(
                 Icon::new(registry::UI_CLOSE).xsmall(),
                 cx,
             )
+            .accessibility_label(steer::feed::QUEUE_REMOVE_LABEL)
             .on_click(on_click),
         )
         .into_any_element()
@@ -2786,7 +2788,8 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
     let mut lead: Vec<AnyElement> = Vec::new();
     if let Some(target) = spec.menu.clone() {
         let trigger =
-            crate::controls::ghost_icon_button(SharedString::from(format!("{prefix}-child-add")), Icon::new(registry::UI_ADD), cx);
+            crate::controls::ghost_icon_button(SharedString::from(format!("{prefix}-child-add")), Icon::new(registry::UI_ADD), cx)
+                .accessibility_label("Add an issue");
         lead.push(
             div()
                 .flex_shrink_0()

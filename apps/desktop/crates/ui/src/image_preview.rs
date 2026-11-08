@@ -627,14 +627,15 @@ impl Render for GuideViewer {
         };
         let picture = self.picture(window, cx);
         let (prev, next) = (state.prev_id.clone(), state.next_id.clone());
-        let step = |id: &'static str, glyph: ExpIcon, target: Option<String>, cx: &mut gpui::Context<Self>| {
+        let step = |id: &'static str, label: &'static str, glyph: ExpIcon, target: Option<String>, cx: &mut gpui::Context<Self>| {
             let disabled = target.is_none();
             crate::controls::ghost_icon_button(id, Icon::from(glyph), cx)
+                .accessibility_label(label)
                 .disabled(disabled)
                 .on_click(cx.listener(move |this, _, _, cx| this.go(target.clone(), cx)))
         };
-        let back = step("guide-viewer-prev", crate::icons::registry::UI_CHEVRON_LEFT, prev.clone(), cx);
-        let forward = step("guide-viewer-next", crate::icons::registry::UI_CHEVRON_RIGHT, next.clone(), cx);
+        let back = step("guide-viewer-prev", "Previous picture", crate::icons::registry::UI_CHEVRON_LEFT, prev.clone(), cx);
+        let forward = step("guide-viewer-next", "Next picture", crate::icons::registry::UI_CHEVRON_RIGHT, next.clone(), cx);
         let text = state.text.clone().map(|text| {
             let mut view = crate::markdown::MarkdownView::new(
                 SharedString::from(format!("guide-viewer-text-{}", self.attachment_id)),
@@ -820,9 +821,11 @@ impl Render for PictureGallery {
         let body = self.picture.render("picture-gallery", &picture.url, slot, None, box_w, GUIDE_PICTURE_PAD, cx);
         let count = self.pictures.len();
         let back = crate::controls::ghost_icon_button("picture-gallery-prev", Icon::from(crate::icons::registry::UI_CHEVRON_LEFT), cx)
+            .accessibility_label("Previous picture")
             .disabled(self.index == 0)
             .on_click(cx.listener(|this, _, _, cx| this.step(-1, cx)));
         let forward = crate::controls::ghost_icon_button("picture-gallery-next", Icon::from(crate::icons::registry::UI_CHEVRON_RIGHT), cx)
+            .accessibility_label("Next picture")
             .disabled(self.index + 1 >= count)
             .on_click(cx.listener(|this, _, _, cx| this.step(1, cx)));
         v_flex()

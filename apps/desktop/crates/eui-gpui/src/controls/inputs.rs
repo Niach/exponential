@@ -195,8 +195,18 @@ pub fn checkbox(
     let chrome = Chrome::global(cx);
     let theme = cx.theme();
     let marked = state != CheckState::Unchecked;
+    use gpui::StatefulInteractiveElement as _;
+    // #EXP-1488: a CheckBox node with its state; the caller chains the
+    // `.aria_label(…)` that names it (the row's words).
+    let toggled = match state {
+        CheckState::Unchecked => gpui::accesskit::Toggled::False,
+        CheckState::Checked => gpui::accesskit::Toggled::True,
+        CheckState::Indeterminate => gpui::accesskit::Toggled::Mixed,
+    };
     let square = div()
         .id(id)
+        .role(gpui::Role::CheckBox)
+        .aria_toggled(toggled)
         .flex_shrink_0()
         .size(px(CHECKBOX_PX))
         .flex()

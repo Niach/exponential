@@ -530,6 +530,7 @@ impl Render for NotificationsPrefsPane {
                         "Send time",
                         Some("Full hours only, in your timezone.".into()),
                         Button::new("digest-hour-select")
+                            .accessibility_label("Send time")
                             .ghost()
                             .cursor_pointer()
                             .small()

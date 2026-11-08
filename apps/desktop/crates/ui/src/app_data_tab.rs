@@ -230,6 +230,7 @@ impl AppDataTab {
         let options: Vec<(String, usize)> = kinds.to_vec();
         let current = picked.to_string();
         let picker = Button::new(SharedString::from(DATA_TAB.test_ids.kind.clone()))
+            .accessibility_label(kind_option(picked, count))
             .outline()
             .web_sm()
             .cursor_pointer()
@@ -336,7 +337,8 @@ impl AppDataTab {
             SharedString::from(format!("{}-{index}", DATA_TAB.test_ids.menu)),
             Icon::new(registry::UI_MORE),
             cx,
-        );
+        )
+        .accessibility_label(format!("{} / {}", DATA_TAB.copy.edit, DATA_TAB.copy.delete));
         // VAPP-187: not the viewer's to change = the same `…`, disabled, no menu.
         if !allowed {
             return button.disabled(true).into_any_element();

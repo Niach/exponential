@@ -122,7 +122,8 @@ fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
         return None;
     }
     let agent_id = agent_id.to_string();
-    let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx);
+    let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx)
+        .accessibility_label("More");
     Some(
         div()
             .flex_shrink_0()
