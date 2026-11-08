@@ -159,6 +159,7 @@ impl ShapeStore {
             // columns are left in place — hydrate ignores unknown fields).
             heal_missing_columns(&writer, spec)?;
         }
+        backfill_one_tree_columns(&writer)?;
         let reader = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -495,6 +496,41 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
 
 /// Local tables of shapes that left the registry ([`migrate_legacy_schema`]).
 const LEGACY_TABLES: [&str; 5] = ["automations", "coding_sessions", "threads", "thread_items", "actions"];
+
+/// `PRAGMA user_version` once [`backfill_one_tree_columns`] ran.
+const ONE_TREE_STORE_VERSION: i64 = 1730;
+
+/// #EXP-1730 phase A, once per store (`PRAGMA user_version`): fill the
+/// one-tree columns the readers now key on from the local legacy rows, the
+/// way the server's triggers do, so nothing blanks out before the re-snapshot
+/// [`heal_missing_columns`] stamped lands, and a Local desktop's store (no
+/// server behind it) keeps its history:
+///
+/// * `messages.session_id` = its conversation's session (a pre-NEW-8 store
+///   still has an orphaned `session_id` column the heal never re-adds, NULL
+///   on every row synced since: it is filled too);
+/// * `sessions.digest` = its session conversation's digest;
+/// * `agents.defaults` = `{deviceId, cli, account, model}` of the columns.
+fn backfill_one_tree_columns(conn: &Connection) -> Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version >= ONE_TREE_STORE_VERSION {
+        return Ok(());
+    }
+    conn.execute_batch(
+        r#"UPDATE "messages" SET "session_id" = (
+             SELECT c."session_id" FROM "conversations" c WHERE c."id" = "messages"."conversation_id")
+           WHERE "session_id" IS NULL OR "session_id" = '';
+           UPDATE "sessions" SET "digest" = (
+             SELECT c."digest" FROM "conversations" c
+             WHERE c."session_id" = "sessions"."id" AND c."digest" IS NOT NULL LIMIT 1)
+           WHERE "digest" IS NULL;
+           UPDATE "agents" SET "defaults" = json_object(
+             'deviceId', NULLIF("device_id", ''), 'cli', "cli", 'account', "account", 'model', "model")
+           WHERE "defaults" IS NULL;
+           PRAGMA user_version = 1730;"#,
+    )?;
+    Ok(())
+}
 
 /// Bring an existing table up to the current [`ShapeSpec::columns`] set by
 /// adding any missing columns as `TEXT` (see the §5.4 wedge note at the call

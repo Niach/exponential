@@ -764,10 +764,11 @@ impl LocalExecutor {
         self.row_or("sessions", id, "Session")?;
         let tree: Vec<String> = self.rows_where("sessions", "root_id", id)?.iter().filter_map(|s| text(s, "id")).map(str::to_string).collect();
         for session in tree.iter().chain(std::iter::once(&id.to_string())) {
+            // #EXP-1730: a message lives in its session (`session_id`).
+            let messages: Vec<String> = self.rows_where("messages", "session_id", session)?.iter().filter_map(|m| text(m, "id")).map(str::to_string).collect();
+            self.delete_many("messages", &messages)?;
             for conversation in self.rows_where("conversations", "session_id", session)? {
                 if let Some(c) = text(&conversation, "id") {
-                    let messages: Vec<String> = self.rows_where("messages", "conversation_id", c)?.iter().filter_map(|m| text(m, "id")).map(str::to_string).collect();
-                    self.delete_many("messages", &messages)?;
                     self.delete("conversations", c)?;
                 }
             }

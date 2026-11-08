@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn a_new_session_names_the_agent_s_cli_else_the_installed_one() {
-        let agent = |cli: Option<&str>| -> super::AgentDefRow { serde_json::from_value(serde_json::json!({"id": "a1", "cli": cli})).unwrap() };
+        let agent = |cli: Option<&str>| -> super::AgentDefRow { serde_json::from_value(serde_json::json!({"id": "a1", "defaults": {"cli": cli}})).unwrap() };
         assert_eq!(super::new_session_cli(Some(&agent(Some("codex"))), "claude").as_deref(), Some("codex"));
         assert_eq!(super::new_session_cli(Some(&agent(None)), "claude").as_deref(), Some("claude"));
         assert_eq!(super::new_session_cli(Some(&agent(Some(""))), "claude").as_deref(), Some("claude"));

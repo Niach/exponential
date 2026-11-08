@@ -274,20 +274,19 @@ const FOREGROUND_POLL: Duration = Duration::from_secs(15);
 
 /// The shapes the foreground loop plans over (it plans only once all
 /// reached `up-to-date`: a cold store would read the row as gone → Kill).
-/// NEW-8: the messages wait on their conversations (a message's session is
-/// its conversation's).
-const FOREGROUND_SHAPES: &[&str] = &["sessions", "messages", "conversations"];
+/// #EXP-1730: a message names its own session (`session_id`).
+const FOREGROUND_SHAPES: &[&str] = &["sessions", "messages"];
 
 /// What the foreground syncs: [`FOREGROUND_SHAPES`] plus (EXP-1542) the
 /// `events` holding a move's record, read when present, never waited on.
-const FOREGROUND_SYNC: &[&str] = &["sessions", "messages", "conversations", "events"];
+const FOREGROUND_SYNC: &[&str] = &["sessions", "messages", "events"];
 
 /// EXP-1292: the foreground `code`/`run` process is the ONLY host of its
 /// session — it holds the claim lock, so the daemon on the same machine
 /// skips the row — so it runs its own one-session pickup: the person
 /// messages sent from the web are delivered, answered question/plan cards
 /// reach the engine, and an `ended` row (Stop/end, the agent's
-/// `sessions_end`) kills the run. It syncs the `sessions` + `messages` (+ NEW-8 `conversations`)
+/// `sessions_end`) kills the run. It syncs the `sessions` + `messages`
 /// shapes into a private store (deleted at the end) and plans over them
 /// like the daemon, acting only on its own session; until those shapes are
 /// up it polls the row for an end over MCP. The thread stops with the
@@ -368,7 +367,7 @@ fn run_foreground_pickup(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     }
 }
 
-/// The private store's pipeline (sessions + messages + conversations only). `None` leaves
+/// The private store's pipeline (sessions + messages + events only). `None` leaves
 /// the loop on the MCP end poll.
 fn start_foreground_sync(ctx: &Ctx, db_path: &std::path::Path) -> Option<Arc<sync::SyncManager>> {
     if let Some(parent) = db_path.parent() {
@@ -402,7 +401,7 @@ fn foreground_pass(
 ) {
     use coding::pickup::PickupAction;
     let rows: Vec<SessionRow> = crate::commands::daemon::read_shape_rows(store, "sessions");
-    // NEW-8: keyed through their conversation.
+    // #EXP-1730: keyed by their own `session_id`.
     let messages: Vec<domain::rows::MessageRow> = crate::commands::daemon::read_keyed_messages(store);
     deps.live.settle_handed(&messages);
     let views = deps.live.live_views();
