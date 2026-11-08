@@ -91,7 +91,8 @@ final class ChatsTests: XCTestCase {
                 createdAt: try XCTUnwrap(string(row["createdAt"])),
                 updatedAt: try XCTUnwrap(string(row["updatedAt"])),
                 deviceId: string(row["deviceId"]),
-                agentId: string(row["agentId"])
+                agentId: string(row["agentId"]),
+                appId: string(row["appId"])
             )
         }
     }
@@ -131,6 +132,18 @@ final class ChatsTests: XCTestCase {
                 busy: try XCTUnwrap($0["busy"] as? Bool),
                 needsYou: try XCTUnwrap($0["needsYou"] as? Bool),
                 assistant: ($0["assistant"] as? Bool) ?? false
+            )
+        }
+    }
+
+    private func apps(_ value: Any?) throws -> [Chats.ChatApp] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            Chats.ChatApp(
+                appId: try XCTUnwrap(string($0["appId"])),
+                slug: try XCTUnwrap(string($0["slug"])),
+                name: try XCTUnwrap(string($0["name"])),
+                icon: string($0["icon"]),
+                color: string($0["color"])
             )
         }
     }
@@ -226,6 +239,34 @@ final class ChatsTests: XCTestCase {
                 [
                     "agentId": row.agentId, "sessionId": json(row.sessionId), "name": row.name,
                     "icon": row.icon, "color": row.color, "assistant": row.assistant,
+                    "preview": json(row.preview), "time": row.time, "activityAt": json(row.activityAt),
+                    "unreadCount": row.unreadCount, "needsYou": row.needsYou, "busy": row.busy,
+                ]
+            }
+            assertJSON(rendered, testCase["expected"], name)
+        }
+    }
+
+    /// #EXP-1733 `appRowCases`: the Apps section's rows (the WHOLE expected row).
+    func testAppRowCases() throws {
+        for testCase in try cases("appRowCases") {
+            let name = try XCTUnwrap(string(testCase["name"]))
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let view = try string(input["view"]).map { try XCTUnwrap(Chats.ChatListView(rawValue: $0)) } ?? .list
+            let got = Chats.appChatRows(
+                apps: try apps(input["apps"]),
+                sessions: try sessions(input["sessions"]),
+                messages: try messages(input["messages"]),
+                reads: try reads(input["reads"]),
+                me: string(input["me"]),
+                view: view,
+                now: try XCTUnwrap(string(input["now"])),
+                utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
+            )
+            let rendered: [[String: Any]] = got.map { row in
+                [
+                    "appId": row.appId, "slug": row.slug, "sessionId": json(row.sessionId), "name": row.name,
+                    "icon": json(row.icon), "color": json(row.color),
                     "preview": json(row.preview), "time": row.time, "activityAt": json(row.activityAt),
                     "unreadCount": row.unreadCount, "needsYou": row.needsYou, "busy": row.busy,
                 ]
@@ -547,7 +588,7 @@ final class ChatsTests: XCTestCase {
             "sections",
         ])
         XCTAssertEqual(copy["sections"] as? [String: String], [
-            "agents": C.Sections.agents, "needs_you": C.Sections.needsYou, "working": C.Sections.working,
+            "agents": C.Sections.agents, "apps": C.Sections.apps, "needs_you": C.Sections.needsYou, "working": C.Sections.working,
             "unread": C.Sections.unread, "chats": C.Sections.chats,
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
@@ -563,7 +604,7 @@ final class ChatsTests: XCTestCase {
             "boardMenu": T.boardMenu, "boardMenuRow": T.boardMenuRow, "pageHeader": T.pageHeader,
             "searchButton": T.searchButton,
             "loadEarlier": T.loadEarlier, "jumpToBottom": T.jumpToBottom,
-            "chatArchived": T.chatArchived, "selectionBar": T.selectionBar,
+            "chatArchived": T.chatArchived, "selectionBar": T.selectionBar, "appRow": T.appRow,
         ])
         let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
         XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)

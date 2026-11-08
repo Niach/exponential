@@ -48,6 +48,7 @@ import com.exponential.app.ui.components.ChatArchivedRow
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.ChatRow
 import com.exponential.app.ui.components.AgentChatRowItem
+import com.exponential.app.ui.components.AppChatRowItem
 import com.exponential.app.ui.components.ChatSectionHeader
 import com.exponential.app.ui.components.ChatSelectionBar
 import com.exponential.app.ui.components.SelectionBarSlot
@@ -80,7 +81,8 @@ import com.exponential.app.ui.theme.flatRow
  * Session 58cb32df: the CHATS tab (chats.json LIST, phones). The large
  * in-content headline `copy.title` with its search + inbox circles, then
  * #FEED-191 the Needs you entry (needs-you.json, none = no row), the Agents
- * section and the active team's chats grouped ([Chats.chatSections] over
+ * section, #EXP-1733 the Apps section (a tap opens the app's editor) and the
+ * active team's chats grouped ([Chats.chatSections] over
  * [Chats.chatList]: Needs you · Working · Unread · Chats, no bands, no nesting,
  * each newest activity first). A row opens its chat. #EXP-1388: a long-press
  * ENTERS THE SELECTION with that row (taps toggle, nothing opens; the bar = the
@@ -97,6 +99,8 @@ fun ChatsScreen(
     onOpenSession: (sessionId: String) -> Unit = onOpenChat,
     /** NEW-7: an agent with no conversation of mine yet = its empty DM. */
     onOpenAgent: (agentId: String) -> Unit = {},
+    /** #EXP-1733: an app row opens the app's chat (its editor). */
+    onOpenApp: (appId: String) -> Unit = {},
     /** chats.json: the header's inbox circle pushes the inbox-only page. */
     onOpenInbox: () -> Unit = {},
     /** The agent menu's Agent settings (owners). */
@@ -116,6 +120,7 @@ fun ChatsScreen(
     LaunchedEffect(view) { viewModel.setView(view) }
     val list by viewModel.chatList.collectAsStateWithLifecycle()
     val agentRows by viewModel.agentRows.collectAsStateWithLifecycle()
+    val appRows by viewModel.appRows.collectAsStateWithLifecycle()
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val needsYouRows by viewModel.needsYouRows.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
@@ -190,6 +195,8 @@ fun ChatsScreen(
                 },
                 agentRows = agentRows,
                 onOpenAgentRow = { row -> row.sessionId?.let(onOpenChat) ?: onOpenAgent(row.agentId) },
+                appRows = appRows,
+                onOpenAppRow = { row -> onOpenApp(row.appId) },
                 onOpenInbox = onOpenInbox,
                 inboxUnread = inboxUnread,
                 view = view,
@@ -279,6 +286,10 @@ fun ChatsContent(
      *  agent's chat. */
     agentRows: List<Chats.AgentChatRow> = emptyList(),
     onOpenAgentRow: (Chats.AgentChatRow) -> Unit = {},
+    /** #EXP-1733: the APP rows between the agents and the sessions (never
+     *  selectable); a tap opens the app's chat (its editor). */
+    appRows: List<Chats.AppChatRow> = emptyList(),
+    onOpenAppRow: (Chats.AppChatRow) -> Unit = {},
     /** #FEED-191 (needs-you.json): the entry's count; 0 = no entry. */
     needsYouCount: Int = 0,
     onOpenNeedsYou: () -> Unit = {},
@@ -338,7 +349,18 @@ fun ChatsContent(
                 )
             }
         }
-        if (rows.isEmpty() && !archivedEntry && (archivedPage || agentRows.isEmpty())) {
+        // #EXP-1733: the APPS section between the agents and the sessions;
+        // none on the Archived page.
+        if (!archivedPage && appRows.isNotEmpty()) {
+            item(key = "__section_apps__") { ChatSectionHeader(Chats.Copy.SECTION_APPS) }
+            items(appRows, key = { row -> "app_${row.appId}" }) { row ->
+                AppChatRowItem(
+                    row = row,
+                    onClick = { if (!selecting) onOpenAppRow(row) },
+                )
+            }
+        }
+        if (rows.isEmpty() && !archivedEntry && (archivedPage || (agentRows.isEmpty() && appRows.isEmpty()))) {
             item(key = "__empty__") {
                 Box(Modifier.fillMaxWidth().height(320.dp)) {
                     EmptyState(if (archivedPage) EmptyStateCopy.chats.copy(id = "archived", iconConcept = "ui-archive", title = Chats.Copy.ARCHIVED_EMPTY) else EmptyStateCopy.chats)

@@ -22,6 +22,9 @@ final class SessionListsModel {
     /// NEW-2: my conversation session with each agent (a root with
     /// `agent_id` I started), by agent id; absent = none yet.
     private(set) var agentConversations: [String: String] = [:]
+    /// #EXP-1733: each team's live apps (the synced `apps` rows, trash
+    /// hidden), by team id: the Chats list's Apps section.
+    private(set) var appsByTeam: [String: [Chats.ChatApp]] = [:]
     /// Home's Running band: my live chats — needs-you first, then running,
     /// each newest activity first.
     private(set) var running: [ChatsListRow] = []
@@ -166,6 +169,7 @@ final class SessionListsModel {
         boundAccountId = nil
         groups = []
         agents = []
+        appsByTeam = [:]
         running = []
         identifiers = [:]
         clis = [:]
@@ -196,6 +200,7 @@ final class SessionListsModel {
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
+        var apps: [AppEntity]
         /// #EXP-1710: each team's merge mode and its owners (Needs you's
         /// stuck rows and the approval-only ready rows).
         var mergeModes: [String: String] = [:]
@@ -206,6 +211,7 @@ final class SessionListsModel {
         var groups: [ChatsListGroup]
         var agents: [AgentRow]
         var agentConversations: [String: String]
+        var appsByTeam: [String: [Chats.ChatApp]]
         var running: [ChatsListRow]
         var identifiers: [String: String]
         var clis: [String: String]
@@ -227,6 +233,7 @@ final class SessionListsModel {
         groups = derived.groups
         agents = derived.agents
         agentConversations = derived.agentConversations
+        appsByTeam = derived.appsByTeam
         running = derived.running
         identifiers = derived.identifiers
         clis = derived.clis
@@ -283,6 +290,7 @@ final class SessionListsModel {
             pullRequests: try PullRequestEntity.fetchAll(db),
             deviceRows: try DeviceEntity.fetchAll(db),
             agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init),
+            apps: try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db),
             mergeModes: Dictionary(
                 try TeamEntity.fetchAll(db).map { ($0.id, $0.mergeMode) }, uniquingKeysWith: { a, _ in a }
             ),
@@ -372,6 +380,11 @@ final class SessionListsModel {
                 },
                 uniquingKeysWith: { a, _ in a }
             ),
+            appsByTeam: Dictionary(grouping: rows.apps, by: \.teamId).mapValues { apps in
+                apps.map {
+                    Chats.ChatApp(appId: $0.id, slug: $0.slug, name: $0.name, icon: $0.icon, color: $0.color)
+                }
+            },
             running: running,
             identifiers: identifiers,
             clis: rows.clis,

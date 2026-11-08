@@ -802,6 +802,8 @@ private fun AuthenticatedNav(
                 // NEW-7: an agent with no conversation of mine yet opens its
                 // empty DM (the first send creates it).
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
+                // #EXP-1733: an app row opens the app's chat (its editor).
+                onOpenApp = { id -> navController.navigate(Routes.app(id)) },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 // Session 58cb32df: the header's inbox circle pushes the inbox.
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },

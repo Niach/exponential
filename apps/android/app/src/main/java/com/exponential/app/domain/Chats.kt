@@ -100,6 +100,8 @@ object Chats {
         /** S-3 `copy.sections`: the Chats list's headers, only while an
          *  agent row exists. */
         const val SECTION_AGENTS = "Agents"
+        /** #EXP-1733: the Apps section's header, between Agents and the sessions. */
+        const val SECTION_APPS = "Apps"
         /** #FEED-191: the list's sections ([chatSections]). */
         const val SECTION_NEEDS_YOU = "Needs you"
         const val SECTION_WORKING = "Working"
@@ -280,6 +282,8 @@ object Chats {
         const val JUMP_TO_BOTTOM = "jump-to-bottom"
         const val CHAT_ARCHIVED = "chat-archived"
         const val SELECTION_BAR = "bulk-action-bar"
+        /** #EXP-1733: an app row of the Chats list. */
+        const val APP_ROW = "chat-app-row"
     }
 
     /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
@@ -949,6 +953,85 @@ object Chats {
                 unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,
                 needsYou = agent.needsYou,
                 busy = agent.busy,
+            )
+        }
+    }
+
+    /** #EXP-1733: an app as [appChatRows] reads it. */
+    data class AppChatInput(
+        val appId: String,
+        override val slug: String,
+        override val name: String,
+        val icon: String?,
+        val color: String?,
+    ) : Apps.ListLike
+
+    /** #EXP-1733: an APP row of the Chats list (`appRowCases`), between the
+     *  Agents and the root sessions. */
+    data class AppChatRow(
+        val appId: String,
+        val slug: String,
+        /** The viewer's session with the app; null = none yet. */
+        val sessionId: String?,
+        val name: String,
+        val icon: String?,
+        val color: String?,
+        val preview: ChatPreview,
+        /** [chatTimeLabel] of [activityAt]; empty without a session. */
+        val time: String,
+        val activityAt: String?,
+        val unreadCount: Int,
+        val needsYou: Boolean,
+        val busy: Boolean,
+    )
+
+    /** #EXP-1733: the Chats list's APPS section (`appRowCases`): one row per
+     *  live team app in [Apps.sortApps] order, its preview / time / unread from
+     *  the viewer's session with the app (the root with `appId` and
+     *  `userId == me`); needs you / busy = that root's `needsInput` / `busy`.
+     *  Never selectable; none on the Archived page. */
+    fun appChatRows(
+        apps: List<AppChatInput>,
+        sessions: List<SessionTree.Session>,
+        messages: List<SessionTree.Message>,
+        reads: List<SessionTree.SessionRead> = emptyList(),
+        me: String?,
+        view: ChatListView = ChatListView.List,
+        now: String,
+        utcOffsetMinutes: Int,
+    ): List<AppChatRow> {
+        if (view == ChatListView.Archived) return emptyList()
+        return Apps.sortApps(apps).map { app ->
+            val session = if (me != null) {
+                sessions.firstOrNull { it.parentId == null && it.appId == app.appId && it.userId == me }
+            } else {
+                null
+            }
+            val id = session?.id
+            val needsYou = session?.needsInput ?: false
+            val busy = session?.busy ?: false
+            var newest: String? = null
+            if (id != null) {
+                for (m in messages) {
+                    if (m.sessionId != id) continue
+                    if (m.authorKind != DomainContract.messageAuthorKindUser && m.authorKind != DomainContract.messageAuthorKindAgent) continue
+                    if ((ms(m.createdAt) ?: 0L) > (ms(newest) ?: -1L)) newest = m.createdAt
+                }
+            }
+            val activityAt = newest ?: session?.createdAt
+            AppChatRow(
+                appId = app.appId,
+                slug = app.slug,
+                sessionId = id,
+                name = app.name,
+                icon = app.icon,
+                color = app.color,
+                preview = if (id != null) chatPreview(id, messages, needsYou, busy) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
+                time = activityAt?.let { chatTimeLabel(it, now, utcOffsetMinutes) } ?: "",
+                activityAt = activityAt,
+                unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,
+                needsYou = needsYou,
+                busy = busy,
             )
         }
     }

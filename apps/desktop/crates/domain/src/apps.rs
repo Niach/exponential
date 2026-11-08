@@ -1061,6 +1061,19 @@ pub trait AppListLike {
     fn name(&self) -> &str;
 }
 
+impl AppListLike for crate::rows::AppRow {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// #EXP-1733: a list of borrowed rows sorts the same (`app_chat_rows`).
+impl<T: AppListLike + ?Sized> AppListLike for &T {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+}
+
 /// The list order: by name (case- and accent-insensitive, the web's
 /// `localeCompare` at `base`), stable. Exponential ships no built-in apps.
 pub fn sort_apps<T: AppListLike>(apps: &mut [T]) {

@@ -75,6 +75,7 @@ class ChatsTest {
         updatedAt = json.str("updatedAt")!!,
         deviceId = json.str("deviceId"),
         agentId = json.str("agentId"),
+        appId = json.str("appId"),
     )
 
     private fun read(json: JsonObject) = SessionTree.SessionRead(json.str("sessionId")!!, json.str("readAt")!!, json.str("archivedAt"))
@@ -225,11 +226,56 @@ class ChatsTest {
         }
         val copy = fixture.getValue("copy").jsonObject.getValue("sections").jsonObject
         assertEquals(copy.str("agents"), Chats.Copy.SECTION_AGENTS)
+        assertEquals(copy.str("apps"), Chats.Copy.SECTION_APPS)
         assertEquals(copy.str("needs_you"), Chats.Copy.SECTION_NEEDS_YOU)
         assertEquals(copy.str("working"), Chats.Copy.SECTION_WORKING)
         assertEquals(copy.str("unread"), Chats.Copy.SECTION_UNREAD)
         assertEquals(copy.str("chats"), Chats.Copy.SECTION_CHATS)
         assertEquals(fixture.getValue("shell").jsonObject.str("chatLead"), Chats.Shell.CHAT_LEAD)
+    }
+
+    @Test
+    fun `every app row case matches the fixture (EXP-1733)`() {
+        for (case in cases("appRowCases")) {
+            val input = case.getValue("input").jsonObject
+            val actual = Chats.appChatRows(
+                apps = input.list("apps").map { app ->
+                    Chats.AppChatInput(
+                        appId = app.str("appId")!!,
+                        slug = app.str("slug")!!,
+                        name = app.str("name")!!,
+                        icon = app.str("icon"),
+                        color = app.str("color"),
+                    )
+                },
+                sessions = input.list("sessions").map(::session),
+                messages = input.list("messages").map(::message),
+                reads = input.list("reads").map(::read),
+                me = input.str("me"),
+                view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") },
+                now = input.str("now")!!,
+                utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
+            )
+            val encoded = JsonArray(
+                actual.map { row ->
+                    buildJsonObject {
+                        put("appId", row.appId)
+                        put("slug", row.slug)
+                        put("sessionId", nullable(row.sessionId))
+                        put("name", row.name)
+                        put("icon", nullable(row.icon))
+                        put("color", nullable(row.color))
+                        put("preview", encode(row.preview))
+                        put("time", row.time)
+                        put("activityAt", nullable(row.activityAt))
+                        put("unreadCount", row.unreadCount)
+                        put("needsYou", row.needsYou)
+                        put("busy", row.busy)
+                    }
+                },
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
     }
 
     @Test
@@ -616,7 +662,8 @@ class ChatsTest {
         assertEquals(ids.str("searchButton"), Chats.TestIds.SEARCH_BUTTON)
         assertEquals(ids.str("chatArchived"), Chats.TestIds.CHAT_ARCHIVED)
         assertEquals(ids.str("selectionBar"), Chats.TestIds.SELECTION_BAR)
-        assertEquals(15, ids.size)
+        assertEquals(ids.str("appRow"), Chats.TestIds.APP_ROW)
+        assertEquals(16, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
 

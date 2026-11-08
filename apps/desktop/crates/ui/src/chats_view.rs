@@ -569,11 +569,40 @@ impl Render for ChatsView {
                     }))
                     .into_any_element()
             });
+            // #EXP-1733: the APP rows between the agents and the sessions
+            // (never selectable); none on the Archived page. A click opens
+            // the app's chat = its editor.
+            let app_rows: &[domain::chats::AppChatRow] = match view_kind {
+                ChatListView::Archived => &[],
+                ChatListView::List => &model.app_rows,
+            };
+            let apps_section = (!app_rows.is_empty()).then(|| {
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .child(crate::chat_list::chat_section_header(&CHATS.copy.sections.apps, cx))
+                    .children(app_rows.iter().map(|row| {
+                        let open_id = row.app_id.clone();
+                        crate::chat_list::chat_selectable(
+                            SharedString::from(format!("{}-{}", CHATS.test_ids.app_row, row.app_id)),
+                            &row.app_id,
+                            None,
+                            |_, _, _| {},
+                            crate::chat_list::app_chat_row(row, cx),
+                            cx,
+                        )
+                        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                            crate::navigation::navigate(window, cx, Screen::App { app: open_id.clone() });
+                        })
+                        .into_any_element()
+                    }))
+                    .into_any_element()
+            });
             let paint = |row: &ChatRow, cx: &mut gpui::Context<Self>| {
                 let selected = self.selected.contains(&row.session_id);
                 chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), cx)
             };
-            let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() {
+            let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() && apps_section.is_none() {
                 let (icon, copy): (Icon, SharedString) = match view_kind {
                     ChatListView::Archived => (Icon::new(registry::UI_ARCHIVE), CHATS.copy.archived.empty.clone().into()),
                     ChatListView::List => (Icon::new(registry::NAV_CHATS), crate::empty_state_copy::CHATS.into()),
@@ -611,6 +640,7 @@ impl Render for ChatsView {
                     .w_full()
                     .min_w_0()
                     .children(agents_section)
+                    .children(apps_section)
                     .children(none.then(|| {
                         crate::controls::empty_state(Icon::new(registry::NAV_CHATS), crate::empty_state_copy::CHATS, None, cx)
                     }))

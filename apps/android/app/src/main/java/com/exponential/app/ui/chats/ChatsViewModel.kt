@@ -50,7 +50,8 @@ import kotlinx.coroutines.launch
  * [SessionTree.partitionChats] runs over the ACTIVE team
  * ([TeamSelection.selectedId]); the phone list = [Chats.chatList] over its
  * groups, the Agents section = [Chats.agentChatRows] over
- * [SessionTree.listAgents], the Needs you entry and page = [NeedsYou.needsYou]. The menus' calls (Stop = `sessions.end` on the
+ * [SessionTree.listAgents], the Apps section (#EXP-1733) = [Chats.appChatRows]
+ * over the active team's apps, the Needs you entry and page = [NeedsYou.needsYou]. The menus' calls (Stop = `sessions.end` on the
  * root, Delete = `sessions.delete`, the agent's turn Stop = `sessions.stop`,
  * Compact / New conversation = the builtin lines through `sessions.send`)
  * live here too.
@@ -378,6 +379,37 @@ class ChatsViewModel @Inject constructor(
     ) { (rows, input), me, view, now ->
         Chats.agentChatRows(
             agents = rows,
+            sessions = input.sessions,
+            messages = input.messages,
+            reads = input.reads,
+            me = me,
+            view = view,
+            now = SessionTree.nowIso(now),
+            utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
+        )
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1733: the ACTIVE team's live apps (the dao hides trashed rows). */
+    private val teamApps: Flow<List<Chats.AppChatInput>> = activeTeam.flatMapLatest { team ->
+        if (team == null) {
+            flowOf(emptyList())
+        } else {
+            dbFlow.scopedQuery(emptyList()) { it.appDao().observeByTeam(team) }
+        }
+    }.map { rows ->
+        rows.map { Chats.AppChatInput(appId = it.id, slug = it.slug, name = it.name, icon = it.icon, color = it.color) }
+    }
+
+    /** #EXP-1733 (chats.json `appChatRows`): the APP rows between the Agents
+     *  and the sessions, by name; none on the Archived page. */
+    val appRows: StateFlow<List<Chats.AppChatRow>> = combine(
+        combine(teamApps, inputs) { a, i -> a to i },
+        auth.userId,
+        _view,
+        minuteClock,
+    ) { (apps, input), me, view, now ->
+        Chats.appChatRows(
+            apps = apps,
             sessions = input.sessions,
             messages = input.messages,
             reads = input.reads,

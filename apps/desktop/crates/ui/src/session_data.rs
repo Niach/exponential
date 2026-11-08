@@ -978,12 +978,14 @@ pub(crate) struct ChatsModel {
     pub(crate) archived: domain::chats::ChatList,
     /// S-3: the AGENT rows pinned on top.
     pub(crate) agent_rows: Vec<domain::chats::AgentChatRow>,
+    /// #EXP-1733: the APP rows between the agents and the sessions.
+    pub(crate) app_rows: Vec<domain::chats::AppChatRow>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
 struct ChatsKey {
     team_id: String,
-    revisions: [u64; 8],
+    revisions: [u64; 9],
     /// The time labels move with the local hour (today → Yesterday).
     hour: i64,
 }
@@ -1012,6 +1014,8 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
             collections.agents.read(cx).revision(),
             // #EXP-1714: the synced teams tell a global Assistant apart.
             collections.teams.read(cx).revision(),
+            // #EXP-1733: the app rows.
+            collections.apps.read(cx).revision(),
         ],
         hour: now_ms() / 3_600_000,
     };
@@ -1045,7 +1049,8 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         .chain(
             team_sessions
                 .iter()
-                .filter(|session| session.is_root() && session.agent_id.is_some())
+                // #EXP-1733: + my app sessions (the app rows).
+                .filter(|session| session.is_root() && (session.agent_id.is_some() || session.is_app_editor()))
                 .map(|session| session.id.as_str()),
         )
         .collect();
@@ -1108,7 +1113,23 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         now: &now,
         utc_offset_minutes: offset,
     });
-    ChatsModel { list, archived, agent_rows }
+    // #EXP-1733: the team's live apps (the sidebar's apps), my session each.
+    let app_store = collections.apps.read(cx);
+    let apps: Vec<&domain::rows::AppRow> = app_store
+        .iter()
+        .filter(|app| app.team_id.as_deref() == Some(team_id) && app.deleted_at.is_none())
+        .collect();
+    let app_rows = domain::chats::app_chat_rows(domain::chats::AppChatRowsInput {
+        apps: &apps,
+        sessions: &team_sessions,
+        messages: &messages,
+        reads: &reads,
+        me: me.as_deref(),
+        view: domain::chats::ChatListView::List,
+        now: &now,
+        utc_offset_minutes: offset,
+    });
+    ChatsModel { list, archived, agent_rows, app_rows }
 }
 
 /// EXP-1323: the Chats entry's unread dot — any chat of `team_id` has

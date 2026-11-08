@@ -196,13 +196,33 @@ object ChatListSpecimen {
             activityAt = "2026-10-23T09:30:00.000Z", unreadCount = 1, needsYou = true, busy = false,
         ),
     )
+
+    /** #EXP-1733: the APP rows = `appRowCases[0].expected` (by name: Budget
+     *  with no session, Triage board needs you, working hours busy). */
+    val APP_ROWS: List<Chats.AppChatRow> = listOf(
+        Chats.AppChatRow(
+            appId = "ap1", slug = "budget", sessionId = null, name = "Budget", icon = null, color = null,
+            preview = Chats.ChatPreview("empty", Chats.Copy.PREVIEW_EMPTY), time = "",
+            activityAt = null, unreadCount = 0, needsYou = false, busy = false,
+        ),
+        Chats.AppChatRow(
+            appId = "ap3", slug = "triage-board", sessionId = "e-ap3", name = "Triage board", icon = "bug", color = "#a855f7",
+            preview = Chats.ChatPreview("question", "Question: Which columns?"), time = "09:40",
+            activityAt = "2026-10-23T09:40:00.000Z", unreadCount = 1, needsYou = true, busy = false,
+        ),
+        Chats.AppChatRow(
+            appId = "ap2", slug = "working-hours", sessionId = "e-ap2", name = "working hours", icon = "clock", color = "#22c55e",
+            preview = Chats.ChatPreview("working", Chats.Copy.PREVIEW_WORKING), time = "09:30",
+            activityAt = "2026-10-23T09:30:00.000Z", unreadCount = 1, needsYou = false, busy = true,
+        ),
+    )
 }
 
 private val ROWS get() = ChatListSpecimen.LIST.rows
 private val LIST get() = ChatListSpecimen.LIST
 
 /** THE phone Chats screen over the bottom bar (shot `sg_chat-list`, #FEED-191:
- *  the Agents section, then the chats grouped; the Needs you entry is the
+ *  the Agents section, #EXP-1733 the Apps section, then the chats grouped; the Needs you entry is the
  *  `needs-you` specimen's, as on web and iOS). */
 @Composable
 fun ChatListSpecimenScreen() {
@@ -212,6 +232,7 @@ fun ChatListSpecimenScreen() {
                 ChatsContent(
                     list = LIST,
                     agentRows = ChatListSpecimen.AGENT_ROWS,
+                    appRows = ChatListSpecimen.APP_ROWS,
                     agentOf = { "claude" },
                     onOpenChat = {},
                     onLongPressChat = {},

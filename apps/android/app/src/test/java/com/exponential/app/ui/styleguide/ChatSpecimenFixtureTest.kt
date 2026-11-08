@@ -94,4 +94,28 @@ class ChatSpecimenFixtureTest {
         )
         assertEquals(expected, actual)
     }
+
+    @Test
+    fun `the app rows specimen is appRowCases 0 expected (EXP-1733)`() {
+        val expected = fixture.getValue("appRowCases").jsonArray[0].jsonObject.getValue("expected")
+        val actual = JsonArray(
+            ChatListSpecimen.APP_ROWS.map { row ->
+                buildJsonObject {
+                    put("appId", row.appId)
+                    put("slug", row.slug)
+                    put("sessionId", nullable(row.sessionId))
+                    put("name", row.name)
+                    put("icon", nullable(row.icon))
+                    put("color", nullable(row.color))
+                    put("preview", buildJsonObject { put("kind", row.preview.kind); put("text", row.preview.text) })
+                    put("time", row.time)
+                    put("activityAt", nullable(row.activityAt))
+                    put("unreadCount", row.unreadCount)
+                    put("needsYou", row.needsYou)
+                    put("busy", row.busy)
+                }
+            },
+        )
+        assertEquals(expected, actual)
+    }
 }

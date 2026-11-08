@@ -130,6 +130,9 @@ public enum Chats {
         /// (`agentChatRows`) exists.
         public enum Sections {
             public static let agents = "Agents"
+            /// #EXP-1733: the Apps section, between the Agents and the
+            /// sections (`appChatRows`).
+            public static let apps = "Apps"
             /// #FEED-191: the list's sections (`chatSections`).
             public static let needsYou = "Needs you"
             public static let working = "Working"
@@ -213,6 +216,8 @@ public enum Chats {
         public static let jumpToBottom = "jump-to-bottom"
         public static let chatArchived = "chat-archived"
         public static let selectionBar = "bulk-action-bar"
+        /// #EXP-1733: an app row of the Chats list.
+        public static let appRow = "chat-app-row"
     }
 
     /// Fixture `shell`.
@@ -547,6 +552,62 @@ public enum Chats {
             self.icon = icon
             self.color = color
             self.assistant = assistant
+            self.preview = preview
+            self.time = time
+            self.activityAt = activityAt
+            self.unreadCount = unreadCount
+            self.needsYou = needsYou
+            self.busy = busy
+        }
+    }
+
+    /// #EXP-1733: one live team app, `appChatRows`' input.
+    public struct ChatApp: Equatable, Sendable {
+        public let appId: String
+        public let slug: String
+        public let name: String
+        public let icon: String?
+        public let color: String?
+
+        public init(appId: String, slug: String, name: String, icon: String?, color: String?) {
+            self.appId = appId
+            self.slug = slug
+            self.name = name
+            self.icon = icon
+            self.color = color
+        }
+    }
+
+    /// #EXP-1733: an APP row of the Chats list (`appRowCases`), between the
+    /// Agents and the root sessions.
+    public struct AppChatRow: Equatable, Sendable, Identifiable {
+        public let appId: String
+        public let slug: String
+        /// The viewer's session with the app; nil = none yet.
+        public let sessionId: String?
+        public let name: String
+        public let icon: String?
+        public let color: String?
+        public let preview: ChatPreview
+        /// `chatTimeLabel` of `activityAt`; empty without a session.
+        public let time: String
+        public let activityAt: String?
+        public let unreadCount: Int
+        public let needsYou: Bool
+        public let busy: Bool
+
+        public var id: String { appId }
+
+        public init(
+            appId: String, slug: String, sessionId: String?, name: String, icon: String?, color: String?,
+            preview: ChatPreview, time: String, activityAt: String?, unreadCount: Int, needsYou: Bool, busy: Bool
+        ) {
+            self.appId = appId
+            self.slug = slug
+            self.sessionId = sessionId
+            self.name = name
+            self.icon = icon
+            self.color = color
             self.preview = preview
             self.time = time
             self.activityAt = activityAt
@@ -981,6 +1042,60 @@ public enum Chats {
                 unreadCount: id.map { unreadCount(rootId: $0, messages: messages, reads: reads) } ?? 0,
                 needsYou: agent.needsYou,
                 busy: agent.busy
+            )
+        }
+    }
+
+    /// #EXP-1733: the Chats list's APPS section (`appRowCases`): one row
+    /// per live team app in `Apps.sortApps` order, its preview / time /
+    /// unread from the viewer's session with the app (the root with `appId`
+    /// and `userId == me`); needs you / busy = that root's `needsInput` /
+    /// `busy`. Never selectable; none on the Archived page.
+    public static func appChatRows(
+        apps: [ChatApp],
+        sessions: [TreeSession],
+        messages: [TreeMessage],
+        reads: [TreeSessionRead] = [],
+        me: String?,
+        view: ChatListView = .list,
+        now: String,
+        utcOffsetMinutes: Int
+    ) -> [AppChatRow] {
+        if view == .archived { return [] }
+        return Apps.sortApps(apps, name: \.name).map { app -> AppChatRow in
+            let session = me.flatMap { me in
+                sessions.first { $0.parentId == nil && $0.appId == app.appId && $0.userId == me }
+            }
+            let id = session?.id
+            let needsYou = session?.needsInput ?? false
+            let busy = session?.busy ?? false
+            var newest: String?
+            if let id {
+                var newestMs = -1.0
+                for m in messages where m.sessionId == id && (m.authorKind == "user" || m.authorKind == "agent") {
+                    let at = ms(m.createdAt) ?? 0
+                    if at > newestMs {
+                        newestMs = at
+                        newest = m.createdAt
+                    }
+                }
+            }
+            let activityAt = newest ?? session?.createdAt
+            return AppChatRow(
+                appId: app.appId,
+                slug: app.slug,
+                sessionId: id,
+                name: app.name,
+                icon: app.icon,
+                color: app.color,
+                preview: id.map {
+                    chatPreview(rootId: $0, messages: messages, needsYou: needsYou, busy: busy)
+                } ?? ChatPreview(kind: .empty, text: Copy.Preview.empty),
+                time: activityAt.map { chatTimeLabel(at: $0, now: now, utcOffsetMinutes: utcOffsetMinutes) } ?? "",
+                activityAt: activityAt,
+                unreadCount: id.map { unreadCount(rootId: $0, messages: messages, reads: reads) } ?? 0,
+                needsYou: needsYou,
+                busy: busy
             )
         }
     }

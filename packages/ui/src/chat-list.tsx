@@ -14,6 +14,7 @@ import {
 import { CHAT_ROW_WORDS, CHATS_LIST_COPY } from "@exp/domain-contract/session-tree"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
+import { getActionIcon } from "./board-icons"
 import { ExponentialLogo } from "./exponential-logo"
 import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 import { cn } from "./cn"
@@ -499,6 +500,12 @@ export function AgentChatRowButton({
   )
 }
 
+/** An app's glyph (the web apps sidebar's `AppIcon`): its icon in its colour. */
+function AppChatGlyph({ icon, color }: { icon: string | null; color: string | null }) {
+  const Icon = getActionIcon({ icon })
+  return <Icon className="size-6 shrink-0" style={{ color: color ?? undefined }} />
+}
+
 /** #EXP-1733: the app rows' test id (chats.json `testIds.appRow`). */
 export const CHAT_APP_ROW_TEST_ID = CHATS_TEST_IDS.appRow
 
@@ -535,7 +542,7 @@ export function AppChatRowButton({
       <ChatLeadDisc
         lead={lead}
         agent={null}
-        avatar={<BoardGlyph board={{ icon: row.icon, color: row.color }} className="size-6" />}
+        avatar={<AppChatGlyph icon={row.icon} color={row.color} />}
       />
       <ChatRowText
         title={row.name}

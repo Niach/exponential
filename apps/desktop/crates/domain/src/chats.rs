@@ -21,7 +21,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::rows::{MessageRow, SessionReadRow, SessionRow};
+use crate::rows::{AppRow, MessageRow, SessionReadRow, SessionRow};
 use crate::session_tree::{
     iso_ms, chat_row_lead_pr, chat_row_mark_state, AgentRow, PrLead, SessionState, ChatRowWord, ChatsListGroup,
     ChatsListKey,
@@ -178,6 +178,8 @@ pub struct ChatsCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChatsSectionsCopy {
     pub agents: String,
+    /// #EXP-1733: the APPS section between the agents and the sessions.
+    pub apps: String,
     /// #FEED-191: the list's sections (`chat_sections`).
     pub needs_you: String,
     pub working: String,
@@ -205,6 +207,8 @@ pub struct ChatsTestIds {
     pub chat_archived: String,
     /// #EXP-1388: the selection bar (the issue bar's id).
     pub selection_bar: String,
+    /// #EXP-1733: an app row of the list.
+    pub app_row: String,
 }
 
 /// `transcript` (#EXP-1380 WINDOW + FOLLOW): a chat paints its newest
@@ -1070,6 +1074,106 @@ pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
         .collect()
 }
 
+/// #EXP-1733: an APP row of the Chats list (`appRowCases`), between the
+/// Agents and the root sessions: drawn like an agent row with the app's
+/// glyph in the disc; never selectable. A tap opens the app's chat (its
+/// editor).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppChatRow {
+    pub app_id: String,
+    pub slug: String,
+    /// The viewer's session with the app; None = none yet.
+    pub session_id: Option<String>,
+    pub name: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub preview: ChatPreview,
+    /// [`chat_time_label`] of `activity_at`; empty without a session.
+    pub time: String,
+    /// The newest person/agent message of the session, else its creation;
+    /// None without one.
+    pub activity_at: Option<String>,
+    pub unread_count: usize,
+    pub needs_you: bool,
+    pub busy: bool,
+}
+
+/// [`app_chat_rows`]' input.
+#[derive(Debug, Clone, Copy)]
+pub struct AppChatRowsInput<'a> {
+    /// The team's LIVE apps (any order: sorted here).
+    pub apps: &'a [&'a AppRow],
+    pub sessions: &'a [&'a SessionRow],
+    pub messages: &'a [&'a MessageRow],
+    pub reads: &'a [&'a SessionReadRow],
+    pub me: Option<&'a str>,
+    pub view: ChatListView,
+    pub now: &'a str,
+    pub utc_offset_minutes: i32,
+}
+
+/// #EXP-1733 (TS `appChatRows`): the Chats list's APPS section: one row per
+/// live team app in [`crate::apps::sort_apps`] order, its preview / time /
+/// unread from the viewer's session with the app (the root with `app_id`
+/// and `user_id == me`); needs you / busy = that root's `needs_input` /
+/// `busy`. None on the Archived page.
+pub fn app_chat_rows(input: AppChatRowsInput<'_>) -> Vec<AppChatRow> {
+    if input.view == ChatListView::Archived {
+        return Vec::new();
+    }
+    let mut apps: Vec<&AppRow> = input.apps.to_vec();
+    crate::apps::sort_apps(&mut apps);
+    apps.into_iter()
+        .map(|app| {
+            let session = input.me.and_then(|me| {
+                input.sessions.iter().copied().find(|session| {
+                    session.parent_id.as_deref().is_none_or(str::is_empty)
+                        && session.app_id.as_deref() == Some(app.id.as_str())
+                        && session.user_id.as_deref() == Some(me)
+                })
+            });
+            let id = session.map(|session| session.id.clone());
+            let needs_you = session.is_some_and(|session| session.needs_input);
+            let busy = session.is_some_and(|session| session.busy);
+            let newest = id.as_deref().and_then(|id| {
+                input
+                    .messages
+                    .iter()
+                    .filter(|m| m.session_id == id && (is_author(m, "user") || is_author(m, "agent")))
+                    .filter_map(|m| m.created_at.as_deref().map(|at| (ms(Some(at)).unwrap_or(0), at)))
+                    .fold(None::<(i64, &str)>, |best, (at_ms, at)| match best {
+                        Some((best_ms, _)) if best_ms >= at_ms => best,
+                        _ => Some((at_ms, at)),
+                    })
+                    .map(|(_, at)| at.to_string())
+            });
+            let activity_at = newest.or_else(|| session.and_then(|session| session.created_at.clone()));
+            let preview = match id.as_deref() {
+                Some(id) => chat_preview(id, input.messages, needs_you, busy, None),
+                None => ChatPreview { kind: ChatPreviewKind::Empty, text: CHATS.copy.preview.empty.clone() },
+            };
+            AppChatRow {
+                app_id: app.id.clone(),
+                slug: app.slug.clone(),
+                session_id: id.clone(),
+                name: app.name.clone(),
+                icon: app.icon.clone(),
+                color: app.color.clone(),
+                preview,
+                time: activity_at
+                    .as_deref()
+                    .map(|at| chat_time_label(at, input.now, input.utc_offset_minutes))
+                    .unwrap_or_default(),
+                activity_at,
+                unread_count: id.as_deref().map_or(0, |id| unread_count(id, input.messages, input.reads)),
+                needs_you,
+                busy,
+            }
+        })
+        .collect()
+}
+
 /// The roots the viewer archived (a read with `archived_at`).
 fn archived_ids<'a>(reads: &[&'a SessionReadRow]) -> std::collections::HashSet<&'a str> {
     reads
@@ -1896,6 +2000,52 @@ mod tests {
         }
         assert_eq!(CHATS.copy.sections.agents, "Agents");
         assert_eq!(CHATS.shell.chat_lead, "action-chat");
+    }
+
+    /// #EXP-1733: `appRowCases` (TS `appChatRows`), whole rows.
+    #[test]
+    fn app_row_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["appRowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            // A fixture app is keyed `appId`: the `apps` row's `id`.
+            let apps: Vec<AppRow> = input["apps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|app| {
+                    let mut app = app.clone();
+                    let id = app["appId"].clone();
+                    app.as_object_mut().unwrap().insert("id".to_string(), id);
+                    row(&app, "app")
+                })
+                .collect();
+            let app_refs: Vec<&AppRow> = apps.iter().collect();
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let session_refs: Vec<&SessionRow> = sessions.iter().collect();
+            let all = messages(&input["messages"]);
+            let refs: Vec<&MessageRow> = all.iter().collect();
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
+            let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
+            let got = app_chat_rows(AppChatRowsInput {
+                apps: &app_refs,
+                sessions: &session_refs,
+                messages: &refs,
+                reads: &read_refs,
+                me: input["me"].as_str(),
+                view: match input["view"].as_str() {
+                    Some("archived") => ChatListView::Archived,
+                    _ => ChatListView::List,
+                },
+                now: input["now"].as_str().unwrap(),
+                utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
+            });
+            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+        assert_eq!(CHATS.copy.sections.apps, "Apps");
+        assert_eq!(CHATS.test_ids.app_row, "chat-app-row");
     }
 
 }

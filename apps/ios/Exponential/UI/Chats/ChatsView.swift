@@ -6,7 +6,8 @@ import SwiftUI
 /// Session 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
 /// page header (#EXP-1384 `shell.header`: the large title "Chats", the
 /// native search and INBOX circles), then #FEED-191 the Needs you entry
-/// (needs-you.json, none = no row), the Agents section and the ACTIVE team's
+/// (needs-you.json, none = no row), the Agents section, (#EXP-1733) the Apps
+/// section and the ACTIVE team's
 /// chats grouped (`Chats.chatSections` over `Chats.chatList`: Needs you ·
 /// Working · Unread · Chats, no bands, no nesting, each newest activity first).
 /// A row opens the chat; an agent row's hold its agent menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
@@ -165,6 +166,21 @@ struct ChatsView: View {
         )
     }
 
+    /// #EXP-1733: the APPS section between the Agents and the sections
+    /// (`appChatRows`): the active team's live apps; none on Archived.
+    private var appRows: [Chats.AppChatRow] {
+        Chats.appChatRows(
+            apps: teamState.activeTeamId.flatMap { lists.appsByTeam[$0] } ?? [],
+            sessions: lists.sessions,
+            messages: lists.chatMessages,
+            reads: lists.reads,
+            me: deps.auth.userId,
+            view: view,
+            now: Self.iso.string(from: now),
+            utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
+        )
+    }
+
     /// #FEED-191: the displayed order: the sections', or the Archived page's flat
     /// rows. Selection reads it too.
     private func displayed(_ list: Chats.ChatList) -> [Chats.ChatRow] {
@@ -175,6 +191,7 @@ struct ChatsView: View {
     private var content: some View {
         let list = list
         let agentRows = agentRows
+        let appRows = appRows
         let archivedEntry = view == .list && list.archived > 0
         let needsYouCount = view == .list
             ? lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now).count
@@ -195,7 +212,13 @@ struct ChatsView: View {
                         agentChatRow(row)
                     }
                 }
-                if list.rows.isEmpty, agentRows.isEmpty, !archivedEntry {
+                if !appRows.isEmpty {
+                    ChatSectionHeader(Chats.Copy.Sections.apps)
+                    ForEach(appRows) { row in
+                        appChatRow(row)
+                    }
+                }
+                if list.rows.isEmpty, agentRows.isEmpty, appRows.isEmpty, !archivedEntry {
                     Group {
                         if view == .archived {
                             EmptyState(title: Chats.Copy.Archived.empty, icon: AppIcons.uiArchive)
@@ -278,6 +301,29 @@ struct ChatsView: View {
             openAgentMenu(row.agentId)
         })
         .accessibilityIdentifier(Chats.TestIds.chatRow)
+    }
+
+    /// #EXP-1733: an app row = the agent row's look with the app's glyph in
+    /// the disc, the viewer's session with the app for preview / time /
+    /// unread; never selectable, no menu. A tap opens the app's chat (its
+    /// editor, the Apps menu's Edit).
+    private func appChatRow(_ row: Chats.AppChatRow) -> some View {
+        ChatRowView(
+            title: row.name,
+            time: row.time,
+            preview: row.preview.text,
+            previewLabel: previewLabel(row.preview.kind),
+            previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
+            needsYou: row.needsYou,
+            unreadCount: row.unreadCount
+        ) {
+            AgentChatLead(app: row)
+        }
+        .glassLongPress(enabled: false, onTap: {
+            guard !selectionActive else { return }
+            pushRoute(.app(accountId: accountId, appId: row.appId))
+        }, onHold: {})
+        .accessibilityIdentifier(Chats.TestIds.appRow)
     }
 
     private func chatRow(_ row: Chats.ChatRow) -> some View {
@@ -483,26 +529,39 @@ struct ChatLeadMark: View {
 /// S-3: an agent row's lead = the agent's AVATAR (the Assistant = the
 /// Exponential brand mark in the foreground colour, never its stored
 /// icon/colour; an agent = its icon in its colour), the amber badge while
-/// it needs the viewer.
+/// it needs the viewer. #EXP-1733: an app row's lead = the app's board
+/// glyph in its colour (the Apps list's `AppListEntry.glyph` fallback and
+/// `AppGlyph.neutralColor` when unset), the same badge.
 struct AgentChatLead: View {
-    let row: Chats.AgentChatRow
+    private let icon: String
+    private let color: Color
+    private let assistant: Bool
+    private let needsYou: Bool
+
+    init(row: Chats.AgentChatRow) {
+        icon = BoardTypeDisplay.iconName(for: row.icon) ?? SessionTree.ListCopy.agentDefaultIcon
+        color = Color(hex: row.color) ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
+        assistant = row.assistant
+        needsYou = row.needsYou
+    }
+
+    init(app row: Chats.AppChatRow) {
+        icon = BoardTypeDisplay.iconName(for: row.icon) ?? "puzzle"
+        color = Color(hex: row.color ?? AppGlyph.neutralColor) ?? .white
+        assistant = false
+        needsYou = row.needsYou
+    }
 
     var body: some View {
         Group {
-            if row.assistant {
+            if assistant {
                 ExpLogoMark(size: 26, color: .white)
             } else {
-                AppIcon(
-                    BoardTypeDisplay.iconName(for: row.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-                    size: 26,
-                    weight: .medium
-                )
-                .foregroundStyle(
-                    Color(hex: row.color) ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
-                )
+                AppIcon(icon, size: 26, weight: .medium)
+                    .foregroundStyle(color)
             }
         }
-        .needsYouBadge(row.needsYou)
+        .needsYouBadge(needsYou)
     }
 }
 

@@ -433,6 +433,58 @@ pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Opti
 /// you = the amber badge on it, busy reads only in the preview.
 pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div {
     let lead_glyph = agent_avatar_glyph(&row.icon, &row.color, row.assistant, false, GLYPH_PX, cx);
+    pinned_chat_row(
+        row.session_id.clone().unwrap_or_else(|| row.agent_id.clone()),
+        row.name.clone(),
+        lead_glyph,
+        &row.preview,
+        row.activity_at.as_deref(),
+        &row.time,
+        row.unread_count,
+        row.needs_you,
+        row.busy,
+        cx,
+    )
+}
+
+/// #EXP-1733 — one APP row of the Chats list (chats.json `appChatRows`,
+/// web `AppChatRowButton`): the agent row's look with the app's glyph in
+/// the disc (its icon + colour, the board glyph's fallback when unset), the
+/// viewer's session with the app for preview / time / unread.
+pub(crate) fn app_chat_row(row: &domain::chats::AppChatRow, cx: &App) -> Div {
+    let lead_glyph = crate::icons::app_icon(row.icon.as_deref(), row.color.as_deref())
+        .with_size(px(GLYPH_PX))
+        .into_any_element();
+    pinned_chat_row(
+        row.session_id.clone().unwrap_or_else(|| row.app_id.clone()),
+        row.name.clone(),
+        lead_glyph,
+        &row.preview,
+        row.activity_at.as_deref(),
+        &row.time,
+        row.unread_count,
+        row.needs_you,
+        row.busy,
+        cx,
+    )
+}
+
+/// The agent and app rows' shared body: THE chat row with `lead_glyph`
+/// ALWAYS in the lead disc (never the working mark or a PR glyph); needs
+/// you = the amber badge on it, busy reads only in the preview.
+#[allow(clippy::too_many_arguments)]
+fn pinned_chat_row(
+    session_id: String,
+    title: String,
+    lead_glyph: AnyElement,
+    preview: &domain::chats::ChatPreview,
+    activity_at: Option<&str>,
+    time: &str,
+    unread_count: usize,
+    needs_you: bool,
+    busy: bool,
+    cx: &App,
+) -> Div {
     let lead = div()
         .relative()
         .size(px(CHATS.shell.lead_disc))
@@ -443,7 +495,7 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
         .items_center()
         .justify_center()
         .child(lead_glyph)
-        .when(row.needs_you, |disc| {
+        .when(needs_you, |disc| {
             disc.child(
                 div()
                     .absolute()
@@ -458,24 +510,24 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
         })
         .into_any_element();
     let as_chat = ChatRow {
-        session_id: row.session_id.clone().unwrap_or_else(|| row.agent_id.clone()),
+        session_id,
         team_id: String::new(),
-        title: row.name.clone(),
+        title,
         device_id: None,
-        group: if row.needs_you {
+        group: if needs_you {
             domain::session_tree::ChatsListKey::NeedsYou
-        } else if row.busy {
+        } else if busy {
             domain::session_tree::ChatsListKey::Running
         } else {
             domain::session_tree::ChatsListKey::Recent
         },
         lead: ChatLead::Waiting,
-        preview: row.preview.clone(),
-        activity_at: row.activity_at.clone().unwrap_or_default(),
-        time: row.time.clone(),
-        unread_count: row.unread_count,
-        needs_you: row.needs_you,
-        busy: row.busy,
+        preview: preview.clone(),
+        activity_at: activity_at.unwrap_or_default().to_string(),
+        time: time.to_string(),
+        unread_count,
+        needs_you,
+        busy,
         word: None,
         dim: false,
     };

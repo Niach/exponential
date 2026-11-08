@@ -8,7 +8,8 @@ import SwiftUI
 // values. Capture only: `-uiTestingStyleguide <id>` (`ChatCardsScreen`).
 
 /// `chat-list`: THE phone Chats screen over the bottom bar — the large
-/// "Chats" headline with the search + inbox circles, the Agents section, then
+/// "Chats" headline with the search + inbox circles, the Agents and (#EXP-1733)
+/// Apps sections, then
 /// the rows under their section headers (#FEED-191; the web entry's and
 /// Android's `ChatListSpecimenScreen` composition and data: the draft's list).
 struct ChatListSpecimens: View {
@@ -59,6 +60,26 @@ struct ChatListSpecimens: View {
             agentId: "ag2", sessionId: "c-ag2", name: "Designer", icon: "bot", color: "#6366f1",
             assistant: false, preview: Chats.ChatPreview(kind: .question, text: "Question: Which palette?"),
             time: "09:30", activityAt: "2026-10-23T09:30:00.000Z", unreadCount: 1, needsYou: true, busy: false
+        ),
+    ]
+
+    /// #EXP-1733 chats.json `appRowCases[0].expected`: the Apps section,
+    /// by name (Budget has no session yet).
+    private static let appRows = [
+        Chats.AppChatRow(
+            appId: "ap1", slug: "budget", sessionId: nil, name: "Budget", icon: nil, color: nil,
+            preview: Chats.ChatPreview(kind: .empty, text: Chats.Copy.Preview.empty),
+            time: "", activityAt: nil, unreadCount: 0, needsYou: false, busy: false
+        ),
+        Chats.AppChatRow(
+            appId: "ap3", slug: "triage-board", sessionId: "e-ap3", name: "Triage board", icon: "bug",
+            color: "#a855f7", preview: Chats.ChatPreview(kind: .question, text: "Question: Which columns?"),
+            time: "09:40", activityAt: "2026-10-23T09:40:00.000Z", unreadCount: 1, needsYou: true, busy: false
+        ),
+        Chats.AppChatRow(
+            appId: "ap2", slug: "working-hours", sessionId: "e-ap2", name: "working hours", icon: "clock",
+            color: "#22c55e", preview: Chats.ChatPreview(kind: .working, text: Chats.Copy.Preview.working),
+            time: "09:30", activityAt: "2026-10-23T09:30:00.000Z", unreadCount: 1, needsYou: false, busy: true
         ),
     ]
 
@@ -120,6 +141,18 @@ struct ChatListSpecimens: View {
                                 needsYou: row.needsYou,
                                 unreadCount: row.unreadCount
                             ) { AgentChatLead(row: row) }
+                        }
+                        ChatSectionHeader(Chats.Copy.Sections.apps)
+                        ForEach(Self.appRows) { row in
+                            ChatRowView(
+                                title: row.name,
+                                time: row.time,
+                                preview: row.preview.text,
+                                previewLabel: row.preview.kind == .question ? "Question:" : nil,
+                                previewItalic: row.preview.kind == .working,
+                                needsYou: row.needsYou,
+                                unreadCount: row.unreadCount
+                            ) { AgentChatLead(app: row) }
                         }
                         ForEach(Self.sections, id: \.key) { section in
                             ChatSectionHeader(Chats.Copy.Sections.title(section.key))
