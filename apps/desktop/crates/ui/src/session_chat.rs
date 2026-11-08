@@ -612,31 +612,6 @@ fn event_row(
     }
 }
 
-/// A `Report from` line: THE xref link when it opens, plain otherwise.
-fn report_row(
-    id: &str,
-    session_id: &str,
-    xref: &domain::session_tree::SessionXref,
-    root_id: &str,
-    rows: &[SessionChatRow],
-    cx: &App,
-) -> AnyElement {
-    let action = session_row_action("report", Some(session_id), root_id, rows, cx);
-    match action.session_id {
-        Some(target) if action.chevron => {
-            let mark = crate::session_xref::xref_mark(xref.agent_id.as_deref(), cx);
-            crate::session_xref::session_xref_with(
-                crate::session_xref::xref_id(id),
-                xref,
-                mark,
-                move |window, cx| open_session_card(&target, window, cx),
-                cx,
-            )
-        }
-        _ => crate::session_xref::session_xref_plain(id, xref, cx),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // THE Menu: the strip's "+" and an issue chip's context menu
 // ---------------------------------------------------------------------------
@@ -984,16 +959,6 @@ pub(crate) fn clock(at: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-/// The caption under a person's bubble: `author · HH:MM`, a missing part
-/// dropped with its separator.
-pub(crate) fn bubble_caption(author: Option<&str>, time: &str) -> String {
-    [author.map(str::trim).unwrap_or(""), time.trim()]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ")
-}
-
 /// The display name of a message author: a member's label, else `Someone`.
 pub(crate) fn member_name(user_id: Option<&str>, cx: &App) -> String {
     let Some(user_id) = user_id else {
@@ -1164,99 +1129,106 @@ pub(crate) fn unqueue_button(
         .into_any_element()
 }
 
-/// A person's message: the right-aligned bubble with its caption under it;
-/// a queued one reads `Queued`, and its AUTHOR (`own`) may take it back.
-pub(crate) fn user_bubble(
-    id: &str,
-    body: MarkdownView,
-    caption: String,
-    queued: bool,
-    own: bool,
-    cx: &App,
-) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let unqueue_id = id.to_string();
-    let unqueue = unqueue_offered(queued, own).then(|| {
-        unqueue_button("chat-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
-    });
-    let caption_row = h_flex()
-        .gap_1()
-        .items_center()
-        .text_2xs()
-        .text_color(muted)
-        .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
-        .when(queued, |row| row.child(SharedString::from(format!("· {QUEUED_WORD}"))))
-        .children(unqueue);
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .items_end()
-        .gap_1()
-        .pl_16()
-        .child(
-            body_text(div())
-                .min_w_0()
-                .max_w(px(560.))
-                .rounded(px(12.))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-                .px_3()
-                .py_2()
-                .when(queued, |bubble| bubble.opacity(0.7))
-                .child(body),
-        )
-        .child(caption_row)
-        .into_any_element()
+// ---------------------------------------------------------------------------
+// #EXP-1736 (transcript-grouping.json): ONE transcript, THE message bubble
+// ---------------------------------------------------------------------------
+
+/// The fixture's layout (avatar, gaps, the width cap, the radius).
+pub(crate) fn transcript_sizes() -> &'static domain::transcript_grouping::TranscriptLayout {
+    domain::transcript_grouping::layout()
 }
 
-/// S-3 CHAT MODE (chats.json, session-chat.json `chatModeCases`): an
-/// agent conversation's person message = THE user bubble, right-aligned, at
-/// most 80% of the column; `queued` / `own` as [`user_bubble`].
-pub(crate) fn chat_user_bubble(
-    id: &str,
-    body: MarkdownView,
-    caption: String,
-    queued: bool,
-    own: bool,
-    cx: &App,
-) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let unqueue_id = id.to_string();
-    let unqueue = unqueue_offered(queued, own).then(|| {
-        unqueue_button("chat-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
-    });
+/// THE message bubble's facts (web `MessageBubble`, iOS / Android
+/// `MessageBubble`): the glass card, 16 px radius, its `HH:mm`
+/// bottom-right inside; the viewer's own sits right, anyone else's left
+/// (under [`sender_row`]'s avatar) with its sender's name over a group's
+/// first bubble.
+pub(crate) struct MessageBubble {
+    /// The bubble's element id (its press, when it links).
+    pub id: SharedString,
+    pub body: AnyElement,
+    /// `HH:MM`, empty = none.
+    pub time: String,
+    /// The viewer's own (right, no name).
+    pub own: bool,
+    /// The sender's name line (the `author` line; `name ›` when it links).
+    pub name: Option<String>,
+    /// A cross-session sender: a press anywhere on the bubble opens it.
+    pub link: Option<String>,
+    /// A person's row the device has not consumed yet.
+    pub queued: bool,
+    /// The author's `Remove from queue` X while queued.
+    pub unqueue: Option<AnyElement>,
+    /// A definite width (the raw session view's measured prompt), else
+    /// content-sized up to `layout.maxWidth.wide` of the column.
+    pub width: Option<gpui::Pixels>,
+}
+
+/// THE bubble ([`MessageBubble`]).
+pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    let sizes = transcript_sizes();
+    let MessageBubble { id, body, time, own, name, link, queued, unqueue, width } = bubble;
+    let tip = name.clone().unwrap_or_default();
+    let card = body_text(div())
+        .id(id)
+        .min_w_0()
+        .rounded(px(sizes.radius))
+        .border_1()
+        .px_3()
+        .pt_2()
+        .pb_1()
+        .map(|card| match width {
+            Some(width) => card.w(width),
+            None => card.max_w(gpui::relative(sizes.max_width.wide)),
+        })
+        .map(|card| {
+            if own {
+                card.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
+                    .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+            } else {
+                card.border_color(theme::tokens::glass::STROKE_CARD.to_hsla()).bg(crate::dock::card_fill())
+            }
+        })
+        .when(queued, |card| card.opacity(0.7))
+        .child(div().min_w_0().child(body))
+        .when(!time.is_empty(), |card| {
+            card.child(
+                h_flex()
+                    .w_full()
+                    .justify_end()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(time)),
+            )
+        })
+        .when_some(link, |card, session_id| {
+            let tip = SharedString::from(tip);
+            card.cursor_pointer()
+                .hover(|style| style.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
+                .active(|style| style.opacity(0.85))
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                .on_click(move |_, window, cx| crate::session_xref::open_xref(&session_id, window, cx))
+        });
     v_flex()
         .w_full()
         .min_w_0()
-        .items_end()
         .gap_1()
-        .child(
-            body_text(div())
-                .min_w_0()
-                .max_w(gpui::relative(0.8))
-                .rounded(px(12.))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-                .px_3()
-                .pt_2()
-                .pb_1()
-                .when(queued, |bubble| bubble.opacity(0.7))
-                .child(body)
-                // #EXP-1553: the time INSIDE, bottom-right (web
-                // `UserMessageBubble`, the phones, the agent bubble).
-                .when(!caption.is_empty(), |bubble| {
-                    bubble.child(
-                        h_flex()
-                            .w_full()
-                            .justify_end()
-                            .text_2xs()
-                            .text_color(muted)
-                            .child(SharedString::from(caption)),
-                    )
-                }),
-        )
+        .map(|column| if own { column.items_end() } else { column.items_start() })
+        .when_some(name.filter(|name| !name.is_empty() && !own), |column, name| {
+            column.child(
+                div()
+                    .max_w_full()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(sizes.name_size))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(muted)
+                    .child(SharedString::from(name)),
+            )
+        })
+        .child(card)
         .when(queued || unqueue.is_some(), |column| {
             column.child(
                 h_flex()
@@ -1271,49 +1243,234 @@ pub(crate) fn chat_user_bubble(
         .into_any_element()
 }
 
-/// S-3 CHAT MODE: the agent's message = a LEFT bubble on THE card surface
-/// (`surface::glass_card`'s fill + hairline, N-12 ONE gray), at most 94%
-/// of the column, its top-left corner 6px, the time at its bottom right.
-pub(crate) fn chat_agent_bubble(body: MarkdownView, time: String, cx: &App) -> AnyElement {
+/// The muted SESSION avatar (a sender with no agent): the session glyph on
+/// the muted disc, [`crate::user_avatar::agent_avatar`]'s geometry.
+pub(crate) fn session_avatar(size: f32, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    let radius = px(12.);
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .justify_start()
+    div()
+        .flex_shrink_0()
+        .size(px(size))
+        .rounded_full()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme.secondary)
         .child(
-            v_flex()
-                .min_w_0()
-                .max_w(gpui::relative(0.94))
-                .rounded_tl(px(6.))
-                .rounded_tr(radius)
-                .rounded_bl(radius)
-                .rounded_br(radius)
-                .bg(crate::dock::card_fill())
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .px_3()
-                .pt_2()
-                .pb_1()
-                .child(body_text(div()).min_w_0().child(body))
-                .when(!time.is_empty(), |bubble| {
-                    bubble.child(
-                        h_flex()
-                            .w_full()
-                            .justify_end()
-                            .text_2xs()
-                            .text_color(theme.muted_foreground)
-                            .child(SharedString::from(time)),
-                    )
-                }),
+            Icon::new(registry::CODING_ASSISTANT)
+                .with_size(px((size / 2. + 2.).round()))
+                .text_color(theme.muted_foreground),
         )
         .into_any_element()
 }
 
-/// The agent's prose: plain markdown, no mark (web `chat-transcript.tsx` /
-/// the chat's agent text).
-pub(crate) fn agent_prose(body: MarkdownView, _cx: &App) -> AnyElement {
-    body_text(div()).w_full().min_w_0().child(body).into_any_element()
+/// THE sender's avatar at `layout.avatar`: a member's (picture, else the
+/// initials in the member's hue), an agent's own, else the session's.
+pub(crate) fn sender_avatar(sender: &domain::transcript_grouping::TranscriptSender, cx: &mut App) -> AnyElement {
+    use domain::transcript_grouping::SenderKind;
+    let side = transcript_sizes().avatar;
+    let size = gpui_component::Size::Size(px(side));
+    match sender.kind {
+        SenderKind::Member => {
+            let image = Store::try_global(cx)
+                .and_then(|store| store.collections().users.read(cx).get(&sender.id).cloned())
+                .and_then(|user| user.image);
+            crate::user_avatar::user_avatar(&sender.id, &sender.name, image.as_deref(), size, cx)
+        }
+        SenderKind::Agent => {
+            let def = crate::session_data::agent_def(&sender.id, cx);
+            crate::user_avatar::agent_avatar(
+                def.as_ref().and_then(|def| def.icon.as_deref()),
+                def.as_ref().and_then(|def| def.color.as_deref()),
+                size,
+                cx,
+            )
+        }
+        SenderKind::Session => session_avatar(side, cx),
+    }
+}
+
+/// One transcript row under its [`TranscriptRowLayout`]: anyone else's
+/// row (a bubble, the agent's trace) sits in the bubble column right of
+/// the sender's avatar (a group's first row; a spacer of its width on the
+/// later ones, `layout.avatarGap` between); the viewer's own and every card
+/// are the content alone.
+///
+/// [`TranscriptRowLayout`]: domain::transcript_grouping::TranscriptRowLayout
+pub(crate) fn sender_row(
+    layout: Option<&domain::transcript_grouping::TranscriptRowLayout>,
+    content: AnyElement,
+    cx: &mut App,
+) -> AnyElement {
+    let Some(layout) = layout.filter(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Other) else {
+        return content;
+    };
+    let sizes = transcript_sizes();
+    let avatar = match layout.sender.as_ref() {
+        Some(sender) if layout.avatar => Some(sender_avatar(sender, cx)),
+        _ => None,
+    };
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap(px(sizes.avatar_gap))
+        .child(div().flex_shrink_0().w(px(sizes.avatar)).children(avatar))
+        .child(v_flex().flex_1().min_w_0().child(content))
+        .into_any_element()
+}
+
+/// A conversation row as the grouping reads it: a card-less message, a
+/// child's report (a message from its session), a subagent line (the
+/// agent's trace), every other card full.
+pub(crate) fn transcript_item(row: &SessionChatRow) -> domain::transcript_grouping::TranscriptItem {
+    use domain::transcript_grouping::TranscriptItem;
+    match row {
+        SessionChatRow::Message { id, author, author_id, author_session_id, .. } => {
+            TranscriptItem::message(id.as_str(), author, author_id.as_deref(), author_session_id.as_deref())
+        }
+        SessionChatRow::Report { id, session_id, .. } => TranscriptItem::message(
+            id.as_str(),
+            domain::contract::MESSAGE_AUTHOR_KIND_AGENT,
+            None,
+            Some(session_id.as_str()),
+        ),
+        SessionChatRow::Subagent { id, .. } => TranscriptItem::trace(id.as_str()),
+        other => TranscriptItem::full(other.id()),
+    }
+}
+
+/// #EXP-1736: a row layout's identity for the list's measure (its avatar,
+/// name and gap move the row's height).
+pub(crate) fn layout_fingerprint(layout: &domain::transcript_grouping::TranscriptRowLayout) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::hash::DefaultHasher::new();
+    layout.side.hash(&mut hasher);
+    layout.sender.hash(&mut hasher);
+    layout.avatar.hash(&mut hasher);
+    layout.name.hash(&mut hasher);
+    layout.gap.to_bits().hash(&mut hasher);
+    hasher.finish()
+}
+
+/// A [`domain::session_tree::SessionXref`] as a session the transcript knows.
+pub(crate) fn xref_session(xref: &domain::session_tree::SessionXref) -> domain::transcript_grouping::TranscriptSession {
+    domain::transcript_grouping::TranscriptSession {
+        id: xref.session_id.clone(),
+        title: xref.name.clone(),
+        agent_id: xref.agent_id.clone(),
+    }
+}
+
+/// #EXP-1736: the grouping input of a conversation's `rows`: the viewer,
+/// the chat (its session, title, agent, the S-3 `origin` that started it),
+/// the members and agents it names off the synced rows, the sessions its
+/// links know (every row's xref + the origin).
+pub(crate) fn conversation_input<'a>(
+    rows: impl IntoIterator<Item = &'a SessionChatRow>,
+    session_id: &str,
+    title: &str,
+    agent_id: Option<&str>,
+    origin: Option<&domain::session_tree::SessionXref>,
+    cx: &App,
+) -> domain::transcript_grouping::TranscriptInput {
+    use domain::transcript_grouping::{TranscriptAgent, TranscriptChat, TranscriptInput, TranscriptMember};
+    let store = Store::try_global(cx);
+    let mut input = TranscriptInput {
+        viewer_id: crate::queries::active_account(cx).map(|me| me.user_id),
+        chat: TranscriptChat {
+            session_id: session_id.to_string(),
+            title: title.to_string(),
+            agent_id: agent_id.filter(|id| !id.is_empty()).map(str::to_string),
+            origin_session_id: origin.map(|origin| origin.session_id.clone()),
+        },
+        ..TranscriptInput::default()
+    };
+    if let Some(agent) = input.chat.agent_id.as_deref() {
+        if let Some(name) = crate::session_data::agent_def(agent, cx).and_then(|def| def.name).filter(|name| !name.trim().is_empty()) {
+            input.agents.push(TranscriptAgent { id: agent.to_string(), name });
+        }
+    }
+    let mut seen: HashSet<String> = HashSet::new();
+    if let Some(origin) = origin {
+        seen.insert(origin.session_id.clone());
+        input.sessions.push(xref_session(origin));
+    }
+    let mut members: HashSet<String> = HashSet::new();
+    for row in rows {
+        let xref = match row {
+            SessionChatRow::Message { author_id, xref, .. } => {
+                if let Some(user_id) = author_id.as_deref().filter(|id| members.insert(id.to_string())) {
+                    let user = store.and_then(|store| store.collections().users.read(cx).get(user_id).cloned());
+                    if let Some(user) = user {
+                        input.members.push(TranscriptMember {
+                            id: user_id.to_string(),
+                            name: crate::comments::author_label(Some(&user)),
+                        });
+                    }
+                }
+                xref.as_ref()
+            }
+            SessionChatRow::Report { xref, .. } => Some(xref),
+            _ => None,
+        };
+        if let Some(xref) = xref.filter(|xref| seen.insert(xref.session_id.clone())) {
+            input.sessions.push(xref_session(xref));
+        }
+    }
+    input
+}
+
+/// A card-less message row (or a child's report) as THE bubble under its
+/// layout (`key` prefixes the element ids, `at` its createdAt); a system
+/// line = the muted line; `None` for every card ([`card_row`]).
+pub(crate) fn transcript_message(
+    row: &SessionChatRow,
+    layout: Option<&domain::transcript_grouping::TranscriptRowLayout>,
+    key: &str,
+    at: Option<&str>,
+    text: &ChatText,
+    images: &Entity<ImageCache>,
+    cx: &App,
+) -> Option<AnyElement> {
+    use domain::transcript_grouping::TranscriptSide;
+    let (id, body, queued) = match row {
+        SessionChatRow::Message { author, body, .. } if author == domain::contract::MESSAGE_AUTHOR_KIND_SYSTEM => {
+            return Some(muted_line(registry::UI_INFO, body.clone(), cx));
+        }
+        SessionChatRow::Message { id, body, queued, .. } => (id, body.as_str(), *queued),
+        // A child's end report = its session's bubble: the summary (else
+        // the line itself).
+        SessionChatRow::Report { id, text, summary, .. } => {
+            (id, if summary.trim().is_empty() { text.as_str() } else { summary.as_str() }, false)
+        }
+        _ => return None,
+    };
+    let own = layout.map_or(false, |layout| layout.side == TranscriptSide::Own);
+    let sender = layout.and_then(|layout| layout.sender.as_ref());
+    let name = layout
+        .filter(|layout| layout.name)
+        .and_then(|layout| layout.sender.as_ref())
+        .map(|sender| sender.display_name());
+    let markdown = message_markdown(SharedString::from(format!("{key}-{id}")), body, text, images);
+    let unqueue_id = id.clone();
+    let unqueue = unqueue_offered(queued, own).then(|| {
+        unqueue_button("chat-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
+    });
+    Some(message_bubble(
+        MessageBubble {
+            id: SharedString::from(format!("{key}-bubble-{id}")),
+            body: markdown.into_any_element(),
+            time: clock(at),
+            own,
+            name,
+            link: sender.and_then(|sender| sender.link.clone()),
+            queued,
+            unqueue,
+            width: None,
+        },
+        cx,
+    ))
 }
 
 /// A muted one-liner (an event, a system message, a subagent).
@@ -1809,7 +1966,8 @@ pub(crate) fn picture_row(
 }
 
 /// One conversation row of a root (a chat, an agent channel): every card
-/// kind but the plain messages, which each screen paints its own way.
+/// kind but the plain messages and the reports, which are THE bubble
+/// ([`transcript_message`]).
 pub(crate) fn card_row(
     row: &SessionChatRow,
     root_id: &str,
@@ -1842,9 +2000,9 @@ pub(crate) fn card_row(
         SessionChatRow::Event { id, text, session_id, .. } => {
             event_row(id, session_id.as_deref(), text, root_id, rows, cx)
         }
-        // S-3: a child's end report = THE link header alone (`Report from
-        // <chip> ›`); its summary never repeats.
-        SessionChatRow::Report { id, session_id, xref, .. } => report_row(id, session_id, xref, root_id, rows, cx),
+        // #EXP-1736: a child's end report = its session's bubble
+        // ([`transcript_message`]).
+        SessionChatRow::Report { .. } => return None,
         SessionChatRow::Suggestions { id, header, start_all, items, .. } => {
             suggestions_card(id, header, *start_all, items, team_id, cx)
         }
@@ -1862,56 +2020,6 @@ pub(crate) fn card_row(
 // ---------------------------------------------------------------------------
 // EXP-1323: THE suggested tasks card (a report = `session_xref`)
 // ---------------------------------------------------------------------------
-
-/// S-3: a message posted by ANOTHER session = its link header right above
-/// the bubble (a person's bubble right-aligned: the header follows it).
-pub(crate) fn with_xref(
-    id: &str,
-    xref: Option<&domain::session_tree::SessionXref>,
-    author: &str,
-    bubble: AnyElement,
-    cx: &App,
-) -> AnyElement {
-    let Some(xref) = xref else {
-        return bubble;
-    };
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .when(author == domain::contract::MESSAGE_AUTHOR_KIND_USER, |this| this.items_end())
-        .child(crate::session_xref::session_xref(id, xref, cx))
-        .child(bubble)
-        .into_any_element()
-}
-
-/// S-3: the view's origin (`Started by <chip> ›` / `Reported to <chip> ›`)
-/// as its bare xref line (the Conversation's first row carries it, so it
-/// scrolls with the rows like on the other platforms).
-fn origin_xref(view: &SessionChatView, cx: &App) -> Option<AnyElement> {
-    let origin = view.origin.as_ref()?;
-    let key = format!("origin-{}", view.focus_id.as_deref().unwrap_or(&view.root_id));
-    Some(crate::session_xref::session_xref(&key, origin, cx))
-}
-
-/// S-3: the origin line on top of a session open in place.
-fn origin_line(view: &SessionChatView, cx: &App) -> Option<AnyElement> {
-    let line = origin_xref(view, cx)?;
-    Some(
-        div()
-            .w_full()
-            .child(
-                div()
-                    .w_full()
-                    .max_w(px(CONVERSATION_W))
-                    .mx_auto()
-                    .px(px(crate::work_header::WORK_GUTTER))
-                    .pt_3()
-                    .child(line),
-            )
-            .into_any_element(),
-    )
-}
 
 /// The suggestion writes in flight: `<message>:<item>` (Start all =
 /// `<message>:*`) — the item's buttons lock until the write lands.
@@ -3030,6 +3138,9 @@ struct ConversationRows {
     waiting: Vec<usize>,
     /// What the keys were built for (the inputs, the start).
     windowed: Option<((u64, u64, bool, bool), usize)>,
+    /// #EXP-1736: the window's rows under transcript-grouping.json (one
+    /// per `rows` entry): side, sender, avatar, name, gap.
+    layouts: Vec<domain::transcript_grouping::TranscriptRowLayout>,
 }
 
 /// EXP-1346: a Conversation row's content identity (its measured height
@@ -3670,49 +3781,20 @@ impl SessionChatScreenView {
     fn render_row(
         &self,
         row: &SessionChatRow,
+        layout: Option<&domain::transcript_grouping::TranscriptRowLayout>,
         model: &ChatModel,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        if let SessionChatRow::Message {
-            id,
-            author,
-            author_id,
-            body,
-            queued,
-            xref,
-            ..
-        } = row
-        {
-            let markdown = message_markdown(
-                SharedString::from(format!("chat-message-{id}")),
-                body,
-                &self.text,
-                &self.images,
-            );
-            // S-3: an agent conversation paints CHAT bubbles on this same
-            // screen (`chat_mode`); a chat its transcript.
-            let bubbles = domain::session_tree::chat_mode(model.root.agent_id.as_deref())
-                == domain::session_tree::ChatMode::Bubbles;
-            let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
-            let bubble = match author.as_str() {
-                domain::contract::MESSAGE_AUTHOR_KIND_USER => {
-                    let name = member_name(author_id.as_deref(), cx);
-                    let own = author_id.is_some()
-                        && crate::queries::active_account(cx).map(|me| me.user_id) == *author_id;
-                    if bubbles {
-                        chat_user_bubble(id, markdown, clock(at), *queued, own, cx)
-                    } else {
-                        user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, own, cx)
-                    }
-                }
-                domain::contract::MESSAGE_AUTHOR_KIND_AGENT if bubbles => chat_agent_bubble(markdown, clock(at), cx),
-                domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
-                _ => muted_line(registry::UI_INFO, body.clone(), cx),
-            };
-            return with_xref(id, xref.as_ref(), author, bubble, cx);
-        }
-        card_row(row, &self.root_id, &model.view.rows, &self.text, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
+        // #EXP-1736: ONE transcript for every chat: a message (or a
+        // report) = THE bubble under its sender, every card as it was.
+        let at = model.messages.get(row.id()).and_then(|message| message.created_at.as_deref());
+        let content = match transcript_message(row, layout, "chat-message", at, &self.text, &self.images, cx) {
+            Some(bubble) => bubble,
+            None => card_row(row, &self.root_id, &model.view.rows, &self.text, &self.images, window, cx)
+                .unwrap_or_else(|| div().into_any_element()),
+        };
+        sender_row(layout, content, cx)
     }
 
     /// EXP-1323: keep ONE relay viewer on `live` (the view's
@@ -3951,8 +4033,22 @@ impl SessionChatScreenView {
         self.conv.start = start;
         self.conv.rows = self.conv.all[start..].to_vec();
         let chip_gen = self.chip_gen;
-        // S-3: the first row carries the view's origin line.
-        let origin = serde_json::to_string(&model.view.origin).unwrap_or_default();
+        // #EXP-1736: who sent each row, the groups, the gaps; the S-3
+        // origin's prompt = the origin session's bubble.
+        let origin = if model.view.focus_id.is_none() { model.view.origin.as_ref() } else { None };
+        let window_rows: Vec<&SessionChatRow> = self.conv.rows.iter().map(|&index| &model.view.rows[index]).collect();
+        let mut input = conversation_input(
+            window_rows.iter().copied(),
+            &model.view.root_id,
+            &model.view.title,
+            model.root.agent_id.as_deref(),
+            origin,
+            cx,
+        );
+        input.items = window_rows.iter().map(|row| transcript_item(row)).collect();
+        drop(window_rows);
+        self.conv.layouts = domain::transcript_grouping::transcript_layout(&input);
+        let layouts = &self.conv.layouts;
         let mut keys: Vec<RowKey> = self
             .conv
             .rows
@@ -3972,12 +4068,9 @@ impl SessionChatScreenView {
                 if offset == 0 && start > 0 {
                     fingerprint = fingerprint.rotate_left(1) ^ 1;
                 }
-                if offset == 0 {
-                    use std::hash::{Hash as _, Hasher as _};
-                    let mut hasher = std::hash::DefaultHasher::new();
-                    fingerprint.hash(&mut hasher);
-                    origin.hash(&mut hasher);
-                    fingerprint = hasher.finish();
+                // #EXP-1736: the avatar, the name and the gap move its height.
+                if let Some(layout) = layouts.get(offset) {
+                    fingerprint ^= layout_fingerprint(layout);
                 }
                 // Absolute positions: a widened window is a front splice.
                 RowKey { id: (start + offset) as u64, fingerprint }
@@ -4005,16 +4098,17 @@ impl SessionChatScreenView {
     /// One Conversation list row: the reading column (the old column's
     /// measure and gutter), the row gap above every row but the first.
     fn render_list_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let mut origin = None;
+        // #EXP-1736: the grouping's gap above every row (the live tail
+        // starts a group of its own).
+        let layout = self.conv.rows.get(ix).and_then(|_| self.conv.layouts.get(ix).cloned());
+        let gap = match (&layout, ix) {
+            (_, 0) => 0.,
+            (Some(layout), _) => layout.gap,
+            (None, _) => transcript_sizes().gap_between,
+        };
         let content = match (self.conv.rows.get(ix), self.model.clone()) {
             (Some(&index), Some(model)) => match model.view.rows.get(index) {
-                Some(row) => {
-                    // S-3: the origin line heads the first row (it scrolls).
-                    if ix == 0 {
-                        origin = origin_xref(&model.view, cx).map(|line| div().pb_5().child(line));
-                    }
-                    Some(self.render_row(row, &model, window, cx))
-                }
+                Some(row) => Some(self.render_row(row, layout.as_ref(), &model, window, cx)),
                 None => None,
             },
             // EXP-1323: the live tail after the last row.
@@ -4042,9 +4136,8 @@ impl SessionChatScreenView {
                     .max_w(px(CONVERSATION_W))
                     .mx_auto()
                     .px(px(crate::work_header::WORK_GUTTER))
-                    .when(ix > 0, |this| this.pt_5())
+                    .pt(px(gap))
                     .children(earlier)
-                    .children(origin)
                     .child(content),
             )
             .into_any_element()
@@ -4447,9 +4540,15 @@ impl Render for SessionChatScreenView {
             // #EXP-1562: a chip's reveal on the ONE session's raw work.
             self.take_reveal(&model, cx);
             let inner = view.read(cx).inner().clone();
+            // #EXP-1736: the view's S-3 origin = the sender of the prompt
+            // that started it (its bubble replaces the `Started by` line).
+            let origin = model.view.origin.clone();
+            if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
+                inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
+            }
             let scrolled = inner.read(cx).body_scrolled();
             // #VAPP-229: the in-place session's `via <app>` line under the
-            // origin (the chat header above stays caption-free).
+            // chat header (which stays caption-free).
             let via_app = crate::session_screen::via_app_line(inner.read(cx).session_row(), cx)
                 .map(|line| {
                     div()
@@ -4471,7 +4570,6 @@ impl Render for SessionChatScreenView {
                 .min_h_0()
                 .overflow_hidden()
                 .child(header)
-                .children(origin_line(&model.view, cx))
                 .children(via_app)
                 .child(crate::work_header::work_body(
                     div().flex_1().min_h_0().child(inner).into_any_element(),
@@ -4943,7 +5041,7 @@ mod tests {
     }
 
     /// chats.json THE WAY BACK: a chat with no strip, reached through a link
-    /// (a chat's `Started by` line), wears the Back in THE agent header.
+    /// (a cross-session bubble, #EXP-1736), wears the Back in THE agent header.
     #[gpui::test]
     fn an_agent_chat_without_a_strip_wears_the_links_back(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
@@ -5071,16 +5169,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_bubble_caption_names_the_author_and_the_time() {
-        assert_eq!(bubble_caption(Some("Alex Carter"), "19:56"), "Alex Carter · 19:56");
-        assert_eq!(bubble_caption(None, "19:56"), "19:56");
-        assert_eq!(bubble_caption(Some(" "), ""), "");
-        assert_eq!(clock(Some("garbage")), "");
-        assert_eq!(clock(None), "");
-    }
-
-    /// No user-visible copy says "thread" (EXP-1294).
     #[test]
     fn the_copy_never_names_the_old_word() {
         for copy in [

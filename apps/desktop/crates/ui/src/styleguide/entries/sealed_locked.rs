@@ -14,12 +14,11 @@
 use domain::chats::{ChatPreview, ChatPreviewKind, ChatRow};
 use domain::sealed::{LockedReason, PLACEHOLDER};
 use domain::session_tree::SessionChatRow;
-use gpui::{div, px, AnyElement, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use gpui::{div, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::chat_list::{chat_lead_disc, chat_row};
 use crate::markdown::ImageCache;
-use crate::session_chat::{chat_agent_bubble, chat_user_bubble, message_markdown, ChatText};
 
 use super::chat_transcript::{message, paint};
 
@@ -54,21 +53,6 @@ fn list_rows() -> Vec<ChatRow> {
         .collect()
 }
 
-/// A row in the chat (bubbles) layout: THE chat screen's chat bubbles;
-/// a locked row = the same pill as the transcript.
-fn paint_bubble(row: &SessionChatRow, time: &str, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
-    let SessionChatRow::Message { id, author, body, .. } = row else {
-        return paint(row, "", images, window, cx);
-    };
-    let text = ChatText::default().answering(true);
-    let markdown = message_markdown(SharedString::from(format!("sg-sealed-bubble-{id}")), body, &text, images);
-    if author == domain::contract::MESSAGE_AUTHOR_KIND_USER {
-        chat_user_bubble(id, markdown, time.to_string(), false, true, cx)
-    } else {
-        chat_agent_bubble(markdown, time.to_string(), cx)
-    }
-}
-
 /// A caption over a layout (the web entry's `text-xs` muted labels).
 fn label(text: &'static str, cx: &App) -> Div {
     div().text_xs().text_color(cx.theme().muted_foreground).child(text)
@@ -76,8 +60,12 @@ fn label(text: &'static str, cx: &App) -> Div {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-sealed-locked-images", cx, |_, _| ImageCache::new(None)).clone();
-    let bubbles: Vec<AnyElement> =
-        transcript().iter().map(|(row, time)| paint_bubble(row, time, &images, window, cx)).collect();
+    // #EXP-1736: ONE transcript, ONE bubble: the phone card paints the
+    // same rows as the transcript.
+    let bubbles: Vec<AnyElement> = transcript()
+        .iter()
+        .map(|(row, time)| paint(row, time, &images, window, cx))
+        .collect();
     let rows: Vec<AnyElement> = transcript().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
     // Web: `flex flex-wrap items-start gap-6`; the phone card `w-[22rem]
     // rounded-3xl border bg-background p-4`, the transcript `w-[32rem]`,

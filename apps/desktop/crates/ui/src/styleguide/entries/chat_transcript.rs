@@ -21,7 +21,7 @@ use domain::chats::{DividerKind, CHATS};
 use domain::session_tree::{CardSurface, SessionChatRow};
 
 use crate::markdown::ImageCache;
-use crate::session_chat::{agent_prose, bubble_caption, card_row, message_markdown, user_bubble, ChatText};
+use crate::session_chat::{card_row, message_bubble, message_markdown, ChatText, MessageBubble};
 
 pub(crate) const ID: &str = "chat-transcript";
 pub(crate) const OWNER: &str = "EXP-1373";
@@ -100,13 +100,23 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
 pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
     let text = ChatText::default().answering(true);
     match row {
+        // #EXP-1736: THE bubble: the viewer's own right, the agent's left.
         SessionChatRow::Message { id, author, body, queued, .. } => {
             let markdown = message_markdown(SharedString::from(format!("sg-chat-message-{id}")), body, &text, images);
-            if author == domain::contract::MESSAGE_AUTHOR_KIND_USER {
-                user_bubble(id, markdown, bubble_caption(Some("Dana Reyes"), time), *queued, true, cx)
-            } else {
-                agent_prose(markdown, cx)
-            }
+            message_bubble(
+                MessageBubble {
+                    id: SharedString::from(format!("sg-chat-bubble-{id}")),
+                    body: markdown.into_any_element(),
+                    time: time.to_string(),
+                    own: author == domain::contract::MESSAGE_AUTHOR_KIND_USER,
+                    name: None,
+                    link: None,
+                    queued: *queued,
+                    unqueue: None,
+                    width: None,
+                },
+                cx,
+            )
         }
         SessionChatRow::Divider { id, kind, .. } => crate::surface_card::divider_pill(id, *kind, time, cx),
         _ => card_row(row, "sg-chat", &[], &text, images, window, cx).unwrap_or_else(|| div().into_any_element()),

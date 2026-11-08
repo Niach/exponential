@@ -654,6 +654,14 @@ pub(crate) struct SteerSessionView {
     orphan_workflows: Vec<String>,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
+    /// #EXP-1736 (transcript-grouping.json): one entry per `rows` entry —
+    /// the row's grouping kind and its layout (sender, avatar, name, gap);
+    /// `row_layout_at` maps a row id (its first item's) to its index.
+    transcript: Vec<(domain::transcript_grouping::TranscriptItemKind, domain::transcript_grouping::TranscriptRowLayout)>,
+    row_layout_at: HashMap<FeedItemId, usize>,
+    /// #EXP-1736: the view's S-3 origin as its host knows it (a chat's
+    /// session open in place); `None` = the parent off the synced row.
+    transcript_origin: Option<domain::session_tree::SessionXref>,
     /// Session 58cb32df (chats.json, FEED-140): this session's conversation
     /// cards the relay feed does not paint itself (the TOOL-posted plan /
     /// question cards in every state, the agent's surface cards), in
@@ -931,6 +939,9 @@ impl SteerSessionView {
             orphan_workflows: Vec::new(),
             row_keys: Vec::new(),
             active: HashSet::new(),
+            transcript: Vec::new(),
+            row_layout_at: HashMap::new(),
+            transcript_origin: None,
             conv_cards: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
@@ -1170,6 +1181,151 @@ impl SteerSessionView {
         let teams = crate::teams_pick::pick_teams(cx);
         let on_change = self.teams_change(cx);
         crate::teams_pick::chips_row("steer-composer-chip", &teams, self.teams_picked.as_deref(), self.sending, on_change, cx)
+    }
+
+    /// #EXP-1736: the origin its host set ([`Self::set_transcript_origin`]).
+    pub(crate) fn transcript_origin_xref(&self) -> Option<&domain::session_tree::SessionXref> {
+        self.transcript_origin.as_ref()
+    }
+
+    /// #EXP-1736: the host's S-3 origin (the chat's `origin` of the
+    /// session open in place): its prompt reads as that session's bubble.
+    pub(crate) fn set_transcript_origin(
+        &mut self,
+        origin: Option<domain::session_tree::SessionXref>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.transcript_origin != origin {
+            self.transcript_origin = origin;
+            cx.notify();
+        }
+    }
+
+    /// #EXP-1736: the session a synced session id names (its display
+    /// title, else `fallback`; its agent).
+    fn transcript_session(
+        session_id: &str,
+        fallback: Option<&str>,
+        cx: &App,
+    ) -> Option<domain::transcript_grouping::TranscriptSession> {
+        let row = crate::session_data::session(session_id, cx);
+        let title = crate::session_data::session_title_of(session_id, cx)
+            .or_else(|| fallback.map(str::to_string))?;
+        Some(domain::transcript_grouping::TranscriptSession {
+            id: session_id.to_string(),
+            title,
+            agent_id: row.and_then(|row| row.agent_id).filter(|id| !id.is_empty()),
+        })
+    }
+
+    /// #EXP-1736: the raw feed's rows under transcript-grouping.json: the
+    /// agent's narration = its message, a person's prompt = the viewer's own
+    /// unless it parses as a session input ([`domain::transcript_grouping::cross_session_input`],
+    /// that session's message), the work lines (tools, thoughts, edits,
+    /// subagents) = trace, every card full. The S-3 origin's prompt (the
+    /// window's first prompt, when the feed starts there) = the origin's.
+    fn refresh_transcript_layout(&mut self, start: usize, cx: &App) {
+        use domain::transcript_grouping::{
+            cross_session_input, transcript_layout, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptItemKind,
+        };
+        const VIEWER: &str = "viewer";
+        let items = self.feed.items();
+        let row = self.row.as_ref();
+        let title = crate::session_data::session_title_of(&self.session_id, cx)
+            .or_else(|| row.and_then(|row| row.title.clone()))
+            .unwrap_or_default();
+        let origin = match self.transcript_origin.as_ref() {
+            Some(xref) => Some(crate::session_chat::xref_session(xref)),
+            None => row
+                .and_then(|row| row.parent_id.as_deref())
+                .filter(|id| !id.is_empty())
+                .and_then(|parent| Self::transcript_session(parent, None, cx)),
+        };
+        let mut input = TranscriptInput {
+            viewer_id: Some(VIEWER.to_string()),
+            chat: TranscriptChat {
+                session_id: self.session_id.clone(),
+                title,
+                agent_id: row.and_then(|row| row.agent_id.clone()).filter(|id| !id.is_empty()),
+                origin_session_id: None,
+            },
+            ..TranscriptInput::default()
+        };
+        if let Some(agent) = input.chat.agent_id.as_deref() {
+            if let Some(name) = crate::session_data::agent_def(agent, cx).and_then(|def| def.name).filter(|name| !name.trim().is_empty()) {
+                input.agents.push(domain::transcript_grouping::TranscriptAgent { id: agent.to_string(), name });
+            }
+        }
+        // The origin takes the FIRST prompt only when the window holds the
+        // feed's start (else that prompt is above it).
+        let mut origin_open = origin.is_some() && start == 0;
+        let mut origin_taken = false;
+        let origin_id = origin.as_ref().map(|origin| origin.id.clone());
+        input.sessions.extend(origin);
+        let mut kinds: Vec<TranscriptItemKind> = Vec::with_capacity(self.rows.len());
+        for spec in &self.rows {
+            let id = spec.id().to_string();
+            let item = match spec {
+                FeedRowSpec::Single { item, .. } => match items.get(*item).map(|item| (item, &item.kind)) {
+                    Some((_, FeedKind::Narration { .. })) => {
+                        origin_open = false;
+                        TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_AGENT, None, None)
+                    }
+                    Some((_, FeedKind::UserMessage { text, .. }))
+                        if domain::chats::command_divider(text).is_none() && parse_command(text, self.agent()).is_none() =>
+                    {
+                        match cross_session_input(text) {
+                            Some(parsed) => {
+                                if !input.sessions.iter().any(|session| session.id == parsed.session_id) {
+                                    let known = Self::transcript_session(&parsed.session_id, Some(parsed.name.as_str()), cx);
+                                    input.sessions.extend(known);
+                                }
+                                TranscriptItem::message(
+                                    id,
+                                    domain::contract::MESSAGE_AUTHOR_KIND_AGENT,
+                                    None,
+                                    Some(parsed.session_id.as_str()),
+                                )
+                            }
+                            // The origin's prompt: not the viewer's own.
+                            None if std::mem::take(&mut origin_open) => {
+                                origin_taken = true;
+                                TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, None, None)
+                            }
+                            None => TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None),
+                        }
+                    }
+                    Some((item, FeedKind::Tool { .. })) if self.workflow_of(item).is_none() => TranscriptItem::trace(id),
+                    Some((_, FeedKind::Thought { .. } | FeedKind::Subagent { .. })) => TranscriptItem::trace(id),
+                    _ => TranscriptItem::full(id),
+                },
+                FeedRowSpec::ToolRun { .. }
+                | FeedRowSpec::Edits { .. }
+                | FeedRowSpec::ExpRun { .. }
+                | FeedRowSpec::Subagent { .. } => TranscriptItem::trace(id),
+                FeedRowSpec::Ask { .. } => TranscriptItem::full(id),
+            };
+            kinds.push(item.kind);
+            input.items.push(item);
+        }
+        // Only a prompt the origin took names it (a narration above the
+        // first prompt never reads as the origin's).
+        if origin_taken {
+            input.chat.origin_session_id = origin_id;
+        }
+        let layouts = transcript_layout(&input);
+        self.row_layout_at = self.rows.iter().enumerate().map(|(ix, spec)| (spec.id(), ix)).collect();
+        self.transcript = kinds.into_iter().zip(layouts).collect();
+    }
+
+    /// #EXP-1736: list row `ix`'s layout (`None` past the feed rows).
+    fn row_layout(&self, ix: usize) -> Option<&domain::transcript_grouping::TranscriptRowLayout> {
+        self.transcript.get(ix).map(|(_, layout)| layout)
+    }
+
+    /// #EXP-1736: the layout of the row that starts at feed item `id`.
+    fn item_layout(&self, id: FeedItemId) -> Option<&domain::transcript_grouping::TranscriptRowLayout> {
+        self.row_layout_at.get(&id).and_then(|&ix| self.row_layout(ix))
     }
 
     /// The synced `sessions` row behind this viewer — what the header names
@@ -1577,6 +1733,8 @@ impl SteerSessionView {
         self.prune_dropped_rows();
         // Session 58cb32df: the conversation's own cards beside the relay rows.
         self.refresh_conversation_cards(focus.is_none(), cx);
+        // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps).
+        self.refresh_transcript_layout(start, cx);
         // The "Working…" line belongs to the main transcript — a subagent's
         // tab has its own running spinner in the strip.
         self.working = focus.is_none() && self.working_now();
@@ -1599,6 +1757,11 @@ impl SteerSessionView {
             // (§12) whose height moves without the row's own content moving —
             // the card's state is part of the row's measure.
             let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec, cx));
+            // #EXP-1736: the sender's avatar / name moves the row's height.
+            let fingerprint = transcript_rows::fold_extra(
+                fingerprint,
+                self.row_layout(ix).map_or(0, crate::session_chat::layout_fingerprint),
+            );
             // The head cards ride the first row's measure.
             let fingerprint = match ix {
                 0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(
@@ -4558,7 +4721,6 @@ pub(crate) fn answer_digit(keystroke: &gpui::Keystroke) -> Option<usize> {
 
 /// EXP-818: how much of the transcript column a user bubble may take (web
 /// `max-w-[85%]`), and the narrowest bubble worth drawing.
-const USER_BUBBLE_MAX_FRACTION: f32 = 0.85;
 const USER_BUBBLE_MIN_W: f32 = 48.;
 
 /// The `config_state.options` id the footer's model pin reads (EXP-877 — the
@@ -5153,6 +5315,18 @@ impl SteerSessionView {
         let Some(prev) = ix.checked_sub(1) else {
             return px(0.);
         };
+        // #EXP-1736: between two message bubbles, the grouping's gap (3 in
+        // a group, 12 between); the ladder everywhere else.
+        let message = |ix: usize| {
+            self.transcript
+                .get(ix)
+                .is_some_and(|(kind, _)| *kind == domain::transcript_grouping::TranscriptItemKind::Message)
+        };
+        if message(prev) && message(ix) {
+            if let Some(layout) = self.row_layout(ix) {
+                return px(layout.gap);
+            }
+        }
         px(match transcript_gap(self.row_class(prev), self.row_class(ix)) {
             Gap::Turn => transcript::GAP_TURN,
             Gap::Block => transcript::GAP_BLOCK,
@@ -5223,6 +5397,10 @@ impl SteerSessionView {
         let spec = spec.clone();
         let row = spec.resolve(self.feed.items());
         let element = self.render_row(&row, ix == last_row && live, &self.active, window, cx);
+        // #EXP-1736: anyone else's row sits under its sender's avatar (the
+        // conversation cards beside it stay full width).
+        let layout = self.row_layout(ix).cloned();
+        let element = crate::session_chat::sender_row(layout.as_ref(), element, cx);
         // Session 58cb32df: the conversation cards the row's calls posted.
         let anchored: Vec<usize> = spec
             .item_indices()
@@ -5277,8 +5455,28 @@ impl SteerSessionView {
     /// The agent's prose: its mark beside the chat-rhythm markdown.
     /// #VAPP-258: `streaming` = the live run's last item (the reply being
     /// written: genUI holds its unfinished tail back).
-    fn render_narration(&self, key: SharedString, text: String, streaming: bool, cx: &App) -> AnyElement {
-        narration_row(self.with_issue_chips(self.prose(key, text).streaming(streaming), cx), cx)
+    /// #EXP-1736: THE bubble under the session's (or its agent's) avatar,
+    /// its name over a group's first bubble.
+    fn render_narration(&self, id: FeedItemId, text: String, streaming: bool, cx: &App) -> AnyElement {
+        let view = self.with_issue_chips(
+            self.prose(SharedString::from(format!("steer-narration-{id}")), text).streaming(streaming),
+            cx,
+        );
+        let layout = self.item_layout(id);
+        crate::session_chat::message_bubble(
+            crate::session_chat::MessageBubble {
+                id: SharedString::from(format!("steer-bubble-{id}")),
+                body: body_text(div()).min_w_0().child(view).into_any_element(),
+                time: String::new(),
+                own: false,
+                name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
+                queued: false,
+                unqueue: None,
+                width: None,
+            },
+            cx,
+        )
     }
 
     /// The transcript's prose view. EXP-698: the feed reads at the chat
@@ -5302,7 +5500,7 @@ impl SteerSessionView {
         match &item.kind {
             FeedKind::Narration { text, .. } => {
                 let streaming = self.phase == ViewerPhase::Live && self.feed.items().last().is_some_and(|last| last.id == item.id);
-                self.render_narration(SharedString::from(format!("steer-narration-{}", item.id)), text.clone(), streaming, cx)
+                self.render_narration(item.id, text.clone(), streaming, cx)
             }
             // Session 58cb32df (chats.json TRANSCRIPT): a person's `/new` or
             // `/compact` line is THE divider pill, never a bubble.
@@ -5346,29 +5544,38 @@ impl SteerSessionView {
                     )
                     .into_any_element()
             }
-            FeedKind::UserMessage { text, .. } => h_flex()
-                .w_full()
-                .min_w_0()
-                .justify_end()
-                .pl_8()
-                .child(
-                    // The bubble keeps its INNER padding — only the row's
-                    // outer rhythm moved to the ladder (EXP-787). EXP-818:
-                    // and a DEFINITE width — inside the EXP-787 column a
-                    // content-sized bubble measured at min-content and
-                    // wrapped every word.
-                    body_text(div())
-                        .min_w_0()
-                        .w(self.user_bubble_width(text, window))
-                        .rounded(px(12.))
-                        .border_1()
-                        .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                        .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-                        .px_3()
-                        .py_2()
-                        .child(self.render_user_message(item.id, text, cx)),
+            // #EXP-1736: a person's prompt = THE bubble, the viewer's own
+            // (right); a session's input (`Message from …` / `Report from
+            // …`) = that session's bubble (left, its body alone).
+            FeedKind::UserMessage { text, .. } => {
+                let layout = self.item_layout(item.id);
+                let own = layout.map_or(true, |layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
+                let parsed = domain::transcript_grouping::cross_session_input(text)
+                    .filter(|_| !own)
+                    .map(|parsed| parsed.body);
+                let body = parsed.as_deref().unwrap_or(text.as_str());
+                // EXP-818: a DEFINITE width — inside the EXP-787 column a
+                // content-sized bubble measured at min-content and wrapped
+                // every word; a left bubble's column is narrowed by the
+                // avatar.
+                let sizes = crate::session_chat::transcript_sizes();
+                let inset = if own { 0. } else { sizes.avatar + sizes.avatar_gap };
+                let width = self.user_bubble_width(body, inset, window);
+                crate::session_chat::message_bubble(
+                    crate::session_chat::MessageBubble {
+                        id: SharedString::from(format!("steer-bubble-{}", item.id)),
+                        body: self.render_user_message(item.id, body, cx),
+                        time: String::new(),
+                        own,
+                        name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                        link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
+                        queued: false,
+                        unqueue: None,
+                        width: Some(width),
+                    },
+                    cx,
                 )
-                .into_any_element(),
+            }
             // EXP-850 §3: a `Workflow` call renders as its CARD, never as a
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
@@ -5558,11 +5765,11 @@ impl SteerSessionView {
     /// here would make the marker path diverge from every other body.)
     /// EXP-818: a user bubble's width — its longest source line shaped at
     /// the body size plus the bubble's padding, capped at
-    /// [`USER_BUBBLE_MAX_FRACTION`] of the transcript column. A bubble
+    /// `layout.maxWidth.wide` (transcript-grouping.json) of the transcript column. A bubble
     /// sized to its content wrapped every word once the EXP-787 column gave
     /// it a min-content measure; a definite width is the recorded-px
     /// pattern every wrapped text in this crate ends up on.
-    fn user_bubble_width(&self, text: &str, window: &Window) -> Pixels {
+    fn user_bubble_width(&self, text: &str, inset: f32, window: &Window) -> Pixels {
         let parsed = steer::image_message::parse_steer_message(text);
         let font = window.text_style().font();
         let mut longest = px(0.);
@@ -5601,8 +5808,9 @@ impl SteerSessionView {
             view.min(crate::work_header::CHAT_COLUMN_W)
         } else {
             crate::work_header::CHAT_COLUMN_W
-        } - 2. * crate::work_header::WORK_GUTTER;
-        let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
+        } - 2. * crate::work_header::WORK_GUTTER
+            - inset;
+        let cap = px((column * crate::session_chat::transcript_sizes().max_width.wide).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
         let padded = longest + px(2. * 12. + 2.);
         if padded > cap {
@@ -8892,25 +9100,6 @@ fn body_text<E: Styled>(element: E) -> E {
 /// The conversation TABS and every strip block (task list, tasks and waits,
 /// the queue bar) wrap their CONTENT in this too. Only the backgrounds
 /// still span the panel.
-/// The agent's prose row: its mark beside the markdown.
-pub(crate) fn narration_row(view: crate::markdown::MarkdownView, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .items_start()
-        .child(
-            div().mt(px(3.)).flex_shrink_0().child(
-                Icon::new(registry::CODING_ASSISTANT)
-                    .xsmall()
-                    .text_color(muted.opacity(0.6)),
-            ),
-        )
-        .child(body_text(div()).flex_1().min_w_0().child(view))
-        .into_any_element()
-}
-
 /// One row in the centred chat column (`CHAT_COLUMN_W` inside the
 /// `WORK_GUTTER`) — the transcript's rows and the session header.
 pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {

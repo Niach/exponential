@@ -58,13 +58,6 @@ pub(crate) fn session_xref_with(
     xref_line(id, xref, mark, Some(Box::new(on_click)), cx)
 }
 
-/// #EXP-1464 (chat-row-action.json): the line with no action (a report
-/// about the conversation's own root): no chevron, no hover, no press.
-pub(crate) fn session_xref_plain(key: &str, xref: &SessionXref, cx: &App) -> AnyElement {
-    let mark = xref_mark(xref.agent_id.as_deref(), cx);
-    xref_line(xref_id(key), xref, mark, None, cx)
-}
-
 /// The line itself: with `on_click` = a button (pointer, hover =
 /// foreground, press = the pressed wash, the trailing `›`).
 fn xref_line(
@@ -106,11 +99,4 @@ fn xref_line(
                 .on_click(move |_, window, cx| on_click(window, cx))
         })
         .into_any_element()
-}
-
-/// THE link line keyed by `key` (`testIds.xref-<key>`), opening its session.
-pub(crate) fn session_xref(key: &str, xref: &SessionXref, cx: &App) -> AnyElement {
-    let session_id = xref.session_id.clone();
-    let mark = xref_mark(xref.agent_id.as_deref(), cx);
-    session_xref_with(xref_id(key), xref, mark, move |window, cx| open_xref(&session_id, window, cx), cx)
 }

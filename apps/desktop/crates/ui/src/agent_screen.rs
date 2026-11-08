@@ -70,6 +70,8 @@ struct ChannelRows {
     waiting: Vec<usize>,
     /// What the keys were built for (rows generation, tail, start).
     synced: Option<(u64, bool, usize)>,
+    /// #EXP-1736: the window's rows under transcript-grouping.json.
+    layouts: Vec<domain::transcript_grouping::TranscriptRowLayout>,
 }
 
 /// The page whose agent is not (or no longer) there (web `$agentId.tsx`).
@@ -1061,64 +1063,27 @@ impl AgentScreenView {
         .into_any_element()
     }
 
-    fn render_row(&self, row: &SessionChatRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_row(
+        &self,
+        row: &SessionChatRow,
+        layout: Option<&domain::transcript_grouping::TranscriptRowLayout>,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let team_id = self.subject_team_id(cx);
         let conversation_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
         // FEED-140: the inline cards answer while the reader may reply.
         let answer = self.composer.as_ref().is_some_and(|(_, composer)| composer.read(cx).may_message());
         let text = crate::session_chat::ChatText::team(team_id.as_deref()).answering(answer);
-        let SessionChatRow::Message {
-            id,
-            author,
-            author_id,
-            body,
-            queued,
-            xref,
-            ..
-        } = row
-        else {
-            return crate::session_chat::card_row(row, &conversation_id, &self.rows, &text, &self.images, window, cx)
-                .unwrap_or_else(|| div().into_any_element());
+        // #EXP-1736: ONE transcript for every chat: a message (or a
+        // report) = THE bubble under its sender, every card as it was.
+        let at = self.messages.get(row.id()).and_then(|message| message.created_at.as_deref());
+        let content = match crate::session_chat::transcript_message(row, layout, "agent-message", at, &text, &self.images, cx) {
+            Some(bubble) => bubble,
+            None => crate::session_chat::card_row(row, &conversation_id, &self.rows, &text, &self.images, window, cx)
+                .unwrap_or_else(|| div().into_any_element()),
         };
-        // THE chat's painters (web `ChatConversation`): a person's
-        // bubble right with `name · HH:MM` under it, the agent's plain
-        // prose; an agent conversation paints CHAT bubbles
-        // (`chat_mode`).
-        let markdown = crate::session_chat::message_markdown(
-            SharedString::from(format!("agent-message-{id}")),
-            body,
-            &text,
-            &self.images,
-        );
-        let bubbles = domain::session_tree::chat_mode(
-            self.conversation.as_ref().and_then(|row| row.agent_id.as_deref()),
-        ) == domain::session_tree::ChatMode::Bubbles;
-        let at = crate::session_chat::clock(self.messages.get(id).and_then(|message| message.created_at.as_deref()));
-        let painted = match author.as_str() {
-            domain::contract::MESSAGE_AUTHOR_KIND_USER => {
-                let own = author_id.is_some()
-                    && crate::queries::active_account(cx).map(|me| me.user_id) == *author_id;
-                if bubbles {
-                    crate::session_chat::chat_user_bubble(id, markdown, at, *queued, own, cx)
-                } else {
-                    let name = crate::session_chat::member_name(author_id.as_deref(), cx);
-                    crate::session_chat::user_bubble(
-                        id,
-                        markdown,
-                        crate::session_chat::bubble_caption(Some(&name), &at),
-                        *queued,
-                        own,
-                        cx,
-                    )
-                }
-            }
-            domain::contract::MESSAGE_AUTHOR_KIND_AGENT if bubbles => {
-                crate::session_chat::chat_agent_bubble(markdown, at, cx)
-            }
-            domain::contract::MESSAGE_AUTHOR_KIND_AGENT => crate::session_chat::agent_prose(markdown, cx),
-            _ => return crate::session_chat::muted_line(registry::UI_INFO, body.clone(), cx),
-        };
-        crate::session_chat::with_xref(id, xref.as_ref(), author, painted, cx)
+        crate::session_chat::sender_row(layout, content, cx)
     }
 
     /// Session 58cb32df (chats.json `agentMenuCases`): the agent chat
@@ -1332,6 +1297,24 @@ impl AgentScreenView {
         self.conv.start = start;
         self.conv.tail = tail;
         let root_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
+        // #EXP-1736: ONE transcript: who sent each row, the groups, the gaps.
+        let title = self.agent.as_ref().map(agent_def_name).unwrap_or_default();
+        let agent_id = self
+            .conversation
+            .as_ref()
+            .and_then(|row| row.agent_id.clone())
+            .or_else(|| self.agent.as_ref().map(|agent| agent.id.clone()));
+        let mut input = crate::session_chat::conversation_input(
+            self.rows[start..].iter(),
+            &root_id,
+            &title,
+            agent_id.as_deref(),
+            None,
+            cx,
+        );
+        input.items = self.rows[start..].iter().map(crate::session_chat::transcript_item).collect();
+        self.conv.layouts = domain::transcript_grouping::transcript_layout(&input);
+        let layouts = &self.conv.layouts;
         let mut keys: Vec<RowKey> = self.rows[start..]
             .iter()
             .enumerate()
@@ -1346,6 +1329,9 @@ impl AgentScreenView {
                     ^ crate::session_chat::row_state_fingerprint(row, &root_id, cx);
                 if offset == 0 && start > 0 {
                     fingerprint = fingerprint.rotate_left(1) ^ 1;
+                }
+                if let Some(layout) = layouts.get(offset) {
+                    fingerprint ^= crate::session_chat::layout_fingerprint(layout);
                 }
                 RowKey { id: (start + offset) as u64, fingerprint }
             })
@@ -1373,9 +1359,17 @@ impl AgentScreenView {
     /// (#EXP-1380 WORKING).
     fn render_list_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let rows = self.rows.clone();
+        // #EXP-1736: the grouping's gap above every row (the Working… tail
+        // starts a group of its own).
+        let layout = self.conv.layouts.get(ix).cloned();
+        let gap = match (&layout, ix) {
+            (_, 0) => 0.,
+            (Some(layout), _) => layout.gap,
+            (None, _) => crate::session_chat::transcript_sizes().gap_between,
+        };
         let content = match rows.get(self.conv.start + ix) {
             Some(row) if ix < self.conv.keys.len() && self.conv.keys[ix].id != WORKING_ROW_ID => {
-                Some(self.render_row(row, window, cx))
+                Some(self.render_row(row, layout.as_ref(), window, cx))
             }
             _ => self
                 .composer
@@ -1405,7 +1399,7 @@ impl AgentScreenView {
                     .max_w(px(CHANNEL_W))
                     .mx_auto()
                     .px(px(crate::work_header::WORK_GUTTER))
-                    .when(ix > 0, |this| this.pt_4())
+                    .pt(px(gap))
                     .children(earlier)
                     .child(content),
             )

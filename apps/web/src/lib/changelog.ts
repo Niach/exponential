@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-08-every-chat-a-group-chat`,
+    date: `2026-11-08`,
+    title: `Every chat reads like a group chat`,
+    summary: `Every message shows who sent it: a person's avatar and name, an agent's mark, a session's title; a message from another session opens it.`,
+    body: `- **Every chat reads like a group chat**: on every device, messages from anyone but you sit under the sender's avatar and name, and back-to-back messages from one sender share them; yours stay on the right.
+- **Messages between sessions**: a report or message from another session is a bubble with that session's name and a ›; tap it to open that session. The separate "Started by", "Report from" and "Message from" lines are gone.
+- **The agent's replies are bubbles** on the web and the desktop app too, like on the phones.`,
+  },
+  {
     id: `2026-11-08-auto-merge-for-every-team`,
     date: `2026-11-08`,
     title: `Auto-merge for every team`,

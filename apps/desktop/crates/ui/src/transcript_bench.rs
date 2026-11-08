@@ -3,7 +3,7 @@
 //! long plan card (headings, prose, lists, code, tables, many pictures, an
 //! inline eUI surface), a long description laid out cold, and an agent reply
 //! streamed in chunk by chunk. The rows are the Conversation's own
-//! ([`crate::session_chat::card_row`], [`crate::session_chat::agent_prose`])
+//! ([`crate::session_chat::card_row`], [`crate::session_chat::transcript_message`])
 //! in the Conversation's `gpui::list`. Run with
 //! `cargo test -p ui --release -- --ignored bench_ --nocapture`.
 use std::sync::Arc;
@@ -18,7 +18,7 @@ use gpui_component::v_flex;
 use domain::session_tree::{CardSurface, SessionChatRow};
 
 use crate::markdown::ImageCache;
-use crate::session_chat::{agent_prose, card_row, message_markdown, ChatText};
+use crate::session_chat::{card_row, transcript_message, ChatText};
 
 /// The plan's sections: one = a heading, prose with marks and refs, a
 /// list, a code block, a table and two pictures.
@@ -125,12 +125,10 @@ impl Render for Transcript {
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| {
                 let row = this.rows[ix].clone();
-                let content = match &row {
-                    SessionChatRow::Message { id, body, .. } => agent_prose(
-                        message_markdown(format!("chat-message-{id}").into(), body, &this.text, &this.images),
-                        cx,
-                    ),
-                    _ => card_row(&row, "root", &this.rows, &this.text, &this.images, window, cx)
+                // #EXP-1736: a message = THE bubble, every card as it is.
+                let content = match transcript_message(&row, None, "chat-message", None, &this.text, &this.images, cx) {
+                    Some(bubble) => bubble,
+                    None => card_row(&row, "root", &this.rows, &this.text, &this.images, window, cx)
                         .unwrap_or_else(|| div().into_any_element()),
                 };
                 // The Conversation's reading column (`render_list_row`).

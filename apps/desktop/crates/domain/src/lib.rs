@@ -209,6 +209,8 @@ pub mod waiting_cards;
 pub mod work_screen;
 // #EXP-1464: what a conversation's session rows do (expand / open / none), fixture-locked ×4.
 pub mod chat_row_action;
+// #EXP-1736: ONE transcript ×4 (senders, groups, gaps, session inputs), fixture-locked ×4.
+pub mod transcript_grouping;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

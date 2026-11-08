@@ -1,7 +1,8 @@
 //! EXP-1293/EXP-1294: `session-chat` (Special components): a chat's
 //! Conversation, the IDE half of the styleguide entry the web page draws —
 //! the chat screen's REAL row painters (`crate::session_chat`, through
-//! [`super::chat_parts::row`]) over the contract model
+//! [`super::chat_parts::conversation_rows`], #EXP-1736: THE bubble under
+//! its sender) over the contract model
 //! (`domain::session_tree::build_session_chat`) on `session-chat.json`'s
 //! cases in the web entry's order: EXP-1334's dispatcher (a child's question
 //! and plan, answered in place; no root card — the conversation IS the
@@ -24,7 +25,7 @@ use crate::markdown::ImageCache;
 
 use super::composer_dialog::{composer_specimen, composer_specimen_with_replies, chat_placeholder, Phase};
 use super::fixture_rows;
-use super::chat_parts::{case, case_named, row, DISPATCHER_CASE, FOLD_CASE};
+use super::chat_parts::{case, case_named, conversation_rows, DISPATCHER_CASE, FOLD_CASE};
 
 pub(crate) const ID: &str = "session-chat";
 pub(crate) const OWNER: &str = "EXP-1293";
@@ -97,10 +98,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 );
         }
         let case = case(index);
-        let mut conversation = v_flex().w_full().gap_5();
-        for item in &case.view.rows {
-            conversation = conversation.child(row(&case, item, &images, window, cx));
-        }
+        // #EXP-1736: ONE transcript: each row under its sender and gap.
+        let rows: Vec<&domain::session_tree::SessionChatRow> = case.view.rows.iter().collect();
+        let conversation = v_flex().w_full().children(conversation_rows(&case, &rows, &images, window, cx));
         column = column.child(conversation);
     }
     column.child(

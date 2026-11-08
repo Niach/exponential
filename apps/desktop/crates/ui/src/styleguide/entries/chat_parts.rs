@@ -42,13 +42,16 @@ use domain::session_tree::{
 };
 use domain::statuses::ResolvedStatus;
 
-use crate::icons::registry;
 use crate::markdown::ImageCache;
 use crate::session_data::PrSnapshot;
 use crate::session_chat::{
-    agent_prose, bubble_caption, card_row, clock, message_markdown, muted_line, chat_menu,
-    strip_group_items, strip_group_menu, chat_strip, title_row, user_bubble, StripIssue, StripPick,
+    card_row, chat_menu, conversation_input, message_markdown, sender_row, strip_group_items, strip_group_menu,
+    chat_strip, title_row, transcript_item, transcript_message, MessageBubble, StripIssue, StripPick,
     ChatMenuTarget, ChatStrip,
+};
+use domain::transcript_grouping::{
+    transcript_layout, TranscriptAgent, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptMember,
+    TranscriptRowLayout, TranscriptSession,
 };
 
 use super::composer_dialog::OpenMenu;
@@ -294,33 +297,130 @@ fn open_menus(fold: &Case, tabs: &[ChatTab], window: &mut Window, cx: &mut App) 
         .child(v_flex().gap_2().child(add_menu).child(caption("The \"+\" (left of Conversation)")))
 }
 
-/// One conversation row, the way the chat screen paints it.
+/// One conversation row, the way the chat screen paints it: THE bubble
+/// under its sender (#EXP-1736), every card as it is.
 pub(super) fn row(
     case: &Case,
     row: &SessionChatRow,
+    layout: Option<&TranscriptRowLayout>,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    if let SessionChatRow::Message { id, author, body, queued, xref, .. } = row {
-        let markdown = message_markdown(SharedString::from(format!("sg-chat-message-{id}")), body, &crate::session_chat::ChatText::default(), images);
-        let bubble = match author.as_str() {
-            domain::contract::MESSAGE_AUTHOR_KIND_USER => {
-                let at = case
-                    .messages
-                    .iter()
-                    .find(|message| message.id == *id)
-                    .and_then(|message| message.created_at.as_deref());
-                let name = crate::comments::author_label(None);
-                user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, true, cx)
-            }
-            domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
-            _ => muted_line(registry::UI_INFO, body.clone(), cx),
-        };
-        // S-3: another session's message = its link header above the bubble.
-        return crate::session_chat::with_xref(id, xref.as_ref(), author, bubble, cx);
-    }
-    card_row(row, &case.view.root_id, &case.view.rows, &crate::session_chat::ChatText::default(), images, window, cx).unwrap_or_else(|| div().into_any_element())
+    let text = crate::session_chat::ChatText::default();
+    let at = case
+        .messages
+        .iter()
+        .find(|message| message.id == row.id())
+        .and_then(|message| message.created_at.as_deref());
+    let content = match transcript_message(row, layout, "sg-chat-message", at, &text, images, cx) {
+        Some(bubble) => bubble,
+        None => card_row(row, &case.view.root_id, &case.view.rows, &text, images, window, cx)
+            .unwrap_or_else(|| div().into_any_element()),
+    };
+    sender_row(layout, content, cx)
+}
+
+/// #EXP-1736: `rows` of `case` as the chat screen lays them out: the
+/// grouping (the case's first person = the viewer, no store here), each row
+/// under its gap.
+pub(super) fn conversation_rows(
+    case: &Case,
+    rows: &[&SessionChatRow],
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> Vec<AnyElement> {
+    let mut input = conversation_input(
+        rows.iter().copied(),
+        &case.view.root_id,
+        &case.view.title,
+        None,
+        case.view.origin.as_ref(),
+        cx,
+    );
+    input.viewer_id = rows.iter().find_map(|row| match row {
+        SessionChatRow::Message { author, author_id, .. } if author == domain::contract::MESSAGE_AUTHOR_KIND_USER => {
+            author_id.clone()
+        }
+        _ => None,
+    });
+    input.items = rows.iter().map(|row| transcript_item(row)).collect();
+    let layouts = transcript_layout(&input);
+    rows.iter()
+        .zip(&layouts)
+        .map(|(item, layout)| {
+            let painted = row(case, item, Some(layout), images, window, cx);
+            div().w_full().pt(px(layout.gap)).child(painted).into_any_element()
+        })
+        .collect()
+}
+
+/// #EXP-1736: THE transcript grouped (transcript-grouping.json): a member
+/// (initials in their hue), the agent's group of two bubbles (one avatar,
+/// one name), a cross-session report (`name ›`, a press opens it), the
+/// viewer's own bubble right with neither.
+pub(super) fn grouped_sample(images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+    let input = TranscriptInput {
+        viewer_id: Some("sg-u1".into()),
+        chat: TranscriptChat {
+            session_id: "sg-a1".into(),
+            title: "Triage".into(),
+            agent_id: Some("sg-ag1".into()),
+            origin_session_id: None,
+        },
+        members: vec![TranscriptMember { id: "sg-u2".into(), name: "Dana Reyes".into() }],
+        agents: vec![TranscriptAgent { id: "sg-ag1".into(), name: "Triage".into() }],
+        sessions: vec![TranscriptSession {
+            id: "sg-c1".into(),
+            title: "Fix the sign-in redirect".into(),
+            agent_id: None,
+        }],
+        items: vec![
+            TranscriptItem::message("g1", "user", Some("sg-u2"), None),
+            TranscriptItem::message("g2", "agent", None, None),
+            TranscriptItem::message("g3", "agent", None, None),
+            TranscriptItem::message("g4", "agent", None, Some("sg-c1")),
+            TranscriptItem::message("g5", "user", Some("sg-u1"), None),
+        ],
+    };
+    let bodies = [
+        ("Sign-in loops back to the login page on Safari.", "09:12"),
+        ("Looking at it: the redirect drops the return path.", "09:13"),
+        ("I started a session to fix it.", "09:13"),
+        ("Opened PR #128: the redirect keeps the return path.", "09:31"),
+        ("Thanks, merging after review.", "09:34"),
+    ];
+    let text = crate::session_chat::ChatText::default();
+    let layouts = transcript_layout(&input);
+    let rows: Vec<AnyElement> = layouts
+        .iter()
+        .zip(bodies)
+        .map(|(layout, (body, time))| {
+            let bubble = crate::session_chat::message_bubble(
+                MessageBubble {
+                    id: SharedString::from(format!("sg-grouped-bubble-{}", layout.id)),
+                    body: message_markdown(SharedString::from(format!("sg-grouped-{}", layout.id)), body, &text, images)
+                        .into_any_element(),
+                    time: time.to_string(),
+                    own: layout.side == domain::transcript_grouping::TranscriptSide::Own,
+                    name: layout
+                        .sender
+                        .as_ref()
+                        .filter(|_| layout.name)
+                        .map(|sender| sender.display_name()),
+                    link: layout.sender.as_ref().and_then(|sender| sender.link.clone()),
+                    queued: false,
+                    unqueue: None,
+                    width: None,
+                },
+                cx,
+            );
+            let painted = sender_row(Some(layout), bubble, cx);
+            div().w_full().pt(px(layout.gap)).child(painted).into_any_element()
+        })
+        .collect();
+    v_flex().w_full().children(rows).into_any_element()
 }
 
 /// The rows of the second case the first has no example of.
@@ -404,17 +504,22 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .clone();
     let first = case(0);
     let second = case(case_named(PRIVATE_CASE));
-    let mut conversation = v_flex().w(px(HEADER_W)).max_w_full().gap_5();
-    for item in &first.view.rows {
-        conversation = conversation.child(row(&first, item, &images, window, cx));
-    }
-    for item in extra_rows(&second.view) {
-        conversation = conversation.child(row(&second, item, &images, window, cx));
-    }
+    // #EXP-1736: the grouped sample, then each case's rows under the
+    // grouping (one block per case).
+    let grouped = grouped_sample(&images, cx);
+    let first_rows: Vec<&SessionChatRow> = first.view.rows.iter().collect();
+    let first_block = conversation_rows(&first, &first_rows, &images, window, cx);
+    let second_block = conversation_rows(&second, &extra_rows(&second.view), &images, window, cx);
     let dispatcher = case(case_named(DISPATCHER_CASE));
-    for item in dispatcher_rows(&dispatcher.view) {
-        conversation = conversation.child(row(&dispatcher, item, &images, window, cx));
-    }
+    let dispatcher_block = conversation_rows(&dispatcher, &dispatcher_rows(&dispatcher.view), &images, window, cx);
+    let conversation = v_flex()
+        .w(px(HEADER_W))
+        .max_w_full()
+        .gap_5()
+        .child(grouped)
+        .child(v_flex().w_full().children(first_block))
+        .child(v_flex().w_full().children(second_block))
+        .child(v_flex().w_full().children(dispatcher_block));
     // The header twice: the first case, then the private one with its lock.
     let header_first = header(&first, "sg-chat", window, cx);
     let header_private = header(&second, "sg-chat-private", window, cx);
