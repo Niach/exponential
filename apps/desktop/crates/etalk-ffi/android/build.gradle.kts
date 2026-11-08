@@ -57,6 +57,7 @@ kotlin {
 
 dependencies {
     implementation("${libs.jna.aar.get()}@aar")
+    implementation(libs.androidx.annotation)
 }
 
 publishing {
