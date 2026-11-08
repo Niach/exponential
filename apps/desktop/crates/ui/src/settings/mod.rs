@@ -80,7 +80,7 @@ pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
 mod tools;
-mod widget;
+pub(crate) mod widget;
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
 /// same 40px as the team switcher above it. It was a ~28px text row, which
@@ -773,7 +773,7 @@ impl SettingsView {
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
-        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
+        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
         let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
