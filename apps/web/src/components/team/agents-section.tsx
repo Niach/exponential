@@ -86,6 +86,10 @@ import {
   COORDINATOR_NONE,
   coordinatorOf,
   coordinatorOptions,
+  LEAD,
+  LEAD_COPY,
+  LEAD_NONE,
+  leadOptions,
   assistantModelValue,
   assistantScheduleOf,
   assistantScheduleTriggers,
@@ -1260,6 +1264,72 @@ export function CoordinatorRow({ team, isOwner }: { team: Team; isOwner: boolean
         disabled={!isOwner || busy}
         data-testid={COORDINATOR.testIds.row}
       />
+      <LeadAssistantPicker team={team} isOwner={isOwner} />
     </GlassGroup>
+  )
+}
+
+/** #EXP-1735 (agent-settings.json `lead`): the Lead Assistant row, right
+ *  below the Coordinator in the same group (THE settings Picker row): None
+ *  or one member, whose Assistant every member's Assistant reports to;
+ *  owners pick, members read. */
+function LeadAssistantPicker({ team, isOwner }: { team: Team; isOwner: boolean }) {
+  const { users } = useTeamUsers(team.id)
+  const [busy, setBusy] = useState(false)
+  const [leadUserId, setLeadUserId] = useState<string | null>(null)
+  // The lead row is another member's Assistant (never in my synced agents):
+  // its member comes from the server, re-read whenever the lead changes.
+  const leadAssistantId = team.leadAssistantId ?? null
+  useEffect(() => {
+    if (!leadAssistantId) {
+      setLeadUserId(null)
+      return
+    }
+    let live = true
+    trpc.agents.lead
+      .query({ teamId: team.id })
+      .then((result) => live && setLeadUserId(result.lead?.userId ?? null))
+      .catch(() => live && setLeadUserId(null))
+    return () => {
+      live = false
+    }
+  }, [team.id, leadAssistantId])
+  const current = leadAssistantId && leadUserId ? leadUserId : LEAD_NONE
+  const items = leadOptions(users.map((user) => ({ userId: user.id, name: displayUserName(user, user.id) }))).map(
+    (option) =>
+      typeof option === `string`
+        ? { value: LEAD_NONE, label: LEAD_COPY.none }
+        : { value: option.userId, label: option.name }
+  )
+  const save = async (next: string) => {
+    setBusy(true)
+    try {
+      await trpc.agents.setLeadAssistant.mutate(
+        { teamId: team.id, userId: next === LEAD_NONE ? null : next },
+        SKIP_ERROR_TOAST
+      )
+      setLeadUserId(next === LEAD_NONE ? null : next)
+    } catch (error) {
+      failedAction(`save`, `the lead Assistant`, error, { retry: () => void save(next) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Picker
+      mode="single"
+      triggerVariant="row"
+      triggerLabel={LEAD_COPY.label}
+      mobileTitle={LEAD_COPY.label}
+      value={current}
+      onChange={(picked) => {
+        if (picked === null || picked === current) return
+        void save(picked)
+      }}
+      items={items}
+      width="md"
+      disabled={!isOwner || busy}
+      data-testid={LEAD.testIds.row}
+    />
   )
 }

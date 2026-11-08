@@ -4364,7 +4364,7 @@ export function registerExponentialTools(
     `exponential_agents_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's agents: id, name, triggers (schedules and the event names they listen on), device and owner. Message one with exponential_sessions_send {agentId, text}.`,
+      description: `List a team's agents: id, name, triggers (schedules and the event names they listen on), device and owner. lead: true = the team's lead Assistant, whom every member's Assistant reports to. Message one with exponential_sessions_send {agentId, text}.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {

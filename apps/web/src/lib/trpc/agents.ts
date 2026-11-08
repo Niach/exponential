@@ -25,13 +25,14 @@ import {
   type Agent,
   type DeviceAgentAccounts,
 } from "@/db/schema"
-import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
-import { loadAgentForUser } from "@/lib/agents/conversation"
+import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/auth/membership"
+import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
+import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
-import { ASSISTANT_COPY, COORDINATOR_COPY } from "@exp/domain-contract/agent-settings"
+import { ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
 import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
@@ -132,8 +133,65 @@ export const agentsRouter = router({
         and(eq(agents.teamId, input.teamId), or(eq(agents.role, `agent`), eq(agents.ownerId, userId)))
       )
       .orderBy(asc(agents.sortOrder), asc(agents.name))
-    return { agents: rows }
+    // #EXP-1735 (agent-settings.json `lead`): the team's lead Assistant is
+    // named with `lead: true` (another member's is listed by id, name and
+    // owner only) so every member's Assistant knows whom it reports to.
+    const lead = await teamLead(ctx.db, input.teamId)
+    const listed = rows.map((row) => ({ ...row, lead: row.id === lead?.agentId }))
+    if (lead && !rows.some((row) => row.id === lead.agentId)) {
+      listed.push({ id: lead.agentId, teamId: input.teamId, name: lead.name, ownerId: lead.userId, role: `assistant`, lead: true } as (typeof listed)[number])
+    }
+    return { agents: listed }
   }),
+
+  /** #EXP-1735 (agent-settings.json `lead`): the team's lead Assistant and
+   *  its member (the Team settings row's value), or null. */
+  lead: authedProcedure.input(z.object({ teamId: uuid })).query(async ({ ctx, input }) => {
+    await assertTeamMember(ctx.session.user.id, input.teamId)
+    const lead = await teamLead(ctx.db, input.teamId)
+    return { lead: lead ? { agentId: lead.agentId, userId: lead.userId } : null }
+  }),
+
+  /** #EXP-1735 (agent-settings.json `lead`): the team's owners make one
+   *  member's Assistant the team's lead (created on first use; null =
+   *  none) and open its conversation, where the other members' Assistants'
+   *  asks and reports land (bus.ts `leadOf`). */
+  setLeadAssistant: authedProcedure
+    .input(z.object({ teamId: uuid, userId: z.string().min(1).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await assertTeamOwner(ctx.session.user.id, input.teamId)
+      } catch {
+        throw new TRPCError({ code: `FORBIDDEN`, message: LEAD_COPY.refusedOwner })
+      }
+      if (input.userId && !(await getTeamMember(input.userId, input.teamId))) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: LEAD_COPY.refusedMember })
+      }
+      const lead = input.userId ? await ensureAssistant(input.userId, input.teamId) : null
+      if (input.userId && !lead) throw new TRPCError({ code: `BAD_REQUEST`, message: LEAD_COPY.noAssistant })
+      let host: { ownerId: string; deviceId: string } | null = null
+      const result = await ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        await tx
+          .update(teams)
+          .set({ leadAssistantId: lead?.id ?? null, updatedAt: new Date() })
+          .where(eq(teams.id, input.teamId))
+        if (lead) {
+          // Its conversation is where the reports land: open it now (best
+          // effort: a device that cannot run it leaves it for first use).
+          try {
+            host = (await tx.transaction(async (inner) => conversationInTx(inner, lead, lead.ownerId))).created
+          } catch (error) {
+            console.warn(`[agents.setLeadAssistant] conversation of ${lead.id} not opened:`, error)
+          }
+        }
+        return { txid }
+      })
+      const config = getSteerRelayConfig()
+      const opened = host as { ownerId: string; deviceId: string } | null
+      if (config && opened) void relayPostNudge(config, opened.ownerId, opened.deviceId)
+      return result
+    }),
 
   /** S-3: the caller's Assistant in the team, created on first use (null
    *  while they have no device to run it on). */
@@ -421,3 +479,19 @@ export const agentsRouter = router({
     return { txid: result.txid }
   }),
 })
+
+/** #EXP-1735: the team's lead Assistant (`teams.lead_assistant_id`) while
+ *  its member is still in the team, with that member's id and its name. */
+async function teamLead(
+  exec: { select: typeof import("@/db/connection").db.select },
+  teamId: string
+): Promise<{ agentId: string; userId: string; name: string } | null> {
+  const [row] = await exec
+    .select({ agentId: agents.id, userId: agents.ownerId, name: agents.name, role: agents.role })
+    .from(teams)
+    .innerJoin(agents, eq(agents.id, teams.leadAssistantId))
+    .where(eq(teams.id, teamId))
+    .limit(1)
+  if (!row || row.role !== `assistant` || !(await getTeamMember(row.userId, teamId))) return null
+  return { agentId: row.agentId, userId: row.userId, name: row.name }
+}

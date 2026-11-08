@@ -884,5 +884,50 @@
         "expected": null
       }
     ]
+  },
+  "lead": {
+    "$comment": "#EXP-1735 (owner 2026-11-07, #EDE-63 plan card in thread 4c59504c): THE TEAM'S LEAD ASSISTANT ×4. Each team has at most one lead (`teams.lead_assistant_id` → a team member's Assistant; NULL = none) that every member's Assistant reports to: the asks (questions, plans) and end reports of the work another member's Assistant runs in the team also reach the lead's conversation (eagent bus.json `leadOf`, privacy-neutral when private), and the lead's check-in counts that work moving (wakeups.json). It orchestrates that the work gets done and merged and collects the plans, questions and results for its person in one place. Set by the team's OWNERS only in Team settings › Agents: ONE settings Picker row (THE single-select Picker in its `row` trigger, the Coordinator row's look) `copy.label` right below the Coordinator row, value = the lead member's display name or `copy.none`; options = `leadOptions(members)` (`optionCases`): `none` first, then the team's members by display name (then id); members see the row read-only. The value's member = `agents.lead {teamId}` → `{agentId, userId} | null` (the lead's row is another member's Assistant, never in the viewer's synced agents), re-read whenever the synced `teams.leadAssistantId` changes. A pick = `agents.setLeadAssistant {teamId, userId | null}`: the server makes that member's Assistant the lead (created on first use like `assistant`, on their own newest desktop: none = refused `copy.noAssistant`) and opens its conversation; a non-owner is refused (`copy.refusedOwner`), a non-member (`copy.refusedMember`). The lead stays the member's own Assistant everywhere else (owned, listed and edited by its member only); MCP `exponential_agents list {teamId}` names it with `lead: true` (its id, name and ownerId) so every member's Assistant knows who it reports to. Deleting the Assistant clears the lead; a lead whose member left the team counts as none (the bus and `agents.lead` check membership).",
+    "copy": {
+      "label": "Lead Assistant",
+      "none": "None",
+      "refusedOwner": "Only the team's owners set its lead Assistant",
+      "refusedMember": "Only a member of this team can lead it",
+      "noAssistant": "That member has no device to run an Assistant on yet"
+    },
+    "testIds": {
+      "row": "settings-agents-lead"
+    },
+    "optionCases": [
+      {
+        "name": "none first, then the members by display name, then id",
+        "members": [
+          {
+            "userId": "u3",
+            "name": "Zoe"
+          },
+          {
+            "userId": "u2",
+            "name": "Ann"
+          },
+          {
+            "userId": "u1",
+            "name": "Ann"
+          }
+        ],
+        "expected": [
+          "none",
+          "u1",
+          "u2",
+          "u3"
+        ]
+      },
+      {
+        "name": "a team without members offers None alone",
+        "members": [],
+        "expected": [
+          "none"
+        ]
+      }
+    ]
   }
 }

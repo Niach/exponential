@@ -261,3 +261,17 @@ export function coordinatorOf(
 ): string | null {
   return agents.find((agent) => agent.teamId === teamId && isCoordinator(agent))?.id ?? null
 }
+
+export const LEAD = fixture.lead
+export const LEAD_COPY = fixture.lead.copy
+/** The option id of "no lead Assistant". */
+export const LEAD_NONE = `none`
+
+/** #EXP-1735 (`lead.optionCases`): the Lead Assistant row's options:
+ *  `none`, then the team's members by display name, then id. */
+export function leadOptions<T extends { userId: string; name: string }>(members: readonly T[]): (T | typeof LEAD_NONE)[] {
+  const sorted = [...members].sort(
+    (a, b) => a.name.localeCompare(b.name) || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0)
+  )
+  return [LEAD_NONE, ...sorted]
+}
