@@ -13,7 +13,7 @@ import {
   taskbarScroll,
   workspaceBadges,
   switcherSections,
-  type ChatInput,
+  type RailChatInput,
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
@@ -75,7 +75,7 @@ describe(`shell.json selectors`, () => {
 })
 
 describe(`shell.json chats (#EDE-65)`, () => {
-  for (const c of fixture.chats) test(c.name, () => expect(chatRows(c.chats as ChatInput[])).toEqual(c.expected as ReturnType<typeof chatRows>))
+  for (const c of fixture.chats) test(c.name, () => expect(chatRows(c.chats as RailChatInput[])).toEqual(c.expected as ReturnType<typeof chatRows>))
 
   test(`the state has no rail and no folded sections`, () => {
     expect(Object.keys(fixture.initial)).not.toContain(`rail`)

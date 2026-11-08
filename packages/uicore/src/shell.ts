@@ -517,7 +517,7 @@ export function startMenuIssues(state: ShellState, issues: StartMenuIssue[]): St
 }
 
 /** #EDE-65: one chat the host knows (a root session of the current team or Local desktop). */
-export interface ChatInput {
+export interface RailChatInput {
   id: string
   title: string
   agent?: string | null
@@ -530,7 +530,7 @@ export interface ChatInput {
 
 export type ChatDot = `amber` | `green` | `primary`
 
-export interface ChatRow {
+export interface RailChatRow {
   id: string
   title: string
   icon: string
@@ -547,7 +547,7 @@ const chatIcon = (agent: string | null | undefined): string => {
 }
 
 /** #EDE-65: the rail's chats: the most recent first (ties by id), at most CHATS_MAX, the IDE's dots. */
-export function chatRows(chats: ChatInput[]): ChatRow[] {
+export function chatRows(chats: RailChatInput[]): RailChatRow[] {
   return [...chats]
     .sort((a, b) => (a.at === b.at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.at < b.at ? 1 : -1))
     .slice(0, CHATS_MAX)
