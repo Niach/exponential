@@ -101,6 +101,22 @@ pub fn build(sources: Vec<Source>) -> Vec<Indexed> {
     out
 }
 
+/// #EDE-65 lane I: the chat's `#` typeahead: the engine's ranking over one
+/// team's or Local desktop's issues, `(identifier, title)`, at most `limit`.
+pub fn rank_in(index: &[Indexed], kind: &SwitcherKind, source_id: &str, query: &str, limit: usize) -> Vec<(String, String)> {
+    let mine: Vec<&Indexed> = index.iter().filter(|i| &i.source == kind && i.source_id == source_id).collect();
+    let rows: Vec<domain::issue_search::SearchRow<'_>> = mine
+        .iter()
+        .map(|i| {
+            domain::issue_search::SearchRow::new(&i.id, &i.identifier, &i.title)
+                .with_description(i.description.as_deref())
+                .with_times(i.created_at.as_deref(), i.updated_at.as_deref())
+                .with_status(i.status.as_deref())
+        })
+        .collect();
+    domain::issue_search::rank(&rows, query, limit, &HashSet::new()).into_iter().map(|ix| (mine[ix].identifier.clone(), mine[ix].title.clone())).collect()
+}
+
 /// The engine's ranking over the whole pool, capped at the menu's rows.
 pub fn search(index: &[Indexed], query: &str) -> Vec<StartMenuIssue> {
     if query.trim().is_empty() {

@@ -132,6 +132,75 @@ pub fn slash_menu(draft: &str, cli: Option<&str>, prompts: &[domain::rows::Promp
     serde_json::json!({"open": !rows.is_empty(), "rows": rows})
 }
 
+/// A person `@` can name: their label and email.
+pub struct Member {
+    pub name: String,
+    pub email: String,
+}
+
+/// THE `@`/`#` typeahead (`domain::typeahead`, the IDE's rules) over the
+/// token at the END of the draft (the chat's composer reports its text, not
+/// its caret: the token being typed is the last one). `@` = the members by
+/// name or email, inserting `@<email>`; `#` = the issues the engine ranks
+/// (`issues`: the caller's already ranked `(identifier, title)`), inserting
+/// `#<IDENTIFIER>`. Rows have the `/` menu's shape; `insert` is the whole
+/// new draft (the token replaced, a space after it).
+pub fn mention_menu(draft: &str, members: &[Member], issues: &[(String, String)]) -> Option<serde_json::Value> {
+    use domain::typeahead::{detect_trigger, mention_matches, CompletionTrigger, MAX_ITEMS};
+    let token = detect_trigger(draft, draft.len())?;
+    let head = &draft[..token.start];
+    let rows: Vec<serde_json::Value> = match token.trigger {
+        CompletionTrigger::Mention => {
+            let needle = token.query.to_lowercase();
+            let mut picks: Vec<&Member> = members.iter().filter(|m| mention_matches(&m.name, &m.email, &needle)).collect();
+            picks.sort_by(|a, b| a.name.cmp(&b.name));
+            picks.dedup_by(|a, b| a.email == b.email);
+            picks
+                .into_iter()
+                .take(MAX_ITEMS)
+                .map(|m| serde_json::json!({"key": format!("member:{}", m.email), "command": "", "description": m.name, "hint": m.email, "icon": "user", "insert": format!("{head}@{} ", m.email), "prompt": ""}))
+                .collect()
+        }
+        CompletionTrigger::IssueRef => issues
+            .iter()
+            .take(MAX_ITEMS)
+            .map(|(identifier, title)| serde_json::json!({"key": format!("issue:{identifier}"), "command": identifier, "description": title, "hint": "", "icon": null, "insert": format!("{head}#{identifier} "), "prompt": ""}))
+            .collect(),
+        // EXP-551: glyph · `:shortcode:` · label; a pick inserts the UNICODE.
+        CompletionTrigger::Emoji => {
+            let catalog = domain::emoji::catalog();
+            catalog
+                .search(&token.query, MAX_ITEMS)
+                .into_iter()
+                .filter_map(|index| catalog.get(index))
+                .map(|emoji| {
+                    let code = emoji.shortcodes.first().cloned().unwrap_or_else(|| emoji.label.clone());
+                    serde_json::json!({"key": format!("emoji:{code}"), "command": "", "description": format!("{} :{code}:", emoji.unicode), "hint": emoji.label, "icon": null, "insert": format!("{head}{}", emoji.unicode), "prompt": ""})
+                })
+                .collect()
+        }
+    };
+    Some(serde_json::json!({"open": !rows.is_empty(), "rows": rows}))
+}
+
+/// EXP-551: a CLOSED exact `:shortcode:` at the end of the draft commits
+/// to its unicode at once (the IDE's `exact_emoji`): the new draft, or `None`.
+pub fn commit_emoji(draft: &str) -> Option<String> {
+    let token = domain::typeahead::detect_trigger(draft, draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::Emoji && t.closed)?;
+    let emoji = domain::emoji::catalog().find_shortcode(&token.query)?;
+    Some(format!("{}{}", &draft[..token.start], emoji.unicode))
+}
+
+/// The goldens' people.
+pub fn demo_members() -> Vec<Member> {
+    [("Dana Reyes", "dana@example.com"), ("Alex Kim", "alex@example.com"), ("Danny", "danny@example.com")].into_iter().map(|(name, email)| Member { name: name.into(), email: email.into() }).collect()
+}
+
+/// The goldens' ranked issues.
+pub fn demo_issues() -> Vec<(String, String)> {
+    [("FB-8", "Editor takes seconds to open on older laptops"), ("FB-9", "Screenshots attached to feedback are cropped")].into_iter().map(|(i, t)| (i.into(), t.into())).collect()
+}
+
 /// The goldens' team prompts.
 pub fn demo_prompts() -> Vec<domain::rows::PromptRow> {
     [("p1", "Release notes", "rocket"), ("p2", "Triage the inbox", "")]
@@ -146,6 +215,29 @@ const PROMPT_ICON: &str = "action-default";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colon_lists_emoji_and_a_closed_shortcode_commits() {
+        let menu = mention_menu("nice :tad", &[], &[]).expect(":");
+        assert_eq!(menu["rows"][0]["description"], "🎉 :tada:");
+        assert_eq!(menu["rows"][0]["insert"], "nice 🎉");
+        assert_eq!(commit_emoji("nice :tada:").as_deref(), Some("nice 🎉"));
+        assert_eq!(commit_emoji("nice :tad"), None);
+        assert!(mention_menu("at 12:30", &[], &[]).is_none(), "times never open it");
+    }
+
+    #[test]
+    fn at_lists_members_and_hash_the_ranked_issues_replacing_the_last_token() {
+        let members = vec![Member { name: "Dana Reyes".into(), email: "dana@x.com".into() }, Member { name: "Alex".into(), email: "alex@x.com".into() }];
+        let menu = mention_menu("ping @da", &members, &[]).expect("@");
+        assert_eq!(menu["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(menu["rows"][0]["insert"], "ping @dana@x.com ");
+        let issues = vec![("EXP-12".to_string(), "Fix the tray".to_string())];
+        let hash = mention_menu("see #EX", &members, &issues).expect("#");
+        assert_eq!((hash["rows"][0]["command"].as_str(), hash["rows"][0]["insert"].as_str()), (Some("EXP-12"), Some("see #EXP-12 ")));
+        assert!(mention_menu("plain text", &members, &issues).is_none());
+        assert_eq!(mention_menu("@zzz", &members, &[]).unwrap()["open"], false);
+    }
 
     #[test]
     fn the_team_s_prompts_follow_the_builtins_by_their_slash_name() {
