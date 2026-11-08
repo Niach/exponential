@@ -6,6 +6,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use eui_core::animation::{animation_frame, animation_timing, keyframes_css, ANIMATION_NAMES};
+use eui_core::chart::{format_chart_value, ValueFormat};
 use eui_core::code::tokenize_code;
 use eui_core::conditions::{default_breakpoints, resolve_conditions, ConditionContext};
 use eui_core::data::{bind_row_slot, bind_tree, get_pointer, resolve_value, run_action, set_pointer, ResolveContext};
@@ -163,6 +164,13 @@ pub fn format_cases() -> Vec<Case> {
         })
     }));
     out.extend(arr(&f["display"]).iter().map(|d| case(format!("display {}", d["name"].as_str().unwrap_or("")), || same(&json!(display_string(&d["value"])), &d["expected"]))));
+    // FEED-205: a Chart value in its `valueFormat`.
+    out.extend(arr(&f["chartValues"]).iter().map(|c| {
+        case(format!("chart {}", c["name"].as_str().unwrap_or("")), || {
+            let got = format_chart_value(&eui_core::format::EnglishFormatter, c["value"].as_f64().unwrap_or(f64::NAN), &ValueFormat::of(c.get("valueFormat")));
+            same(&json!(got), &c["expected"])
+        })
+    }));
     out
 }
 

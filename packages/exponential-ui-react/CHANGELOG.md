@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Chart `valueFormat` (ticks, tooltip, value labels, summary) and `rows` + `categoryField` + series `field` (#FEED-205).
 - Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).
 
 ## 0.19.1 (2026-11-07)

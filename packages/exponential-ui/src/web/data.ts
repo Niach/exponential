@@ -9,7 +9,7 @@
 // surface locale + time zone). Pure, so the host can run it too.
 
 import { BIND_FUNCTIONS, CORE_CATALOG_ID, CORE_FUNCTIONS, EFFECT_FUNCTIONS, EXPRESSION_CALL_NAMES, INDEX_FUNCTION, coerceBoolean, isBinding, isCall, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, writePointer } from "@exponential_app/eui"
-import type { CatalogView, DataBinding, ExtensionDef, Failure, Formatter, FunctionCall, RouteAnswer, RoutedCall } from "@exponential_app/eui"
+import type { CatalogView, CompactOptions, DataBinding, ExtensionDef, Failure, Formatter, FunctionCall, RouteAnswer, RoutedCall } from "@exponential_app/eui"
 
 export type DataModel = Record<string, unknown> | unknown[]
 
@@ -129,6 +129,7 @@ export function memoFormatter(base: Formatter, max = 4096): Formatter {
     number: (value, o) => memo(`n|${value}|${o?.decimals}|${o?.grouping}`, () => base.number(value, o)),
     currency: (value, currency, o) => memo(`c|${currency}|${value}|${o?.decimals}|${o?.grouping}`, () => base.currency(value, currency, o)),
     percent: (value, o) => memo(`p|${value}|${o?.decimals}`, () => base.percent(value, o)),
+    ...(base.compact ? { compact: (value: number, o?: CompactOptions) => memo(`k|${o?.currency}|${value}|${o?.decimals}`, () => base.compact!(value, o)) } : {}),
     date: (value, o) => memo(`d|${o?.format}|${o?.style}|${o?.time}|${valueKey(value)}`, () => base.date(value, o)),
     relativeTime: (value, now) => base.relativeTime(value, now),
     plural: (value) => memo(`l|${value}`, () => base.plural(value)) as ReturnType<Formatter[`plural`]>,

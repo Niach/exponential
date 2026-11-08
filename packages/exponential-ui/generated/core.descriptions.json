@@ -1612,6 +1612,12 @@
         "series": {
           "description": "One per line, bar group or pie ring."
         },
+        "rows": {
+          "description": "Rows (a query's `groups`) for `categoryField` and series `field`s."
+        },
+        "categoryField": {
+          "description": "The row field naming each category."
+        },
         "title": {
           "description": "A title above the chart."
         },
@@ -1629,6 +1635,9 @@
         },
         "max": {
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        "valueFormat": {
+          "description": "Ticks, tooltip and values as number, currency, percent (ratio) or compact (12K)."
         },
         "showAxes": {
           "description": "Draws the axes with tick labels."
@@ -3420,13 +3429,30 @@
           "description": "The legend label."
         },
         "values": {
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "description": "The series' colour tone; charts default to the chart hues in order."
         }
       },
       "description": "One chart series."
+    },
+    "valueFormat": {
+      "properties": {
+        "type": {
+          "description": "The format."
+        },
+        "currency": {
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "description": "Fixed fraction digits."
+        }
+      },
+      "description": "How a chart prints values."
     },
     "pageItem": {
       "properties": {

@@ -300,6 +300,35 @@ object Round2Suites {
             }
         } + list(f, "display").map { d ->
             case("display ${s(d, "name")}") { same(JsonValue.Str(displayStringJson(d["value"]!!.json)).json, d["expected"]!!) }
+        } + chartValues(f, formatter)
+    }
+
+    /** FEED-205: a Chart value in its `valueFormat`, as the core hands it to this painter (`props.chart.valueLabels`) through ICU. */
+    private fun chartValues(f: JsonValue, formatter: IcuFormatter?): List<Pair<String, String?>> {
+        val charts = list(f, "chartValues")
+        val spaced = { t: String -> t.replace('\u202F', ' ').replace('\u00A0', ' ') }
+        val labels = mutableMapOf<String, String?>()
+        if (charts.isNotEmpty()) {
+            val children = charts.mapIndexed { i, c ->
+                val props = buildMap {
+                    put("kind", JsonValue.Str("bar"))
+                    put("series", JsonValue.Arr(listOf(JsonValue.Obj(mapOf("name" to JsonValue.Str("s"), "values" to JsonValue.Arr(listOf(c["value"]!!)))))))
+                    c["valueFormat"]?.let { put("valueFormat", it) }
+                }
+                JsonValue.Obj(mapOf("id" to JsonValue.Str("c$i"), "component" to JsonValue.Str("Chart"), "props" to JsonValue.Obj(props)))
+            }
+            val surface = Surface("chart-values", coreCatalogId(), "", "light")
+            surface.setFormatter(formatter)
+            surface.setNested(JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Stack"), "children" to JsonValue.Arr(children))).json)
+            surface.setViewport(390f, 800f, null)
+            surface.layoutFixed(null, true)
+            for (n in surface.nodes()) if (n.component == "Chart") labels[n.id] = JsonValue.parse(n.propsJson)["chart"]?.get("valueLabels")?.array?.firstOrNull()?.array?.firstOrNull()?.string
+        }
+        return charts.mapIndexed { i, c ->
+            case("chart ${s(c, "name")}") {
+                val got = labels["c$i"] ?: return@case "no value label"
+                same(JsonValue.Str(spaced(got)).json, JsonValue.Str(spaced(c["expected"]!!.string ?: "")))
+            }
         }
     }
 

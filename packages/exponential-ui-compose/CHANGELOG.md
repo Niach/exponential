@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Chart value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
 - While an anchored overlay is up, the events the core raises during a pass are dispatched (#EXP-1739: an overlay whose anchor moved or went closes).
 
 ## 0.19.1 (2026-11-07)

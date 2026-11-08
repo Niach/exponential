@@ -54,6 +54,7 @@ import {
   DEFAULT_STRINGS,
   animationFrame,
   displayString,
+  formatChartValue,
   intlFormatter,
   scrollOffsetForIndex,
   tableRowKeys,
@@ -64,7 +65,7 @@ import {
   styleToCss,
   readOnlyDisabledIds,
 } from "../src/index"
-import type { ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
+import type { ChartValueFormat, ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
 import { conformanceManifest } from "../src/conformance"
 import type { ConformanceReport } from "../src/conformance"
 import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, getPointer, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
@@ -500,6 +501,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       const spaces = (v: unknown) => String(v).replace(/[  ]/g, ` `)
       for (const c of f.zoned) record(`format`, `zoned: ${c.name}`, () => spaces(resolveValue(c.call, { data: {}, locale: `en-US`, formatter: memoFormatter(intlFormatter(`en-US`, c.timeZone)) })) === spaces(c.expected))
       for (const d of f.display) record(`format`, `display: ${d.name}`, () => displayString(d.value) === d.expected)
+      // FEED-205: a Chart value in its `valueFormat` (the painters' `formatChartValue`).
+      for (const c of (fixture(`format.json`) as { chartValues: { name: string; value: number; valueFormat?: ChartValueFormat; expected: string }[] }).chartValues) record(`format`, `chart: ${c.name}`, () => spaces(formatChartValue(formatter, c.value, c.valueFormat)) === spaces(c.expected))
       const items = fixture(`template-items.json`)
       const keyed = (data: unknown, template: ChildTemplate, scope: string) => logic.templateItems({ data, templateNode: () => ({}) } as unknown as Ctx, { template } as unknown as UiNode, scope)?.items ?? []
       for (const c of items.keys) record(`template-items`, `keys: ${c.name}`, () => canon(keyed({ items: c.items }, { component: `x`, path: `/items`, ...(c.key === undefined ? {} : { key: c.key }) } as ChildTemplate, ``).map((i) => i.key)) === canon(c.expected))

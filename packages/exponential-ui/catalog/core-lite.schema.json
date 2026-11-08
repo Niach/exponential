@@ -19554,7 +19554,11 @@
           "items": {
             "type": "number"
           },
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "type": "string",
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "enum": [
@@ -19569,9 +19573,33 @@
         }
       },
       "required": [
-        "name",
-        "values"
+        "name"
       ],
+      "additionalProperties": false
+    },
+    "valueFormat": {
+      "type": "object",
+      "description": "How a chart prints values.",
+      "properties": {
+        "type": {
+          "enum": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "description": "The format.",
+          "default": "number"
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "Fixed fraction digits."
+        }
+      },
       "additionalProperties": false
     },
     "pageItem": {

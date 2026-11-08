@@ -23,6 +23,10 @@ struct ChartModel {
     var max: Double
     /// Axis ticks and grid lines (the core's `niceTicks`).
     var ticks: [Double]
+    /// FEED-205: the tick and value labels the core formatted (the surface
+    /// formatter in the chart's `valueFormat`); `valueLabels[s][i]`.
+    var tickLabels: [String]
+    var valueLabels: [[String]]
     /// One colour token per series (per slice for pie / donut):
     /// `$color.chart1..8` or a tone's colour.
     var colorTokens: [String]
@@ -46,6 +50,8 @@ struct ChartModel {
         min = chart["min"]?.number ?? 0
         max = chart["max"]?.number ?? Swift.max(all.max() ?? 1, 1)
         ticks = chart["ticks"]?.array?.compactMap(\.number) ?? [min, max]
+        tickLabels = chart["tickLabels"]?.array?.map(\.displayText) ?? []
+        valueLabels = chart["valueLabels"]?.array?.map { $0.array?.map(\.displayText) ?? [] } ?? []
         colorTokens = chart["colors"]?.array?.compactMap(\.string) ?? []
         hole = chart["hole"]?.number ?? (kind == "donut" ? 0.6 : 0)
         let plain = kind != "sparkline" && kind != "pie" && kind != "donut"
@@ -99,7 +105,15 @@ struct ChartModel {
         return series.count > 1 ? series.map { $0["name"]?.displayText ?? "" } : []
     }
 
-    /// A tick / value label: integers plain, else up to 2 decimals.
+    /// Tick `i`'s label: the core's, else [format].
+    func tickLabel(_ i: Int) -> String { tickLabels[safe: i] ?? ticks[safe: i].map(Self.format) ?? "" }
+
+    /// Series `s`'s value `i` as the core formatted it, else [format].
+    func valueLabel(_ s: Int, _ i: Int) -> String {
+        valueLabels[safe: s]?[safe: i] ?? series[safe: s]?.values[safe: i].map(Self.format) ?? ""
+    }
+
+    /// A tick / value label without the core's: integers plain, else up to 2 decimals.
     static func format(_ v: Double) -> String {
         if abs(v - v.rounded()) < 1e-4 { return String(Int(v.rounded())) }
         var s = String(format: "%.2f", v)
