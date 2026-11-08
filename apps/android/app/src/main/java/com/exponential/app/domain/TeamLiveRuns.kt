@@ -6,8 +6,8 @@ import com.exponential.app.data.db.SessionEntity
  * EXP-1075: live sessions of the CALLER's, grouped by team — the input behind
  * the board switcher SHEET's per-team dots. A DOT, never a count.
  * EXP-1291: a session lights a dot while `queued`/`running` or waiting on a
- * person — the same rule as the Threads list's Needs you / Running groups
- * (`SessionTree.partitionThreads`). An idle person-started thread never ends
+ * person — the same rule as the Chats list's Needs you / Running groups
+ * (`SessionTree.partitionChats`). An idle person-started chat never ends
  * on its own, so idle never counts; agents (never ended) only while busy or
  * waiting.
  */

@@ -1,7 +1,7 @@
 //! EXP-1341: ONE session model ×4 — the Rust twin of
 //! `packages/domain-contract/src/session-kind.ts` (iOS `SessionKind.swift`,
 //! Android `domain/SessionKind.kt`), locked by `fixtures/session-kind.json`.
-//! A thread and an agent run the same way; an agent is just `persistent`
+//! A chat and an agent run the same way; an agent is just `persistent`
 //! (never ends: an exit or a refused launch reports idle, `sessions.end`
 //! refuses it, its scratch dir is kept, and its device REVIVES it when it
 //! comes back). NEW-2: the kind derives from `agent_id` (an agent's
@@ -27,7 +27,7 @@ pub const THREAD: SessionTraits = SessionTraits { persistent: false, triggers: f
 /// `kinds.agent`.
 pub const AGENT: SessionTraits = SessionTraits { persistent: true, triggers: true, links_issues: false };
 
-/// The traits of `kind`; an unknown or absent kind = a thread.
+/// The traits of `kind`; an unknown or absent kind = a chat.
 pub fn session_traits(kind: Option<&str>) -> SessionTraits {
     match kind {
         Some(SESSION_KIND_AGENT) => AGENT,

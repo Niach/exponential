@@ -10,7 +10,7 @@ const web = (view: string, alt: string) => shot(view, `web`, alt)
 <BlogPost slug="session-as-interface">
   <h2 id="setup">The tracker's MCP inside the session</h2>
   <p>
-    Claude Code or Codex starts with the tracker's MCP server in its config and a header that names the session (a thread is the top session of a tree). Every call the agent makes arrives as that
+    Claude Code or Codex starts with the tracker's MCP server in its config and a header that names the session (a chat is the root session of a tree). Every call the agent makes arrives as that
     session: it reads its issue, comments, links a pull request, asks a question or messages another session. The session view knows these tools and draws each result by its kind.
   </p>
   <img {...web(`composer-menu`, `The composer's + menu: the issue to implement, the team's MCP servers, computer use`)} loading="lazy" decoding="async" />
@@ -27,7 +27,7 @@ const web = (view: string, alt: string) => shot(view, `web`, alt)
     Any issue identifier in a message, a comment or a tool result is a chip: status glyph, identifier, title. Hover shows the assignee, status, priority and labels from data the client already has; a
     click opens the issue in the nearest view that shows it. Tool results return references as a kind and an id, and each client resolves them from its own rows.
   </p>
-  <img {...web(`thread`, `Issue chips in the tab strip, in the agent's text and in a child's report`)} loading="lazy" decoding="async" />
+  <img {...web(`chat-screen`, `Issue chips in the tab strip, in the agent's text and in a child's report`)} loading="lazy" decoding="async" />
 
   <h2 id="images">Pictures inline in both directions</h2>
   <p>
@@ -51,22 +51,22 @@ const web = (view: string, alt: string) => shot(view, `web`, alt)
     What a session wants a person to see lands in the chat's Results tab: what it showed, with its screenshots. A question or a plan waits in Needs you, and a question is answered right there. The
     pull request body is a short summary plus the result pictures of each platform; opening a PR with a UI change and no picture is refused.
   </p>
-  <img {...web(`thread-results`, `A chat's Results tab: the agent's results with their screenshots`)} loading="lazy" decoding="async" />
+  <img {...web(`chat-results`, `A chat's Results tab: the agent's results with their screenshots`)} loading="lazy" decoding="async" />
 
   <h2 id="notifications">A question waits at the composer</h2>
   <p>
-    When the agent asks, the question stays put as a card at the composer, with its options and a text field, and several can wait at once. The thread moves under Needs you, the inbox gets the entry,
+    When the agent asks, the question stays put as a card at the composer, with its options and a text field, and several can wait at once. The chat moves under Needs you, the inbox gets the entry,
     the phones get the push, and an @email mention notifies that person. The agent can also offer quick replies, which send on one tap.
   </p>
   <img {...web(`ask-dock`, `Waiting plans and a question at the composer`)} loading="lazy" decoding="async" />
-  <img {...web(`thread-replies`, `Quick replies above the composer`)} loading="lazy" decoding="async" />
+  <img {...web(`chat-replies`, `Quick replies above the composer`)} loading="lazy" decoding="async" />
 
   <h2 id="bus">Sessions message each other</h2>
   <p>
     One tool, <code>sessions.send</code>, messages a session or a team agent, or starts a child. The server posts every child transition into the parent as a message, and a message is what wakes a
-    session, so nothing polls. A team agent is a session with a longer life: a channel that triages, reports and starts threads.
+    session, so nothing polls. A team agent is a session with a longer life: a channel that triages, reports and starts sessions.
   </p>
-  <img {...web(`agent-channel`, `A team agent's channel: its reports, a request, the thread it started as one card`)} loading="lazy" decoding="async" />
+  <img {...web(`agent-channel`, `A team agent's channel: its reports, a request, the session it started as one card`)} loading="lazy" decoding="async" />
 
   <h2 id="pattern">Four decisions</h2>
   <ul>

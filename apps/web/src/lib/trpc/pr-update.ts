@@ -12,9 +12,9 @@ import {
 // open-state, the installation link-gate). This maps GitHub's refusal onto
 // the same error vocabulary retarget/close use.
 //
-// EXP-1291: every PR body of a thread is its Guide (`lib/pr-body.ts`,
+// EXP-1291: every PR body of a chat is its Guide (`lib/pr-body.ts`,
 // re-synced by `syncPullRequestBodies` on every Guide write); a person's
-// edit holds until the thread's next Guide write.
+// edit holds until the chat's next Guide write.
 
 /** The `pr_open` limits, so an update can never be refused for a size the
  *  open accepted. */

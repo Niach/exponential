@@ -41,7 +41,7 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // so the pickers, the options line, the image
 // plumbing and the per-subject submit label cannot drift between the two
 // surfaces. What the dialog adds is a shell: a title, a scroll body and the
-// rule that a started session shuts it (the composer opens its thread) and,
+// rule that a started session shuts it (the composer opens its chat) and,
 // until then, that nothing ELSE shuts it: a dismissal while the start is in
 // flight (uploads + `sessions.send`) is refused rather than dropping it.
 
@@ -116,7 +116,7 @@ function LaunchDialogBody({
   const { data: authSession } = useSession()
   const currentUserId = authSession?.user?.id
   const { users } = useTeamUsers(team.id)
-  // EXP-1293: a start opens its THREAD, whatever surface the click came from.
+  // EXP-1293: a start opens its CHAT, whatever surface the click came from.
   const seed = request
   const { devices } = useSteerDevices({
     enabled: true,
@@ -134,7 +134,7 @@ function LaunchDialogBody({
   // S-3: the viewer's Assistant exists before the agent row lists it.
   useEnsureAssistant(team.id)
   // The launcher gets out of the way once the session started (the composer
-  // then opens its thread); a failed start keeps the draft and the dialog.
+  // then opens its chat); a failed start keeps the draft and the dialog.
   const model = useLaunchComposer({
     teamId: team.id,
     devices,

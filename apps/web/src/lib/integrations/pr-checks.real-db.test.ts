@@ -75,8 +75,8 @@ afterAll(async () => {
   }
 })
 
-/** A private thread with a child; the child opens PR #7. */
-async function threadWithPr() {
+/** A private chat with a child; the child opens PR #7. */
+async function chatWithPr() {
   const owner = await user()
   const [team] = await db
     .insert(teams)
@@ -88,8 +88,8 @@ async function threadWithPr() {
   await db.insert(boards).values({ teamId, name: `Core`, slug: `core-${id8()}`, prefix: `RF` })
   const deviceId = `dev-${id8()}`
   await db.insert(devices).values({ userId: owner, deviceId, label: `box`, kind: `server` })
-  const thread = (await sendSession({ userId: owner, input: { teamId, deviceId, text: `work` } })).sessionId
-  const child = (await sendSession({ userId: owner, input: { parentId: thread, text: `part` } })).sessionId
+  const chat = (await sendSession({ userId: owner, input: { teamId, deviceId, text: `work` } })).sessionId
+  const child = (await sendSession({ userId: owner, input: { parentId: chat, text: `part` } })).sessionId
   const fullName = `o/checks-${id8()}`
   const [repo] = await db
     .insert(repositories)
@@ -97,7 +97,7 @@ async function threadWithPr() {
     .returning({ id: repositories.id })
   const { pullRequest } = await recordPullRequestOpened({
     teamId,
-    rootSessionId: thread,
+    rootSessionId: chat,
     sessionId: child,
     repositoryId: repo!.id,
     repoFullName: fullName,
@@ -109,7 +109,7 @@ async function threadWithPr() {
     issueIds: [],
     actorUserId: owner,
   })
-  return { owner, thread, child, prId: pullRequest.id }
+  return { owner, chat, child, prId: pullRequest.id }
 }
 
 const ciLines = (sessionId: string) =>
@@ -133,7 +133,7 @@ const stateOf = async (prId: string) =>
 
 describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   it(`pending → failure wakes the opener ONCE, naming the red check and its logs`, async () => {
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `aaa`, checks: [run(`gate`, `in_progress`, null), run(`lint`, `queued`, null)] })
     expect(await stateOf(w.prId)).toBe(`pending`)
     expect(await ciLines(w.child)).toEqual([])
@@ -152,7 +152,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   })
 
   it(`a newer head replaces the older head's rows; a late older-head delivery is dropped`, async () => {
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `old`, checks: [run(`gate`, `completed`, `failure`, 0)] })
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `new`, checks: [run(`gate`, `in_progress`, null, 10)] })
     const late = await writePullRequestChecks({ pullRequestId: w.prId, headSha: `old`, checks: [run(`e2e`, `completed`, `success`, 1)] })
@@ -163,7 +163,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   })
 
   it(`a snapshot drops the names it lacks; pending → success wakes with success`, async () => {
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `s1`, checks: [run(`gate`, `in_progress`, null), run(`gone`, `queued`, null)] })
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `s1`, checks: [run(`gate`, `completed`, `success`)], snapshot: true, required: new Set([`gate`]) })
     const rows = await db.select().from(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, w.prId))
@@ -174,7 +174,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   // #FEED-199: a wake means the REQUIRED check reported a real outcome at
   // the PR's current head.
   it(`an early workflow never wakes; the required check's success does, once`, async () => {
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     const required = new Set([`gate`])
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `r1`, checks: [run(`pick`, `completed`, `success`)], required })
     expect(await stateOf(w.prId)).toBe(`success`)
@@ -187,7 +187,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   })
 
   it(`a cancelled run wakes nobody; a delivery for a superseded head is dropped`, async () => {
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     const required = new Set([`gate`])
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `c1`, checks: [run(`gate`, `completed`, `cancelled`)], required })
     expect(await ciLines(w.child)).toEqual([])
@@ -211,7 +211,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   // reads the pending PR itself.
   it(`the watchdog sweep wakes a pending PR's session without any webhook`, async () => {
     resetPrChecksForTests()
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `w1`, checks: [run(`gate`, `in_progress`, null)] })
     githubRuns.runs = [
       { name: `gate`, status: `completed`, conclusion: `success`, head_sha: `w1`, started_at: at(0).toISOString(), completed_at: at(3).toISOString() },
@@ -227,7 +227,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
 
   it(`the sweep skips a pending PR that has not moved in hours`, async () => {
     resetPrChecksForTests()
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `z1`, checks: [run(`gate`, `in_progress`, null)] })
     githubRuns.runs = [
       { name: `gate`, status: `completed`, conclusion: `success`, head_sha: `z1`, started_at: at(0).toISOString(), completed_at: at(3).toISOString() },
@@ -237,7 +237,7 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
   })
 
   it(`a check queued past the limit is flagged once`, async () => {
-    const w = await threadWithPr()
+    const w = await chatWithPr()
     await writePullRequestChecks({ pullRequestId: w.prId, headSha: `q1`, checks: [run(`android`, `queued`, null, 0)] })
     const later = new Date(at(0).getTime() + 31 * 60_000)
     expect(await flagQueuedChecks(later)).toBeGreaterThanOrEqual(1)

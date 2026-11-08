@@ -395,7 +395,7 @@ impl engine::EngineHost for CliEngineHost {
             Some(result) if self.persistent || engine::keeps_workspace(&exit.outcome) => {
                 registry::apply_end_outcome(&self.data_dir, &exit.session_id, result)
             }
-            // EXP-1292: a thread's END that never resolved is the one report
+            // EXP-1292: a chat's END that never resolved is the one report
             // the next start's reconcile must re-send as an end — every other
             // host-less row is reconciled `idle` (resumable).
             Some(result) if !registry::end_outcome_resolves(result) => {

@@ -3,7 +3,7 @@
 //! card waiting on the viewer is a DockCard of THE Dock ([`crate::dock`]);
 //! the composer never leaves. This file keeps the cards' own words: the
 //! row's label and title, the plan options ONE list ×4 ([`plan_options`]), a
-//! thread's waiting cards. Byte-locked by `fixtures/ask-dock.json`; pure.
+//! chat's waiting cards. Byte-locked by `fixtures/ask-dock.json`; pure.
 
 use std::sync::LazyLock;
 
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::rows::MessageRow;
-use crate::session_tree::{SessionThreadRow, ThreadTab};
+use crate::session_tree::{SessionChatRow, ChatTab};
 
 const ASK_DOCK_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/ask-dock.json");
 
@@ -84,7 +84,7 @@ pub struct AskDockPending {
     pub kind: AskDockKind,
     /// The plan, or the question's text (markdown).
     pub text: String,
-    /// The asking session's name in a thread; `None` in the session view.
+    /// The asking session's name in a chat; `None` in the session view.
     pub session_name: Option<String>,
     /// Dock order, oldest first.
     pub created_at: i64,
@@ -157,21 +157,21 @@ pub fn ask_dock_title(text: &str) -> String {
     String::new()
 }
 
-/// A thread's waiting cards, in Conversation order: every plan row with no
+/// A chat's waiting cards, in Conversation order: every plan row with no
 /// decision and every unanswered question row, of ANY session in the tree.
 /// `session_name` names the asking session (`None` = unnamed).
-pub fn thread_pending_asks(
-    rows: &[SessionThreadRow],
+pub fn chat_pending_asks(
+    rows: &[SessionChatRow],
     session_name: impl Fn(&str) -> Option<String>,
 ) -> Vec<AskDockPending> {
     rows.iter()
         .enumerate()
         .filter_map(|(index, row)| {
             let (kind, text, session_id, questions) = match row {
-                SessionThreadRow::Plan { decision: None, plan, session_id, questions, .. } => {
+                SessionChatRow::Plan { decision: None, plan, session_id, questions, .. } => {
                     (AskDockKind::Plan, plan, session_id, Some(questions.len()))
                 }
-                SessionThreadRow::Question { answered: false, question, session_id, .. } => {
+                SessionChatRow::Question { answered: false, question, session_id, .. } => {
                     (AskDockKind::Question, question, session_id, None)
                 }
                 _ => return None,
@@ -188,12 +188,12 @@ pub fn thread_pending_asks(
         .collect()
 }
 
-/// A thread's card captions: each session TAB's name (nested ones
+/// A chat's card captions: each session TAB's name (nested ones
 /// included); the root (no tab) = `None`.
-pub fn thread_session_names(tabs: &[ThreadTab]) -> impl Fn(&str) -> Option<String> {
+pub fn chat_session_names(tabs: &[ChatTab]) -> impl Fn(&str) -> Option<String> {
     let mut names: HashMap<String, String> = HashMap::new();
     for tab in tabs {
-        if let ThreadTab::Session { session_id, name, nested, .. } = tab {
+        if let ChatTab::Session { session_id, name, nested, .. } = tab {
             names.insert(session_id.clone(), name.clone());
             for item in nested {
                 names.insert(item.session_id.clone(), item.name.clone());
@@ -319,7 +319,7 @@ pub fn anchor_session_cards(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session_tree::{SessionTabMarkState, ThreadTabNestedSession};
+    use crate::session_tree::{SessionTabMarkState, ChatTabNestedSession};
     use serde_json::Value;
 
     fn fixture() -> Value {
@@ -358,10 +358,10 @@ mod tests {
 
     /// The fixture's rows carry only what the pick reads; every other row
     /// type becomes a placeholder event.
-    fn thread_row(row: &Value) -> SessionThreadRow {
+    fn session_chat_row(row: &Value) -> SessionChatRow {
         let s = |key: &str| row[key].as_str().unwrap_or_default().to_string();
         match row["type"].as_str() {
-            Some("plan") => SessionThreadRow::Plan {
+            Some("plan") => SessionChatRow::Plan {
                 id: s("id"),
                 session_id: s("sessionId"),
                 plan: s("plan"),
@@ -373,7 +373,7 @@ mod tests {
                 feedback: None,
                 surface_data: None,
             },
-            Some("question") => SessionThreadRow::Question {
+            Some("question") => SessionChatRow::Question {
                 id: s("id"),
                 session_id: s("sessionId"),
                 question: s("question"),
@@ -387,29 +387,29 @@ mod tests {
                 answered: row["answered"].as_bool().unwrap(),
                 dismissed: None,
             },
-            _ => SessionThreadRow::Event { id: s("id"), event: String::new(), text: String::new(), session_id: None },
+            _ => SessionChatRow::Event { id: s("id"), event: String::new(), text: String::new(), session_id: None },
         }
     }
 
     #[test]
-    fn thread_pending_asks_match_the_fixture() {
+    fn chat_pending_asks_match_the_fixture() {
         let fixture = fixture();
-        let cases = fixture["threadCases"].as_array().unwrap();
+        let cases = fixture["chatCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
-            let rows: Vec<SessionThreadRow> = case["rows"].as_array().unwrap().iter().map(thread_row).collect();
+            let rows: Vec<SessionChatRow> = case["rows"].as_array().unwrap().iter().map(session_chat_row).collect();
             let names: HashMap<String, String> = serde_json::from_value(case["sessionNames"].clone()).unwrap();
-            let pending = thread_pending_asks(&rows, |id| names.get(id).cloned());
+            let pending = chat_pending_asks(&rows, |id| names.get(id).cloned());
             assert_eq!(serde_json::to_value(&pending).unwrap(), case["expected"], "{}", case["name"]);
         }
     }
 
     /// The fixture's tabs carry only what the lookup reads (`markState`
     /// is not read).
-    fn tab(tab: &Value) -> ThreadTab {
+    fn tab(tab: &Value) -> ChatTab {
         let s = |value: &Value, key: &str| value[key].as_str().unwrap_or_default().to_string();
         match tab["kind"].as_str() {
-            Some("session") => ThreadTab::Session {
+            Some("session") => ChatTab::Session {
                 session_id: s(tab, "sessionId"),
                 name: s(tab, "name"),
                 mark_state: SessionTabMarkState::Idle,
@@ -417,7 +417,7 @@ mod tests {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|item| ThreadTabNestedSession {
+                    .map(|item| ChatTabNestedSession {
                         session_id: s(item, "sessionId"),
                         name: s(item, "name"),
                         mark_state: SessionTabMarkState::Idle,
@@ -425,19 +425,19 @@ mod tests {
                     })
                     .collect(),
             },
-            Some("add") => ThreadTab::Add,
-            _ => ThreadTab::Conversation,
+            Some("add") => ChatTab::Add,
+            _ => ChatTab::Conversation,
         }
     }
 
     #[test]
-    fn thread_session_names_match_the_fixture() {
+    fn chat_session_names_match_the_fixture() {
         let fixture = fixture();
         let cases = fixture["sessionNameCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
-            let tabs: Vec<ThreadTab> = case["tabs"].as_array().unwrap().iter().map(tab).collect();
-            let name = thread_session_names(&tabs);
+            let tabs: Vec<ChatTab> = case["tabs"].as_array().unwrap().iter().map(tab).collect();
+            let name = chat_session_names(&tabs);
             for (id, expected) in case["lookups"].as_object().unwrap() {
                 assert_eq!(name(id).as_deref(), expected.as_str(), "{} {id}", case["name"]);
             }

@@ -522,7 +522,7 @@ export type FeedItem = FeedSeq &
       kind: `user_message`
       text: string
       subagentId?: string
-      /** EXP-1245: when the relay stamped it; the turns thread slots it. */
+      /** EXP-1245: when the relay stamped it; the turns chat slots it. */
       at?: number
     }
   | { id: number; kind: `permission`; tool: string; detail?: string }
@@ -673,7 +673,7 @@ export interface SteerSessionSnapshot {
    *  `detail` is the "{device} is offline" copy the empty column shows ×4). */
   deviceOffline: boolean
   /** #EXP-1678: a join replay has landed in this snapshot (at least once):
-   *  a thread's child probe reads the Queue only once it is there. */
+   *  a chat's child probe reads the Queue only once it is there. */
   replayed: boolean
 }
 
@@ -895,7 +895,7 @@ export function createSteerSessionStore(
    *  compare per append rather than a walk. */
   let feedBytes = 0
   /** EXP-783: the wire sequence of the event being folded in right now, so
-   *  `append` can stamp it without threading it through every case. It stays
+   *  `append` can stamp it without passing it through every case. It stays
    *  on the last one seen between folds: a row this client appends itself (the
    *  echo of a message it just sent) belongs directly after it. */
   let currentSeq = 0

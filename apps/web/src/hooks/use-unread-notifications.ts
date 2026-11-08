@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc-client"
 // Only call from components rendered when authed — the notifications shape is
 // requireAuth, so subscribing it for anonymous viewers would 401.
 //
-// Thread 58cb32df (chats.json PHONE SHELL): phones show ONE active team, so
+// Chat 58cb32df (chats.json PHONE SHELL): phones show ONE active team, so
 // their inbox dot and "Mark all read" count only `teamId`'s notifications —
 // a row's own `teamId`, else its issue's board's team (issue notifications
 // carry no team, like the server's `markAllRead({teamId})`). No `teamId` =

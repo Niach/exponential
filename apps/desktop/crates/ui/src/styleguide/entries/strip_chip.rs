@@ -1,14 +1,14 @@
 //! EXP-1334: `strip-chip` (2 General components): THE strip chip, the one
-//! tab box of every strip of chips (the thread header's issue + session
+//! tab box of every strip of chips (the chat header's issue + session
 //! chips, the work tab strip's tabs) and the "+N" of a folded zone, drawn
 //! bare, case for case with the web entry: the REAL
-//! [`crate::thread_screen::strip_chip`] (the
+//! [`crate::session_chat::strip_chip`] (the
 //! [`crate::surface::strip_chip_frame`] box with its hairline) at rest,
 //! active, short (the identifier alone), folded (the open nested item as a
 //! path and the chevron), a session chip (the agent mark, the open nested
 //! session), with a trailing x (the work tab), then the "+N" overflow
 //! ([`crate::surface::strip_overflow_button`]). The composed strips are the
-//! `work-tabs-strip` and `thread-parts` entries.
+//! `work-tabs-strip` and `chat-parts` entries.
 
 use gpui::{
     div, px, AnyElement, App, Div, IntoElement, ParentElement as _, SharedString, Styled as _, Window,
@@ -23,7 +23,7 @@ use domain::IssueStatus;
 use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::surface::strip_overflow_button;
-use crate::thread_screen::{strip_chip, strip_issue_body};
+use crate::session_chat::{strip_chip, strip_issue_body};
 
 pub(crate) const ID: &str = "strip-chip";
 pub(crate) const OWNER: &str = "EXP-1334";
@@ -117,7 +117,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(captioned(
             "folded: path and chevron (a click opens its tree)",
             strip_chip("sg-strip-chip-folded", true, cx)
-                .children(strip_issue_body(status(IssueStatus::InProgress), "EXP-1334", "Thread header", true, cx))
+                .children(strip_issue_body(status(IssueStatus::InProgress), "EXP-1334", "Chat header", true, cx))
                 .child(path("EXP-1340", true, cx))
                 .child(chevron(cx)),
             cx,
@@ -130,7 +130,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                     SessionState::Working,
                     cx,
                 )))
-                .child(div().min_w_0().truncate().child("Threads impl"))
+                .child(div().min_w_0().truncate().child("Chats impl"))
                 .child(path("Android lane", false, cx))
                 .child(chevron(cx)),
             cx,

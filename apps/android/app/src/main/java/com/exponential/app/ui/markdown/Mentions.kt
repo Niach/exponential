@@ -26,7 +26,7 @@ class MentionResolver(
 
 /**
  * Provided by screens that can resolve team members (issue detail covers the
- * description read view and the comment thread); null (the default) keeps
+ * description read view and the comment list); null (the default) keeps
  * every token plain text.
  */
 val LocalMentions = compositionLocalOf<MentionResolver?> { null }

@@ -22,11 +22,11 @@ public enum ResultsTab {
         }
 
         public enum TestIds {
-            public static let tab = "thread-results-tab"
-            public static let list = "thread-results"
+            public static let tab = "chat-results-tab"
+            public static let list = "chat-results"
             public static let section = "result-section"
-            public static let changes = "thread-results-changes"
-            public static let stack = "thread-results-stack"
+            public static let changes = "chat-results-changes"
+            public static let stack = "chat-results-stack"
         }
 
         /// A section's geometry; iOS = the `phone` form factor.

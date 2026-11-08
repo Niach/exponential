@@ -76,7 +76,7 @@ public enum MergeTrain {
         return state
     }
 
-    /// session-thread.json copy.events `pr_merge` by the card's
+    /// session-chat.json copy.events `pr_merge` by the card's
     /// `mergeOutcome`; nil = an unknown / missing outcome (the caller keeps
     /// its fallback).
     public static func eventTemplate(outcome: String?) -> String? {
@@ -263,7 +263,7 @@ public enum MergeTrain {
         case closePr = "close-pr"
     }
 
-    /// The header `…` (the thread menu): checks
+    /// The header `…` (the chat menu): checks
     /// (any viewer, rows), Merge now (owners; a live PR not draft, merged or
     /// conflict), Hold | Resume auto-merge (members; a live PR not draft or
     /// merged), Close PR (members, live PR). `state` = contract prState of

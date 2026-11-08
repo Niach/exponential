@@ -70,7 +70,7 @@ import {
   DEMO_EMAIL,
   DEMO_FEED_QUESTION,
   DEMO_STEERED_SESSION_ID,
-  DEMO_THREAD_ID,
+  DEMO_CHAT_ID,
   demoAgentReport,
 } from "./screenshot-demo"
 
@@ -343,11 +343,11 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
 const issues = await Promise.all(
   ids.map((id) => tools.exponential.exponential_issues_get({ id }))
 )
-const threads = await Promise.all(
+const chats = await Promise.all(
   ids.map((issueId) => tools.exponential.exponential_comments_list({ issueId }))
 )
 const files = await tools.exponential.exponential_issues_pr_files({ issueId: "APP-9" })
-return issues.map((issue, i) => \`\${issue.identifier} \${threads[i].length} comments\`)`,
+return issues.map((issue, i) => \`\${issue.identifier} \${chats[i].length} comments\`)`,
     },
   },
   // EXP-1241: the agent's comment on the image-cache issue, the
@@ -439,8 +439,8 @@ interface AgentComment {
 
 // EXP-1284: the scripted feed is stamped on a timeline that ENDS at capture
 // time (`at`, epoch ms; without it every client stamps the whole feed on
-// receipt), and the demo thread's Guide entries are re-stamped into that
-// window just before the closing question, so the thread page reads in real
+// receipt), and the demo chat's Guide entries are re-stamped into that
+// window just before the closing question, so the chat page reads in real
 // order: the prompt, the work, the sections the session filed, the question.
 const FEED_WINDOW_MS = 25 * 60_000
 const FEED_END_GAP_MS = 60_000
@@ -452,28 +452,28 @@ function feedTimeline(count: number, now: number): (index: number) => number {
   return (index) => Math.round(start + (span * index) / Math.max(count - 1, 1))
 }
 
-/** Re-stamps the steered session's Guide entries on DEMO_THREAD_ID (the
+/** Re-stamps the steered session's Guide entries on DEMO_CHAT_ID (the
  *  root's `guide`, EXP-1293) inside the feed's window (oldest first).
- *  Best-effort: a missing thread (an older seed) leaves the capture as it
+ *  Best-effort: a missing chat (an older seed) leaves the capture as it
  *  was. */
 async function restampDemoGuide(now: number): Promise<void> {
   try {
-    const [thread] = await db
+    const [chat] = await db
       .select({ guide: sessions.guide })
       .from(sessions)
-      .where(eq(sessions.id, DEMO_THREAD_ID))
+      .where(eq(sessions.id, DEMO_CHAT_ID))
       .limit(1)
-    if (!Array.isArray(thread?.guide) || thread.guide.length === 0) return
+    if (!Array.isArray(chat?.guide) || chat.guide.length === 0) return
     let next = 0
-    const guide = thread.guide.map((entry) => {
+    const guide = chat.guide.map((entry) => {
       if (entry.sessionId !== DEMO_STEERED_SESSION_ID) return entry
       const before =
         GUIDE_BEFORE_END_MS[Math.min(next++, GUIDE_BEFORE_END_MS.length - 1)]!
       return { ...entry, at: now - FEED_END_GAP_MS - before }
     })
-    await db.update(sessions).set({ guide }).where(eq(sessions.id, DEMO_THREAD_ID))
+    await db.update(sessions).set({ guide }).where(eq(sessions.id, DEMO_CHAT_ID))
   } catch (err) {
-    console.warn(`[feed] could not re-stamp the demo thread's Guide:`, err)
+    console.warn(`[feed] could not re-stamp the demo chat's Guide:`, err)
   }
 }
 
@@ -616,7 +616,7 @@ async function resolveTarget() {
   if (!demo) {
     throw new Error(`demo user ${DEMO_EMAIL} not found — run seed:screenshots first`)
   }
-  // The seeded steered session (EXP-1293: the cold-start thread's child): the
+  // The seeded steered session (EXP-1293: the cold-start chat's child): the
   // demo user's own RUNNING one, which is the only session the apps let them
   // watch (EXP-312, owner-only). Re-asserted first (EXP-913): a capture may
   // have stopped it, and the legacy ticket row's sweep deletes it once no stub
@@ -828,7 +828,7 @@ async function main() {
       (frame.event as { kind?: string } | undefined)?.kind === `narration` ? index : last,
     0
   )
-  // EXP-1558: every OTHER session of the demo machine (the thread roots, their
+  // EXP-1558: every OTHER session of the demo machine (the chat roots, their
   // other children, the app editor's) is held as a stored replay, so a viewer
   // of one gets the device's answer instead of `no_such_session` and a redial
   // loop whose phase each capture caught differently.

@@ -119,7 +119,7 @@ object EntityPreview {
         "notification" to ("notification" to "notifications"),
         "attachment" to ("attachment" to "attachments"),
         "list" to ("list" to "lists"),
-        "thread" to ("thread" to "threads"),
+        "thread" to ("chat" to "chats"),
         "prompt" to ("prompt" to "prompts"),
         "agent" to ("agent" to "agents"),
         "event" to ("event" to "events"),

@@ -34,7 +34,7 @@ import {
   RegularCommentRow,
   type CommentCardProps,
 } from "@/components/comment-rows/regular"
-import { countThreadedComments, threadComments } from "@/lib/comment-threads"
+import { countNestedComments, nestComments } from "@/lib/comment-replies"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
@@ -52,7 +52,7 @@ interface IssueTimelineProps {
   currentUserId: string
   users: User[]
   /** EXP-568: on phones the composer lives in the floating bottom bar, so the
-   *  timeline must not render a second one at the end of the thread. */
+   *  timeline must not render a second one at the end of the list. */
   hideComposer?: boolean
   /** SLOP-4: the widget submission behind this issue (`useWidgetSubmission`,
    *  fetched once by the detail) — names reporter comments and, when it
@@ -88,7 +88,7 @@ export function focusComment(root: HTMLElement, commentId: string): boolean {
   return true
 }
 
-// The comment thread + activity events (status/assignee/label/PR), rendered as
+// The comments (nested replies) + activity events (status/assignee/label/PR), rendered as
 // a Linear-style timeline. EXP-900: the events are FOLDED at read time
 // (`lib/activity/fold.ts`, mirrored ×4) — a same-actor round trip that changed
 // nothing vanishes, a chain collapses to its net change — and the header's
@@ -199,7 +199,7 @@ export function IssueTimeline({
   const list = (comments ?? []) as Comment[]
   // EXP-741: replies ride inside their parent's card, so only top-level
   // comments are timeline entries; the header count still counts every row.
-  const threads = useMemo(() => threadComments(list), [list])
+  const nested = useMemo(() => nestComments(list), [list])
 
   // EXP-468: the fold is the default view; "Show all" is per issue and, like
   // the reply state, survives a work-tab switch.
@@ -239,7 +239,7 @@ export function IssueTimeline({
     | { kind: `event`; at: number; event: IssueEvent }
   const merged = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = [
-      ...threads.topLevel.map((c) => ({
+      ...nested.topLevel.map((c) => ({
         kind: `comment` as const,
         at: new Date(c.createdAt).getTime(),
         comment: c,
@@ -252,9 +252,9 @@ export function IssueTimeline({
     ]
     items.sort((a, b) => a.at - b.at)
     return items
-  }, [threads, visibleEvents])
+  }, [nested, visibleEvents])
   const activityCount =
-    merged.length - threads.topLevel.length + countThreadedComments(threads)
+    merged.length - nested.topLevel.length + countNestedComments(nested)
 
   const handleSubmit = async (
     body: string,
@@ -438,7 +438,7 @@ export function IssueTimeline({
             key={comment.id}
             {...cardProps(comment)}
             lineBelow={lineBelow}
-            replies={(threads.repliesByParent.get(comment.id) ?? []).map(
+            replies={(nested.repliesByParent.get(comment.id) ?? []).map(
               cardProps
             )}
             replying={replyingToId === comment.id}

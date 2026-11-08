@@ -23,7 +23,7 @@ import com.exponential.app.domain.TreeGuide
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
-// Thread 20b7fdc2: THE session row, x4 (web `@exp/ui` SessionRow, desktop
+// Session 20b7fdc2: THE session row, x4 (web `@exp/ui` SessionRow, desktop
 // `run_rows::run_row`, iOS ExpUI `SessionRow.swift`; geometry =
 // `list-item.json`). ONE line: [tree guides][lead at 12 + 14·depth]
 // [mono id · title]. The lead is the session's run mark (the host hands it

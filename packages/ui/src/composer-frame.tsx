@@ -8,7 +8,7 @@ import { conceptIcon } from "./icons.generated"
 import { InlinePickerRow } from "./picker/inline-picker-row"
 import { Pill } from "./pill"
 
-// EXP-1334: ONE composer for a start, a thread and a session (owner
+// EXP-1334: ONE composer for a start, a chat and a session (owner
 // decision, the "old session composer layout"): THE Composer card holding
 // the field, the "+" options menu followed by the inline edit tools (the
 // comment composer's row: Add image · Attach files · # · emoji) and Send ⇄
@@ -70,7 +70,7 @@ export function ComposerOptionsRow({ className, ...props }: ComponentProps<`div`
   )
 }
 
-/** EXP-1211 (session-thread.json `repliesCases`): the agent's quick replies
+/** EXP-1211 (session-chat.json `repliesCases`): the agent's quick replies
  *  above the composer = one row of action Pills + a trailing dismiss. A tap
  *  sends that reply as the next message. Phones keep ONE horizontally
  *  scrolling row; md+ wraps. */
@@ -92,7 +92,7 @@ export function ComposerReplies({
     <div
       role="group"
       aria-label={REPLIES_COPY.label}
-      data-testid="thread-replies"
+      data-testid="chat-replies"
       className={cn(
         `flex flex-wrap items-center gap-1.5 px-1`,
         `max-md:flex-nowrap max-md:overflow-x-auto max-md:[scrollbar-width:none] max-md:[&>*]:shrink-0`,
@@ -106,7 +106,7 @@ export function ComposerReplies({
           size="sm"
           disabled={pending?.has(item.id)}
           onClick={() => onSend(replies.messageId, item.id, item.text)}
-          data-testid="thread-reply"
+          data-testid="chat-reply"
           // Floats over the transcript: the opaque card under the glass.
           className="max-w-full bg-glass-card-opaque"
         >
@@ -119,7 +119,7 @@ export function ComposerReplies({
         aria-label={REPLIES_COPY.dismiss}
         title={REPLIES_COPY.dismiss}
         onClick={() => onDismiss(replies.messageId)}
-        data-testid="thread-replies-dismiss"
+        data-testid="chat-replies-dismiss"
         className="text-muted-foreground"
       >
         <CloseIcon />

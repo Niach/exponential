@@ -1,6 +1,6 @@
 package com.exponential.app.domain
 
-// EXP-1245: the facts the OWNER's thread of turns reads off the relay feed
+// EXP-1245: the facts the OWNER's stream of turns reads off the relay feed
 // they already hold ([sessionTurns]): their messages (`user_message` rows,
 // main agent only) and the turn edges. The feed keeps the turn as a
 // latest-wins SLOT, not as rows, so this records every edge it OBSERVES into a
@@ -79,7 +79,7 @@ fun recordFeedMessages(log: TurnLog, feed: List<TurnFeedRow>, now: Long) {
 /**
  * The events [sessionTurns] walks: the run's start, the placed messages
  * (still in the feed) and the recorded edges. Empty when nothing was observed
- * beyond the start (the single-row thread).
+ * beyond the start (the single-row stream).
  */
 fun turnEventsOf(log: TurnLog, feed: List<TurnFeedRow>, runStartedAt: Long?): List<SessionTurnEvent> {
     val messages = mutableListOf<SessionTurnEvent>()

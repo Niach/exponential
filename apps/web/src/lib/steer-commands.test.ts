@@ -26,7 +26,7 @@ describe(`steerCommandsFor`, () => {
   it(`filters the catalog by agent, in catalog order`, () => {
     const claude = steerCommandsFor(`claude`).map((c) => c.name)
     const codex = steerCommandsFor(`codex`).map((c) => c.name)
-    // NEW-2: the builtins are compact, new (thread 58cb32df), model and
+    // NEW-2: the builtins are compact, new (chat 58cb32df), model and
     // effort, on both agents; `/clear` and `/btw` are gone.
     expect(claude).toEqual([`compact`, `new`, `model`, `effort`])
     expect(codex).toEqual([`compact`, `new`, `model`, `effort`])
@@ -158,7 +158,7 @@ describe(`parseSteerCommand`, () => {
     expect(parseSteerCommand(`compact`, commands)).toBeNull()
     expect(parseSteerCommand(``, commands)).toBeNull()
     // /clear, /btw, /init, /review are deliberately NOT in the catalog
-    // (thread 58cb32df: `/new` is, `steerCommands` + the divider pill).
+    // (chat 58cb32df: `/new` is, `steerCommands` + the divider pill).
     expect(parseSteerCommand(`/new`, commands)?.command.name).toBe(`new`)
     for (const text of [`/clear`, `/btw why?`, `/init`, `/review`]) {
       expect(parseSteerCommand(text, commands)).toBeNull()

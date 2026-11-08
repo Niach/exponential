@@ -12,8 +12,8 @@ import Foundation
 // uplink goes out without it (the host's decoder simply has nothing to
 // recover a lost packet from).
 //
-// Every AVFoundation object lives on `queue`: the tap thread, the socket's
-// receive thread and the main actor all hop onto it, so the class is
+// Every AVFoundation object lives on `queue`: the tap chat, the socket's
+// receive chat and the main actor all hop onto it, so the class is
 // `@unchecked Sendable` by confinement. The queue is ONE for every call, so
 // a call's session teardown always runs before the next call's activation,
 // and the main actor never waits on it (start resumes, stop is fire and
@@ -213,7 +213,7 @@ final class VoiceCallAudio: @unchecked Sendable {
         uplink.reset()
         let tapFrames = AVAudioFrameCount(VoiceCall.AudioSessionRules.tapFrames(sampleRate: inFormat.sampleRate))
         input.installTap(onBus: 0, bufferSize: tapFrames, format: nil) { [weak self] buffer, _ in
-            // Copied off the tap thread, never waited on: `stop` removes the
+            // Copied off the tap chat, never waited on: `stop` removes the
             // tap from the queue, which must not wait for a tap that waits
             // for the queue.
             guard let self, let copy = Self.copy(buffer) else { return }

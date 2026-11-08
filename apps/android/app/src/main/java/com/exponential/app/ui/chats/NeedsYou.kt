@@ -63,7 +63,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
-import com.exponential.app.ui.threads.ThreadsViewModel
+import com.exponential.app.ui.chats.ChatsViewModel
 
 // #FEED-191 NEEDS YOU ×Android (fixtures/needs-you.json; web
 // `packages/ui/src/needs-you.tsx`, iOS ExpUI `NeedsYou.swift`): the model is
@@ -260,12 +260,12 @@ fun NeedsYouPage(
     onOpen: (NeedsYou.Row) -> Unit,
     onOpenInbox: () -> Unit,
     inboxUnread: Boolean,
-    viewModel: ThreadsViewModel = hiltViewModel(),
+    viewModel: ChatsViewModel = hiltViewModel(),
 ) {
     val rows by viewModel.needsYouRows.collectAsStateWithLifecycle()
     val pullRequests by viewModel.needsYouPullRequests.collectAsStateWithLifecycle()
     // #EXP-1710: a stuck row's Merge now asks `merge-now-pr`, Close PR asks
-    // close-pr.json's confirm (the thread's); Retry resumes at once.
+    // close-pr.json's confirm (the chat's); Retry resumes at once.
     var mergeNowFor by remember { mutableStateOf<NeedsYou.Row?>(null) }
     var closeFor by remember { mutableStateOf<NeedsYou.Row?>(null) }
     // #EXP-1710 (needs-you.json): an `approval` ready PR row's press = THE

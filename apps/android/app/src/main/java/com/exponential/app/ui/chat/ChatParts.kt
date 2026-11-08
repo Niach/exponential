@@ -1,0 +1,2162 @@
+package com.exponential.app.ui.chat
+
+import com.exponential.app.domain.Dock
+import androidx.compose.foundation.layout.ColumnScope
+import com.exponential.app.ui.components.DockSheetScope
+import com.exponential.app.ui.components.DockAutoOpen
+import com.exponential.app.ui.components.DockCards
+import com.exponential.app.ui.components.DockSheetBody
+import com.exponential.app.ui.components.DockSheetFooter
+import com.exponential.app.ui.components.picker.LocalPickerPresentation
+import com.exponential.app.ui.components.picker.PickerDefaults
+import com.exponential.app.ui.components.picker.PickerPresentation
+import com.exponential.app.ui.theme.fullBleed
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.RowScope
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.TranscriptLoadEarlierButton
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.PillSize
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.exponential.app.ui.components.LOCKED_DIVIDER_PREFIX
+import com.exponential.app.ui.components.TranscriptDivider
+import com.exponential.app.ui.theme.liveArrival
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
+import com.exponential.app.domain.Chats
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import com.exponential.app.domain.ChatRowAction
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.session.LocalAskCardTrailing
+import com.exponential.app.ui.session.DismissedCardLine
+import com.exponential.app.ui.session.centreOnItem
+import com.exponential.app.domain.ResultsTab
+import com.exponential.app.ui.plan.LocalOpenPlanPage
+import com.exponential.app.ui.session.CardDismissButton
+import com.exponential.app.ui.session.LocalCardDismiss
+import com.exponential.app.domain.PlanPage
+import androidx.compose.ui.platform.LocalDensity
+import com.exponential.app.ui.components.JumpToBottomButton
+import com.exponential.app.ui.session.isNearBottom
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.WaitingCards
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.AnswerState
+import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.TranscriptGrouping
+import com.exponential.app.domain.WorkCardInput
+import com.exponential.app.domain.WorkCardSpec
+import com.exponential.app.domain.WorkCards
+import com.exponential.app.ui.components.AgentRunMark
+import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.GlassComposer
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.InlineSpinner
+import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.UserAvatar
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.markdown.LocalIssueRefBare
+import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.session.LeadText
+import com.exponential.app.ui.session.QuestionCard
+import com.exponential.app.ui.session.WorkCardView
+import com.exponential.app.ui.session.chatCard
+import com.exponential.app.ui.session.chatCardTextStyle
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassCard
+
+// EXP-1296 (Model v3): the CHAT screen's stateless pieces, so
+// the screen and the styleguide captures draw the SAME composables — the
+// header (title, or an agent's icon + name), the ONE tab strip (the phone
+// pager's tabs), the conversation rows (`SessionTree.SessionChatRow`), THE session
+// card (`session-card.json`) and the composer box ([GlassComposer], the one
+// composer shell). Copy comes from `SessionTree` (the fixtures) — never the
+// word "chat".
+
+/** The few words the fixtures leave to the client (no "chat" word). */
+internal object ChatUiCopy {
+    const val LINK_ISSUE = "Link an issue"
+    const val NEW_ISSUE = "New issue"
+    /** The contract word, lowercase (`Name · time · queued`). */
+    const val QUEUED = "queued"
+    /** EXP-1317 ×4: the queued bubble's ✕. */
+    const val REMOVE_FROM_QUEUE = "Remove from queue"
+    const val SEND = "Send"
+    const val ADD = "Add"
+    const val PRIVATE = "Private"
+
+    fun unlink(identifier: String) = "Unlink $identifier"
+}
+
+/** A tab of the strip as its saveable page key. */
+/** results-tab.json: the Results tab's page key (`?tab=results` on web). */
+const val RESULTS_TAB_KEY = "results"
+
+/** results-tab.json: the tab a route names; an older `stories` or `guide` link
+ *  lands on Results. */
+internal fun chatInitialTabKey(tab: String?): String = when (tab) {
+    null -> "conversation"
+    "stories", "guide" -> RESULTS_TAB_KEY
+    else -> tab
+}
+
+/** #EXP-1662 (plan-page.json): the plan tab's page key. */
+const val PLAN_TAB_KEY = "plan"
+
+fun chatTabKey(tab: SessionTree.ChatTab): String = when (tab) {
+    SessionTree.ChatTab.Conversation -> "conversation"
+    is SessionTree.ChatTab.IssueTab -> "issue:${tab.issueId}"
+    SessionTree.ChatTab.Add -> "add"
+    is SessionTree.ChatTab.SessionTab -> "session:${tab.sessionId}"
+    SessionTree.ChatTab.Results -> RESULTS_TAB_KEY
+    SessionTree.ChatTab.Plan -> PLAN_TAB_KEY
+}
+
+/** A `question` answer: (message id, the answer, settled(ok)); EXP-1280
+ *  [AskAnswer] carries the picked labels + the surface's data model. */
+typealias ChatAnswer = (messageId: String, answer: AskAnswer, settled: (Boolean) -> Unit) -> Unit
+
+/** A `plan` decision: (message id, the decision, settled(ok)); [PlanAnswer]
+ *  = approved + fresh ("Yes, and start with a fresh context", ask-dock.json)
+ *  + feedback + EXP-1280 the questions' picks and the surface's data model. */
+typealias ChatPlanDecision = (messageId: String, decision: PlanAnswer, settled: (Boolean) -> Unit) -> Unit
+
+private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+
+// ── Header ──────────────────────────────────────────────────────────────────
+
+/** The header band's title (EXP-1316): ONE line, the lock after it when
+ *  private. Derived, never renamed, not tappable. */
+@Composable
+fun ChatTitle(title: String, private: Boolean, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.testTag("chat-header"), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).testTag("chat-title"),
+        )
+        if (private) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                ExpIcons.uiPrivate,
+                contentDescription = ChatUiCopy.PRIVATE,
+                tint = Muted,
+                modifier = Modifier.size(14.dp).testTag("chat-private"),
+            )
+        }
+    }
+}
+
+/** An agent channel's header: back, the agent's icon (its colour) + name.
+ *  NEW-41: no settings gear (web/desktop/iOS reach an agent's settings
+ *  through Settings → Agents only). */
+@Composable
+fun AgentChannelHeader(
+    name: String,
+    icon: String?,
+    color: String?,
+    onBack: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth().testTag("chat-header")) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) TopBarBackButton(onClick = onBack)
+            Spacer(Modifier.weight(1f))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 2.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AgentGlyph(icon = icon, color = color, size = 24.dp)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                name,
+                fontSize = 22.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("chat-title"),
+            )
+        }
+    }
+}
+
+/** An agent's icon (a pickable icon name) in its colour. */
+@Composable
+fun AgentGlyph(icon: String?, color: String?, size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val glyph = icon?.let { ExpIcons.byName(it) }
+        ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
+        ?: ExpIcons.settingsAgents
+    val tint = runCatching { parseColor(color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR) }
+        .getOrDefault(MaterialTheme.colorScheme.onSurface)
+    Icon(glyph, contentDescription = null, tint = tint, modifier = modifier.size(size))
+}
+
+// ── The tab strip = the pager's tabs ────────────────────────────────────────
+
+/** The page key of an issue / a session (the strip's open item). */
+internal fun issueKey(issueId: String) = "issue:$issueId"
+internal fun sessionKey(sessionId: String) = "session:$sessionId"
+
+/** #EXP-1433: one issue of the strip (a top-level chip or a nested one). */
+data class StripIssue(val issueId: String, val identifier: String)
+
+/** #EXP-1433: one session under the root, as THE tree row ([depth] for the guides). */
+data class StripSession(
+    val sessionId: String,
+    val name: String,
+    val markState: SessionTree.SessionState,
+    val depth: Int,
+)
+
+/**
+ * #EXP-1433 (session-chat.json STRIP): what sits between Conversation and
+ * Results. [issues] = EVERY issue of the tree (nested ones included),
+ * [sessions] = every session under the root (the main session excluded);
+ * [mode] = [SessionTree.chatStripMode] over their counts.
+ */
+data class ChatStripItems(val issues: List<StripIssue>, val sessions: List<StripSession>) {
+    val mode: SessionTree.ChatStripMode = SessionTree.chatStripMode(issues.size, sessions.size)
+
+    /** The chips mode's ONE issue (it keeps its chip and its page). */
+    val single: StripIssue? get() = if (mode.mode == SessionTree.StripMode.Chips) issues.firstOrNull() else null
+
+    /** The group item a page [key] names (null = none of the group). */
+    fun tabOf(key: String): SessionTree.ChatTab? {
+        issues.firstOrNull { issueKey(it.issueId) == key }?.let {
+            return SessionTree.ChatTab.IssueTab(it.issueId, it.identifier)
+        }
+        sessions.firstOrNull { sessionKey(it.sessionId) == key }?.let {
+            return SessionTree.ChatTab.SessionTab(it.sessionId, it.name, it.markState)
+        }
+        return null
+    }
+
+    /** The group tab's open label: the identifier, or the session's name. */
+    fun label(key: String): String? =
+        issues.firstOrNull { issueKey(it.issueId) == key }?.identifier
+            ?: sessions.firstOrNull { sessionKey(it.sessionId) == key }?.name
+}
+
+/** #EXP-1433: the strip's items out of the chat's tabs (the chips with
+ *  their folded rows, flattened in strip order). */
+fun chatStripItems(tabs: List<SessionTree.ChatTab>, mainSessionId: String?): ChatStripItems {
+    val issues = tabs.filterIsInstance<SessionTree.ChatTab.IssueTab>().flatMap { tab ->
+        listOf(StripIssue(tab.issueId, tab.identifier)) + tab.nested.map { StripIssue(it.issueId, it.identifier) }
+    }.distinctBy { it.issueId }
+    val sessions = tabs.filterIsInstance<SessionTree.ChatTab.SessionTab>().flatMap { tab ->
+        listOf(StripSession(tab.sessionId, tab.name, tab.markState, 0)) +
+            tab.nested.map { StripSession(it.sessionId, it.name, it.markState, it.depth) }
+    }.filter { it.sessionId != mainSessionId }.distinctBy { it.sessionId }
+    return ChatStripItems(issues, sessions)
+}
+
+/**
+ * #EXP-1433 (session-chat.json STRIP, amends EXP-1334): the ONE strip, and
+ * NOTHING scrolls — "+" (Link an issue · New issue) and Conversation pinned
+ * left, Results pinned right; between them [SessionTree.chatStripMode]: at
+ * most ONE issue and no session = that issue's chip (the pager: its
+ * identifier; a long-press opens its menu), anything more = ONE group tab
+ * (the `session-tree` glyph + the muted count; active = the glyph + the open
+ * item's label) opening THE bottom sheet over every issue and session. A
+ * pick opens that issue / session IN PLACE ([onSelect] / [onOpenSession]).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ChatTabStrip(
+    tabs: List<SessionTree.ChatTab>,
+    selectedKey: String,
+    onSelect: (key: String) -> Unit,
+    onAdd: (() -> Unit)?,
+    issueStatus: (String) -> ResolvedIssueStatus?,
+    modifier: Modifier = Modifier,
+    /** An issue's title (the group sheet's rows, the chip's accessible name). */
+    issueTitle: (String) -> String? = { null },
+    onIssueMenu: ((SessionTree.ChatTab.IssueTab) -> Unit)? = null,
+    onOpenSession: ((sessionId: String) -> Unit)? = null,
+    /** NEW-46: the single-session chat's main session (never a group row). */
+    mainSessionId: String? = null,
+    /** The styleguide's static paint: the group sheet held open. */
+    groupSheetOpen: Boolean = false,
+    /** #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
+     *  cards (`waitingChips`, Conversation order); empty = no button. */
+    waiting: List<WaitingCards.Chip> = emptyList(),
+    /** A waiting row's pick (the card's id); null = no button. */
+    onPickWaiting: ((String) -> Unit)? = null,
+    /** The styleguide's static paint: the waiting sheet held open. */
+    waitingSheetOpen: Boolean = false,
+    /** #EXP-1662: the plan chip's needs-you dot (its plan waits). */
+    planWaiting: Boolean = false,
+    /** #FEED-191: the shown plan's decision (`planTabGlyph`: approved = the
+     *  emerald check). */
+    planDecision: String? = null,
+) {
+    var sheet by remember { mutableStateOf(groupSheetOpen) }
+    var waitingSheet by remember { mutableStateOf(waitingSheetOpen) }
+    val items = remember(tabs, mainSessionId) { chatStripItems(tabs, mainSessionId) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+            .testTag(SessionTree.ChatCopy.TEST_ID_TABS),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(StripGap),
+    ) {
+        if (SessionTree.ChatTab.Add in tabs && onAdd != null) {
+            IconButton(onClick = onAdd, modifier = Modifier.size(ChatTabHeight).testTag("chat-tab-add")) {
+                Icon(ExpIcons.uiAdd, contentDescription = ChatUiCopy.ADD, tint = Secondary, modifier = Modifier.size(16.dp))
+            }
+        }
+        // Phones: Conversation is an ICON-ONLY tab (session-chat.json:
+        // action-chat; the label stays the accessible name).
+        val conversationSelected = selectedKey == "conversation"
+        ChatTab(conversationSelected, { onSelect("conversation") }, null, "chat-tab-conversation") {
+            Icon(
+                ExpIcons.actionChat,
+                contentDescription = SessionTree.ChatCopy.CONVERSATION,
+                tint = if (conversationSelected) MaterialTheme.colorScheme.onSurface else Secondary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        // #EXP-1662 (plan-page.json): the plan tab right after Conversation.
+        if (SessionTree.ChatTab.Plan in tabs) {
+            ChatPlanTab(selected = selectedKey == PLAN_TAB_KEY, waiting = planWaiting, decision = planDecision, onClick = { onSelect(PLAN_TAB_KEY) })
+        }
+        // #EXP-1562: phones = ONE icon-only chip right after Conversation
+        // (the question tint, the count muted) while something waits.
+        if (waiting.isNotEmpty() && onPickWaiting != null) {
+            ChatWaitingButton(count = waiting.size, onClick = { waitingSheet = true })
+        }
+        Row(
+            modifier = Modifier.weight(1f).clipToBounds().testTag("chat-strip-zone"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val single = items.single
+            when {
+                single != null -> {
+                    val tab = tabs.filterIsInstance<SessionTree.ChatTab.IssueTab>().firstOrNull { it.issueId == single.issueId }
+                        ?: SessionTree.ChatTab.IssueTab(single.issueId, single.identifier)
+                    IssueStripChip(
+                        tab = tab,
+                        selected = selectedKey == issueKey(single.issueId),
+                        title = issueTitle(single.issueId),
+                        status = issueStatus(single.issueId),
+                        onClick = { onSelect(issueKey(single.issueId)) },
+                        onLongClick = onIssueMenu?.let { menu -> { menu(tab) } },
+                    )
+                }
+                items.mode.mode == SessionTree.StripMode.Group -> ChatStripGroupTab(
+                    count = items.mode.count,
+                    openLabel = items.label(selectedKey),
+                    onClick = { sheet = true },
+                )
+            }
+        }
+        // results-tab.json: pinned right, after the last chip; phones ICON-ONLY
+        // (`chat-results`), no dot.
+        if (SessionTree.ChatTab.Results in tabs) {
+            val resultsSelected = selectedKey == RESULTS_TAB_KEY
+            ChatTab(resultsSelected, { onSelect(RESULTS_TAB_KEY) }, null, ResultsTab.Tab.TestIds.TAB) {
+                Icon(
+                    ExpIcons.chatResults,
+                    contentDescription = ResultsTab.Tab.Copy.LABEL,
+                    tint = if (resultsSelected) MaterialTheme.colorScheme.onSurface else Secondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+
+    if (waitingSheet && waiting.isNotEmpty() && onPickWaiting != null) {
+        ChatWaitingSheet(
+            chips = waiting,
+            onPick = { id ->
+                waitingSheet = false
+                onPickWaiting(id)
+            },
+            onDismiss = { waitingSheet = false },
+        )
+    }
+    if (sheet && items.mode.mode == SessionTree.StripMode.Group) {
+        ChatStripGroupSheet(
+            items = items,
+            selectedKey = selectedKey,
+            issueStatus = issueStatus,
+            issueTitle = issueTitle,
+            onPickIssue = { id ->
+                sheet = false
+                onSelect(issueKey(id))
+            },
+            onPickSession = { id ->
+                sheet = false
+                onOpenSession?.invoke(id)
+            },
+            onDismiss = { sheet = false },
+        )
+    }
+}
+
+/** The strip's one gap. */
+private val StripGap = 4.dp
+
+/** #EXP-1662 (plan-page.json): THE plan tab, phones = THE strip chip box,
+ *  the lead glyph (#FEED-191 `planTabGlyph`: `coding-plan` in the chip's
+ *  colour, an approved plan = `ui-check` in emerald) + `copy.title` + the
+ *  6 px needs-you dot. */
+@Composable
+private fun ChatPlanTab(selected: Boolean, waiting: Boolean, decision: String?, onClick: () -> Unit) {
+    val tint = if (selected) MaterialTheme.colorScheme.onSurface else Secondary
+    val glyph = PlanPage.planTabGlyph(decision)
+    ChatTab(selected = selected, onClick = onClick, onLongClick = null, testTag = PlanPage.TestIds.TAB, chip = true) {
+        Icon(
+            if (glyph.icon == "ui-check") ExpIcons.uiCheck else ExpIcons.codingPlan,
+            contentDescription = null,
+            tint = if (glyph.tone == "approved") DesignTokens.Semantic.Green else tint,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(PlanPage.Copy.TITLE, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1, softWrap = false)
+        if (waiting) {
+            Spacer(Modifier.width(6.dp))
+            Box(Modifier.size(6.dp).background(DesignTokens.Semantic.Yellow, CircleShape).testTag("chat-tab-plan-dot"))
+        }
+    }
+}
+
+/** #EXP-1562 (waiting-cards.json CHIPS `button`): THE strip chip box,
+ *  icon-only (`icons.waiting` in the question tint) + the count muted;
+ *  accessible name `copy.waitingCount`. */
+@Composable
+private fun ChatWaitingButton(count: Int, onClick: () -> Unit) {
+    val name = WaitingCards.waitingCountLabel(count)
+    ChatTab(
+        selected = false,
+        onClick = onClick,
+        onLongClick = null,
+        testTag = WaitingCards.TestIds.BUTTON,
+        chip = true,
+        modifier = Modifier.semantics { contentDescription = name },
+    ) {
+        Icon(
+            ExpIcons.uiHelp,
+            contentDescription = null,
+            tint = DesignTokens.Semantic.Yellow,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelMedium,
+            color = Muted,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/** #EXP-1562: THE Menu (the phones' bottom sheet, the strip group's) titled
+ *  `copy.waiting`: one row per waiting card, Conversation order — the kind
+ *  icon tinted, the chip's label, `askDockLabel(kind)` muted. */
+@Composable
+internal fun ChatWaitingSheet(
+    chips: List<WaitingCards.Chip>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    GlassSheet(
+        title = WaitingCards.Copy.WAITING,
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag(WaitingCards.TestIds.MENU),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            chips.forEach { chip ->
+                Box(Modifier.testTag("${WaitingCards.TestIds.MENU}-row")) {
+                    GlassSheetRow(
+                        label = chip.label,
+                        onClick = { onPick(chip.id) },
+                        labelColor = MaterialTheme.colorScheme.onSurface,
+                        leading = {
+                            Icon(
+                                if (chip.kind == AskDock.Kind.Plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
+                                contentDescription = null,
+                                tint = if (chip.kind == AskDock.Kind.Plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        trailing = {
+                            Text(
+                                AskDock.label(chip.kind),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Muted,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** #EXP-1433: THE group tab — the strip chip box, the `session-tree` glyph
+ *  and the count (muted) at rest; ACTIVE with the open item's label
+ *  (truncated at `stripGroupMaxWidth`) while one of its items is open. */
+@Composable
+private fun ChatStripGroupTab(count: Int, openLabel: String?, onClick: () -> Unit) {
+    val active = openLabel != null
+    val name = SessionTree.ChatCopy.STRIP_GROUP
+    ChatTab(
+        selected = active,
+        onClick = onClick,
+        onLongClick = null,
+        testTag = SessionTree.ChatCopy.TEST_ID_GROUP,
+        chip = true,
+        modifier = Modifier.semantics {
+            contentDescription = if (active) "$name: $openLabel" else "$name ($count)"
+        },
+    ) {
+        Icon(
+            ExpIcons.sessionTree,
+            contentDescription = null,
+            tint = if (active) MaterialTheme.colorScheme.onSurface else Secondary,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        if (openLabel != null) {
+            Text(
+                openLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = SessionTree.ChatCopy.STRIP_GROUP_MAX_WIDTH.dp)
+                    .testTag("chat-strip-group-label"),
+            )
+        } else {
+            Text(
+                "$count",
+                style = MaterialTheme.typography.labelMedium,
+                color = Muted,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.testTag("chat-strip-group-count"),
+            )
+        }
+    }
+}
+
+/** An issue chip = the strip's issue chip box (×4): the status glyph · the
+ *  mono identifier (phones: the identifier alone; [title] is its accessible
+ *  name's tail). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun IssueStripChip(
+    tab: SessionTree.ChatTab.IssueTab,
+    selected: Boolean,
+    title: String?,
+    status: ResolvedIssueStatus?,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    ChatTab(
+        selected = selected,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        testTag = "chat-tab-issue:${tab.issueId}",
+        chip = true,
+        modifier = Modifier.semantics {
+            contentDescription = listOfNotNull(tab.identifier, title).joinToString(" ")
+        },
+    ) {
+        // An unsynced issue (another team's) is the one chip without a glyph.
+        status?.let {
+            StatusIcon(it, size = 13.dp)
+            Spacer(Modifier.width(5.dp))
+        }
+        Text(
+            tab.identifier,
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MdStyle.ChipToken,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/**
+ * #EXP-1433: the group tab's bottom sheet — the issue rows first (status
+ * glyph, mono identifier, title: the issue search list's row), a separator,
+ * then the session rows (THE tree rows over [TreeGuides.compute]: the run
+ * mark, the name and its state word). The open row wears the check.
+ */
+@Composable
+private fun ChatStripGroupSheet(
+    items: ChatStripItems,
+    selectedKey: String,
+    issueStatus: (String) -> ResolvedIssueStatus?,
+    issueTitle: (String) -> String?,
+    onPickIssue: (String) -> Unit,
+    onPickSession: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val guides = remember(items.sessions) {
+        com.exponential.app.domain.TreeGuides.compute(items.sessions.map { it.depth })
+    }
+    GlassSheet(
+        title = SessionTree.ChatCopy.STRIP_GROUP,
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag("${SessionTree.ChatCopy.TEST_ID_GROUP}-menu"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .testTag("chat-strip-group-rows"),
+        ) {
+            items.issues.forEach { issue ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clickable { onPickIssue(issue.issueId) }
+                        .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+                        .testTag("chat-strip-group-issue"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    issueStatus(issue.issueId)?.let { StatusIcon(it, size = 16.dp) }
+                    Text(
+                        issue.identifier,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Text(
+                        issueTitle(issue.issueId).orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selectedKey == issueKey(issue.issueId)) {
+                        Icon(ExpIcons.uiCheck, contentDescription = null, tint = Secondary, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            if (items.issues.isNotEmpty() && items.sessions.isNotEmpty()) {
+                HorizontalDivider(
+                    thickness = GlassTokens.Hairline,
+                    color = GlassTokens.StrokeRow,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+            items.sessions.forEachIndexed { index, session ->
+                com.exponential.app.ui.components.TreeGuidesRow(depth = session.depth, guide = guides.getOrNull(index)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .clickable { onPickSession(session.sessionId) }
+                            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+                            .testTag("chat-strip-group-session"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SessionTabMark(session.markState)
+                        Text(
+                            session.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Text(
+                            SessionTree.CardCopy.STATES.getValue(session.markState),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = sessionToneColor(SessionTree.CardCopy.TONES.getValue(session.markState)),
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        if (selectedKey == sessionKey(session.sessionId)) {
+                            Icon(ExpIcons.uiCheck, contentDescription = null, tint = Secondary, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** EXP-1316: every chip of the strip is ONE height — entity-chip `tab` size
+ *  (web `STRIP_TAB_CLASS`: `h-8 rounded-md` = 32dp tall, the 10dp row radius). */
+private val ChatTabHeight = 32.dp
+
+/** A session chip's lead: the chat row mark of that session. */
+@Composable
+private fun SessionTabMark(state: SessionTree.SessionState, size: Dp = 14.dp) {
+    // NEW-41 (`sessionTabMarkState` ×4): a session chip's lead = that
+    // session's chat row mark (web `AgentRunMark`, iOS
+    // `ChatSessionChipMark`): the brand mark, the amber badge while it
+    // needs you, the working mark while it works, dimmed once ended. The
+    // chip names no CLI, so the default brand mark leads (iOS `agent: nil`).
+    AgentRunMark(agent = DEFAULT_AGENT, state = state, size = size, badgeSize = 6.dp)
+}
+
+/** One strip tab. [chip] = an entity chip (issue / session): a bordered
+ *  capsule even when not selected; the others wear the frame only while
+ *  selected. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChatTab(
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    testTag: String,
+    chip: Boolean = false,
+    /** The tab's own semantics (an accessible name over its content). */
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .then(
+                when {
+                    selected -> Modifier
+                        .background(GlassTokens.OpaqueCardFill, shape)
+                        .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
+                    chip -> Modifier.border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+                    else -> Modifier
+                },
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .height(ChatTabHeight)
+            .padding(horizontal = 10.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        content()
+    }
+}
+
+// ── THE session card ────────────────────────────────────────────────────────
+
+/** The card's state icon CONCEPT (`session-card.json` `icons`). */
+internal fun sessionCardIcon(concept: String): ImageVector = when (concept) {
+    "ui-clock" -> ExpIcons.uiClock
+    "coding-running" -> ExpIcons.codingRunning
+    "coding-assistant" -> ExpIcons.codingAssistant
+    "coding-needs-input" -> ExpIcons.codingNeedsInput
+    "notification-session-blocked" -> ExpIcons.notificationSessionBlocked
+    "coding-ended" -> ExpIcons.codingEnded
+    // EXP-1374: interrupted + background.
+    "run-pause" -> ExpIcons.runPause
+    "trace-background" -> ExpIcons.traceBackground
+    else -> ExpIcons.codingAssistant
+}
+
+/** A tone token (`muted | foreground | amber | rose`) as a colour. */
+@Composable
+internal fun sessionToneColor(tone: String): Color = when (tone) {
+    "foreground" -> MaterialTheme.colorScheme.onSurface
+    "amber" -> NeedsInputAmber
+    "rose" -> DesignTokens.Semantic.Red
+    else -> Muted
+}
+
+/**
+ * THE session card ×4 (`session-card.json`): the Work card's HEADER row — the
+ * state icon, the name (medium, truncates), the muted state word, trailing
+ * the elapsed time with a 12px spinner in front while working. No device,
+ * account or branch. Tapping opens that session ([onClick]).
+ */
+@Composable
+fun SessionCard(
+    card: SessionTree.SessionCard,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    /** EXP-1323: inside another card (a started suggestion): no own shell. */
+    bare: Boolean = false,
+    /** #EXP-1464 (chat-row-action.json): the trailing chevron of a row
+     *  that does something; [expanded] turns it down. */
+    chevron: Boolean = false,
+    expanded: Boolean = false,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (bare) Modifier else Modifier.chatCard())
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .testTag(card.testId),
+    ) {
+        SessionCardHeader(card, chevron, expanded)
+    }
+}
+
+@Composable
+private fun SessionCardHeader(card: SessionTree.SessionCard, chevron: Boolean, expanded: Boolean) {
+    val style = chatCardTextStyle()
+    val muted = Muted
+    val toneColor = sessionToneColor(card.tone)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(WorkCardSpec.HEADER.dp)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            sessionCardIcon(card.icon),
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = toneColor,
+        )
+        LeadText(
+            card.name,
+            style = style.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+        ) {
+            Text(
+                card.kindWord,
+                style = style,
+                // #EXP-1466 session-card.json: the word stays muted unless
+                // the tone is amber.
+                color = if (card.tone == "amber") toneColor else muted,
+                maxLines = 1,
+                modifier = Modifier.testTag("session-card-state"),
+            )
+        }
+        if (card.running) InlineSpinner(size = 12.dp)
+        card.elapsed?.let {
+            Text(it, style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
+        }
+        if (chevron) {
+            Icon(
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                contentDescription = null,
+                tint = muted,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+// ── Conversation rows ───────────────────────────────────────────────────────
+
+/** What a message row shows beyond the model: its author's name, their
+ *  user row (the avatar) and the `HH:mm` it was written. */
+data class ChatRowMeta(
+    val authorName: String,
+    val time: String,
+    val user: UserEntity? = null,
+)
+
+/** The agent a channel belongs to (its rows' avatar + name). */
+data class ChatAgent(val name: String, val icon: String?, val color: String?, val assistant: Boolean = false)
+
+/**
+ * #EXP-1464 (chat-row-action.json): what an EXPANDING session row needs
+ * from its host: whether a flag stands behind a session's `needs_you`
+ * ([blocked]: it opens instead) and THE waiting question / plan card of a
+ * session ([waitingCard], null while it has not synced = the skeleton line).
+ * Without them a Conversation's session rows only open.
+ */
+class ChatRowActions(
+    val blocked: (sessionId: String) -> Boolean,
+    val waitingCard: @Composable (sessionId: String) -> SessionTree.SessionChatRow?,
+)
+
+/**
+ * The Conversation page: the model's rows in order. #EXP-1736
+ * (transcript-grouping.json): ONE transcript for every chat, read like a
+ * group chat: the viewer's bubbles right, everyone else's left under their
+ * sender's avatar + name ([TranscriptBubbleRow], [MessageBubble]); a child's
+ * report and another session's message are that session's bubble (named
+ * `<session> ›`, opening it); every card spans the column.
+ */
+@Composable
+fun ChatConversation(
+    rows: List<SessionTree.SessionChatRow>,
+    rootId: String,
+    meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta?,
+    onOpenCard: (SessionTree.SessionCard) -> Unit,
+    onAnswer: ChatAnswer,
+    onDecidePlan: ChatPlanDecision,
+    canUnqueue: (SessionTree.SessionChatRow.MessageRow) -> Boolean,
+    onUnqueue: (messageId: String) -> Unit,
+    modifier: Modifier = Modifier,
+    /** The agent whose chat this is (its bubbles' mark), null = a session's. */
+    agent: ChatAgent? = null,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    state: LazyListState = rememberLazyListState(),
+    /** The floating band's height: the jump button sits above it. */
+    jumpBottomInset: Dp = 0.dp,
+    /** EXP-1323: a report line / a started suggestion opens that session. */
+    onOpenSession: ((sessionId: String) -> Unit)? = null,
+    /** EXP-1323: the suggested tasks cards' actions (null = read-only). */
+    suggestions: ChatSuggestionActions? = null,
+    /** EXP-1323: the live tail after the last row (the Tasks card + the
+     *  status line), the host's; null = none. */
+    tail: (@Composable () -> Unit)? = null,
+    /** THE ask dock: the docked rows' ids. Session 58cb32df (FEED-140): a
+     *  WAITING plan or question card stays inline at its place WITH its
+     *  actions besides the dock; only the suggestion rows leave. */
+    dockedIds: Set<String> = emptySet(),
+    /** Session 58cb32df: a surface card's `reply` posts its text here (the
+     *  person's next message); null = inert. */
+    onSurfaceReply: ((String) -> Unit)? = null,
+    /** S-3: the view's `origin` (who started the viewed session); #EXP-1736
+     *  its prompt reads as that session's bubble. Null = a person started it. */
+    origin: SessionTree.SessionXref? = null,
+    /** S-3: an inter-session link PUSHES that session (null = inert). */
+    onOpenXref: ((sessionId: String) -> Unit)? = null,
+    /** #EXP-1464: a Needs-you session row expands into its card (null = opens). */
+    rowActions: ChatRowActions? = null,
+    /** EXP-1553: THE transcript's wall clock (`HH:mm`), the one formatter
+     *  the bubbles' times ([meta]) and the divider pills share, so both read
+     *  the same zone; a host formatting its bubbles otherwise passes its own. */
+    clock: (wire: String) -> String? = ::clockTime,
+    /** #EXP-1736: the conversation's OWN sender (its session, title, agent);
+     *  null = the root, untitled. */
+    chat: TranscriptGrouping.Chat? = null,
+    /** #EXP-1736: the viewer (their own bubbles sit right). */
+    viewerId: String? = null,
+) {
+    // #EXP-1464 (chat-row-action.json): the expanded session rows (by row
+    // id) and the sessions the viewer answered from one (client-held).
+    var expandedRows by rememberSaveable(rootId) { mutableStateOf(listOf<String>()) }
+    var answeredSessions by rememberSaveable(rootId) { mutableStateOf(listOf<String>()) }
+    val openRowSession: ((String) -> Unit)? = onOpenXref ?: onOpenSession
+    // EXP-1334: no root card any more (the conversation IS the dispatcher).
+    val shown = if (dockedIds.isEmpty()) {
+        rows
+    } else {
+        rows.filter {
+            it.id !in dockedIds || it is SessionTree.SessionChatRow.Plan || it is SessionTree.SessionChatRow.Question
+        }
+    }
+    // chats.json: a row ARRIVES when its id was not in the transcript the
+    // screen first painted (history, a reopen or a scroll never animate).
+    val arrivals = rememberLiveArrivals(rootId, shown)
+    // chats.json FOLLOW + JUMP (#EXP-1383): the chat opens at the newest row
+    // and follows new rows while the reader sits within `followSlack` of the
+    // bottom; a drag further up stops following and shows THE jump-to-bottom
+    // button. Only user drags flip follow-mode.
+    var follow by rememberSaveable(rootId) { mutableStateOf(true) }
+    val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
+    val jumpScope = rememberCoroutineScope()
+    // chats.json WINDOW (#EXP-1380, review of #1218: `windowCases`): the
+    // newest `transcript.window` rows, the start reaching up to the oldest
+    // WAITING plan / question card. The FIRST paint pins the start
+    // ([pinnedStart]): arrivals append below it whether the reader follows
+    // or not, so the window only grows; Load earlier = ONE press, one
+    // `windowStep` up ([loadedSteps]). A reopen starts again at the newest.
+    var pinnedStart by rememberSaveable(rootId) { mutableStateOf<Int?>(null) }
+    var loadedSteps by rememberSaveable(rootId) { mutableStateOf(0) }
+    val waitingIndexes = remember(shown) { transcriptWaitingIndexes(shown) }
+    val windowStart = Chats.transcriptWindowStart(shown.size, waitingIndexes, pinnedStart, loadedSteps)
+    // #EXP-1736 (transcript-grouping.json): who sent each row, the groups.
+    // ONE origin rule (data first): the view's origin takes the first
+    // message while the window holds the conversation's start.
+    val fromStart = windowStart == 0
+    val layouts = remember(shown, chat, origin, fromStart, viewerId, rootId, meta) {
+        chatTranscriptLayout(shown, chat ?: TranscriptGrouping.Chat(rootId, "", null, null), origin, fromStart, viewerId, meta)
+    }
+    val painted = remember(shown, windowStart) { if (windowStart == 0) shown else shown.subList(windowStart, shown.size) }
+    val header = if (windowStart > 0) 1 else 0
+    val itemCount = header + painted.size + (if (tail != null) 1 else 0)
+    // Load earlier keeps the reader's place: the row that was first on screen
+    // stays at its offset once the rows above it land.
+    var anchor by remember(rootId) { mutableStateOf<Pair<String, Int>?>(null) }
+    // The last item count a scroll was placed for (not state: no recompose).
+    val placedCount = remember(rootId) { intArrayOf(-1) }
+    // No flash of the window's top: the landing (open, a follower's arrival)
+    // and the Load earlier anchor are REQUESTED in the composition's own
+    // frame (`requestScrollToItem`), so the first measure of the new rows is
+    // already at its place — never a frame of the window start first.
+    SideEffect {
+        if (painted.isEmpty()) return@SideEffect
+        if (pinnedStart == null) pinnedStart = windowStart
+        val held = anchor
+        if (held != null) {
+            val index = painted.indexOfFirst { it.id == held.first }
+            if (index >= 0) state.requestScrollToItem(index + header, -held.second)
+            anchor = null
+        } else if (follow && itemCount != placedCount[0]) {
+            state.requestScrollToItem(itemCount - 1, PIN_END_OFFSET)
+        }
+        placedCount[0] = itemCount
+    }
+    LaunchedEffect(state, followSlackPx) {
+        snapshotFlow { state.isScrollInProgress to state.isNearBottom(followSlackPx) }
+            .distinctUntilChanged()
+            .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
+    }
+    // The floating band's height lands after the first layout: a follower
+    // re-pins to the true end when it does (the session view's rule).
+    // EXP-1316: re-pin whenever a follower could still scroll forward (a
+    // row grew after its first layout, the band changed height).
+    // #EXP-1380: always via the LAST item, never a long scrollBy from the
+    // top — that composed every row on the way down (the OOM on long chats).
+    LaunchedEffect(state) {
+        snapshotFlow { follow && !state.isScrollInProgress && state.canScrollForward }
+            .collect { behind -> if (behind) state.pinToEnd() }
+    }
+    LaunchedEffect(painted.size, follow, jumpBottomInset) {
+        if (follow && painted.isNotEmpty()) state.pinToEnd()
+    }
+    // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick stops
+    // following and centres that card (its ring is the host's highlight).
+    val cardScroll = com.exponential.app.ui.session.LocalCardScrollRequest.current
+    LaunchedEffect(cardScroll, painted.size) {
+        val request = cardScroll ?: return@LaunchedEffect
+        val at = painted.indexOfFirst { it.id == request.id }
+        if (at < 0) return@LaunchedEffect
+        follow = false
+        state.centreOnItem(header + at)
+    }
+    // EXP-760 ×4 (web `chat-markdown.tsx`): every conversation text chips
+    // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
+    // provides [LocalIssueRefs]. Display-only: the composer sits outside.
+    CompositionLocalProvider(LocalIssueRefBare provides true) {
+        Box(modifier = modifier) {
+        LazyColumn(
+            state = state,
+            modifier = Modifier.fillMaxSize().testTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION),
+            contentPadding = contentPadding,
+            // #EXP-1736: each row carries its own gap (`layout.gap*`).
+        ) {
+            if (header > 0) {
+                // THE Load earlier ×4 (the run view's, muted small text).
+                item(key = "load-earlier") {
+                    TranscriptLoadEarlierButton(
+                        onClick = {
+                            val first = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "load-earlier" }
+                            anchor = (first?.key as? String)?.let { it to first.offset }
+                            loadedSteps += 1
+                        },
+                    )
+                }
+            }
+            items(painted, key = { it.id }) { row ->
+                val layout = layouts[row.id]
+                val sender = layout?.sender
+                TranscriptBubbleRow(
+                    layout = layout,
+                    modifier = Modifier.liveArrival(arrivals(row.id)),
+                    avatar = {
+                        if (sender != null) {
+                            SenderAvatar(
+                                sender = sender,
+                                user = (row as? SessionTree.SessionChatRow.MessageRow)
+                                    ?.takeIf { sender.kind == TranscriptGrouping.SenderKind.Member }
+                                    ?.let { meta(it)?.user },
+                                agent = agent,
+                            )
+                        }
+                    },
+                ) {
+                when (row) {
+                    // #EXP-1736 (transcript-grouping.json): ONE bubble for every
+                    // message: the viewer's right, anyone else's left under
+                    // its sender (a cross-session sender's opens that session).
+                    is SessionTree.SessionChatRow.MessageRow -> {
+                        val rowMeta = meta(row)
+                        when (layout?.side) {
+                            TranscriptGrouping.Side.Full, null -> ChatEventLine(row.body)
+                            TranscriptGrouping.Side.Own -> MessageBubble(
+                                text = row.body,
+                                own = true,
+                                time = rowMeta?.time,
+                                queued = row.queued,
+                                onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
+                            )
+                            TranscriptGrouping.Side.Other -> {
+                                val link = sender?.link
+                                val open = onOpenXref
+                                MessageBubble(
+                                    text = row.body,
+                                    own = false,
+                                    time = rowMeta?.time,
+                                    author = layout.authorLine(),
+                                    onClick = if (link != null && open != null) ({ open(link) }) else null,
+                                    queued = row.queued,
+                                )
+                            }
+                        }
+                    }
+                    is SessionTree.SessionChatRow.Divider -> TranscriptDivider(row.kind, clock(row.at))
+                    is SessionTree.SessionChatRow.Locked -> TranscriptDivider(LOCKED_DIVIDER_PREFIX + row.reason, null)
+                    is SessionTree.SessionChatRow.Surface -> AgentColumn {
+                        SurfaceCard(
+                            row = row,
+                            animate = arrivals(row.id),
+                            onReply = { text -> onSurfaceReply?.invoke(text) },
+                        )
+                    }
+                    is SessionTree.SessionChatRow.SessionRow -> {
+                        val card = row.card
+                        val action = ChatRowAction.chatRowAction(
+                            type = "session",
+                            sessionId = card.sessionId,
+                            rootId = rootId,
+                            state = card.state,
+                            blocked = rowActions?.blocked?.invoke(card.sessionId) ?: false,
+                            // No waiting card to draw = it opens.
+                            inline = rowActions == null || ChatRowAction.waitingCardInline(rows, card.sessionId),
+                            answered = card.sessionId in answeredSessions,
+                        )
+                        val shownCard = action.kindWord?.let { word ->
+                            card.copy(kindWord = word, tone = action.tone ?: card.tone)
+                        } ?: card
+                        when (action.action) {
+                            ChatRowAction.Kind.Expand -> {
+                                val expanded = row.id in expandedRows
+                                val toggle = {
+                                    expandedRows = if (expanded) expandedRows - row.id else expandedRows + row.id
+                                }
+                                if (expanded && rowActions != null) {
+                                    ExpandedSessionRow(
+                                        card = shownCard,
+                                        waiting = rowActions.waitingCard(card.sessionId),
+                                        onCollapse = toggle,
+                                        onOpenChat = { onOpenCard(card) },
+                                        onAnswer = onAnswer,
+                                        onDecidePlan = onDecidePlan,
+                                        onAnswered = {
+                                            answeredSessions = answeredSessions - card.sessionId + card.sessionId
+                                            expandedRows = expandedRows - row.id
+                                        },
+                                    )
+                                } else {
+                                    SessionCard(shownCard, onClick = toggle, chevron = true)
+                                }
+                            }
+                            ChatRowAction.Kind.Open ->
+                                SessionCard(shownCard, onClick = { onOpenCard(card) }, chevron = true)
+                            ChatRowAction.Kind.None -> SessionCard(shownCard, onClick = null)
+                        }
+                    }
+                    is SessionTree.SessionChatRow.Question -> ChatAskCard(row, onAnswer, onDecidePlan)
+                    is SessionTree.SessionChatRow.Plan -> ChatAskCard(row, onAnswer, onDecidePlan)
+                    is SessionTree.SessionChatRow.Subagent -> WorkCardView(
+                        card = WorkCards.of(WorkCardInput.Subagent(title = row.title, state = row.status)),
+                    )
+                    is SessionTree.SessionChatRow.Picture -> ChatPictureRow(row)
+                    is SessionTree.SessionChatRow.Event -> {
+                        val action = ChatRowAction.chatRowAction(
+                            type = "event",
+                            sessionId = row.sessionId,
+                            rootId = rootId,
+                            state = null,
+                            blocked = false,
+                            inline = false,
+                            answered = false,
+                        )
+                        val open = openRowSession
+                        val target = action.sessionId
+                        ChatEventLine(
+                            row.text,
+                            onClick = if (action.action != ChatRowAction.Kind.None && open != null && target != null) {
+                                { open(target) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                    // #EXP-1736: a child's report = its bubble (the summary),
+                    // named `<child> ›`, opening it.
+                    is SessionTree.SessionChatRow.Report -> {
+                        val action = ChatRowAction.chatRowAction(
+                            type = "report",
+                            sessionId = row.sessionId,
+                            rootId = rootId,
+                            state = null,
+                            blocked = false,
+                            inline = false,
+                            answered = false,
+                        )
+                        val open = onOpenXref?.takeIf { action.action != ChatRowAction.Kind.None }
+                        MessageBubble(
+                            text = row.summary.ifEmpty { row.text },
+                            own = false,
+                            time = null,
+                            author = layout.authorLine(),
+                            onClick = open?.let { { it(row.sessionId) } },
+                        )
+                    }
+                    is SessionTree.SessionChatRow.Suggestions -> ChatSuggestionsCard(
+                        row = row,
+                        actions = suggestions,
+                        onOpenSession = onOpenSession,
+                    )
+                }
+                }
+            }
+            if (tail != null) {
+                item(key = "__live_tail__") {
+                    Box(Modifier.padding(top = TranscriptGrouping.Layout.GAP_BETWEEN.dp)) { tail() }
+                }
+            }
+        }
+        JumpToBottomButton(
+            visible = !follow && shown.isNotEmpty(),
+            // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"): the run
+            // view's tap — animate to the newest row (the pinned window still
+            // ends on it), finish on the true end and resume following; the
+            // start stays pinned (chats.json WINDOW: never re-slides).
+            onClick = {
+                jumpScope.launch {
+                    val last = state.layoutInfo.totalItemsCount - 1
+                    if (last >= 0) {
+                        state.animateScrollToItem(last)
+                        state.scrollBy(100_000f)
+                    }
+                    follow = true
+                }
+            },
+            // The run view's placement: centred 12dp above the composer's
+            // rung ([jumpBottomInset] = the floating band, whose top 8dp is
+            // the bar's own padding), so band + 4dp.
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 4.dp),
+        )
+        }
+    }
+}
+
+/** chats.json WINDOW: the indexes of the WAITING plan / question cards
+ *  (a plan without a decision, an unanswered question) — the window's start
+ *  never cuts one off. */
+internal fun transcriptWaitingIndexes(rows: List<SessionTree.SessionChatRow>): List<Int> =
+    rows.indices.filter { i ->
+        when (val row = rows[i]) {
+            is SessionTree.SessionChatRow.Plan -> row.decision == null
+            is SessionTree.SessionChatRow.Question -> !row.answered
+            else -> false
+        }
+    }
+
+/** #EXP-1736 (transcript-grouping.json): the conversation's rows as the
+ *  transcript's items, by row id: messages and reports carry a sender,
+ *  subagent lines are the agent's trace, every card is a full row. */
+internal fun chatTranscriptLayout(
+    rows: List<SessionTree.SessionChatRow>,
+    chat: TranscriptGrouping.Chat,
+    origin: SessionTree.SessionXref?,
+    fromStart: Boolean,
+    viewerId: String?,
+    meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta?,
+): Map<String, TranscriptGrouping.RowLayout> {
+    val sessions = LinkedHashMap<String, TranscriptGrouping.SessionRef>()
+    fun addXref(xref: SessionTree.SessionXref?) {
+        if (xref != null) sessions[xref.sessionId] = TranscriptGrouping.SessionRef(xref.sessionId, xref.name, xref.agentId)
+    }
+    addXref(origin)
+    val members = LinkedHashMap<String, String>()
+    val items = rows.map { row ->
+        when (row) {
+            is SessionTree.SessionChatRow.MessageRow -> {
+                addXref(row.xref)
+                val authorId = row.authorId
+                if (row.author == "user" && authorId != null && authorId !in members) {
+                    meta(row)?.authorName?.takeIf { it.isNotEmpty() }?.let { members[authorId] = it }
+                }
+                TranscriptGrouping.Item(
+                    id = row.id,
+                    kind = TranscriptGrouping.ItemKind.Message,
+                    authorKind = row.author,
+                    authorId = row.authorId,
+                    authorSessionId = row.authorSessionId,
+                )
+            }
+            is SessionTree.SessionChatRow.Report -> {
+                addXref(row.xref)
+                TranscriptGrouping.Item(
+                    id = row.id,
+                    kind = TranscriptGrouping.ItemKind.Message,
+                    authorKind = "agent",
+                    authorSessionId = row.sessionId,
+                )
+            }
+            is SessionTree.SessionChatRow.Subagent -> TranscriptGrouping.Item(row.id, TranscriptGrouping.ItemKind.Trace)
+            else -> TranscriptGrouping.Item(row.id, TranscriptGrouping.ItemKind.Full)
+        }
+    }
+    val layouts = TranscriptGrouping.transcriptLayout(
+        TranscriptGrouping.Input(
+            viewerId = viewerId,
+            chat = chat.copy(originSessionId = origin?.sessionId, fromStart = fromStart),
+            members = members.map { (id, name) -> TranscriptGrouping.Named(id, name) },
+            agents = chat.agentId?.let { listOf(TranscriptGrouping.Named(it, chat.title)) }.orEmpty(),
+            sessions = sessions.values.toList(),
+            items = items,
+        ),
+    )
+    return layouts.associateBy { it.id }
+}
+
+/** A requested end landing: past the last item's size, so the measure
+ *  settles it flush with the viewport's end (the list clamps the overshoot). */
+private const val PIN_END_OFFSET = 100_000
+
+/** Scroll to the very end through the LAST item (only the rows on screen
+ *  compose; a long scrollBy from far up composes every row it passes). */
+private suspend fun LazyListState.pinToEnd() {
+    val last = layoutInfo.totalItemsCount - 1
+    if (last < 0) return
+    scrollToItem(last)
+    scrollBy(100_000f)
+}
+
+/** EXP-1317 ×4: a person's own queued row's ✕ (`sessions.unqueue`). */
+@Composable
+internal fun UnqueueButton(onUnqueue: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .padding(start = 2.dp)
+            .size(24.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClickLabel = ChatUiCopy.REMOVE_FROM_QUEUE, onClick = onUnqueue)
+            .testTag("chat-message-unqueue"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(ExpIcons.uiClose, contentDescription = ChatUiCopy.REMOVE_FROM_QUEUE, tint = Muted, modifier = Modifier.size(14.dp))
+    }
+}
+
+/**
+ * EXP-1316 ONE card ×4, EXP-1280 the RICH card (plan-card.json): a
+ * `question` or `plan` row is [PlanAskCard] over the row's data, answered
+ * through `sessions.answer` (the picks + the surface's data model). An
+ * answered row renders closed; the card locks while the answer is in flight
+ * and stays locked until the synced row flips.
+ */
+@Composable
+fun ChatAskCard(row: SessionTree.SessionChatRow, onAnswer: ChatAnswer, onDecidePlan: ChatPlanDecision) {
+    // FEED-140: a plan the agent replaced with a newer one paints CLOSED and
+    // collapsed to `copy.superseded` (never in the dock).
+    if (row is SessionTree.SessionChatRow.Plan && row.decision == AskDock.DECISION_SUPERSEDED) {
+        SupersededPlanLine()
+        return
+    }
+    // #EXP-1561 (waiting-cards.json): a DISMISSED card = ONE quiet line.
+    if (row is SessionTree.SessionChatRow.Plan && row.decision == AskDock.DECISION_DISMISSED) {
+        DismissedCardLine(plan = true, title = AskDock.askDockTitle(row.plan))
+        return
+    }
+    if (row is SessionTree.SessionChatRow.Question && row.dismissed == true) {
+        DismissedCardLine(plan = false, title = AskDock.askDockTitle(row.question))
+        return
+    }
+    if (row is SessionTree.SessionChatRow.Plan) {
+        ChatPlanRow(row)
+        return
+    }
+    Column(Modifier.testTag("chat-question-card")) {
+        PlanAskCard(row, onAnswer, onDecidePlan)
+    }
+}
+
+/**
+ * #EXP-1662 (plan-page.json): a plan in the Conversation = ONE row in THE
+ * session card's box: the `coding-plan` glyph (amber while it waits, emerald
+ * check approved, muted otherwise), `planRowLabel` (one line), the status word,
+ * the chevron; a press opens the chat's plan tab on THAT plan. THE × while it
+ * waits, gone once the press is in flight.
+ */
+@Composable
+private fun ChatPlanRow(row: SessionTree.SessionChatRow.Plan) {
+    val openPlan = LocalOpenPlanPage.current
+    val dismiss = LocalCardDismiss.current
+    var dismissing by remember(row.id) { mutableStateOf(false) }
+    val waiting = row.decision == null
+    val approved = row.decision == "approved"
+    val style = chatCardTextStyle()
+    val tone = if (waiting) DesignTokens.Semantic.Yellow else Muted
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .chatCard()
+            .heightIn(min = PlanPage.Layout.ROW_HEIGHT.dp)
+            .testTag("chat-plan-card"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = PlanPage.Layout.ROW_HEIGHT.dp)
+                .clickable(role = Role.Button) { openPlan.open(row.sessionId, row.id) }
+                .padding(horizontal = 12.dp)
+                .testTag("plan-row"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    if (approved) ExpIcons.uiCheck else ExpIcons.codingPlan,
+                    contentDescription = null,
+                    tint = if (approved) DesignTokens.Semantic.Green else tone,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    PlanPage.planRowLabel(row.plan),
+                    style = style.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Text(
+                    row.decision?.let { AskDock.planDecisionLabel(it, row.fresh) } ?: PlanPage.Copy.NEEDS_YOU,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                    color = tone,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+            Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(16.dp))
+        }
+        if (waiting && dismiss != null && !dismissing) {
+            Box(Modifier.padding(end = 8.dp)) {
+                CardDismissButton(
+                    onDismiss = {
+                        dismissing = true
+                        dismiss(row.id) { ok -> if (!ok) dismissing = false }
+                    },
+                    corner = false,
+                )
+            }
+        }
+    }
+}
+
+/** FEED-140 (EXP-1553, web's PlanCard parity): a superseded plan = THE
+ *  plan card CLOSED — the `Plan ready` header (plan glyph) on THE card
+ *  surface, its body collapsed to the muted `× Replaced by a newer plan`
+ *  line, the whole card at 80 % opacity. */
+@Composable
+fun SupersededPlanLine(modifier: Modifier = Modifier) {
+    com.exponential.app.ui.session.AskCard(
+        plan = true,
+        heading = AskDock.Copy.PLAN_READY,
+        meta = null,
+        modifier = modifier
+            .graphicsLayer { alpha = 0.8f }
+            .testTag("chat-plan-superseded"),
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                ExpIcons.uiClose,
+                contentDescription = null,
+                tint = Muted,
+                modifier = Modifier.padding(top = 2.dp).size(14.dp),
+            )
+            Text(
+                AskDock.Copy.SUPERSEDED,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
+                color = Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** The agent's column: cards (a surface preview) sit left, as wide as the
+ *  agent's bubble may grow (94%). */
+@Composable
+fun AgentColumn(content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Box(Modifier.align(Alignment.CenterStart).widthIn(max = maxWidth * 0.94f)) { content() }
+    }
+}
+
+/**
+ * Session 58cb32df: which rows ARRIVED while the chat was open — every id not
+ * in the first non-empty transcript painted for [key] (a reopen = a new
+ * composition = nothing animates).
+ */
+@Composable
+fun rememberLiveArrivals(key: String, rows: List<SessionTree.SessionChatRow>): (String) -> Boolean {
+    val initial = remember(key) { mutableStateOf<Set<String>?>(null) }
+    if (initial.value == null && rows.isNotEmpty()) initial.value = rows.mapTo(HashSet()) { it.id }
+    val seen = initial.value
+    return { id -> seen != null && id !in seen }
+}
+
+/**
+ * N-12: THE Dock in a chat (dock.json; web `ChatDock`): the host's
+ * [sources] (the root's Queue, queued messages, banners) plus the
+ * suggested-tasks rows with an open item (only with [suggestions]; null =
+ * read-only, the rows stay in the Conversation) as DockCards above the
+ * composer; a suggestions card opens [ChatSuggestionsSheet], the rest
+ * through [sessionSheet]. S-3: a waiting plan or question is
+ * never a DockCard (it stays inline in the Conversation, answerable),
+ * so nothing opens itself. [initialOpenId] / [initialExpanded] seed the
+ * styleguide's states.
+ */
+@Composable
+fun ChatDock(
+    rows: List<SessionTree.SessionChatRow>,
+    modifier: Modifier = Modifier,
+    sources: List<Dock.Source> = emptyList(),
+    sessionSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
+    action: (@Composable (Dock.Row) -> Unit)? = null,
+    initialOpenId: String? = null,
+    initialExpanded: Boolean = false,
+    suggestions: ChatSuggestionActions? = null,
+    onOpenSession: ((String) -> Unit)? = null,
+) {
+    val suggested = remember(rows, suggestions != null) {
+        if (suggestions != null) chatSuggestionSources(rows) else emptyList()
+    }
+    val docked = Dock.dockRows(suggested + sources)
+    var openId by remember { mutableStateOf(initialOpenId) }
+    val byId = remember(rows) { rows.associateBy { it.id } }
+    DockCards(
+        rows = docked,
+        openId = openId,
+        onOpenChange = { openId = it },
+        modifier = modifier,
+        action = action,
+        initialExpanded = initialExpanded,
+    ) { row, scope, close ->
+        val chatRow = byId[row.id]
+        if (chatRow is SessionTree.SessionChatRow.Suggestions) {
+            ChatSuggestionsSheet(chatRow, suggestions, onOpenSession)
+        } else {
+            sessionSheet?.invoke(this, row, scope, close)
+        }
+    }
+}
+
+/** dock.json `suggestionSources` over a chat's rows. */
+fun chatSuggestionSources(rows: List<SessionTree.SessionChatRow>): List<Dock.Source.Suggestions> =
+    Dock.suggestionSources(
+        rows.filterIsInstance<SessionTree.SessionChatRow.Suggestions>().map { row ->
+            Dock.SuggestionRow(row.id, row.header, row.items.map { it.state.wire to it.title })
+        },
+    )
+
+/** N-12: the Conversation rows THE Dock holds (they leave the transcript):
+ *  the suggestion rows with an open item (web `chatDockedIds`). S-3: the
+ *  waiting asks stay inline. */
+fun chatDockedIds(rows: List<SessionTree.SessionChatRow>): Set<String> =
+    chatSuggestionSources(rows).mapTo(mutableSetOf()) { it.id }
+
+/** A `picture` card: the attachment through the markdown image path (auth,
+ *  probed size), the caption muted under it. */
+@Composable
+fun ChatPictureRow(row: SessionTree.SessionChatRow.Picture) {
+    Column(modifier = Modifier.fillMaxWidth().testTag("chat-picture"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        MarkdownView(markdown = "![${row.caption.orEmpty()}](/api/attachments/${row.attachmentId})")
+        row.caption?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = Muted)
+        }
+    }
+}
+
+/** An `event` card (and a system message): ONE quiet line. #EXP-1464: a
+ *  line about another session ([onClick] non-null) becomes a button with the
+ *  trailing chevron and the pressed wash; otherwise it stays plain. */
+@Composable
+fun ChatEventLine(text: String, onClick: (() -> Unit)? = null) {
+    if (onClick == null) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = Muted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag(ChatRowAction.TestIds.EVENT),
+        )
+        return
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag(ChatRowAction.TestIds.EVENT),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = Muted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(12.dp))
+    }
+}
+
+/**
+ * #EXP-1464 (chat-row-action.json `expand`): a Needs-you session row,
+ * expanded in place = THE session card (chevron down; a tap collapses it)
+ * over THE question card of that session, its label line carrying `Open chat`,
+ * or #EXP-1662 THE plan row ([waiting]; null = the skeleton line while it
+ * syncs). A sent answer or a dismissal marks the session answered
+ * ([onAnswered]) and collapses.
+ */
+@Composable
+private fun ExpandedSessionRow(
+    card: SessionTree.SessionCard,
+    waiting: SessionTree.SessionChatRow?,
+    onCollapse: () -> Unit,
+    onOpenChat: () -> Unit,
+    onAnswer: ChatAnswer,
+    onDecidePlan: ChatPlanDecision,
+    onAnswered: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag(ChatRowAction.TestIds.EXPANDED),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SessionCard(card, onClick = onCollapse, chevron = true, expanded = true)
+        if (waiting == null) {
+            SkeletonRows(rows = 1, rowHeight = 20.dp, dot = false)
+        } else {
+            val dismiss = LocalCardDismiss.current
+            CompositionLocalProvider(
+                LocalAskCardTrailing provides { OpenChatLink(onOpenChat) },
+                LocalCardDismiss provides dismiss?.let { host ->
+                    { id: String, settled: (Boolean) -> Unit ->
+                        host(id) { ok ->
+                            settled(ok)
+                            if (ok) onAnswered()
+                        }
+                    }
+                },
+            ) {
+                ChatAskCard(
+                    waiting,
+                    onAnswer = { id, answer, settled ->
+                        onAnswer(id, answer) { ok ->
+                            settled(ok)
+                            if (ok) onAnswered()
+                        }
+                    },
+                    onDecidePlan = { id, decision, settled ->
+                        onDecidePlan(id, decision) { ok ->
+                            settled(ok)
+                            if (ok) onAnswered()
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** #EXP-1464 `copy.openChat`: the expanded card's trailing text link,
+ *  muted xs text; pressed = foreground. */
+@Composable
+private fun OpenChatLink(onClick: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Text(
+        ChatRowAction.Copy.OPEN_CHAT,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
+        color = if (pressed) MaterialTheme.colorScheme.onSurface else Muted,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag(ChatRowAction.TestIds.OPEN_CHAT),
+    )
+}
+
+// ── EXP-1323: reports + suggested tasks ─────────────────────────────────────
+
+/** A Start on… row: a runnable device. */
+data class SuggestionDevice(val id: String, val name: String, val icon: ImageVector)
+
+/**
+ * EXP-1323: what a suggested tasks card can do (`sessions.startSuggestion` /
+ * `startAllSuggestions` / `dismissSuggestion` / `fileSuggestion`). [models] =
+ * contract `codingModel` (value → label), never a Default row; [pending] =
+ * in-flight [suggestionKey]s.
+ */
+data class ChatSuggestionActions(
+    val onStart: (rowId: String, itemId: String, deviceId: String?, model: String?) -> Unit,
+    val onStartAll: (rowId: String) -> Unit,
+    val onHere: (rowId: String, itemId: String) -> Unit,
+    val onDismiss: (rowId: String, itemId: String) -> Unit,
+    val onFile: (rowId: String, itemId: String) -> Unit,
+    val devices: List<SuggestionDevice> = emptyList(),
+    val models: List<Pair<String, String>> = emptyList(),
+    val pending: Set<String> = emptySet(),
+)
+
+/** The pending key of one item (or, without an item, the card's Start all). */
+fun suggestionKey(rowId: String, itemId: String? = null): String =
+    if (itemId != null) "$rowId:$itemId" else "$rowId:*"
+
+/**
+ * EXP-1323: THE suggested tasks card ×4 = the Work card's shell: a header
+ * (`3 suggested tasks`, `· 2 started`, Start all while more than one is open),
+ * then hairline-divided items. N-12: while any item is open the row is a
+ * DockCard and this list is its sheet ([ChatSuggestionsSheet]); in the
+ * Conversation the card stays for the rows with no open item. Open = title,
+ * text, the ⋯ menu and Start, one row on every width; started = the child's session card
+ * (its caption under the name) opening it; here = `Sent here`; filed =
+ * `Filed EXP-9`.
+ */
+@Composable
+fun ChatSuggestionsCard(
+    row: SessionTree.SessionChatRow.Suggestions,
+    actions: ChatSuggestionActions?,
+    onOpenSession: ((String) -> Unit)?,
+) {
+    var optionsFor by remember(row.id) { mutableStateOf<SessionTree.SuggestionRow?>(null) }
+    Column(modifier = Modifier.fillMaxWidth().chatCard().testTag("chat-suggestions")) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = WorkCardSpec.HEADER.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(ExpIcons.uiChecklist, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+            Text(
+                row.header,
+                style = chatCardTextStyle().copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).testTag("chat-suggestions-header"),
+            )
+            if (row.startAll && actions != null) {
+                val key = suggestionKey(row.id)
+                GlassPill(
+                    label = SessionTree.SuggestionsCopy.START_ALL,
+                    onClick = { actions.onStartAll(row.id) },
+                    size = PillSize.Sm,
+                    primary = true,
+                    loading = key in actions.pending,
+                    enabled = key !in actions.pending,
+                    modifier = Modifier.testTag("chat-suggestions-start-all"),
+                )
+            }
+        }
+        row.items.forEach { item ->
+            HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+            SuggestionItemRow(
+                rowId = row.id,
+                item = item,
+                actions = actions,
+                onOpenSession = onOpenSession,
+                onOptions = { optionsFor = item },
+            )
+        }
+    }
+    val target = optionsFor
+    if (target != null && actions != null) {
+        SuggestionOptionsSheet(
+            item = target,
+            actions = actions,
+            onPick = { pick ->
+                optionsFor = null
+                pick(row.id, target.id)
+            },
+            onDismiss = { optionsFor = null },
+        )
+    }
+}
+
+@Composable
+private fun SuggestionItemRow(
+    rowId: String,
+    item: SessionTree.SuggestionRow,
+    actions: ChatSuggestionActions?,
+    onOpenSession: ((String) -> Unit)?,
+    onOptions: () -> Unit,
+) {
+    val style = chatCardTextStyle()
+    val tag = Modifier.testTag("chat-suggestion-${item.state.wire}")
+    when (item.state) {
+        SessionTree.SuggestionState.Started -> {
+            val card = item.card
+            if (card != null) {
+                SessionCard(
+                    card = card,
+                    onClick = onOpenSession?.let { open -> { open(card.sessionId) } },
+                    bare = true,
+                    modifier = tag,
+                )
+            } else {
+                // Started; the child's row has not synced yet.
+                Row(
+                    modifier = tag.fillMaxWidth().heightIn(min = WorkCardSpec.HEADER.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    InlineSpinner(size = 12.dp)
+                    Text(item.title, style = style, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        SessionTree.SuggestionState.Here, SessionTree.SuggestionState.Filed -> Row(
+            modifier = tag.fillMaxWidth().heightIn(min = WorkCardSpec.HEADER.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(item.title, style = style, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(
+                if (item.state == SessionTree.SuggestionState.Here) {
+                    SessionTree.SuggestionsCopy.SENT_HERE
+                } else {
+                    SessionTree.SuggestionsCopy.FILED.replace("{issue}", item.identifier.orEmpty())
+                },
+                style = style,
+                color = Muted,
+                maxLines = 1,
+            )
+        }
+        SessionTree.SuggestionState.Open -> {
+            val busy = actions != null && suggestionKey(rowId, item.id) in actions.pending
+            // N-12 ×4: ONE row on every width: the words, the ⋯ menu, Start.
+            Row(
+                modifier = tag.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        item.title,
+                        style = style.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (item.text.isNotEmpty()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(item.text, style = style, color = Muted)
+                    }
+                }
+                if (actions != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CircleIconButton(
+                            ExpIcons.uiMore,
+                            SessionTree.SuggestionsCopy.OPTIONS,
+                            onClick = onOptions,
+                            enabled = !busy,
+                            borderless = true,
+                            size = 24.dp,
+                            glyphSize = 14.dp,
+                            modifier = Modifier.testTag("chat-suggestion-options"),
+                        )
+                        GlassPill(
+                            label = SessionTree.SuggestionsCopy.START,
+                            onClick = { actions.onStart(rowId, item.id, null, null) },
+                            size = PillSize.Sm,
+                            primary = true,
+                            loading = busy,
+                            enabled = !busy,
+                            modifier = Modifier.testTag("chat-suggestion-start"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * N-12: THE suggestions sheet (a DockCard opened, dock.json `suggestions`):
+ * the items as the card lists them; the pinned footer = Start all while more
+ * than one is open. Draw inside [DockCards]' sheet slot.
+ */
+@Composable
+fun ColumnScope.ChatSuggestionsSheet(
+    row: SessionTree.SessionChatRow.Suggestions,
+    actions: ChatSuggestionActions?,
+    onOpenSession: ((String) -> Unit)?,
+) {
+    var optionsFor by remember(row.id) { mutableStateOf<SessionTree.SuggestionRow?>(null) }
+    // N-6: the Dock sheet is a sheet host: the ⋯ menu discloses inline.
+    val inline = LocalPickerPresentation.current == PickerPresentation.Inline
+    DockSheetBody {
+        Column(modifier = Modifier.fillMaxWidth().fullBleed(12.dp).testTag("chat-suggestions-sheet")) {
+            row.items.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+                SuggestionItemRow(
+                    rowId = row.id,
+                    item = item,
+                    actions = actions,
+                    onOpenSession = onOpenSession,
+                    onOptions = { optionsFor = if (optionsFor?.id == item.id) null else item },
+                )
+                if (inline && actions != null && optionsFor?.id == item.id) {
+                    SuggestionOptionsInline(
+                        actions = actions,
+                        onPick = { pick ->
+                            optionsFor = null
+                            pick(row.id, item.id)
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (row.startAll && actions != null) {
+        DockSheetFooter {
+            val key = suggestionKey(row.id)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                GlassPill(
+                    label = SessionTree.SuggestionsCopy.START_ALL,
+                    onClick = { actions.onStartAll(row.id) },
+                    size = PillSize.Md,
+                    primary = true,
+                    loading = key in actions.pending,
+                    enabled = key !in actions.pending,
+                    modifier = Modifier.testTag("chat-suggestions-start-all"),
+                )
+            }
+        }
+    }
+    val target = optionsFor
+    if (!inline && target != null && actions != null) {
+        SuggestionOptionsSheet(
+            item = target,
+            actions = actions,
+            onPick = { pick ->
+                optionsFor = null
+                pick(row.id, target.id)
+            },
+            onDismiss = { optionsFor = null },
+        )
+    }
+}
+
+/** What an Options pick does to (rowId, itemId). */
+private typealias SuggestionPick = (rowId: String, itemId: String) -> Unit
+
+/**
+ * EXP-1323: an open item's ⋯ = THE menu as its phone sheet (the "+"'s
+ * idiom): Do it here · Start on… › (the runnable devices) · Start with… ›
+ * (the models, never a Default row) · File as issue · Dismiss (N-6: in the
+ * Dock sheet the same rows open inline, [SuggestionOptionsInline]). A submenu row pushes its
+ * page inside the sheet; back returns to the rows.
+ */
+@Composable
+private fun SuggestionOptionsSheet(
+    item: SessionTree.SuggestionRow,
+    actions: ChatSuggestionActions,
+    onPick: (SuggestionPick) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    GlassSheet(title = item.title, onDismiss = onDismiss, modifier = Modifier.testTag("chat-suggestion-menu")) {
+        SuggestionOptionsRows(actions = actions, onPick = onPick)
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * N-6: the same ⋯ rows INLINE (the Dock sheet is a sheet host, so no second
+ * sheet): disclosed right under the item's row, at the sheet's width; the ⋯
+ * again folds them.
+ */
+@Composable
+private fun SuggestionOptionsInline(
+    actions: ChatSuggestionActions,
+    onPick: (SuggestionPick) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = PickerDefaults.InlineMaxHeight)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 6.dp)
+            .testTag("chat-suggestion-menu"),
+    ) {
+        SuggestionOptionsRows(actions = actions, onPick = onPick)
+    }
+}
+
+/** THE ⋯ rows and their Start on… / Start with… pages, either presentation. */
+@Composable
+private fun SuggestionOptionsRows(
+    actions: ChatSuggestionActions,
+    onPick: (SuggestionPick) -> Unit,
+) {
+    var page by remember { mutableStateOf<String?>(null) }
+    val iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    when (page) {
+        PAGE_DEVICE -> {
+            BackHandler { page = null }
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_ON,
+                onClick = { page = null },
+                leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+            )
+            actions.devices.forEach { device ->
+                GlassSheetRow(
+                    label = device.name,
+                    onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, device.id, null) } },
+                    leading = { Icon(device.icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+                )
+            }
+        }
+        PAGE_MODEL -> {
+            BackHandler { page = null }
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_WITH,
+                onClick = { page = null },
+                leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+            )
+            actions.models.forEach { (value, label) ->
+                GlassSheetRow(
+                    label = label,
+                    onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, null, value) } },
+                )
+            }
+        }
+        else -> {
+            val chevron: @Composable RowScope.() -> Unit = {
+                Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+            }
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.HERE,
+                onClick = { onPick(actions.onHere) },
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_ON,
+                onClick = { page = PAGE_DEVICE },
+                enabled = actions.devices.isNotEmpty(),
+                trailing = chevron,
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_WITH,
+                onClick = { page = PAGE_MODEL },
+                enabled = actions.models.isNotEmpty(),
+                trailing = chevron,
+            )
+            HorizontalDivider(
+                thickness = GlassTokens.Hairline,
+                color = GlassTokens.StrokeRow,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.FILE,
+                onClick = { onPick(actions.onFile) },
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.DISMISS,
+                onClick = { onPick(actions.onDismiss) },
+            )
+        }
+    }
+}
+
+private const val PAGE_DEVICE = "device"
+private const val PAGE_MODEL = "model"

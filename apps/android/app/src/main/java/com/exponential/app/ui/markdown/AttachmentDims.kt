@@ -10,7 +10,7 @@ import com.exponential.app.domain.isInlineVideo
 // their `width`/`height` "so clients can pre-size and avoid layout shift"
 // (CLAUDE.md) — web reads them in lib/markdown-image.tsx; this is the Android
 // counterpart. Without them an `![](…)` block measured 0-height and jumped the
-// layout the moment the bitmap arrived (worst mid-scroll in a long thread).
+// layout the moment the bitmap arrived (worst mid-scroll in a long chat).
 //
 // EXP-824 widens the same map to everything the inline-media block needs from
 // the synced row: the content type (video / audio / other decides the

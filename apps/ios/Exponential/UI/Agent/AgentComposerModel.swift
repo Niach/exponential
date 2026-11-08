@@ -6,7 +6,7 @@ import GRDB
 /// EXP-825/EXP-1291: the ONE launcher's state — what Home's composer is
 /// about to start, and the send. Every play button navigates here with an
 /// `AgentComposerSeed`; the send is ONE `sessions.send` that starts a new
-/// THREAD root in the ACTIVE team (phones: the current board's team):
+/// CHAT root in the ACTIVE team (phones: the current board's team):
 ///
 /// - The SUBJECT is issue chips, OR one prompt chip (NEW-2: picked in the
 ///   `/` menu, sent as `promptId`); picking issues or a prompt REPLACES the
@@ -30,7 +30,7 @@ import GRDB
 ///   guards live here. An agent message needs none of them: it runs on the
 ///   agent's own device and login.
 /// - The database is the bus: the call answers with the new root's id, so
-///   the page opens the thread at once (`landedRootId`); the device picks
+///   the page opens the chat at once (`landedRootId`); the device picks
 ///   the queued row up from its shape.
 ///
 /// The pools (issues, boards, prompts, agents, pull requests) read LIVE off GRDB;
@@ -85,7 +85,7 @@ final class AgentComposerModel {
         let since: Date
     }
 
-    /// The new thread root a send started — the page opens it while visible
+    /// The new chat root a send started — the page opens it while visible
     /// and consumes it.
     var landedRootId: String?
     /// NEW-3: the agent whose DM a send went into — the page opens it while
@@ -123,7 +123,7 @@ final class AgentComposerModel {
     private var pullRequestRows: [StartPullRequestOption.Candidate] = []
     @ObservationIgnored private var poolTask: Task<Void, Never>?
 
-    /// At most this many issues per thread (contract `sessionsSend.maxIssues`).
+    /// At most this many issues per chat (contract `sessionsSend.maxIssues`).
     static let maxIssues = DomainContract.sessionsSendMaxIssues
 
     init(
@@ -329,7 +329,7 @@ final class AgentComposerModel {
 
     // MARK: - Pools
 
-    /// Every issue the composer can put on a thread. The checked ids are
+    /// Every issue the composer can put on a chat. The checked ids are
     /// exempt from the issue-level checks: a seeded issue must stay on offer.
     /// EXP-1358: built once per pool emission or `checked` change — it was a
     /// computed property every keystroke's readers (`canSubmit`, `subject`,
@@ -731,8 +731,8 @@ final class AgentComposerModel {
 
     /// Upload the pending attachments (sequentially, stamping `uploadedId`
     /// so a retry after a mid-batch failure never uploads the same file
-    /// twice), then ONE `sessions.send` for a new thread root. On success
-    /// the page opens the thread and `ComposerSend` decides what the field
+    /// twice), then ONE `sessions.send` for a new chat root. On success
+    /// the page opens the chat and `ComposerSend` decides what the field
     /// keeps (EXP-1537: text typed while the send was out stays, only the
     /// sent picks leave); on failure the draft, the chips and the strip stay
     /// as they are now and a toast offers Retry. The send runs on a Task the
@@ -861,14 +861,14 @@ final class AgentComposerModel {
         }
     }
 
-    /// The new thread root this draft starts.
+    /// The new chat root this draft starts.
     private func sendInput(
         teamId: String, deviceId: String, text: String?, attachmentIds: [String]
     ) -> SessionsSendInput {
         let attachments = attachmentIds.isEmpty ? nil : attachmentIds
         switch subject {
         case .none:
-            return .newThread(
+            return .newChat(
                 teamId: teamId,
                 deviceId: deviceId,
                 options: launch.buildOptions(),
@@ -877,7 +877,7 @@ final class AgentComposerModel {
                 repositoryId: chatRepoId.isEmpty ? nil : chatRepoId
             )
         case .issues:
-            return .newThread(
+            return .newChat(
                 teamId: teamId,
                 deviceId: deviceId,
                 options: launch.buildOptions(),
@@ -889,7 +889,7 @@ final class AgentComposerModel {
             // NEW-2: the picked saved PROMPT: its body plus `text` = the first
             // message, in the free request's repository. (An agent never gets
             // here: `submit` sends it into the DM.)
-            return .newThread(
+            return .newChat(
                 teamId: teamId,
                 deviceId: deviceId,
                 options: launch.buildOptions(),

@@ -77,7 +77,7 @@ export async function handleTeamSessionAttachmentUpload({
  * The half of the upload with no database in it — validate the multipart
  * part, check the team's storage budget, probe the pixels and put the
  * object. The Guide upload route runs the DB half inside its own
- * `FOR UPDATE` transaction on the thread's root.
+ * `FOR UPDATE` transaction on the chat's root.
  */
 export interface PreparedSessionImage {
   attachmentId: string

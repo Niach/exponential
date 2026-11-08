@@ -22,9 +22,9 @@ public enum InboxRoute {
     public enum SessionTarget: Equatable, Sendable {
         /// The agent's page (its channel).
         case agent(agentId: String)
-        /// The thread; `sessionId` = the child page it opens on (nil = the
+        /// The chat; `sessionId` = the child page it opens on (nil = the
         /// Conversation).
-        case thread(threadId: String, sessionId: String?)
+        case chat(chatId: String, sessionId: String?)
         /// The session on its own screen.
         case session(id: String)
     }
@@ -65,7 +65,7 @@ public enum InboxRoute {
                 ? .agent(agentId: agentId)
                 : .session(id: id)
         }
-        return .thread(threadId: root, sessionId: root == id ? nil : id)
+        return .chat(chatId: root, sessionId: root == id ? nil : id)
     }
 }
 

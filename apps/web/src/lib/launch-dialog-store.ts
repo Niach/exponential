@@ -20,7 +20,7 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // `LaunchDialogHost` mounted in the team route.
 
 /** What a play button hands the launcher: the seed. EXP-1293: a start
- *  always opens its new thread, so the click's origin no longer rides. */
+ *  always opens its new chat, so the click's origin no longer rides. */
 export type LaunchDialogRequest = LaunchSeed
 
 let pending: LaunchDialogRequest | null = null

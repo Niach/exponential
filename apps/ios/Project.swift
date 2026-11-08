@@ -2,7 +2,7 @@ import Foundation
 import ProjectDescription
 
 // EXP-1635: the share pages also compile into the app for their capture-only
-// specimens (`ThreadCardsScreen`, `-uiTestingStyleguide share-to`): the
+// specimens (`ChatCardsScreen`, `-uiTestingStyleguide share-to`): the
 // extension cannot be driven by a test.
 let sharedSources: SourceFilesList = [
     "Exponential/**",

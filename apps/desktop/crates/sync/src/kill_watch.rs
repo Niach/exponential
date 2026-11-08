@@ -1,7 +1,7 @@
 //! The §8.8 own-row Electric kill-switch (masterplan-v3) — the ONLY kill
 //! path that survives a dead relay.
 //!
-//! EXP-1294 (Threads v2): an explicit end (`sessions.end`, ending a root ends
+//! EXP-1294: an explicit end (`sessions.end`, ending a root ends
 //! its whole tree server-side) flips the synced `sessions` row to
 //! `status = ended`. `queued`, `running` and `idle` never fire; agent roots
 //! never end; merging never ends a session. "Stop" (interrupt a turn) is not

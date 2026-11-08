@@ -1,31 +1,31 @@
 import { describe, expect, test } from "bun:test"
 
 import card from "../fixtures/session-card.json" with { type: "json" }
-import thread from "../fixtures/session-thread.json" with { type: "json" }
-import list from "../fixtures/threads-list.json" with { type: "json" }
+import chat from "../fixtures/session-chat.json" with { type: "json" }
+import list from "../fixtures/chat-list.json" with { type: "json" }
 import mergeTrain from "../fixtures/merge-train.json" with { type: "json" }
 import {
-  buildSessionThread,
+  buildSessionChat,
   composerReplies,
   guidePullRequest,
   listAgents,
-  threadChatMode,
-  threadStripMode,
-  partitionThreads,
+  chatMode,
+  chatStripMode,
+  partitionChats,
   cardSurface,
   questionOption,
   questionOptions,
-  railThreads,
+  railChats,
   sessionBanner,
   sessionCard,
-  threadInStack,
-  threadRowLeadPr,
-  threadRowMarkState,
-  threadRowWord,
+  chatInStack,
+  chatRowLeadPr,
+  chatRowMarkState,
+  chatRowWord,
   treeOffline,
-  threadsUnread,
+  chatsListUnread,
   treeState,
-  type ThreadStripMode,
+  type ChatStripMode,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -55,14 +55,14 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
     })
   }
   // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome` (merge-train.json
-  // copy.events); none or an unknown outcome = session-thread's fallback.
-  test(`thread: pr_merge lines by mergeOutcome`, () => {
-    const base = thread.cases.find((entry) => JSON.stringify(entry.input).includes(`"pr_opened"`))!
+  // copy.events); none or an unknown outcome = session-chat's fallback.
+  test(`chat: pr_merge lines by mergeOutcome`, () => {
+    const base = chat.cases.find((entry) => JSON.stringify(entry.input).includes(`"pr_opened"`))!
     const lineOf = (card: Record<string, unknown>) => {
       const input = structuredClone(base.input) as { messages: Array<{ id: string; card: unknown }> }
       const message = input.messages.find((m) => (m.card as { event?: string } | null)?.event === `pr_opened`)!
       message.card = { kind: `event`, event: `pr_merge`, pullRequestId: (message.card as { pullRequestId: string }).pullRequestId, ...card }
-      const rows = buildSessionThread(input as never).rows as Array<{ id: string; text?: string }>
+      const rows = buildSessionChat(input as never).rows as Array<{ id: string; text?: string }>
       return rows.find((row) => row.id === message.id)?.text
     }
     for (const [outcome, text] of Object.entries(mergeTrain.copy.events)) {
@@ -71,35 +71,35 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
     expect(lineOf({ mergeOutcome: `future` })).toMatch(/^Auto-merge of PR #\d+$/)
     expect(lineOf({})).toMatch(/^Auto-merge of PR #\d+$/)
   })
-  for (const entry of thread.cases) {
-    test(`thread: ${entry.name}`, () => {
-      expect(buildSessionThread(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)
+  for (const entry of chat.cases) {
+    test(`chat: ${entry.name}`, () => {
+      expect(buildSessionChat(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)
     })
   }
-  for (const entry of thread.guidePullRequestCases) {
+  for (const entry of chat.guidePullRequestCases) {
     test(`guide pull request: ${entry.name}`, () => {
       expect(guidePullRequest(entry.pullRequests)?.id ?? null).toBe(entry.expected)
     })
   }
-  for (const entry of thread.stripModeCases) {
+  for (const entry of chat.stripModeCases) {
     test(`strip (#EXP-1433): ${entry.name}`, () => {
       // The REAL mode type: a shape drift in the fixture fails typecheck.
-      expect(threadStripMode(entry.input)).toEqual(entry.expected as ThreadStripMode)
+      expect(chatStripMode(entry.input)).toEqual(entry.expected as ChatStripMode)
     })
   }
-  for (const entry of thread.repliesCases) {
+  for (const entry of chat.repliesCases) {
     test(`quick replies (EXP-1211): ${entry.name}`, () => {
       expect(composerReplies(entry.input as never)).toEqual(entry.expected as never)
     })
   }
   for (const entry of list.cases) {
-    test(`threads list: ${entry.name}`, () => {
-      expect(partitionThreads(entry.input as never)).toEqual(entry.expected as never)
+    test(`chats list: ${entry.name}`, () => {
+      expect(partitionChats(entry.input as never)).toEqual(entry.expected as never)
     })
   }
   for (const entry of list.recentCases) {
     test(`recent (NEW-1): ${entry.name}`, () => {
-      const groups = partitionThreads(entry.input as never)
+      const groups = partitionChats(entry.input as never)
       const recent = groups.find((group) => group.key === `recent`)
       expect(recent?.rows.filter((row) => row.depth === 0).map((row) => row.sessionId) ?? []).toEqual(
         entry.expected
@@ -113,9 +113,9 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       ).toBe(entry.expected)
     })
   }
-  for (const entry of thread.chatModeCases) {
+  for (const entry of chat.chatModeCases) {
     test(`chat mode (S-3): ${entry.name}`, () => {
-      expect(threadChatMode(entry.root)).toBe(entry.expected as never)
+      expect(chatMode(entry.root)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.agentCases) {
@@ -126,17 +126,17 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   }
   for (const entry of list.markCases) {
     test(`row mark: ${entry.name}`, () => {
-      expect(threadRowMarkState(entry.input)).toBe(entry.expected as never)
+      expect(chatRowMarkState(entry.input)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.leadCases) {
     test(`row lead PR: ${entry.name}`, () => {
-      expect(threadRowLeadPr(entry.prStates)).toBe(entry.expected as never)
+      expect(chatRowLeadPr(entry.prStates)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.wordCases) {
     test(`row word: ${entry.name}`, () => {
-      expect(threadRowWord(entry.input)).toBe(entry.expected as never)
+      expect(chatRowWord(entry.input)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.offlineCases) {
@@ -146,18 +146,18 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   }
   for (const entry of list.stackCases) {
     test(`in stack: ${entry.name}`, () => {
-      expect(threadInStack(entry.input.pullRequests, entry.input.teamPrs)).toBe(entry.expected)
+      expect(chatInStack(entry.input.pullRequests, entry.input.teamPrs)).toBe(entry.expected)
     })
   }
   for (const entry of list.unreadCases) {
     test(`nav dot: ${entry.name}`, () => {
-      expect(threadsUnread(entry.groups as never)).toBe(entry.expected)
+      expect(chatsListUnread(entry.groups as never)).toBe(entry.expected)
     })
   }
   for (const entry of list.railCases) {
     test(`rail: ${entry.name}`, () => {
       const words = entry.input.words as Record<string, never>
-      const rows = railThreads(entry.input.groups as never, (row) => words[row.sessionId] ?? null)
+      const rows = railChats(entry.input.groups as never, (row) => words[row.sessionId] ?? null)
       expect(rows.map((row) => row.sessionId)).toEqual(entry.expected)
     })
   }

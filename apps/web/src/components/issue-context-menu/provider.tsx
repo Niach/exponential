@@ -14,7 +14,7 @@ import {
   CHAT_MENU_KIND,
   ChatMenuSession,
   useChatActions,
-} from "@/components/thread/chat-menu"
+} from "@/components/chat/chat-menu"
 
 // EXP-1074 — THE issue context menu: ONE host per team layout.
 //
@@ -27,8 +27,8 @@ import {
 // (duplicate picker, relation picker, move-board confirm, delete prompt)
 // outlive the menu that opened them.
 //
-// Thread 58cb32df (chats.json): the SAME host answers a chat row (kind
-// `thread`: Stop · Stop and delete | Delete) and an agent row (kind
+// Chat 58cb32df (chats.json): the SAME host answers a chat row (kind
+// `chat`: Stop · Stop and delete | Delete) and an agent row (kind
 // `agent`: Compact · New conversation · Stop · Agent settings); the delete
 // confirm lives here so it outlives the menu.
 

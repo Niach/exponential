@@ -375,10 +375,10 @@ extension IssueEntity: Codable {
 
 // MARK: - Session (EXP-1291)
 
-// ONE session tree. A thread IS a root session (`parent_id` NULL); an
+// ONE session tree. A chat IS a root session (`parent_id` NULL); an
 // agent's conversation is a root with `agent_id` (its name, icon, color and
 // order come from that `agents` definition); children are sub-sessions on
-// any device (`depth` > 0). The root carries the thread facets (title, the
+// any device (`depth` > 0). The root carries the chat facets (title, the
 // ONE Guide); issues and PRs hang off it through `session_issues` /
 // `pull_requests`. NEW-8 dropped the legacy columns (`kind`, `dispatch`,
 // `caption`, `aside`, `move_to_device_id`, the action and agent mirrors); the
@@ -391,7 +391,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     public let id: String
     public let teamId: String
-    /// nil = a root (a thread or an agent).
+    /// nil = a root (a chat or an agent).
     public let parentId: String?
     /// The root's id — its own on a root.
     public let rootId: String
@@ -429,10 +429,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let endedAt: String?
     /// Stamped at creation: the device is shared with the team.
     public let shared: Bool
-    /// Roots: the thread title (nil = derived for display); children: the
+    /// Roots: the chat title (nil = derived for display); children: the
     /// CLI's auto-name.
     public let title: String?
-    /// The thread's ONE Guide (every PR body), raw jsonb TEXT in the
+    /// The chat's ONE Guide (every PR body), raw jsonb TEXT in the
     /// `{topic, …}` entry shape `parseSessionResults` reads; nil / `[]` =
     /// nothing yet.
     public let guide: String?
@@ -443,7 +443,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let agentId: String?
     /// VAPP-110: set = this root is a member's EDITOR session of that app
     /// (one per app and member); like an agent's conversation it is no
-    /// thread (`SessionTree.partitionThreads`).
+    /// chat (`SessionTree.partitionChats`).
     public let appId: String?
     /// #EXP-1383: when this session last fetched its agent's brief
     /// (`sessions.agent_instructions_at`; chats.json `agentHint`).
@@ -629,7 +629,7 @@ extension SessionEntity: Codable {
         guide = c.decodeWireJsonString(forKey: .guide)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
-        // NEW-2: absent on a pre-NEW-2 server = a thread.
+        // NEW-2: absent on a pre-NEW-2 server = a chat.
         agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
         // VAPP-110: absent on a pre-apps server = not an editor session.
         appId = try c.decodeIfPresent(String.self, forKey: .appId)
@@ -655,8 +655,8 @@ extension SessionEntity: Codable {
 
 // MARK: - SessionIssue (EXP-1291)
 
-// A thread's issue (n ↔ n: an issue may sit in several threads), always on
-// the ROOT session. Visible like its thread and hidden with the issue's
+// A chat's issue (n ↔ n: an issue may sit in several chats), always on
+// the ROOT session. Visible like its chat and hidden with the issue's
 // board (the shape's static trash/archive predicates); the board and
 // visibility mirrors stay server-only. `source` ∈ contract
 // `sessionIssueSource` (`user` | `agent`; an agent link also names the
@@ -672,7 +672,7 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
     public let source: String
     public let addedBy: String?
     public let addedBySessionId: String?
-    /// Ascending = display order within the thread.
+    /// Ascending = display order within the chat.
     public let sortOrder: Double
     public let createdAt: String
     public let updatedAt: String
@@ -734,7 +734,7 @@ extension SessionIssueEntity: Codable {
 // MARK: - Message (EXP-1291)
 
 // The Conversation: one row per person message, per agent turn reply (the
-// turn's FINAL text) and per card (`root_id` names its thread/agent).
+// turn's FINAL text) and per card (`root_id` names its chat/agent).
 // #EXP-1730: the row names its session (`messages.session_id`, server-kept
 // beside the legacy `conversation_id`; NULL only on a dm/channel row), read
 // through `SessionMessage`. `card` = the raw
@@ -877,9 +877,9 @@ public struct SessionMessage: FetchableRecord, Identifiable, Equatable, Sendable
 // MARK: - SessionRead (EXP-1323)
 
 // The viewer's read marks: ONE row per (user, session), stamped by
-// `sessions.markRead` when a thread or a session view opens. Static per user
-// (`user_id = me`) like `pins`; the Threads list folds them into `unread`
-// (bold titles + the Threads tab dot).
+// `sessions.markRead` when a chat or a session view opens. Static per user
+// (`user_id = me`) like `pins`; the Chats list folds them into `unread`
+// (bold titles + the Chats tab dot).
 public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "session_reads"
 
@@ -929,7 +929,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
 
 // MARK: - PullRequest (EXP-1291)
 
-// A thread's pull request (a tree, a stack or independent) — all PR and
+// A chat's pull request (a tree, a stack or independent) — all PR and
 // branch state lives here, never on `issues`. Team-visible.
 // `basePullRequestId` = the open PR this one is stacked on (native GitHub
 // stacks); `state` ∈ contract `prState`.
@@ -2012,8 +2012,8 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
     public let labelIds: [String]
     /// `YYYY-MM-DD`, date-only like `issues.due_date` (REV2-49).
     public let dueDate: String?
-    /// EXP-1291: the root session (thread) a "New issue in this thread"
-    /// draft files into (FK SET NULL server-side: a deleted thread leaves a
+    /// EXP-1291: the root session (chat) a "New issue in this chat"
+    /// draft files into (FK SET NULL server-side: a deleted chat leaves a
     /// plain draft).
     public let sessionId: String?
     public let createdAt: String

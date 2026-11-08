@@ -8,15 +8,15 @@ import os
 // online: readers still missing a wrap for a tree it holds get one,
 // automatically (no approval, #EXP-1457 decision). As a WRITER it seals to a
 // tree's key, creating the key when an existing root has none yet, or hands
-// a new thread its inline `seal`.
+// a new chat its inline `seal`.
 
 private let logger = Logger(subsystem: "at.exponential", category: "TreeKeys")
 
-/// `sessions.send`'s inline `seal` for a root without a key (a new thread,
+/// `sessions.send`'s inline `seal` for a root without a key (a new chat,
 /// agent conversation or app editor; contract addendum 2, 2026-10-30): the
 /// server creates the root, the key and the sealed first message in one
 /// transaction, under `sessionKeys.create`'s rules.
-public struct NewThreadSeal: Encodable, Equatable, Sendable {
+public struct NewChatSeal: Encodable, Equatable, Sendable {
     public let installId: String
     public let publicKey: String
     public let epoch: UInt32
@@ -184,23 +184,23 @@ public actor TreeKeyHolder {
 
     // MARK: writing
 
-    /// The key a NEW thread starts with: a fresh keypair, held here, with
+    /// The key a NEW chat starts with: a fresh keypair, held here, with
     /// wraps for the readers this install can resolve. Store the secret under
     /// the new root's id once the server answered (`adopt`).
-    public func newThreadSeal(
+    public func newChatSeal(
         accountId: String,
         teamId: String?,
         deviceIds: [String],
         shared: Bool
-    ) async throws -> (seal: NewThreadSeal, key: GeneratedTreeKey) {
+    ) async throws -> (seal: NewChatSeal, key: GeneratedTreeKey) {
         guard crypto.isAvailable else { throw TreeKeyError.unavailable }
         guard let install = await installId(accountId) else { throw TreeKeyError.noInstall }
         let key = crypto.generateTreeKey()
         let wraps = try await readerWraps(accountId: accountId, installId: install, teamId: teamId, deviceIds: deviceIds, shared: shared, secret: key.secret)
-        return (NewThreadSeal(installId: install, publicKey: key.publicKey, epoch: 1, wraps: wraps), key)
+        return (NewChatSeal(installId: install, publicKey: key.publicKey, epoch: 1, wraps: wraps), key)
     }
 
-    /// The server created `rootId` with the key from `newThreadSeal`.
+    /// The server created `rootId` with the key from `newChatSeal`.
     public func adopt(rootId: String, key: GeneratedTreeKey, epoch: UInt32 = 1) {
         ring.add([(rootId, epoch, key.secret)])
     }

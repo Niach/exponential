@@ -21,18 +21,18 @@ import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.session.LocalCardDismiss
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.thread.PlanAskCard
-import com.exponential.app.ui.thread.ThreadAskCard
+import com.exponential.app.ui.chat.PlanAskCard
+import com.exponential.app.ui.chat.ChatAskCard
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /**
- * EXP-1280 (shot `sg_plan-card`, the iOS set's twin): fixtures/session-thread.json
+ * EXP-1280 (shot `sg_plan-card`, the iOS set's twin): fixtures/session-chat.json
  * case "EXP-1280: a rich plan card…" — the PENDING plan n1 (pictures inline, a
  * picture-tile question with a picture-less tile, a multi list question,
  * the inline Exponential UI surface), the ANSWERED multi question n2
  * (closed: its picks highlighted) and the APPROVED plan n3 (its feedback
- * line) — drawn by the REAL [ThreadAskCard] under plan-card.json
+ * line) — drawn by the REAL [ChatAskCard] under plan-card.json
  * `copy.specimen`'s captions. NEW-6 (N-1): the pending plan has two
  * questions, so it is STEPPED ("Question 1 of 2" + Next) and is drawn again
  * on its LAST step (the decision block), like the desktop specimen. The pictures are THE stand-ins ×4 (web
@@ -87,14 +87,14 @@ internal fun PlanCardSpecimens() {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
-            ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
+            ChatAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
         }
         Text(
             PlanCard.Copy.SPECIMEN_DISMISSED,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        dismissed.forEach { row -> ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> }) }
+        dismissed.forEach { row -> ChatAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> }) }
     }
 }
 
@@ -170,7 +170,7 @@ private val APPROVED_PLAN = """
  "surface":{"nope":true}}
 """.trimIndent()
 
-// #EXP-1561: session-thread.json's dismissed case, verbatim.
+// #EXP-1561: session-chat.json's dismissed case, verbatim.
 private val DISMISSED_QUESTION = """
 {"kind":"question","question":"Which first?","options":["Lazy-load","Skip"],"dismissed":true}
 """.trimIndent()

@@ -10,13 +10,13 @@ import com.exponential.app.navigation.Routes
 import com.exponential.app.ui.styleguide.NEEDS_YOU_SPECIMEN_ROWS
 import com.exponential.app.ui.styleguide.NEEDS_YOU_SPECIMEN_STUCK
 import com.exponential.app.ui.styleguide.RESULTS_SPECIMEN
-import com.exponential.app.ui.thread.RESULTS_TAB_KEY
-import com.exponential.app.ui.thread.resultPictureSet
-import com.exponential.app.ui.thread.resultThumbWidth
-import com.exponential.app.ui.thread.threadInitialTabKey
-import com.exponential.app.ui.threads.chatDisplayedRows
-import com.exponential.app.ui.threads.needsYouFold
-import com.exponential.app.ui.threads.openerOfflineSince
+import com.exponential.app.ui.chat.RESULTS_TAB_KEY
+import com.exponential.app.ui.chat.resultPictureSet
+import com.exponential.app.ui.chat.resultThumbWidth
+import com.exponential.app.ui.chat.chatInitialTabKey
+import com.exponential.app.ui.chats.chatDisplayedRows
+import com.exponential.app.ui.chats.needsYouFold
+import com.exponential.app.ui.chats.openerOfflineSince
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -43,19 +43,19 @@ class NeedsYouResultsUiTest {
 
     @Test
     fun `a row opens by opens`() {
-        assertEquals("thread/r1?tab=plan&plan=m1", Routes.needsYou(row(NeedsYou.Opens.Plan)))
-        assertEquals("thread/r1?card=m1", Routes.needsYou(row(NeedsYou.Opens.Card)))
-        assertEquals("thread/r1?tab=results", Routes.needsYou(row(NeedsYou.Opens.Results)))
-        assertEquals("thread/r1", Routes.needsYou(row(NeedsYou.Opens.Chat)))
+        assertEquals("chat/r1?tab=plan&plan=m1", Routes.needsYou(row(NeedsYou.Opens.Plan)))
+        assertEquals("chat/r1?card=m1", Routes.needsYou(row(NeedsYou.Opens.Card)))
+        assertEquals("chat/r1?tab=results", Routes.needsYou(row(NeedsYou.Opens.Results)))
+        assertEquals("chat/r1", Routes.needsYou(row(NeedsYou.Opens.Chat)))
     }
 
     @Test
     fun `an older stories or guide link lands on Results`() {
-        assertEquals(RESULTS_TAB_KEY, threadInitialTabKey("stories"))
-        assertEquals(RESULTS_TAB_KEY, threadInitialTabKey("guide"))
-        assertEquals(RESULTS_TAB_KEY, threadInitialTabKey("results"))
-        assertEquals("plan", threadInitialTabKey("plan"))
-        assertEquals("conversation", threadInitialTabKey(null))
+        assertEquals(RESULTS_TAB_KEY, chatInitialTabKey("stories"))
+        assertEquals(RESULTS_TAB_KEY, chatInitialTabKey("guide"))
+        assertEquals(RESULTS_TAB_KEY, chatInitialTabKey("results"))
+        assertEquals("plan", chatInitialTabKey("plan"))
+        assertEquals("conversation", chatInitialTabKey(null))
     }
 
     @Test
@@ -148,7 +148,7 @@ class NeedsYouResultsUiTest {
         assertEquals(expected, actual)
     }
 
-    private fun chat(id: String, group: SessionTree.ThreadsGroupKey, unread: Int = 0) = Chats.ChatRow(
+    private fun chat(id: String, group: SessionTree.ChatsGroupKey, unread: Int = 0) = Chats.ChatRow(
         sessionId = id, teamId = "t", title = id, deviceId = null, group = group, lead = Chats.ChatLead.Waiting,
         preview = Chats.ChatPreview("text", ""), activityAt = "", time = "", unreadCount = unread,
         needsYou = false, busy = false, word = null,
@@ -157,10 +157,10 @@ class NeedsYouResultsUiTest {
     @Test
     fun `selection order is the displayed order, the Archived page flat`() {
         val rows = listOf(
-            chat("plain", SessionTree.ThreadsGroupKey.Recent),
-            chat("unread", SessionTree.ThreadsGroupKey.Recent, unread = 1),
-            chat("working", SessionTree.ThreadsGroupKey.Running),
-            chat("waiting", SessionTree.ThreadsGroupKey.NeedsYou),
+            chat("plain", SessionTree.ChatsGroupKey.Recent),
+            chat("unread", SessionTree.ChatsGroupKey.Recent, unread = 1),
+            chat("working", SessionTree.ChatsGroupKey.Running),
+            chat("waiting", SessionTree.ChatsGroupKey.NeedsYou),
         )
         assertEquals(
             listOf("waiting", "working", "unread", "plain"),

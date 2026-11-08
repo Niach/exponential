@@ -3,7 +3,7 @@ import type { SessionTurnEvent } from "@exp/ui"
 import type { TurnState } from "@/lib/agent-feed"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 
-// EXP-1245: the facts the OWNER's thread of turns reads off the relay feed
+// EXP-1245: the facts the OWNER's chat of turns reads off the relay feed
 // they already hold (`sessionTurns`, @exp/ui): their messages (`user_message`
 // rows, main agent only) and the turn edges. The store keeps the turn as a
 // latest-wins SLOT, not as rows, so this records every edge it OBSERVES into
@@ -126,7 +126,7 @@ function trimSeen(log: TurnLog): void {
 
 /** The events `sessionTurns` walks: the run's start, the placed messages
  *  (still in the feed) and the recorded edges. Empty when nothing was
- *  observed beyond the start (the single-row thread). */
+ *  observed beyond the start (the single-row chat). */
 export function turnEventsOf(
   log: TurnLog,
   feed: readonly FeedRow[],

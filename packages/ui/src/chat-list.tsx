@@ -6,13 +6,15 @@ import {
   CHATS_TEST_IDS,
   chatSections,
   type AgentChatRow,
+  type AppChatRow,
   type ChatLead,
   type ChatRow as ChatRowModel,
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
-import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/session-tree"
+import { CHAT_ROW_WORDS, CHATS_LIST_COPY } from "@exp/domain-contract/session-tree"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
+import { getAppIcon } from "./board-icons"
 import { ExponentialLogo } from "./exponential-logo"
 import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 import { cn } from "./cn"
@@ -22,7 +24,7 @@ import { conceptIcon } from "./icons.generated"
 import { menuProps } from "./menu"
 import { SkeletonRows } from "./skeleton"
 
-// Thread 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
+// Chat 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
 // screen's pieces, shared by the web-mobile page and the styleguide so they
 // cannot drift. The model is the contract's (`chatList`, `chatSections`);
 // these only paint it. iOS ExpUI `ChatRow`, Android `ui/components` `ChatRow`
@@ -43,7 +45,7 @@ import { SkeletonRows } from "./skeleton"
 //                    (the Archived entry = first under Chats); the Archived
 //                    page is flat. Or the skeleton / the empty state.
 
-const ChatsIcon = conceptIcon(`nav-threads`)
+const ChatsIcon = conceptIcon(`nav-chats`)
 /** S-3 (`shell.chatLead`): a chat row's plain lead glyph. */
 const ChatLeadIcon = conceptIcon(CHATS_SHELL.chatLead as Parameters<typeof conceptIcon>[0])
 const PrOpenIcon = conceptIcon(`pr-open`)
@@ -216,7 +218,7 @@ function ChatRowText({
 }) {
   const unread = unreadCount > 0
   const { prefix, rest } = previewParts(preview)
-  const word = wordKey ? (THREAD_ROW_WORDS[wordKey] ?? null) : null
+  const word = wordKey ? (CHAT_ROW_WORDS[wordKey] ?? null) : null
   const row = { title, time, needsYou, unreadCount, preview, word: wordKey }
   return (
       <span
@@ -283,7 +285,7 @@ const ROW_CLASS = `flex w-full items-center gap-4 text-left outline-none transit
 
 /** One chat (a ROOT session) as the flat list row. Right-click / long-press
  *  opens its menu through the platform's ONE menu host
- *  (`menuProps('thread', sessionId)`). A SELECTABLE row (#EXP-1388,
+ *  (`menuProps('chat', sessionId)`). A SELECTABLE row (#EXP-1388,
  *  `onSelectToggle`) is the issue row's on md+: the Checkbox column leads
  *  every row (shown on hover, always while selecting; a click toggles),
  *  the row fills on hover. Phones never shift (owner on #1286): a selected
@@ -323,7 +325,7 @@ export function ChatRow({
       data-session-id={row.sessionId}
       data-selected={selecting ? selected : undefined}
       aria-pressed={selecting ? selected : undefined}
-      {...menuProps(`thread`, row.sessionId)}
+      {...menuProps(`chat`, row.sessionId)}
       {...props}
       // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed as
       // a whole at `shell.dimOpacity`.
@@ -498,6 +500,61 @@ export function AgentChatRowButton({
   )
 }
 
+/** An app's glyph (the web apps sidebar's `AppIcon`): its icon in its colour. */
+function AppChatGlyph({ icon, color }: { icon: string | null; color: string | null }) {
+  const Icon = getAppIcon({ icon })
+  return <Icon className="size-6 shrink-0" style={{ color: color ?? undefined }} />
+}
+
+/** #EXP-1733: the app rows' test id (chats.json `testIds.appRow`). */
+export const CHAT_APP_ROW_TEST_ID = CHATS_TEST_IDS.appRow
+
+/** #EXP-1733 (chats.json APPS): an app's row between the Agents and the
+ *  sessions: the agent row's look with the app's glyph in the disc, the
+ *  viewer's session with the app for preview / time / unread; never
+ *  selectable. A tap opens the app's chat. */
+export function AppChatRowButton({
+  row,
+  onOpen,
+  aligned = false,
+  className,
+  ...props
+}: Omit<ComponentProps<`button`>, `onClick`> & {
+  row: AppChatRow
+  onOpen?: (slug: string) => void
+  aligned?: boolean
+}) {
+  const lead: ChatLead = row.needsYou ? `needs_you` : `waiting`
+  return (
+    <button
+      type="button"
+      data-testid={CHAT_APP_ROW_TEST_ID}
+      data-app-id={row.appId}
+      {...props}
+      onClick={onOpen ? () => onOpen(row.slug) : undefined}
+      className={cn(
+        ROW_CLASS,
+        aligned && `max-md:-mx-4 max-md:w-[calc(100%+2rem)] max-md:px-4 md:-mx-3 md:px-3 md:hover:bg-glass-row`,
+        className
+      )}
+    >
+      {aligned && <span aria-hidden className="hidden size-4 shrink-0 md:block" />}
+      <ChatLeadDisc
+        lead={lead}
+        agent={null}
+        avatar={<AppChatGlyph icon={row.icon} color={row.color} />}
+      />
+      <ChatRowText
+        title={row.name}
+        time={row.time}
+        needsYou={row.needsYou}
+        unreadCount={row.unreadCount}
+        preview={row.preview}
+      />
+    </button>
+  )
+}
+
 /** A section header of the list (`copy.sections`). */
 function ChatSectionHeader({ title }: { title: string }) {
   return (
@@ -521,6 +578,8 @@ export function ChatList({
   rows,
   agentRows = [],
   onOpenAgent,
+  appRows = [],
+  onOpenApp,
   agentOf,
   loading = false,
   entering,
@@ -539,6 +598,9 @@ export function ChatList({
   /** S-3: the agents pinned on top (`agentChatRows`). */
   agentRows?: readonly AgentChatRow[]
   onOpenAgent?: (agentId: string) => void
+  /** #EXP-1733: the team's apps between the agents and the sessions (`appChatRows`). */
+  appRows?: readonly AppChatRow[]
+  onOpenApp?: (slug: string) => void
   /** A root's agent CLI (its working mark). */
   agentOf?: (sessionId: string) => string | null
   loading?: boolean
@@ -561,8 +623,8 @@ export function ChatList({
   className?: string
 }) {
   if (loading) return <SkeletonRows rowHeight={76} />
-  const empty = <EmptyState icon={ChatsIcon} title={emptyTitle ?? THREADS_LIST_COPY.empty} size="page" />
-  if (rows.length === 0 && archived === 0 && agentRows.length === 0 && !entry) return empty
+  const empty = <EmptyState icon={ChatsIcon} title={emptyTitle ?? CHATS_LIST_COPY.empty} size="page" />
+  if (rows.length === 0 && archived === 0 && agentRows.length === 0 && appRows.length === 0 && !entry) return empty
   const aligned = Boolean(onSelectToggle) || selection !== null
   const paint = (row: ChatRowModel) => (
     <ChatRow
@@ -588,6 +650,14 @@ export function ChatList({
           <ChatSectionHeader title={CHATS_COPY.sections.agents} />
           {agentRows.map((row) => (
             <AgentChatRowButton key={row.agentId} row={row} onOpen={onOpenAgent} aligned={aligned} />
+          ))}
+        </>
+      )}
+      {appRows.length > 0 && (
+        <>
+          <ChatSectionHeader title={CHATS_COPY.sections.apps} />
+          {appRows.map((row) => (
+            <AppChatRowButton key={row.appId} row={row} onOpen={onOpenApp} aligned={aligned} />
           ))}
         </>
       )}

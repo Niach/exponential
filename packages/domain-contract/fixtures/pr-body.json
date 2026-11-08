@@ -453,7 +453,7 @@
       "expected": "### Verification\n\nTests pass."
     },
     {
-      "name": "a thread's later session leaves an earlier session's summary out",
+      "name": "a chat's later session leaves an earlier session's summary out",
       "raw": [
         {
           "topic": "Summary",
@@ -484,12 +484,12 @@
           "sessionId": "s-2"
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/threads/th-1?view=guide",
+      "resultsUrl": "https://exp.example/t/acme/sessions/th-1?view=guide",
       "prUrl": null,
       "sessionIds": [
         "s-2"
       ],
-      "expected": "Follow-up for the edge case.\n\n### Verification\n\nUnit tests pass.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/th-1?view=guide)"
+      "expected": "Follow-up for the edge case.\n\n### Verification\n\nUnit tests pass.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/sessions/th-1?view=guide)"
     },
     {
       "name": "a legacy entry yields its topic to the session's own",
@@ -520,13 +520,13 @@
           "sessionId": "s-2"
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/threads/th-1?view=guide",
+      "resultsUrl": "https://exp.example/t/acme/sessions/th-1?view=guide",
       "prUrl": "https://github.com/o/r/pull/12",
       "sessionIds": [
         "s-1",
         "s-2"
       ],
-      "expected": "The session's own summary.\n\n### Notes\n\nLegacy notes.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/th-1?view=guide)"
+      "expected": "The session's own summary.\n\n### Notes\n\nLegacy notes.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/sessions/th-1?view=guide)"
     },
     {
       "name": "another session's topic tagged with this PR stays",
@@ -560,12 +560,12 @@
           "sessionId": "s-3"
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/threads/th-1?view=guide",
+      "resultsUrl": "https://exp.example/t/acme/sessions/th-1?view=guide",
       "prUrl": "https://github.com/o/r/pull/12",
       "sessionIds": [
         "s-2"
       ],
-      "expected": "Finished it.\n\n### Context\n\nPicked up from the first session.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/th-1?view=guide)"
+      "expected": "Finished it.\n\n### Context\n\nPicked up from the first session.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/sessions/th-1?view=guide)"
     },
     {
       "name": "a Not run topic closes the body wherever it was filed",
@@ -602,8 +602,8 @@
           "text": "Did it."
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/threads/r1?tab=guide",
-      "expected": "Did it.\n\n### nav\n\nThe nav moved.\n\n### Not run\n\nios: the share sheet\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/r1?tab=guide)"
+      "resultsUrl": "https://exp.example/t/acme/sessions/r1?tab=guide",
+      "expected": "Did it.\n\n### nav\n\nThe nav moved.\n\n### Not run\n\nios: the share sheet\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/sessions/r1?tab=guide)"
     },
     {
       "name": "a Not run topic alone still makes a body",

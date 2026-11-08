@@ -350,8 +350,8 @@ export const issuesRouter = router({
           // are reparented onto the new issue and the draft row is deleted,
           // all under this mutation's txId.
           draftId: z.string().uuid().optional(),
-          // EXP-1291: file the issue straight into this session's thread
-          // (its root: the thread page's "new issue", MCP issues_create),
+          // EXP-1291: file the issue straight into this session's chat
+          // (its root: the chat page's "new issue", MCP issues_create),
           // linked in the create transaction. Must be the board's team's.
           sessionId: z.string().uuid().optional(),
         })
@@ -411,7 +411,7 @@ export const issuesRouter = router({
       // is user-scoped, so a GUESSED id belonging to someone else reads as
       // absent here and can never have its attachments stolen below.
       let draftOwned = false
-      // EXP-1291: the session (thread) a "New issue in this thread" draft
+      // EXP-1291: the session (chat) a "New issue in this chat" draft
       // files into.
       let draftSessionId: string | null = null
       if (input.draftId) {
@@ -498,14 +498,14 @@ export const issuesRouter = router({
         }
       }
 
-      // EXP-1291: the thread (the session's root) must be the issue's team's
+      // EXP-1291: the chat (the session's root) must be the issue's team's
       // and visible to the caller — checked before the transaction opens
       // like the parent, so a refusal leaves no issue. An explicit
       // `sessionId` wins; else the consumed draft's own session, under the
       // same rule — but one that vanished since the draft was written is
       // simply no link: a stale draft never fails its create.
       // NEW-1: the named session HOLDS the new issue (a row on it).
-      const threadRootOf = async (sessionId: string) => {
+      const chatRootOf = async (sessionId: string) => {
         try {
           const session = await loadSessionForUser(ctx.session.user.id, sessionId)
           return session.teamId === board.teamId ? session.id : null
@@ -515,7 +515,7 @@ export const issuesRouter = router({
       }
       let linkRootId: string | null = null
       if (input.sessionId) {
-        linkRootId = await threadRootOf(input.sessionId)
+        linkRootId = await chatRootOf(input.sessionId)
         if (!linkRootId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
@@ -523,7 +523,7 @@ export const issuesRouter = router({
           })
         }
       } else if (draftOwned && draftSessionId) {
-        linkRootId = await threadRootOf(draftSessionId)
+        linkRootId = await chatRootOf(draftSessionId)
       }
 
       const statusWrite = await resolveStatusWrite(ctx.db, board.teamId, input)
@@ -706,7 +706,7 @@ export const issuesRouter = router({
           })
         }
 
-        // The thread link rides the create transaction too; an agent's
+        // The chat link rides the create transaction too; an agent's
         // create (MCP, `ctx.viaMcp`) is stamped `agent`, filed by its run.
         if (linkRootId) {
           await linkIssues(tx, {
@@ -1274,7 +1274,7 @@ export const issuesRouter = router({
           .update(notifications)
           .set({ boardId: input.boardId })
           .where(eq(notifications.issueId, input.id))
-        // EXP-1291: the issue's thread links and PR links carry its board.
+        // EXP-1291: the issue's chat links and PR links carry its board.
         await tx
           .update(sessionIssues)
           .set({ boardId: input.boardId })

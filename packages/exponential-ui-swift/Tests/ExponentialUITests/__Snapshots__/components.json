@@ -15509,6 +15509,200 @@
       }
     ]
   },
+  "MessageBubble\/href" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          13,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          141,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          141,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      }
+    ]
+  },
+  "MessageBubble\/pressable=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/pressable=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
   "MessageBubble\/side=in" : {
     "height" : 60,
     "nodes" : [

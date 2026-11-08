@@ -624,19 +624,19 @@ data class IssueDraftEntity(
     // `YYYY-MM-DD` — the date-only due date (no time of day, REV2-49).
     @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate")
     val dueDate: String? = null,
-    // EXP-1291: "New issue" from a thread — the thread ROOT session the issue
+    // EXP-1291: "New issue" from a chat — the chat ROOT session the issue
     // files into (create links it), so the draft keeps it across leave and
     // reopen. Synced as `session_id` (the local column keeps its v86 name).
-    // SET NULL server-side: a deleted thread leaves a plain draft.
+    // SET NULL server-side: a deleted chat leaves a plain draft.
     @ColumnInfo(name = "thread_id") @SerialName("session_id") @JsonNames("sessionId", "thread_id", "threadId")
-    val threadId: String? = null,
+    val chatId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",    // #EXP-1383: an AGENT assignee (exclusive with `assignee_id`).
     @ColumnInfo(name = "assignee_agent_id") @SerialName("assignee_agent_id") @JsonNames("assigneeAgentId")
     val assigneeAgentId: String? = null,
 )
 
-// EXP-1291 Threads v2: ONE session tree (the `sessions` shape). A thread IS a
+// EXP-1291: ONE session tree (the `sessions` shape). A chat IS a
 // root session (`kind = thread`, `parent_id` NULL); a team agent is a root of
 // `kind = agent`; children are sub-sessions (kind `thread`, `parent_id` /
 // `root_id` / `depth`). Visible = `shared OR user_id = me` inside the member
@@ -690,20 +690,20 @@ data class SessionEntity(
     @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
     // Stamped at creation: the device is shared with the team.
     val shared: PgBool = false,
-    // A root's title (NULL = derived for display, `SessionTree.threadTitle`);
+    // A root's title (NULL = derived for display, `SessionTree.chatTitle`);
     // on a child the CLI's auto-name.
     val title: String? = null,
-    // The thread's ONE Guide (the PR body), raw jsonb TEXT of
+    // The chat's ONE Guide (the PR body), raw jsonb TEXT of
     // `CodingSessionResult[]`; NULL or `[]` = nothing published.
     @ColumnInfo(name = "guide") @SerialName("guide")
     @Serializable(with = JsonAsStringSerializer::class) val guide: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
     // NEW-2: the agent whose conversation this root is (one per agent and
-    // member); NULL = a thread or a child. The kind derives from it.
+    // member); NULL = a chat or a child. The kind derives from it.
     @ColumnInfo(name = "agent_id") @SerialName("agent_id") @JsonNames("agentId") val agentId: String? = null,
     // VAPP-110: the app this root is one member's EDITOR SESSION of (one per
-    // app and member); NULL = anything else. Never a thread.
+    // app and member); NULL = anything else. Never a chat.
     @ColumnInfo(name = "app_id") @SerialName("app_id") @JsonNames("appId") val appId: String? = null,
     // #EXP-1383: when this session last fetched its agent's brief (the
     // "Instructions changed" banner compares it with the agent's stamp).
@@ -1002,7 +1002,7 @@ data class SkillEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
-// EXP-1291: a thread's issues (n ↔ n), always on the ROOT session. Hidden
+// EXP-1291: a chat's issues (n ↔ n), always on the ROOT session. Hidden
 // with the issue's board server-side (static trash/archive predicates).
 @Entity(
     tableName = "session_issues",
@@ -1071,8 +1071,8 @@ data class MessageEntity(
     val attachmentIdList: List<String> get() = attachmentIds?.let(PgUuidArraySerializer::parseText).orEmpty()
 }
 
-// EXP-1323: the viewer's read mark of one session (a thread = its root's
-// row), upserted by `sessions.markRead` when a thread or a session view opens.
+// EXP-1323: the viewer's read mark of one session (a chat = its root's
+// row), upserted by `sessions.markRead` when a chat or a session view opens.
 // Static per user like pins (`user_id = me`), never trash-scoped; a row only
 // matters beside a synced session.
 @Entity(
@@ -1144,7 +1144,7 @@ data class PullRequestEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
-// #EXP-1610/1611: one CI check per NAME at a PR's head commit (the thread
+// #EXP-1610/1611: one CI check per NAME at a PR's head commit (the chat
 // header's Checks submenu, the Merge pill). Team-visible like pull_requests;
 // the server-only `queued_flagged_at` stays behind the shape's allowlist.
 @Entity(

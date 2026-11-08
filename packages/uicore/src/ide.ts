@@ -10,7 +10,7 @@ export interface IdeSidebarInput {
   screen: string
   needsYou: number
   drafts: number
-  threadsDot: IdeDot | null
+  chatsDot: IdeDot | null
   owner: boolean
   pins: { id: string; identifier: string; title: string }[]
   agents: { id: string; name: string; icon: string; needsYou: boolean; busy: boolean }[]
@@ -74,7 +74,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
   const rows: IdeNavRow[] = []
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, String(input.needsYou), null))
-  rows.push(nav(`threads`, `nav-threads`, screen === `threads`, null, input.threadsDot))
+  rows.push(nav(`chats`, `nav-chats`, screen === `chats`, null, input.chatsDot))
   rows.push(nav(`devices`, `nav-devices`, screen === `devices`, null, null))
   if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, String(input.drafts), null))
   return {
@@ -95,7 +95,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
       id: a.id,
       title: a.title,
       icon: a.icon,
-      selected: screen === `thread:${a.id}` || a.sessionIds.some((id) => screen === `session:${id}`),
+      selected: screen === `chat:${a.id}` || a.sessionIds.some((id) => screen === `session:${id}`),
       unread: a.unread,
     })),
   }

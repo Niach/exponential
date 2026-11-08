@@ -687,7 +687,7 @@ struct VoiceSettingsPage: View {
     var specimen: Specimen? = nil
 
     /// The rows the page otherwise loads and observes; `consentOpen` opens
-    /// THE consent prompt (`ThreadCardsScreen`).
+    /// THE consent prompt (`ChatCardsScreen`).
     struct Specimen {
         var userId: String? = nil
         let settings: Voice.Settings

@@ -145,7 +145,7 @@ final class PlanCardTests: XCTestCase {
             let issue: PlanCard.AnswerIssue?
             switch card["kind"] as? String {
             case "plan":
-                let questions = ThreadPlanQuestion.list(card["questions"], pictures: PlanCardPicture.list(card["pictures"]))
+                let questions = ChatPlanQuestion.list(card["questions"], pictures: PlanCardPicture.list(card["pictures"]))
                 let answers = (input["answers"] as? [String: [String]])
                 issue = PlanCard.answerIssue(
                     questions: questions,
@@ -214,7 +214,7 @@ final class PlanCardTests: XCTestCase {
         XCTAssertEqual(PlanCard.closedPicks(options: options, answer: nil, answers: nil), [])
 
         let row = { (answer: String?, answers: [String]?) in
-            ThreadQuestionRow(
+            ChatQuestionRow(
                 id: "m1", sessionId: "s1", question: "Which?", options: options, multi: true,
                 answer: answer, answers: answers, answered: true
             )

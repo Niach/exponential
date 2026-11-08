@@ -746,7 +746,7 @@ pub fn leftover_note(branch: &str) -> String {
 /// NEW-5 — a finished session's worktree end ([`finish_worktree`]), then,
 /// when unpushed work was parked on a leftover branch, ONE line naming it in
 /// the session's conversation (`sessions.reply`; posted even when the
-/// session has ended — the thread shows it). Blocking (git + network): run
+/// session has ended — the chat shows it). Blocking (git + network): run
 /// it off any UI thread. A lost post is logged, never retried (the branch
 /// stands on `origin` either way).
 pub fn finish_session_worktree(

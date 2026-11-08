@@ -139,25 +139,25 @@ describe.skipIf(!ready.ok)(`#EXP-1720 the Assistant's teams`, () => {
 
   it(`a Teams pick into anything but the Assistant's conversation is refused`, async () => {
     const w = await world()
-    const thread = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })
+    const chat = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })
     await expect(
-      sendSession({ userId: w.me, input: { sessionId: thread.sessionId, text: `Hi.`, scopeTeamIds: [w.a] } })
+      sendSession({ userId: w.me, input: { sessionId: chat.sessionId, text: `Hi.`, scopeTeamIds: [w.a] } })
     ).rejects.toThrow(SCOPE_ASSISTANT_ONLY_MESSAGE)
     await expect(
       sendSession({ userId: w.me, input: { agentId: w.teamAgent.id, text: `Hi.`, scopeTeamIds: [w.a] } })
     ).rejects.toThrow(SCOPE_ASSISTANT_ONLY_MESSAGE)
   })
 
-  it(`its children and threads start in a team of its scope, never outside it`, async () => {
+  it(`its children and chats start in a team of its scope, never outside it`, async () => {
     const w = await world()
     await sendSession({ userId: w.me, input: { agentId: w.assistant.id, text: `B only.`, scopeTeamIds: [w.b] } })
     const as = { userId: w.me, callerSessionId: w.conv, viaMcp: true }
     const child = await sendSession({ ...as, input: { parentId: w.conv, teamId: w.b, text: `Fix it in B.` } })
     const [row] = await db.select().from(sessions).where(eq(sessions.id, child.sessionId))
     expect(row).toMatchObject({ teamId: w.b, rootId: w.conv, parentId: w.conv })
-    const thread = await sendSession({ ...as, input: { teamId: w.b, text: `A thread in B.` } })
-    const [threadRow] = await db.select().from(sessions).where(eq(sessions.id, thread.sessionId))
-    expect(threadRow).toMatchObject({ teamId: w.b, deviceId: w.deviceId, startedByAgentId: w.assistant.id })
+    const chat = await sendSession({ ...as, input: { teamId: w.b, text: `A chat in B.` } })
+    const [chatRow] = await db.select().from(sessions).where(eq(sessions.id, chat.sessionId))
+    expect(chatRow).toMatchObject({ teamId: w.b, deviceId: w.deviceId, startedByAgentId: w.assistant.id })
     await expect(sendSession({ ...as, input: { parentId: w.conv, teamId: w.a, text: `A is out.` } })).rejects.toThrow(
       TEAM_OUT_OF_SCOPE_MESSAGE
     )

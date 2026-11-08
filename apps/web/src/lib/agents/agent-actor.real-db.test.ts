@@ -322,9 +322,9 @@ describe.skipIf(!ready.ok)(`agents act as themselves (#EXP-1383)`, () => {
     // session keep the credential's access.
     expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.mate, convo.id)).toBe(FULL_ACCESS)
     expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, null)).toBe(FULL_ACCESS)
-    // A normal thread keeps full access.
-    const thread = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `Thread` } as never })
-    expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, thread.sessionId)).toBe(FULL_ACCESS)
+    // A normal chat keeps full access.
+    const chat = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `Chat` } as never })
+    expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, chat.sessionId)).toBe(FULL_ACCESS)
   })
 })
 
@@ -375,7 +375,7 @@ describe.skipIf(!ready.ok)(`an agent tree stays in its team (#EXP-1383)`, () => 
     await expect(
       sendSession({ userId: w.owner, callerSessionId: convo.id, viaMcp: true, input: { agentId: otherAgent.id, text: `Hi` } as never })
     ).rejects.toThrow(AGENT_TEAM_ONLY_MESSAGE)
-    // Its own team: a fresh thread starts.
+    // Its own team: a fresh chat starts.
     const started = await sendSession({
       userId: w.owner,
       callerSessionId: convo.id,
@@ -390,7 +390,7 @@ describe.skipIf(!ready.ok)(`an agent tree stays in its team (#EXP-1383)`, () => 
   })
 })
 
-describe.skipIf(!ready.ok)(`a thread an agent starts is the agent's tree (#EXP-1383)`, () => {
+describe.skipIf(!ready.ok)(`a chat an agent starts is the agent's tree (#EXP-1383)`, () => {
   it(`stamps started_by_agent_id, confines it, acts as the agent and briefs rootAgentId`, async () => {
     const w = await world()
     const other = await world()
@@ -403,22 +403,22 @@ describe.skipIf(!ready.ok)(`a thread an agent starts is the agent's tree (#EXP-1
       viaMcp: true,
       input: { text: `Spawned work`, deviceId: w.deviceId } as never,
     })
-    const thread = (await db.select().from(sessions).where(eq(sessions.id, started.sessionId)))[0]!
-    expect(thread).toMatchObject({ agentId: null, startedByAgentId: sloppy.id, parentId: null })
+    const chat = (await db.select().from(sessions).where(eq(sessions.id, started.sessionId)))[0]!
+    expect(chat).toMatchObject({ agentId: null, startedByAgentId: sloppy.id, parentId: null })
 
     // The brief names the agent: the device gives the tree the team key.
-    const brief = await sessionsRouter.createCaller(person(w.owner) as never).brief({ sessionId: thread.id })
+    const brief = await sessionsRouter.createCaller(person(w.owner) as never).brief({ sessionId: chat.id })
     expect(brief.rootAgentId).toBe(sloppy.id)
 
-    // /api/mcp is clamped to the team, for the thread and its children.
-    const clamped = await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, thread.id)
+    // /api/mcp is clamped to the team, for the chat and its children.
+    const clamped = await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, chat.id)
     expect(clamped).toMatchObject({ full: false, origin: `agent` })
     expect(isTeamVisible(clamped, other.teamId)).toBe(false)
     const child = await sendSession({
       userId: w.owner,
-      callerSessionId: thread.id,
+      callerSessionId: chat.id,
       viaMcp: true,
-      input: { parentId: thread.id, text: `Sub-task` } as never,
+      input: { parentId: chat.id, text: `Sub-task` } as never,
     })
     expect(
       (await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, child.sessionId)).full
@@ -428,7 +428,7 @@ describe.skipIf(!ready.ok)(`a thread an agent starts is the agent's tree (#EXP-1
     await expect(
       sendSession({
         userId: w.owner,
-        callerSessionId: thread.id,
+        callerSessionId: chat.id,
         viaMcp: true,
         input: { teamId: other.teamId, deviceId: w.deviceId, text: `Leak` } as never,
       })
@@ -444,7 +444,7 @@ describe.skipIf(!ready.ok)(`a thread an agent starts is the agent's tree (#EXP-1
     // Writes through it are stamped as the agent; assigning to that agent
     // from inside its own tree nudges nobody.
     const ctx = mcp(w.owner, child.sessionId)
-    const created = await issuesRouter.createCaller(ctx as never).create({ boardId: w.boardId, title: `From the thread` })
+    const created = await issuesRouter.createCaller(ctx as never).create({ boardId: w.boardId, title: `From the chat` })
     expect(created.issue.creatorAgentId).toBe(sloppy.id)
     const comment = await commentsRouter.createCaller(ctx as never).create({ issueId: created.issue.id, body: `Done` })
     expect((await db.select().from(comments).where(eq(comments.id, comment.comment.id)))[0]!.authorAgentId).toBe(sloppy.id)
@@ -453,7 +453,7 @@ describe.skipIf(!ready.ok)(`a thread an agent starts is the agent's tree (#EXP-1
     const [change] = await assigneeEvents(created.issue.id)
     expect(change).toMatchObject({ actorAgentId: sloppy.id, sessionId: child.sessionId })
 
-    // A person's own thread is no agent tree.
+    // A person's own chat is no agent tree.
     const plain = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `Mine` } as never })
     expect((await db.select().from(sessions).where(eq(sessions.id, plain.sessionId)))[0]!.startedByAgentId).toBeNull()
     expect((await sessionsRouter.createCaller(person(w.owner) as never).brief({ sessionId: plain.sessionId })).rootAgentId).toBeNull()

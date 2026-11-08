@@ -2,7 +2,7 @@
 //! view reaches the engine as a `RemoteAnswer` (over the relay's
 //! `ServerFrame::Answer`, the IDE's local card, or the CLI's own TUI),
 //! never through the synced `messages` row the device posted for it, so the
-//! thread's card would stay open on every other client. The engine host
+//! chat's card would stay open on every other client. The engine host
 //! hands each such answer (EXP-1317: from its `answer_ask`, the one choke
 //! point every path shares — the publisher used to, and only saw the
 //! relay's), translated into `sessions.resolveCard` terms
@@ -32,7 +32,7 @@ pub struct CardResolution {
     pub decision: Option<String>,
     /// Never set: the claude adapter's ExitPlanMode is a plain allow (no
     /// fresh-context option on the wire any more); a fresh approval is the
-    /// thread card's own `sessions.answer`. Kept for the taps' write-back
+    /// chat card's own `sessions.answer`. Kept for the taps' write-back
     /// shape.
     pub fresh: Option<bool>,
     pub feedback: Option<String>,

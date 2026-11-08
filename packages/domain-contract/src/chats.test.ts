@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/chats.json" with { type: "json" }
 import titleFixture from "../fixtures/session-title.json" with { type: "json" }
 import { sessionTitle } from "./session-title"
-import { agentChatPage, agentChatTabs, partitionThreads, type TreeMessage } from "./session-tree"
+import { agentChatPage, agentChatTabs, partitionChats, type TreeMessage } from "./session-tree"
 import {
   agentChatRows,
+  appChatRows,
   agentInstructionsChanged,
   agentMenuEntries,
   chatDeleteTitle,
@@ -22,12 +23,12 @@ import {
   DIGEST_AGENT_TAIL,
   plainLine,
   surfaceReply,
-  threadMenuEntries,
+  chatMenuEntries,
   transcriptWindowStart,
   teamMeta,
 } from "./chats"
 
-// Thread 58cb32df: the Chats reference replays every case group of
+// Chat 58cb32df: the Chats reference replays every case group of
 // fixtures/chats.json (the mirrors replay the same file).
 describe(`chats.json`, () => {
   for (const c of fixture.previewCases) test(`preview: ${c.name}`, () => expect(chatPreview(c.input as never)).toEqual(c.expected as never))
@@ -36,7 +37,8 @@ describe(`chats.json`, () => {
   for (const c of fixture.agentChat.tabCases) test(`agent chat tabs: ${c.name}`, () => expect(agentChatTabs(c.holdsPlan)).toEqual(c.expected))
   for (const c of fixture.agentChat.pageCases) test(`agent chat page: ${c.name}`, () => expect(agentChatPage(c.selected, c.holdsPlan)).toBe(c.expected))
   for (const c of fixture.agentRowCases) test(`agent rows: ${c.name}`, () => expect(agentChatRows(c.input as never)).toEqual(c.expected as never))
-  for (const c of fixture.menuCases) test(`menu: ${c.name}`, () => expect(threadMenuEntries(c.input)).toEqual(c.expected as never))
+  for (const c of fixture.appRowCases) test(`app rows: ${c.name}`, () => expect(appChatRows(c.input as never)).toEqual(c.expected as never))
+  for (const c of fixture.menuCases) test(`menu: ${c.name}`, () => expect(chatMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.agentMenuCases) test(`agent menu: ${c.name}`, () => expect(agentMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.replyCases) test(`reply: ${c.name}`, () => expect(surfaceReply(c.event)).toEqual(c.expected as never))
   for (const c of fixture.dividerCases) test(`divider: ${JSON.stringify(c.body)}`, () => expect(commandDivider(c.body)).toBe(c.expected as never))
@@ -129,7 +131,7 @@ describe(`conversation digest`, () => {
         expect(sessionTitle(session, [], [], digested)).toBe(sessionTitle(session, [], [], messages))
       }
       const tree = sessions.map((id) => ({ id, rootId: id, parentId: null, teamId: `t`, kind: `thread`, status: `idle`, busy: false, needsInput: false, title: null, userId: `u`, createdAt: `2026-10-01T00:00:00.000Z`, updatedAt: `2026-10-01T00:00:00.000Z` }))
-      const groups = (ms: TreeMessage[]) => partitionThreads({ sessions: tree as never, sessionIssues: [], issues: [], messages: ms, teamId: `t`, reads })
+      const groups = (ms: TreeMessage[]) => partitionChats({ sessions: tree as never, sessionIssues: [], issues: [], messages: ms, teamId: `t`, reads })
       expect(groups(digested)).toEqual(groups(messages))
       expect(chatList({ groups: groups(messages), messages: digested, reads, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })).toEqual(
         chatList({ groups: groups(messages), messages, reads, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })

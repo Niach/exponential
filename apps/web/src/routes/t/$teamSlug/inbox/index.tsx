@@ -82,7 +82,7 @@ function useForwardInboxTab(teamId: string | undefined) {
   }, [tab, boardsReady, boards, navigate, teamSlug, isMobile])
 }
 
-// Thread 58cb32df (chats.json `shell`): on phones the Inbox is the
+// Chat 58cb32df (chats.json `shell`): on phones the Inbox is the
 // inbox ONLY — pushed from the Chats header's inbox circle, its own back
 // header with Mark all read, no segments, the ONE active team's stream. My
 // issues and Drafts moved to the board's chips, so an old `?tab=my-issues`
@@ -101,7 +101,7 @@ function PhoneInboxPage() {
 
   const back = () => {
     if (router.history.canGoBack()) router.history.back()
-    else void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })
+    else void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } })
   }
 
   return (

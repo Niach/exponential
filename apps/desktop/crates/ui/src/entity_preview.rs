@@ -153,8 +153,8 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
 // ---------------------------------------------------------------------------
 
 /// Where a chip click goes. Screens navigate; a session opens the screen its
-/// row is ([`crate::navigation::session_screen_for`], EXP-1294: a thread
-/// root its thread, an agent root its channel, any other its session view);
+/// row is ([`crate::navigation::session_screen_for`], EXP-1294: a chat
+/// root its chat, an agent root its channel, any other its session view);
 /// an action opens its page (SLOP-2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EntityTarget {
@@ -488,7 +488,7 @@ fn comment_card(comment_id: &str, cx: &mut App) -> Option<AnyElement> {
 
 /// EXP-1294: a session's card — THE session card's facts
 /// (`domain::session_tree::session_card`): its state glyph in its tone, the
-/// tree's first issue identifier, the thread title (a root) or the session's
+/// tree's first issue identifier, the chat title (a root) or the session's
 /// name, and the muted state word with the elapsed time. No machine caption.
 fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
     let session = crate::session_data::session(session_id, cx)?;
@@ -497,7 +497,7 @@ fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
     let muted = cx.theme().muted_foreground;
     // EXP-1341: the card's name IS the session's title (root or child).
     let title = facts.name.clone();
-    let glyph = Icon::new(registry::concept_by_name(&facts.icon).unwrap_or(registry::NAV_THREADS))
+    let glyph = Icon::new(registry::concept_by_name(&facts.icon).unwrap_or(registry::NAV_CHATS))
         .small()
         .text_color(crate::work_card::session_tone_color(&facts.tone, cx));
     let mut head = h_flex()

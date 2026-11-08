@@ -502,7 +502,7 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
-        // EXP-1291: the session tree — threads, agents and their
+        // EXP-1291: the session tree — chats, agents and their
         // sub-sessions (`shared OR user_id = me` within the member's teams),
         // their issues, the Conversation, and the PRs that left `issues`.
         tasks.append(makeShapeTask(
@@ -583,7 +583,7 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
         // #EXP-1611: CI on every PR of the member's teams (33rd shape): the
-        // thread header's Checks submenu reads them.
+        // chat header's Checks submenu reads them.
         tasks.append(makeShapeTask(
             name: "pull-request-checks", path: "/api/shapes/pull-request-checks", table: "pull_request_checks",
             type: PullRequestCheckEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,

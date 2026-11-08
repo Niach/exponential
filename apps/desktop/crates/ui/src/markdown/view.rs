@@ -1,7 +1,7 @@
 //! #VAPP-258: the app's read-only Markdown IS genUI's gpui Markdown
 //! (`eui_gpui::paint::markdown`, the catalog `Markdown` leaf): one
 //! implementation backs the genUI catalog and the app. [`MarkdownView`]
-//! keeps the builder every read surface already used (comments, the thread
+//! keeps the builder every read surface already used (comments, the chat
 //! and the steer feed, results, previews, the blurred description editor)
 //! and paints through a one-leaf [`SurfaceView`] per view id (kept across
 //! frames, least recently used dropped), on the app's theme.

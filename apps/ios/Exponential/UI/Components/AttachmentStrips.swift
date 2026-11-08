@@ -244,7 +244,7 @@ struct SystemCamera: UIViewControllerRepresentable {
 // MARK: - A steered message's file line (wave D)
 
 /// A sent steer/start message's `[<filename>](/api/attachments/<id>)` line,
-/// drawn as the comment thread's file row (glyph + name, tap = Quick Look
+/// drawn as the comment's file row (glyph + name, tap = Quick Look
 /// over a temp download) — never a broken image. Session files are not
 /// synced rows, so the glyph reads the filename's extension.
 struct SteerFileLinkRow: View {

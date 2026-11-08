@@ -27,7 +27,7 @@ export function markdownPartAttrs(scope: string, part: string, density: Markdown
 }
 
 /** The host a Markdown block tree renders with: `markdownInline` carries the
- *  inline profile down the (host-threaded) block renderers. */
+ *  inline profile down the (host-passed) block renderers. */
 export function markdownProfileHost<H extends object>(host: H, inline: MarkdownVariant | undefined): H & { markdownInline?: MarkdownVariant } {
   return inline ? { ...host, markdownInline: inline } : host
 }

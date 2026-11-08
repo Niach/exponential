@@ -51,12 +51,12 @@ public enum Dock {
     }
 
     public enum Source: Equatable, Sendable {
-        /// `sessionName` = the asking session's name in a thread; `questions`
+        /// `sessionName` = the asking session's name in a chat; `questions`
         /// = how many questions the card asks; `createdAt` = the asks' order.
         case plan(id: String, text: String, sessionName: String?, questions: Int, createdAt: Double)
         case question(id: String, text: String, sessionName: String?, createdAt: Double)
         /// THE Queue, or nil when nothing is to do. #EXP-1545: `sessionName`
-        /// = a thread's Live child carrying the card (its name leads the
+        /// = a chat's Live child carrying the card (its name leads the
         /// caption); nil = the root / the session view.
         case tasks(QueueSummary?, sessionName: String? = nil)
         /// The queued messages' texts, oldest first.
@@ -238,10 +238,10 @@ public enum Dock {
         }.map(\.row)
     }
 
-    /// #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+    /// #EXP-1545: a session of a chat's tree that may carry the Dock's ONE
     /// `tasks` card. `activeAt` = epoch ms of its last turn (else its start),
     /// nil = no activity yet; `open` = its Queue has a todo item to show.
-    public struct ThreadQueueCandidate: Equatable, Sendable {
+    public struct ChatQueueCandidate: Equatable, Sendable {
         public let sessionId: String
         public let name: String
         public let root: Bool
@@ -259,8 +259,8 @@ public enum Dock {
         }
     }
 
-    /// #EXP-1545: whose Queue a thread's Dock shows; `sessionName` nil = the root.
-    public struct ThreadDockQueue: Equatable, Sendable {
+    /// #EXP-1545: whose Queue a chat's Dock shows; `sessionName` nil = the root.
+    public struct ChatDockQueue: Equatable, Sendable {
         public let sessionId: String
         public let sessionName: String?
 
@@ -273,21 +273,21 @@ public enum Dock {
     /// #EXP-1545: the root's Queue while it is open, else the most recently
     /// active Live child's (no activity = oldest, ties by id), else none. An
     /// ended session contributes nothing.
-    public static func threadDockQueue(_ candidates: [ThreadQueueCandidate]) -> ThreadDockQueue? {
+    public static func chatDockQueue(_ candidates: [ChatQueueCandidate]) -> ChatDockQueue? {
         let live = candidates.filter { $0.open && !$0.ended }
         if let root = live.first(where: \.root) {
-            return ThreadDockQueue(sessionId: root.sessionId, sessionName: nil)
+            return ChatDockQueue(sessionId: root.sessionId, sessionName: nil)
         }
-        var best: ThreadQueueCandidate?
+        var best: ChatQueueCandidate?
         for candidate in live {
             guard let current = best else { best = candidate; continue }
             let a = candidate.activeAt ?? -.infinity, b = current.activeAt ?? -.infinity
             if a > b || (a == b && candidate.sessionId < current.sessionId) { best = candidate }
         }
-        return best.map { ThreadDockQueue(sessionId: $0.sessionId, sessionName: $0.name) }
+        return best.map { ChatDockQueue(sessionId: $0.sessionId, sessionName: $0.name) }
     }
 
-    /// #EXP-1623: what a thread knows of one Live child's Queue before it
+    /// #EXP-1623: what a chat knows of one Live child's Queue before it
     /// pays for that child's stream.
     public enum ChildQueueState: Equatable, Sendable {
         case open
@@ -296,7 +296,7 @@ public enum Dock {
         case unknown
     }
 
-    public struct ThreadQueueProbe: Equatable, Sendable {
+    public struct ChatQueueProbe: Equatable, Sendable {
         public let sessionId: String
         public let activeAt: Double?
         public let state: ChildQueueState
@@ -308,15 +308,15 @@ public enum Dock {
         }
     }
 
-    /// #EXP-1623: the ONE Live child a thread attaches a stream to for THE
-    /// THREAD QUEUE, instead of one per Live child (#EXP-1545 opened a
+    /// #EXP-1623: the ONE Live child a chat attaches a stream to for THE
+    /// CHAT QUEUE, instead of one per Live child (#EXP-1545 opened a
     /// stream and a full replay for every one of them on open). None while
     /// the root's own Queue is open (the root wins); else the children in
-    /// `threadDockQueue`'s order (most recently active first, none = oldest,
+    /// `chatDockQueue`'s order (most recently active first, none = oldest,
     /// ties by id) and the first that is not known closed: an open one is
     /// the pick itself, an unknown one is read next. Every child known
     /// closed = none.
-    public static func threadQueueProbe(rootOpen: Bool, children: [ThreadQueueProbe]) -> String? {
+    public static func chatQueueProbe(rootOpen: Bool, children: [ChatQueueProbe]) -> String? {
         guard !rootOpen else { return nil }
         let ordered = children.sorted { a, b in
             let x = a.activeAt ?? -.infinity, y = b.activeAt ?? -.infinity
@@ -345,10 +345,10 @@ public enum Dock {
     public static let closedQueueTtlMs = 60_000
 
     /// #EXP-1678 (`childStateCases`): one Live child's state for
-    /// [threadQueueProbe]: open = its stream has a todo item; closed = read
+    /// [chatQueueProbe]: open = its stream has a todo item; closed = read
     /// closed and remembered, or its stream is starting / dropped / ended,
     /// replayed without a todo, or attached `probeDeadlineMs` without one.
-    public static func threadQueueChildState(open: Bool, remembered: Bool, stream: ChildStream?) -> ChildQueueState {
+    public static func chatQueueChildState(open: Bool, remembered: Bool, stream: ChildStream?) -> ChildQueueState {
         if open { return .open }
         if remembered { return .closed }
         guard let stream else { return .unknown }
@@ -419,7 +419,7 @@ public enum Dock {
     }
 
     /// The Conversation's suggested-tasks rows as Dock sources.
-    public static func suggestionSources(_ rows: [ThreadRow]) -> [Source] {
+    public static func suggestionSources(_ rows: [SessionChatRow]) -> [Source] {
         suggestionSources(rows.compactMap { row in
             guard case let .suggestions(id, _, header, _, items) = row else { return nil }
             return SuggestionInput(id: id, header: header, items: items.map { ($0.state.rawValue, $0.title) })

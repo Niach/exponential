@@ -8,12 +8,12 @@ import {
 
 // The association payloads behind /.well-known/apple-app-site-association and
 // /.well-known/assetlinks.json (EXP-92). Path patterns must keep matching the
-// canonical link shapes (buildIssueDeepLinkPath, /t/$teamSlug/threads/$threadId
+// canonical link shapes (buildIssueDeepLinkPath, /t/$teamSlug/sessions/$sessionId
 // + /invite/$token) — Apple's
 // CDN caches the AASA, so mistakes here are slow to roll back.
 
 describe(`buildAppleAppSiteAssociation`, () => {
-  it(`claims exactly the issue-detail, session, thread, invite and app-screen paths for both app ids`, () => {
+  it(`claims exactly the issue-detail, session, chat, invite and app-screen paths for both app ids`, () => {
     const aasa = buildAppleAppSiteAssociation() as {
       applinks: {
         details: { appIDs: string[]; components: { "/": string }[] }[]
@@ -29,7 +29,7 @@ describe(`buildAppleAppSiteAssociation`, () => {
       { "/": `/t/*/boards/*/issues/*` },
       { "/": `/t/*/issues/*` },
       { "/": `/t/*/sessions/*` },
-      { "/": `/t/*/threads/*` },
+      { "/": `/t/*/chats` },
       { "/": `/invite/*` },
       { "/": `/t/*/apps/*/*` },
     ])

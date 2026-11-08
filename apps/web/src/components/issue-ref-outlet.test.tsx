@@ -8,8 +8,8 @@ import {
   type ResolvedIssueRef,
 } from "@/components/issue-ref-provider"
 
-// EXP-1347: chip navigation = the innermost outlet — inside a thread, a pill
-// of one of the thread's issues selects its tab; any other issue defers to
+// EXP-1347: chip navigation = the innermost outlet — inside a chat, a pill
+// of one of the chat's issues selects its tab; any other issue defers to
 // the team provider (the full issue page).
 
 vi.mock(`@/lib/collections`, () => ({ issueCollection: {} }))
@@ -52,7 +52,7 @@ function setup() {
 }
 
 describe(`IssueRefOutlet`, () => {
-  it(`a thread issue (top or nested) selects its tab, never navigating`, () => {
+  it(`a chat issue (top or nested) selects its tab, never navigating`, () => {
     const { parentOpen, onOpen } = setup()
     fireEvent.click(screen.getByText(`exp-1`))
     fireEvent.click(screen.getByText(`EXP-2`))

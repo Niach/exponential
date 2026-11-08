@@ -2,15 +2,15 @@
 // the web port of the desktop's `navigation::derive_origin` (apps/desktop/
 // crates/ui/src/navigation.rs), same rule, same cases:
 //
-//   * Opened from a LIST screen (board, inbox, threads): that list rides the
+//   * Opened from a LIST screen (board, inbox, chats): that list rides the
 //     detail's `?from=` token, and Back returns to it.
 //   * Opened CONTEXT-FREE (a pinned row, a sidebar session row, a deep link, a
 //     full-page screen like Devices/Settings): no token.
 //
 // EXP-851 made the token the only input: `?from=` decides where Back goes. The
 // vocabulary is the list set —
-// `board:<slug>`, `inbox`, `inbox:my-issues`, `threads` (EXP-1293: the
-// Threads page, which replaced the Agent page's lists and Reviews),
+// `board:<slug>`, `inbox`, `inbox:my-issues`, `chats` (EXP-1293: the
+// Chats page, which replaced the Agent page's lists and Reviews),
 // `drafts` (EXP-1170), `running`. The retired `agent`, `agent:recent`,
 // `reviews`, `sessions` and `action:<id>` (NEW-2) tokens parse
 // to "no origin". #FEED-191: no list stays beside a detail any more (the wide
@@ -23,8 +23,8 @@ export type DetailOrigin =
    *  from it returns there, not to Notifications. */
   | { kind: `inbox`; tab?: `my-issues` | `drafts` }
   | { kind: `board`; boardSlug: string }
-  /** EXP-1293: the Threads page (Needs you · Running · Recent). */
-  | { kind: `threads` }
+  /** EXP-1293: the Chats page (Needs you · Running · Recent). */
+  | { kind: `chats` }
   /** EXP-923: the sidebar's RUNNING section — a live run of mine, opened from
    *  the main menu itself. It is an origin rather than "no origin" because it
    *  carries two extra rules: the navigation creates NO work tab
@@ -43,8 +43,8 @@ export type OriginScreen =
   | { kind: `board`; boardSlug: string }
   | { kind: `issue`; boardSlug: string; identifier: string }
   | { kind: `session` }
-  /** EXP-1293: the Threads page — a list context, never context-free. */
-  | { kind: `threads` }
+  /** EXP-1293: the Chats page — a list context, never context-free. */
+  | { kind: `chats` }
   | { kind: `other` }
 
 /** What is being opened. */
@@ -67,7 +67,7 @@ export function screenFromPath(pathname: string): OriginScreen {
   const rest = teamRest(pathname)
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }
-  if (rest === `/threads`) return { kind: `threads` }
+  if (rest === `/chats`) return { kind: `chats` }
   if (/^\/sessions\/[^/]+$/.test(rest)) return { kind: `session` }
   const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
   if (issue) {
@@ -104,8 +104,8 @@ export function capturedOrigin(
       // EXP-870: an issue opened with no list (a pinned row, search) hands on
       // none either — desktop `derive_origin` parity.
       return carried
-    case `threads`:
-      return { kind: `threads` }
+    case `chats`:
+      return { kind: `chats` }
     case `session`:
       return carried
     case `other`:
@@ -142,8 +142,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return origin.tab ? `inbox:${origin.tab}` : `inbox`
     case `board`:
       return `board:${origin.boardSlug}`
-    case `threads`:
-      return `threads`
+    case `chats`:
+      return `chats`
     case `running`:
       return `running`
     case `drafts`:
@@ -162,7 +162,7 @@ export function parseOrigin(
   if (value === `inbox`) return { kind: `inbox` }
   if (value === `inbox:my-issues`) return { kind: `inbox`, tab: `my-issues` }
   if (value === `inbox:drafts`) return { kind: `inbox`, tab: `drafts` }
-  if (value === `threads`) return { kind: `threads` }
+  if (value === `chats`) return { kind: `chats` }
   if (value === `running`) return { kind: `running` }
   if (value === `drafts`) return { kind: `drafts` }
   const board = value.match(/^board:([^:]+)$/)
@@ -179,7 +179,7 @@ export function originLabel(
   switch (origin.kind) {
     case `inbox`:
       return `Inbox`
-    case `threads`:
+    case `chats`:
       return `Chats`
     case `running`:
       return `Running`
@@ -221,12 +221,12 @@ export function originListNavigation(
         params: { teamSlug },
         search: origin.tab ? { tab: origin.tab } : {},
       }
-    case `threads`:
-      return { to: `/t/$teamSlug/threads`, params: { teamSlug }, search: {} }
+    case `chats`:
+      return { to: `/t/$teamSlug/chats`, params: { teamSlug }, search: {} }
     case `drafts`:
       return { to: `/t/$teamSlug/drafts`, params: { teamSlug }, search: {} }
     case `running`:
-      // The sidebar's Running section is not a page — a thread opened from it
+      // The sidebar's Running section is not a page — a chat opened from it
       // has no list to go back to, so each caller falls back, exactly like no
       // origin at all.
       return null

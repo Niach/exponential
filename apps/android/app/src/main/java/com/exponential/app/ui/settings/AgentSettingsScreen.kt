@@ -86,7 +86,7 @@ import androidx.compose.foundation.background
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
-// EXP-1296 (Threads v2, `agent-settings.json`): Team settings → Agents,
+// EXP-1296 (`agent-settings.json`): Team settings → Agents,
 // managed EXACTLY like boards. The list = icon-in-colour + name rows under the
 // "Agents" band, whose header carries the `New agent` pill (owner-only,
 // NEW-40: the Prompts band's pattern ×4). An agent's

@@ -21,8 +21,8 @@ import androidx.navigation.NavBackStackEntry
 /**
  * VAPP-110: an embedded conversation's OWN [ViewModelStoreOwner] whose
  * view models read `sessionId` = [sessionId] from their SavedStateHandle,
- * as if they sat on the `thread/{sessionId}` route (the thread screen's
- * [com.exponential.app.ui.thread.ThreadViewModel] serves the app editor's
+ * as if they sat on the `chat/{sessionId}` route (the chat screen's
+ * [com.exponential.app.ui.chat.ChatViewModel] serves the app editor's
  * chat unchanged). Cleared when it leaves composition (the
  * [com.exponential.app.ui.components.PageViewModelStore] rule).
  */

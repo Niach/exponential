@@ -329,7 +329,7 @@ export const SESSION_CARD_TONE: Record<string, string> = {
 }
 
 /**
- * EXP-1291 THE session card ×4: a session inside a thread (or a thread an
+ * EXP-1291 THE session card ×4: a session inside a chat (or a chat an
  * agent started) is ONE card = the Work card's header row in the Work
  * card's shell (radius lg, card hairline, no shadow). Tapping it opens that
  * session's raw view. No device, account or branch; EXP-1323: the live

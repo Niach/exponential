@@ -158,7 +158,7 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
 
     // EXP-980: sub-issues leave their own status group and follow their
     // parent. The ROOT decided the group and the sort position above; this
-    // only re-threads the rows, so the comparator's work survives.
+    // only re-nests the rows, so the comparator's work survives.
     let group_ids: Vec<Vec<String>> = groups
         .iter()
         .map(|group| group.issues.iter().map(|issue| issue.id.clone()).collect())

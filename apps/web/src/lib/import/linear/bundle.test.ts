@@ -14,7 +14,7 @@ import {
 
 // EXP-630: the Linear adapter's one pure step — snapshot → bundle. The two
 // routing rules, the state-type → category map, the duplicate rule, asset
-// extraction, comment threading and history → events all live here.
+// extraction, comment nesting and history → events all live here.
 
 describe(`toLinearBundle (team routing)`, () => {
   const bundle = toLinearBundle(linearSnapshotFixture(), { routing: `team` })
@@ -80,7 +80,7 @@ describe(`toLinearBundle (team routing)`, () => {
     expect(first.assets[1]).toMatchObject({ ref: UPLOAD_URL_2, filename: `file.pdf`, sizeBytes: null })
   })
 
-  it(`attaches comments with their thread parents`, () => {
+  it(`attaches comments with their reply parents`, () => {
     const first = bundle.issues.find((issue) => issue.key === `issue:is-1`)!
     expect(first.comments.map((comment) => [comment.key, comment.parentKey])).toEqual([
       [`comment:cm-1`, null],

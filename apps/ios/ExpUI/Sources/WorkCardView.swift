@@ -390,7 +390,7 @@ public struct WorkCardHeaderRow: View {
 }
 
 /// EXP-1295: THE session card (fixtures/session-card.json) — a session inside
-/// a thread, and a thread an agent started, as ONE card that is the Work
+/// a chat, and a chat an agent started, as ONE card that is the Work
 /// card's header row alone: the state icon in its tone, the name, the muted
 /// state word, trailing the elapsed with the spinner while working. Tapping
 /// it opens that session. Model = ExpCore `SessionTree.sessionCard`.
@@ -400,7 +400,7 @@ public struct SessionCardView: View {
     /// EXP-1323: drawn as a row INSIDE another card (a started suggestion):
     /// no shell of its own.
     let bare: Bool
-    /// #EXP-1464 (thread-row-action.json): expanded in place (the chevron
+    /// #EXP-1464 (chat-row-action.json): expanded in place (the chevron
     /// turns down); `kindWord` / `tone` override the card's own (`Answered`,
     /// muted), nil = its own.
     let expanded: Bool

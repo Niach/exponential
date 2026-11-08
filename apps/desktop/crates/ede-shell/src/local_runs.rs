@@ -95,7 +95,7 @@ impl LocalChat {
     }
 
     /// The chat model's input for the chat's session (#EDE-65 lane I): the
-    /// thread the domain builds from the desktop's store, drawn as bubbles
+    /// chat the domain builds from the desktop's store, drawn as bubbles
     /// (the desktop's own agent is an agent chat).
     pub fn input(&self) -> ChatInput {
         let mut input = assistant_home();
@@ -122,8 +122,8 @@ impl LocalChat {
         }
         let refs: Vec<&MessageRow> = messages.iter().collect();
         let now = chrono::Utc::now().timestamp_millis();
-        let view = domain::session_tree::build_session_thread(
-            domain::session_tree::SessionThreadInput { root: &root, sessions: &[&root], session_issues: &[], issues: &[], messages: &refs, pull_requests: &[], now_ms: now },
+        let view = domain::session_tree::build_session_chat(
+            domain::session_tree::SessionChatInput { root: &root, sessions: &[&root], session_issues: &[], issues: &[], messages: &refs, pull_requests: &[], now_ms: now },
             None,
         );
         let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();

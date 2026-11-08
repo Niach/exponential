@@ -854,7 +854,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `issue-chip`,
     title: `Issue chip`,
     kind: `Buttons & chips`,
-    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card. EXP-1316: the TAB size (\`size="tab"\`) is the thread strip's chip: exactly the strip tab box (32px, text-sm, rounded-md, the tab border), glyph · mono identifier · title truncated at 11rem, the active one in the glass wash, so every chip in the strip stands as tall as Conversation and Guide.`,
+    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card. EXP-1316: the TAB size (\`size="tab"\`) is the chat strip's chip: exactly the strip tab box (32px, text-sm, rounded-md, the tab border), glyph · mono identifier · title truncated at 11rem, the active one in the glass wash, so every chip in the strip stands as tall as Conversation and Guide.`,
     status: {
       web: ok(`IssueChip`, `packages/ui/src/issue-chip.tsx`, `The app's components/issue-chip.tsx is the binding that resolves the status and adds the hover preview.`),
       desktop: ok(`issue_chip`, `apps/desktop/crates/ui/src/issue_chip.rs`),
@@ -888,10 +888,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           size="sm"
           onClick={noop}
         />
-        {/* EXP-1316: the tab size — the thread strip's chip, active + rest. */}
+        {/* EXP-1316: the tab size — the chat strip's chip, active + rest. */}
         <IssueChip
           identifier="EXP-1316"
-          title="Thread header chips"
+          title="Chat header chips"
           status={BACKLOG_GLYPH}
           size="tab"
           active
@@ -899,7 +899,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         />
         <IssueChip
           identifier="EXP-1318"
-          title="Threads list rows"
+          title="Chats list rows"
           status={DONE_GLYPH}
           size="tab"
           onClick={noop}
@@ -1004,7 +1004,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="nav">`,
         `<span class="item"><span class="label">Inbox</span></span>`,
         `<span class="item active"><span class="label">Mobile app</span></span>`,
-        `<span class="item"><span class="label">Threads</span></span>`,
+        `<span class="item"><span class="label">Chats</span></span>`,
         `</div>`,
         `<div class="panel"><span class="line"></span><span class="line"></span><span class="line"></span></div>`,
         `</div>`,
@@ -1182,13 +1182,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `comment-card`,
     title: `Comment card`,
     kind: `Surfaces`,
-    blurb: `One comment in the activity feed: the avatar rides the timeline gutter, everything else lives in a radius-16 card of card fill under a card hairline. The header is the author at body size and medium weight, then a muted caption carrying the relative time and, when it applies, "edited", "via MCP" for a comment an agent posted, "reporter" for the widget reporter's words (signed with the name they gave, else Anonymous visitor) or "to reporter" for a member's reply that was emailed to them. Images attached to the comment are LARGE tiles stacked under the body — full width, capped at 480 tall, radius 12, hairline, reserving their probed aspect ratio — and any other file stays a read-only pill. The card is the thread: its replies sit under the body behind one hairline, each with a 20px avatar and the same header, and every top-level card closes with a muted "Leave a reply…" row — on web and desktop the composer opens in its place, on mobile it hands the docked composer a "Replying to" target.`,
+    blurb: `One comment in the activity feed: the avatar rides the timeline gutter, everything else lives in a radius-16 card of card fill under a card hairline. The header is the author at body size and medium weight, then a muted caption carrying the relative time and, when it applies, "edited", "via MCP" for a comment an agent posted, "reporter" for the widget reporter's words (signed with the name they gave, else Anonymous visitor) or "to reporter" for a member's reply that was emailed to them. Images attached to the comment are LARGE tiles stacked under the body — full width, capped at 480 tall, radius 12, hairline, reserving their probed aspect ratio — and any other file stays a read-only pill. The card is the chat: its replies sit under the body behind one hairline, each with a 20px avatar and the same header, and every top-level card closes with a muted "Leave a reply…" row — on web and desktop the composer opens in its place, on mobile it hands the docked composer a "Replying to" target.`,
     status: {
       web: ok(`RegularCommentRow`, `apps/web/src/components/comment-rows/regular.tsx`),
       desktop: ok(`comments::comment_row`, `apps/desktop/crates/ui/src/comments.rs`),
       ios: ok(
         `RegularCommentRow`,
-        `apps/ios/Exponential/UI/Issue/CommentThreadView.swift`
+        `apps/ios/Exponential/UI/Issue/CommentRepliesView.swift`
       ),
       android: ok(
         `RegularCommentRow`,
@@ -1433,7 +1433,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-size`,
     title: `Control heights`,
     kind: `Shape & size`,
-    blurb: `Three control heights plus the field and the list row. A control that is none of these is a control nobody agreed to. Plus THE chat column (#EXP-1547, web at md+ and the IDE; phones fill their width): ${designTokens.chat.columnWidth} wide, the one box a thread's conversation, an agent's channel, a session's transcript AND the Dock band with the composer centre in, its content inset by the work gutter (20), so the transcript and the composer share the same left and right edges.`,
+    blurb: `Three control heights plus the field and the list row. A control that is none of these is a control nobody agreed to. Plus THE chat column (#EXP-1547, web at md+ and the IDE; phones fill their width): ${designTokens.chat.columnWidth} wide, the one box a chat's conversation, an agent's channel, a session's transcript AND the Dock band with the composer centre in, its content inset by the work gutter (20), so the transcript and the composer share the same left and right edges.`,
     status: {
       web: ok(
         `buttonVariants size-9 / Pill size md|sm`,
@@ -2382,9 +2382,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: na(`EXP-1647: it rode the issue page's PR row, gone with it (web EXP-1293)`),
       ios: ok(
-        `ThreadScreen toolbar`,
-        `apps/ios/Exponential/UI/Thread/ThreadScreen.swift`,
-        `EXP-1300: the header arm on the thread's Guide page`
+        `ChatScreen toolbar`,
+        `apps/ios/Exponential/UI/Chat/ChatScreen.swift`,
+        `EXP-1300: the header arm on the chat's Guide page`
       ),
       android: ok(
         `GithubHeaderAction`,
@@ -2545,7 +2545,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `guide-picture-viewer`,
     title: `Guide picture viewer`,
     kind: `Surfaces`,
-    blurb: `EXP-1283: tapping a picture in a thread's Guide opens it next to what it shows. Wide (web md+, the IDE): the picture large on the left (fit), a fixed 360 px panel on the right: the topic, the picture's label as a pill, the topic's GFM text, then ‹ n / N › through every Guide picture in the Guide's order (Summary first, no wrap); ←/→ step, Esc closes. Web = the lightbox in its PANEL mode, × top right; the IDE (EXP-1348) = a native dialog window titled Guide, movable and resizable down to 720×440, whose titlebar is its one close control (no in-content ×). Phones: a full-screen page, the picture on top, the same panel below it, a swipe steps. Model = guideViewer() (fixture session-results.json viewer ×4). The dialog is a portal, so the island lays its two halves out in place.`,
+    blurb: `EXP-1283: tapping a picture in a chat's Guide opens it next to what it shows. Wide (web md+, the IDE): the picture large on the left (fit), a fixed 360 px panel on the right: the topic, the picture's label as a pill, the topic's GFM text, then ‹ n / N › through every Guide picture in the Guide's order (Summary first, no wrap); ←/→ step, Esc closes. Web = the lightbox in its PANEL mode, × top right; the IDE (EXP-1348) = a native dialog window titled Guide, movable and resizable down to 720×440, whose titlebar is its one close control (no in-content ×). Phones: a full-screen page, the picture on top, the same panel below it, a swipe steps. Model = guideViewer() (fixture session-results.json viewer ×4). The dialog is a portal, so the island lays its two halves out in place.`,
     status: {
       web: ok(
         `GuidePictureViewer / GuidePictureViewerPanel`,
@@ -2573,12 +2573,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `floating-composer`,
     title: `Floating composer`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1316: the phones' ONE reply box, on the thread conversation and the session view alike. Collapsed it is the floating bar's capsule (52 px, the floating glass, 20 px screen inset) reading the placeholder "Reply…", floating over the content above the bottom edge fade, never pushing it. A tap expands it into THE Composer card: the text, + for pictures and files, send, Stop while the session works. Focus leaving the card collapses it; the card stays mounted, so a draft survives and the capsule then reads the draft. Web md+ and the IDE keep the in-flow Composer box. The live bar is fixed to the viewport, so the island paints its two states in place.`,
+    blurb: `EXP-1316: the phones' ONE reply box, on the chat conversation and the session view alike. Collapsed it is the floating bar's capsule (52 px, the floating glass, 20 px screen inset) reading the placeholder "Reply…", floating over the content above the bottom edge fade, never pushing it. A tap expands it into THE Composer card: the text, + for pictures and files, send, Stop while the session works. Focus leaving the card collapses it; the card stays mounted, so a draft survives and the capsule then reads the draft. Web md+ and the IDE keep the in-flow Composer box. The live bar is fixed to the viewport, so the island paints its two states in place.`,
     status: {
       web: ok(
         `FloatingComposer`,
         `packages/ui/src/floating-composer.tsx`,
-        `hosts: the thread route's ConversationBody and components/thread/session-body.tsx`
+        `hosts: the chat route's ConversationBody and components/chat/session-body.tsx`
       ),
       desktop: { state: `n/a`, note: `The IDE keeps the in-flow Composer box.` },
       ios: ok(`FloatingComposer`, `apps/ios/ExpUI/Sources/FloatingComposer.swift`),
