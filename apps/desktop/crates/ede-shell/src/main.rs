@@ -549,25 +549,9 @@ impl HostPlugin for Host {
                     Some("pick") => {
                         let kind: Option<uicore_model::SwitcherKind> = args.get("kind").cloned().and_then(|k| serde_json::from_value(k).ok());
                         if let (Some(entry_kind), Some(id)) = (kind, args.get("id").and_then(Value::as_str)) {
-                            if entry_kind == uicore_model::SwitcherKind::Local {
-                                // The desktops index remembers the current Local desktop.
-                                if let Err(e) = shell.borrow_mut().workspaces.desktops.set_current(id) {
-                                    tracing::warn!("desktops.json: {e}");
-                                }
-                            }
-                            let picked_local = entry_kind == uicore_model::SwitcherKind::Local;
-                            dispatch(&shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
-                            // Another desktop or a team: the opened desktop and its chat go.
-                            let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
-                            if changed {
-                                if let Some(chat) = shell.borrow_mut().chat_local.take() {
-                                    chat.stop();
-                                }
-                                shell.borrow_mut().local = None;
-                            }
-                            chatting_changed(&shell, cx);
-                            // #VAPP-273: the apps follow the desktop (local records or the team's).
-                            engine_boot(&shell, cx);
+                            // #EDE-65: the menu goes with the pick (it stayed open, the pick looked like nothing).
+                            shell.borrow_mut().surfaces.dismiss_hosted(cx);
+                            switcher_picked(&shell, entry_kind, id, cx);
                         }
                     }
                     Some("new") => {
@@ -575,7 +559,7 @@ impl HostPlugin for Host {
                         match created {
                             Ok(entry) => {
                                 switcher_refresh_entries(&shell, cx);
-                                dispatch(&shell, ShellEvent::SwitcherPick { entry_kind: uicore_model::SwitcherKind::Local, id: entry.id }, cx);
+                                switcher_picked(&shell, uicore_model::SwitcherKind::Local, &entry.id, cx);
                             }
                             Err(e) => tracing::warn!("new local desktop: {e}"),
                         }
@@ -954,8 +938,42 @@ fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::SwitcherSet { entries }, cx);
     if let Some(id) = pending {
         shell.borrow_mut().pending_pick = None;
-        dispatch(shell, ShellEvent::SwitcherPick { entry_kind: uicore_model::SwitcherKind::Team, id }, cx);
+        switcher_picked(shell, uicore_model::SwitcherKind::Team, &id, cx);
     }
+}
+
+/// #EDE-65: a pick from the switcher (or a team that arrived for a pending
+/// one): the current entry, remembered across logins; the chat, the apps and
+/// the Exponential app follow it (a team: the app switches to it too).
+fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, id: &str, cx: &mut App) {
+    let picked_local = entry_kind == uicore_model::SwitcherKind::Local;
+    if picked_local {
+        // The desktops index remembers the current Local desktop.
+        if let Err(e) = shell.borrow_mut().workspaces.desktops.set_current(id) {
+            tracing::warn!("desktops.json: {e}");
+        }
+    }
+    dispatch(shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
+    let current = shell.borrow().model.switcher.current.clone();
+    if current.id != id {
+        tracing::warn!(id, "the switcher does not list the pick");
+        return;
+    }
+    shell.borrow().workspaces.save_current(&current);
+    if !picked_local {
+        accounts::ide_follow_team(id);
+    }
+    // Another desktop or a team: the opened desktop and its chat go.
+    let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
+    if changed {
+        if let Some(chat) = shell.borrow_mut().chat_local.take() {
+            chat.stop();
+        }
+        shell.borrow_mut().local = None;
+    }
+    chatting_changed(shell, cx);
+    // #VAPP-273: the apps follow the desktop (local records or the team's).
+    engine_boot(shell, cx);
 }
 
 fn launch_app(shell: &Shell, app: &str) {
@@ -1024,6 +1042,8 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
         .collect();
     value["sidebar"]["workspaces"] = Value::Array(workspaces);
     value["sessions"] = json!([]);
+    // #EDE-65: Connect only without an account, Share as a team only on a Local desktop.
+    value["switcher"]["connection"] = accounts::connection_json(&shell.model.switcher.current, &shell.workspaces.signed_in());
     if let Some(entries) = value["switcher"]["entries"].as_array_mut() {
         for e in entries {
             let current = e["kind"] == shell.model.switcher.current.kind.clone().into_json() && e["id"] == json!(shell.model.switcher.current.id);
@@ -1426,11 +1446,23 @@ fn chat_local(shell: &SharedShell) -> bool {
 /// `/chatting` into the views: the local conversation, or the app's Assistant.
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
+        // The goldens: the sample conversation on a Local desktop, the app's on a team.
+        let feed = if on_local(shell) { local_runs::demo_feed() } else { remote_feed(&shell.borrow()) };
+        shell.borrow_mut().feed.set("/chatting", feed);
+        refresh(shell, cx);
         return;
     }
-    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()).unwrap_or_else(local_runs::remote_feed) } else { local_runs::remote_feed() };
+    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()) } else { None }.unwrap_or_else(|| remote_feed(&shell.borrow()));
     shell.borrow_mut().feed.set("/chatting", feed);
     refresh(shell, cx);
+}
+
+/// `/chatting` on a team: the team and the account it is connected through.
+fn remote_feed(shell: &Shell) -> Value {
+    let current = &shell.model.switcher.current;
+    let connection = accounts::connection_json(current, &shell.workspaces.signed_in());
+    let team = if current.kind == uicore_model::SwitcherKind::Team { current.name.as_str() } else { "" };
+    local_runs::remote_feed(team, connection["account"].as_str().unwrap_or_default())
 }
 
 /// The composer's text to the desktop's agent (#EDE-58).
@@ -1974,7 +2006,7 @@ fn main() {
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
-        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed() });
+        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed("", "") });
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
@@ -2015,6 +2047,7 @@ fn main() {
         if let Some(current) = workspaces.current_local() {
             model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
+        let saved_team = workspaces.saved_team();
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
         feed.set("/shell", uicore_data::shell_feed(&model, &menu_apps, &favourites));
@@ -2055,7 +2088,8 @@ fn main() {
             connect,
             share,
             local: None,
-            pending_pick: None,
+            // #EDE-65: the team picked last, once its account's teams are listed.
+            pending_pick: saved_team,
             chat_local: None,
             engine: None,
             engine_apps: Vec::new(),
