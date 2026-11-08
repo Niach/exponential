@@ -16,7 +16,7 @@ use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, Mou
 use serde_json::{json, Value};
 
 use super::state::{focus_order, is_focusable, is_text_field, next_focus, NodeFlags};
-use super::{Drag, ScrollDrag, SurfaceView, ToastTimer};
+use super::{Drag, SurfaceView, ToastTimer};
 use crate::host::{ActionEvent, FilePickRequest, FunctionCallEvent, InputEvent, InputKind, UploadEvent};
 
 /// The hover delay of tooltips and hover cards.
@@ -29,7 +29,6 @@ pub const COPIED_RESET: Duration = Duration::from_millis(2000);
 /// How far a Drawer is dragged toward its edge before it dismisses.
 pub const SHEET_DISMISS_PX: f32 = 64.0;
 /// EXP-1555: how long overlay scrollbars stay after the last scroll step.
-pub const SCROLLBAR_LINGER: Duration = Duration::from_millis(1000);
 
 /// A sheet drag's offset: the pointer's travel toward the sheet's edge only.
 pub fn sheet_offset(side: &str, x: f32, y: f32) -> (f32, f32) {
@@ -1393,11 +1392,6 @@ impl SurfaceView {
         self.tab_drag = Some(super::TabDrag { tab: tab_id.to_string(), start: x, started: false });
     }
 
-    pub(crate) fn scroll_drag_start(&mut self, id: &str, vertical: bool, pointer: f32, start_offset: f32, ratio: f32, cx: &mut Context<Self>) {
-        self.scroll_drag = Some(ScrollDrag { id: id.to_string(), vertical, start_pointer: pointer, start_offset, ratio });
-        cx.notify();
-    }
-
     pub(crate) fn on_pointer_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if ev.pressed_button != Some(gpui::MouseButton::Left) {
             return;
@@ -1438,16 +1432,6 @@ impl SurfaceView {
             cx.notify();
             return;
         }
-        if let Some(d) = self.scroll_drag.clone() {
-            let p = if d.vertical { f32::from(ev.position.y) } else { f32::from(ev.position.x) };
-            let offset = (d.start_offset + (p - d.start_pointer) * d.ratio).max(0.0);
-            let (x, y) = self.surface.scroll_offset(&d.id);
-            let moved = if d.vertical { self.surface.scroll_to(&d.id, x, offset) } else { self.surface.scroll_to(&d.id, offset, y) };
-            if moved {
-                self.scrolled(cx);
-            }
-            return;
-        }
         let Some(drag) = self.drag.clone() else { return };
         let Some(index) = self.cache.index_of(&drag.track) else { return };
         let Some(bounds) = self.slider_bounds.borrow().get(&drag.track).copied() else { return };
@@ -1479,9 +1463,6 @@ impl SurfaceView {
                 cx.notify();
                 return;
             }
-        }
-        if let Some(d) = self.scroll_drag.take() {
-            self.scrollbars_recent(&d.id, cx);
         }
         self.md_dragging = false;
         if let Some(d) = self.sheet_drag.take() {
@@ -1521,7 +1502,6 @@ impl SurfaceView {
         cx.stop_propagation();
         if self.surface.scroll_to(id, x, y) {
             self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
-            self.scrollbars_recent(id, cx);
             self.scrolled(cx);
         }
     }
@@ -1536,33 +1516,22 @@ impl SurfaceView {
         cx.notify();
     }
 
-    /// EXP-1555: a scroll shows the container's overlay scrollbars for
-    /// [`SCROLLBAR_LINGER`] after its last step (none at rest, like web).
-    pub(crate) fn scrollbars_recent(&mut self, id: &str, cx: &mut Context<Self>) {
-        let key = id.to_string();
-        let task = cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(SCROLLBAR_LINGER).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.scroll_recent.remove(&key).is_some() {
-                    cx.notify();
-                }
-            });
-        });
-        self.scroll_recent.insert(id.to_string(), task);
-    }
-
-    /// EXP-1555: the pointer entered / left a scroll container.
-    pub(crate) fn scroll_hovered(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
-        let changed = if hovered { self.scroll_hover.insert(id.to_string()) } else { self.scroll_hover.remove(id) };
-        if changed {
-            cx.notify();
+    /// #EXP-1629: a thumb drag's offset (`view/scrollbar.rs`) goes to the
+    /// core; returns whether one moved.
+    pub(crate) fn take_scrollbar_drags(&mut self) -> bool {
+        let pending: Vec<(String, (u32, f32, f32))> = self.scrollbars.borrow().iter().filter_map(|(id, h)| Some((id.clone(), h.take_pending()?))).collect();
+        let mut moved = false;
+        for (id, (index, x, y)) in pending {
+            let Some(s) = self.scrolls.get(&index).copied() else { continue };
+            let f = self.frames.get(index as usize).copied().unwrap_or_default();
+            let x = if s.scroll_x { x.clamp(0.0, (s.content_width - f.w).max(0.0)) } else { s.offset_x };
+            let y = if s.scroll_y { y.clamp(0.0, (s.content_height - f.h).max(0.0)) } else { s.offset_y };
+            if self.surface.scroll_to(&id, x, y) {
+                self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+                moved = true;
+            }
         }
-    }
-
-    /// EXP-1555: does scroll container `id` show its scrollbars (hovered,
-    /// just scrolled, or its thumb dragged)?
-    pub(crate) fn scrollbars_shown(&self, id: &str) -> bool {
-        self.scroll_hover.contains(id) || self.scroll_recent.contains_key(id) || self.scroll_drag.as_ref().is_some_and(|d| d.id == id)
+        moved
     }
 
     // -- Segmented, charts --------------------------------------------------
