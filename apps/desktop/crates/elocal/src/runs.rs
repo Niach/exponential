@@ -20,12 +20,19 @@
 //!
 //! No steer, no presence, no relay: the host drains [`LocalRuns::changes`]
 //! to redraw.
+//!
+//! #EDE-65: ONE runner per desktop on the machine. The IDE and eDE may both
+//! open a desktop; only the process holding the desktop's `runs.lock` (an
+//! exclusive lock for the runner's life, so a crash frees it) claims and
+//! runs sessions, the other stands by and takes over when the lock frees.
+//! The holder also wakes on the other process's writes (the store file
+//! moved), so a message sent from either app runs.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use api::{CallKind, Transport};
 use eagent::provider::{AcpAgent, Brief, EventSink, HubGrant, HubLevel};
@@ -141,6 +148,25 @@ pub struct LocalRuns {
     events: (flume::Sender<(String, ActivityEvent)>, flume::Receiver<(String, ActivityEvent)>),
     changes: (flume::Sender<Changed>, flume::Receiver<Changed>),
     seq: AtomicU64,
+    /// The desktop's `runs.lock` while this runner is THE runner (#EDE-65).
+    lock: Mutex<Option<std::fs::File>>,
+    /// After [`LocalRuns::stop_all`]: the lock is gone and never taken again.
+    stopped: std::sync::atomic::AtomicBool,
+    /// The store files' (modified, length) when last looked at.
+    seen: Mutex<Option<Vec<(SystemTime, u64)>>>,
+}
+
+/// The desktop's run lock, `None` while another process holds it.
+fn try_run_lock(dir: &std::path::Path) -> Option<std::fs::File> {
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("runs.lock")).ok()?;
+    match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(std::fs::TryLockError::WouldBlock) => None,
+        Err(std::fs::TryLockError::Error(e)) => {
+            log::warn!("[elocal] runs.lock: {e}");
+            None
+        }
+    }
 }
 
 /// The `sessions` row columns the hub's state mirrors onto.
@@ -228,16 +254,58 @@ impl LocalRuns {
             events: flume::unbounded(),
             changes: flume::unbounded(),
             seq: AtomicU64::new(1),
+            lock: Mutex::new(None),
+            stopped: std::sync::atomic::AtomicBool::new(false),
+            seen: Mutex::new(None),
         });
-        runs.hydrate()?;
         let deltas = runs.desktop.store.subscribe();
+        if runs.take_over() {
+            runs.reconcile();
+        } else {
+            log::info!("[elocal] desktop {}: another app runs its agents, standing by", runs.desktop.entry.id);
+        }
         let worker = runs.clone();
         std::thread::Builder::new()
             .name("elocal-runs".into())
             .spawn(move || worker.work(deltas))
             .map_err(|e| e.to_string())?;
-        runs.reconcile();
         Ok(runs)
+    }
+
+    /// Is this THE runner of the desktop (the holder of its `runs.lock`)?
+    pub fn is_runner(&self) -> bool {
+        self.lock.lock().expect("lock").is_some()
+    }
+
+    /// Takes the desktop's run lock when it is free: the hub starts over
+    /// from the store (what the other process ran is in it).
+    fn take_over(&self) -> bool {
+        if self.is_runner() {
+            return true;
+        }
+        if self.stopped.load(Ordering::Relaxed) {
+            return false;
+        }
+        let Some(lock) = try_run_lock(&self.desktop.dir) else { return false };
+        *self.lock.lock().expect("lock") = Some(lock);
+        // The files as they are now: a later move is the other app's write.
+        self.store_moved();
+        if let Err(e) = self.hydrate() {
+            log::warn!("[elocal] hydrate: {e}");
+        }
+        true
+    }
+
+    /// Did the store's files change since the last look (another process wrote)?
+    fn store_moved(&self) -> bool {
+        let stamp: Vec<(SystemTime, u64)> = ["local.sqlite", "local.sqlite-wal"]
+            .iter()
+            .map(|f| std::fs::metadata(self.desktop.dir.join(f)).map(|m| (m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len())).unwrap_or((SystemTime::UNIX_EPOCH, 0)))
+            .collect();
+        let mut seen = self.seen.lock().expect("seen");
+        let moved = seen.as_ref().is_some_and(|s| *s != stamp);
+        *seen = Some(stamp);
+        moved
     }
 
     /// The host's change stream (one per session that changed).
@@ -275,13 +343,22 @@ impl LocalRuns {
                     while let Ok(more) = deltas.try_recv() {
                         touched |= matches!(more.table, "sessions" | "messages");
                     }
-                    if touched {
+                    if touched && self.is_runner() {
                         self.reconcile();
                     }
                 }
                 Ok(Woke::Event(session_id, event)) => self.on_event(&session_id, event),
                 Ok(Woke::Gone) => return,
-                Err(_) => {}
+                // A quiet second: take the lock when it freed, follow the other app's writes.
+                Err(_) => {
+                    if self.stopped.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let was = self.is_runner();
+                    if self.take_over() && (!was || self.store_moved()) {
+                        self.reconcile();
+                    }
+                }
             }
             self.sweep_exits();
         }
@@ -319,6 +396,27 @@ impl LocalRuns {
             .collect();
         let given = json!({"sessions": sessions, "devices": [{"id": device_id, "lastSeenAt": Self::now()}]});
         let state = eagent_hub_core::hydrate(&given)?;
+        // The person's messages a turn already answered (before the session's
+        // last turn ended) are heard: a restart or a takeover never re-sends them.
+        let answered: HashMap<String, String> = self
+            .desktop
+            .store
+            .rows("sessions")?
+            .into_iter()
+            .filter_map(|s| {
+                let at = s.get("last_turn_at").and_then(Value::as_str).filter(|_| s.get("busy").and_then(Value::as_bool) != Some(true))?.to_string();
+                Some((s.get("id")?.as_str()?.to_string(), at))
+            })
+            .collect();
+        let mut ids = self.ids.lock().expect("ids");
+        for m in self.desktop.store.rows("messages")? {
+            let (Some(id), Some(root)) = (m.get("id").and_then(Value::as_str), m.get("root_id").and_then(Value::as_str)) else { continue };
+            let done = answered.get(root).zip(m.get("created_at").and_then(Value::as_str)).is_some_and(|(turn, at)| domain::instant::parse_instant(at) <= domain::instant::parse_instant(turn));
+            if done && m.get("author_kind").and_then(Value::as_str) == Some("user") {
+                ids.insert(format!("store:{id}"), id.to_string());
+            }
+        }
+        drop(ids);
         *self.hub.lock().expect("hub") = state;
         Ok(())
     }
@@ -609,11 +707,15 @@ impl LocalRuns {
     }
 
     /// Stops every run (the host is going away).
+    /// Stops every run and gives the desktop's run lock up for good (the
+    /// other app, or the next runner, takes over).
     pub fn stop_all(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
         for (_, live) in self.live.lock().expect("live").drain() {
             live.run.stop();
         }
         self.server.revoke_all();
+        *self.lock.lock().expect("lock") = None;
     }
 }
 
@@ -885,6 +987,43 @@ mod tests {
         assert_eq!(tools.call(&caller, "exponential_statuses", json!({"op": "list"}))["structuredContent"].as_array().unwrap().len(), 6);
         let refused = tools.call(&caller, "exponential_nope", json!({}));
         assert_eq!(refused["isError"], json!(true));
+    }
+
+    /// #EDE-65: the IDE and eDE on one desktop (two opens of its folder, as
+    /// two processes would): one runs the agents, the other stands by; a
+    /// message sent from the standby's side runs on the runner, and when the
+    /// runner stops the standby takes over.
+    #[test]
+    fn one_runner_per_desktop_and_the_other_takes_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let id = desktops.current().unwrap().to_string();
+        let (ide, ede) = (Arc::new(desktops.open_desktop(&id).unwrap()), Arc::new(desktops.open_desktop(&id).unwrap()));
+        let (ide_prompts, ede_prompts) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let fake = |prompts: &Arc<Mutex<Vec<String>>>| Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) });
+        let ide_runs = LocalRuns::start(ide.clone(), fake(&ide_prompts), dir.path().to_path_buf()).unwrap();
+        let ede_runs = LocalRuns::start(ede.clone(), fake(&ede_prompts), dir.path().to_path_buf()).unwrap();
+        assert!(ide_runs.is_runner());
+        assert!(!ede_runs.is_runner());
+
+        // Sent through eDE's store: the IDE's runner hears the file move.
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(id.clone());
+        send.text = Some("From the shell".into());
+        let session = api::sessions::send(&ede.client(), &send).unwrap().session_id;
+        wait_for(&ide_runs.changes(), || ide.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
+        assert_eq!(ide_prompts.lock().unwrap().as_slice(), ["From the shell"]);
+        assert!(ede_prompts.lock().unwrap().is_empty());
+
+        // The IDE leaves the desktop: eDE takes over, never re-running what was answered.
+        ide_runs.stop_all();
+        let changes = ede_runs.changes();
+        wait_for(&changes, || ede_runs.is_runner());
+        send.text = Some("Second chat".into());
+        let second = api::sessions::send(&ede.client(), &send).unwrap().session_id;
+        wait_for(&changes, || ede.store.row("sessions", &second).unwrap().unwrap()["status"] == json!("idle"));
+        assert_eq!(ede_prompts.lock().unwrap().as_slice(), ["Second chat"]);
+        ede_runs.stop_all();
     }
 }
 

@@ -854,9 +854,14 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().engine = Some(eng);
 }
 
-/// The current Local desktop, opened once (#EDE-57).
+/// The current Local desktop, opened once (#EDE-57): the switcher's (the
+/// index's current is the IDE's pick too, #EDE-65).
 fn local_desktop(shell: &SharedShell) -> Option<Arc<elocal::LocalDesktop>> {
-    let current = shell.borrow().workspaces.desktops.current().map(str::to_string)?;
+    let current = {
+        let s = shell.borrow();
+        let picked = &s.model.switcher.current;
+        if picked.kind == uicore_model::SwitcherKind::Local { picked.id.clone() } else { s.workspaces.desktops.current()?.to_string() }
+    };
     if let Some(open) = shell.borrow().local.clone().filter(|d| d.entry.id == current) {
         return Some(open);
     }
@@ -933,6 +938,8 @@ fn next_desktop_name(shell: &Shell) -> String {
 /// The switcher's entries from the desktops index and the accounts' teams
 /// (#EDE-56), into the model (the current entry stays when it is still listed).
 fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
+    // The index is the IDE's too (#EDE-65): its new or renamed desktops show.
+    shell.borrow_mut().workspaces.desktops.reload();
     let entries = shell.borrow().workspaces.entries();
     if entries.is_empty() {
         return;
@@ -1986,7 +1993,7 @@ fn main() {
     // Notifications and tray changes from the session bus.
     let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Event>();
     let dbus = if demo { None } else { dbus::Dbus::start(dbus_tx, clock::time) };
-    // #EDE-56: the Local desktops (desktops.json beside compositor.toml), the
+    // #EDE-56: the Local desktops (the machine's index, #EDE-65; eDE's old one beside compositor.toml is imported once), the
     // shared accounts and their teams; Connect Exponential's threads and the
     // scheme handler's forwarded URLs.
     let config_dir = settings::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
