@@ -134,6 +134,13 @@ pub fn search(index: &[Indexed], query: &str) -> Vec<StartMenuIssue> {
 }
 
 /// The deep link that opens an issue in the Exponential app.
+/// #EDE-65 J4: where a start-menu issue lives (`ede_issue {source, sourceId}`).
+pub fn issue_source(args: &Value) -> Option<(SwitcherKind, String)> {
+    let kind = serde_json::from_value::<SwitcherKind>(args.get("source")?.clone()).ok()?;
+    let id = args.get("sourceId")?.as_str().filter(|id| !id.is_empty())?;
+    Some((kind, id.to_string()))
+}
+
 pub fn issue_deep_link(identifier: &str) -> String {
     format!("{}://issue/{identifier}", api::login::OAUTH_CALLBACK_SCHEME)
 }
@@ -166,6 +173,18 @@ pub fn demo_index() -> Vec<Indexed> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// #EDE-65 J4: a hit names its team or Local desktop (the row's `source`, `sourceId`).
+    #[test]
+    fn a_hit_names_where_it_lives() {
+        assert_eq!(issue_source(&json!({"identifier": "GEN-1", "source": "local", "sourceId": "d1"})), Some((SwitcherKind::Local, "d1".into())));
+        assert_eq!(issue_source(&json!({"identifier": "EXP-1", "source": "team", "sourceId": "t1"})), Some((SwitcherKind::Team, "t1".into())));
+        assert_eq!(issue_source(&json!({"identifier": "EXP-1"})), None);
+        assert_eq!(issue_source(&json!({"identifier": "EXP-1", "source": "team", "sourceId": ""})), None);
+        // The row the document binds carries both under those names.
+        let row = serde_json::to_value(uicore_model::StartMenuIssueRow { id: "i".into(), identifier: "GEN-1".into(), title: "t".into(), status: "backlog".into(), icon: String::new(), source: SwitcherKind::Local, source_id: "d1".into(), context: String::new() }).unwrap();
+        assert_eq!(issue_source(&row), Some((SwitcherKind::Local, "d1".into())));
+    }
 
     fn row(value: Value) -> Row {
         value.as_object().unwrap().clone()

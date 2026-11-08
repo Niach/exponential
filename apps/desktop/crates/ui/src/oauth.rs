@@ -228,20 +228,54 @@ fn open_team_deep_link(team_id: String, cx: &mut App) {
 /// team-scoped `#IDENT` pill path
 /// (`description_editor::open_issue_by_identifier`), a deep link carries only
 /// the identifier — so it resolves case-insensitively across ALL synced
-/// issues. Unknown / not-yet-synced identifiers log and no-op, consistent
-/// with unhandled deep links.
+/// issues. #EDE-65 J4: eDE's start menu sends the switch to the issue's team
+/// or Local desktop first, so an identifier not there yet waits for the
+/// store to load (a newer issue link replaces it); unknown after
+/// [`ISSUE_LINK_WAIT`], it logs and no-ops, consistent with unhandled deep links.
 fn open_issue_deep_link(identifier: &str, cx: &mut App) {
-    let issue = Store::global(cx)
+    let generation = ISSUE_LINK.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    if let Some(found) = find_issue(identifier, cx) {
+        open_found_issue(found, cx);
+        return;
+    }
+    let identifier = identifier.to_string();
+    cx.spawn(async move |cx| {
+        let tries = ISSUE_LINK_WAIT.as_millis() / ISSUE_LINK_TICK.as_millis();
+        for _ in 0..tries {
+            cx.background_executor().timer(ISSUE_LINK_TICK).await;
+            if ISSUE_LINK.load(std::sync::atomic::Ordering::SeqCst) != generation {
+                return;
+            }
+            if let Some(found) = cx.update(|cx| find_issue(&identifier, cx)) {
+                cx.update(|cx| open_found_issue(found, cx));
+                return;
+            }
+        }
+        log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
+    })
+    .detach();
+}
+
+/// How long an issue link waits for its team or Local desktop to load.
+const ISSUE_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+const ISSUE_LINK_TICK: std::time::Duration = std::time::Duration::from_millis(250);
+/// The latest issue link (a newer one ends an older one's wait).
+static ISSUE_LINK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The issue an identifier names in the active store: `(id, board id)`.
+fn find_issue(identifier: &str, cx: &App) -> Option<(String, String)> {
+    Store::global(cx)
         .collections()
         .issues
         .read(cx)
         .iter()
         .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-        .map(|issue| (issue.id.clone(), issue.board_id.clone()));
-    let Some((issue_id, board_id)) = issue else {
-        log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
-        return;
-    };
+        .map(|issue| (issue.id.clone(), issue.board_id.clone()))
+}
+
+fn open_found_issue((issue_id, board_id): (String, String), cx: &mut App) {
+    #[cfg(test)]
+    OPENED_ISSUE.with(|o| *o.borrow_mut() = Some(issue_id.clone()));
     if let Some(window) = crate::navigation::active_or_primary_window(cx) {
         let _ = window.update(cx, |_, window, cx| {
             // EXP-510: land scoped on the issue's board; EXP-1192: with no
@@ -249,6 +283,17 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
             crate::navigation::open_issue_scoped(window, cx, issue_id, board_id, None);
         });
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The issue the last issue link resolved to (the tests read it).
+    static OPENED_ISSUE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn opened_issue() -> Option<String> {
+    OPENED_ISSUE.with(|o| o.borrow().clone())
 }
 
 /// The login-surface message when the callback lands but the exchange /
@@ -544,5 +589,39 @@ mod tests {
             panic!("failure deep link did not parse as an OAuth error callback");
         };
         assert_eq!(oauth_error_message(&reason), "Sign-in was cancelled.");
+    }
+
+    /// #EDE-65 J4: eDE's start menu opens a Local issue: the switch to its
+    /// desktop comes first, the issue link waits for the store, then opens.
+    #[gpui::test]
+    fn an_issue_link_waits_for_its_local_desktop(cx: &mut gpui::TestAppContext) {
+        cx.executor().allow_parking();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::local_desktops::install(path, cx);
+            assert!(crate::local_desktops::enter_current(cx));
+            handle_open_urls(vec!["exponential://issue/gen-1".into()], cx);
+        });
+        let client = cx.update(|cx| crate::local_desktops::client(cx).expect("a local client"));
+        let board = cx.update(|cx| {
+            let c = Store::global(cx).collections().clone();
+            let team = c.teams_sorted(cx)[0].id.clone();
+            c.boards_in_team(&team, cx)[0].id.clone()
+        });
+        let created = api::issues::issues_create(&client, &api::issues::IssuesCreateInput::new(&board, "Opened from the start menu")).unwrap();
+        for _ in 0..200 {
+            cx.executor().advance_clock(ISSUE_LINK_TICK);
+            cx.run_until_parked();
+            if opened_issue().is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(opened_issue(), Some(created.issue.id.clone()));
+        std::mem::forget(dir);
+        let _ = cx.add_window_view(|_, _| gpui::Empty);
     }
 }
