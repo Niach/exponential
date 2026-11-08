@@ -294,12 +294,12 @@ impl Emulator {
                     log::debug!("refusing OSC-52 clipboard read (denied, §6.15)");
                 }
                 // rio reports an OSC title reset as an empty title.
-                RioEvent::Title(title) if title.is_empty() => {
+                RioEvent::Title(_, title) if title.is_empty() => {
                     signals.push(EmulatorSignal::Title(None))
                 }
-                RioEvent::Title(title) => signals.push(EmulatorSignal::Title(Some(title))),
+                RioEvent::Title(_, title) => signals.push(EmulatorSignal::Title(Some(title))),
                 RioEvent::ResetTitle => signals.push(EmulatorSignal::Title(None)),
-                RioEvent::Bell => signals.push(EmulatorSignal::Bell),
+                RioEvent::Bell(_) => signals.push(EmulatorSignal::Bell),
                 // Decoded image pixels (sixel/iTerm2 → atlas keys, kitty →
                 // its protocol image id) plus texture keys to free.
                 RioEvent::UpdateGraphics { queues, .. } => {
@@ -384,6 +384,18 @@ pub fn scroll_to_bottom(term: &TermHandle) {
 /// history without linking the emulator crate directly.
 pub fn scroll_up(term: &TermHandle, lines: usize) {
     term.lock().scroll_display(Scroll::Delta(lines.min(i32::MAX as usize) as i32));
+}
+
+/// While the child holds a synchronized update open (DEC mode 2026), the
+/// instant the hold lapses; `None` once it ended or expired. rio-vt ≥ 0.5.29
+/// applies the bytes to the grid immediately and only flags the mode, so the
+/// painter itself skips frames until the update closes (or rio's timeout).
+pub fn sync_update_hold(term: &TermHandle, now: std::time::Instant) -> Option<std::time::Instant> {
+    let term = term.lock();
+    if term.sync_update_expired(now) {
+        return None;
+    }
+    term.sync_update_deadline()
 }
 
 /// Feed raw bytes into a shared [`TermHandle`] (see
@@ -489,6 +501,21 @@ mod tests {
     /// A 6×6 solid red sixel: raster attributes, one palette entry, six full
     /// sixel columns.
     const SIXEL_RED_6X6: &[u8] = b"\x1bPq\"1;1;6;6#0;2;100;0;0#0~~~~~~\x1b\\";
+
+    /// DEC 2026: an open synchronized update holds the paint until it
+    /// closes, and never past rio's own timeout.
+    #[test]
+    fn synchronized_update_holds_until_closed() {
+        let emulator = Emulator::new(20, 4);
+        let term = emulator.term();
+        let now = std::time::Instant::now();
+        assert_eq!(sync_update_hold(&term, now), None);
+        advance_bytes(&term, b"\x1b[?2026hhalf a frame");
+        let deadline = sync_update_hold(&term, now).expect("held while open");
+        assert_eq!(sync_update_hold(&term, deadline), None, "expired hold paints");
+        advance_bytes(&term, b"\x1b[?2026l");
+        assert_eq!(sync_update_hold(&term, now), None);
+    }
 
     fn drain(emulator: &mut Emulator) -> (Vec<EmulatorSignal>, Vec<u8>) {
         let mut written = Vec::new();

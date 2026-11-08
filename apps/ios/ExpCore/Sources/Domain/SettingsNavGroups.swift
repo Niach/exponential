@@ -51,7 +51,7 @@ public extension SettingsNav {
         Group(id: "team", label: "Team", platforms: nil, items: [
             "general", "members", "issues", "repositories", "prompts", "widget", "storage", "billing", "import",
         ]),
-        Group(id: "boards", label: "Boards", platforms: nil, items: [List.boards, List.newBoard, "archived-boards"]),
+        Group(id: "boards", label: "Boards", platforms: nil, items: [List.boards, List.newBoard, "all-boards"]),
         Group(id: "agents", label: "Agents", platforms: nil, items: [
             List.assistant, List.agents, List.newAgent, "mcp", "skills",
         ]),
@@ -68,7 +68,7 @@ public extension SettingsNav {
     static let pages: [String: Page] = [
         "storage": Page(label: "Storage", icon: "settings-storage", visible: .owner, platforms: nil),
         "import": Page(label: "Import", icon: "settings-import", visible: .owner, platforms: [.web]),
-        "archived-boards": Page(label: "Archived boards", icon: "ui-archive", visible: .owner, platforms: nil),
+        "all-boards": Page(label: "All boards", icon: "settings-boards", visible: .owner, platforms: nil),
         "tools": Page(label: "Tools", icon: "settings-tools", visible: .all, platforms: [.desktop]),
         "coding-clis": Page(label: "Coding CLIs", icon: "settings-agents", visible: .all, platforms: [.desktop]),
         "worktrees": Page(label: "Worktrees", icon: "settings-local-repos", visible: .all, platforms: [.desktop]),
