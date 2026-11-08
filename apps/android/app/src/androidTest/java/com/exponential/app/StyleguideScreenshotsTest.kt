@@ -1370,7 +1370,13 @@ class StyleguideScreenshotsTest {
             // session counted on Issues / Sessions) over the Chat tab = the
             // ROOT's own session view.
             flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
-            flow.waitFor(hasTestTag("agent-feed") or hasText(STEER_NO_FEED_IDLE_TITLE), NETWORK_TIMEOUT)
+            // The stub holds the root as a stored replay with an empty
+            // journal: its feed may settle on the empty state (iOS alike).
+            flow.waitFor(
+                hasTestTag("agent-feed") or hasText(STEER_NO_FEED_IDLE_TITLE) or
+                    hasText("Waiting for activity", substring = true),
+                NETWORK_TIMEOUT,
+            )
             flow.settle()
             flow.screenshot("sg_chat-screen")
 
