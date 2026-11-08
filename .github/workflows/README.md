@@ -31,6 +31,15 @@ coolify deploy uuid <app-uuid>
 
 Or click "Deploy" in the Coolify UI.
 
+Electric (cloud and next) is a Coolify dockerimage app PINNED to the same
+`electricsql/electric:<version>` tag as `docker-compose.yaml` and
+`selfhost/docker-compose.yaml` (1.8.1 since #2394), never a floating `latest`:
+a restart must not upgrade it. To upgrade: bump both compose files in a PR,
+then set the Coolify image tag on next first, check `/api/health` and the
+Electric log, then the cloud. A version that changes Electric's shape storage
+starts with 0 shapes, so every client resyncs once (one 409 each); the
+rollback is the previous pin.
+
 Health (EXP-1474): `build-web.yml` boots each image leg before pushing it
 (`apps/web/scripts/smoke-server.ts`: `/`, `/auth/login` must be our app
 shell, `/api/health` must say `{"ok":true}`), and the image's HEALTHCHECK

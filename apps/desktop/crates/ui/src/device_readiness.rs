@@ -834,6 +834,11 @@ fn open_external(url: &'static str, cx: &mut App) {
 /// A pill on THIS device.
 pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Window, cx: &mut App) {
     match action {
+        // EXP-1513: a missing Claude Code installs in place with Anthropic's
+        // own installer (`agent_update` installs it), never a docs hop.
+        DoctorAction::Install if agent_for(key) == Some(CodingAgent::Claude) => {
+            run_local_agent_action(CodingAgent::Claude, "install", cx);
+        }
         DoctorAction::Install => {
             if let Some(url) = install_url(key) {
                 crate::settings::open_url(cx, url.to_string());
@@ -910,6 +915,12 @@ fn grant_desktop_audio(cx: &mut App) {
 /// `claude update` / `codex update` right here (`coding::update_agent`, the
 /// `agent_update` command's runner), then a fresh doctor run.
 pub(crate) fn run_local_update(agent: CodingAgent, cx: &mut App) {
+    run_local_agent_action(agent, "update", cx);
+}
+
+/// [`run_local_update`] under `verb` (the failure toast's word): the same
+/// `coding::update_agent`, which installs a missing Claude Code (EXP-1513).
+fn run_local_agent_action(agent: CodingAgent, verb: &'static str, cx: &mut App) {
     let key = agent.id().to_string();
     if !cx.default_global::<LocalUpdates>().0.insert(key.clone()) {
         return; // already running
@@ -927,7 +938,7 @@ pub(crate) fn run_local_update(agent: CodingAgent, cx: &mut App) {
             cx.default_global::<LocalUpdates>().0.remove(&key);
             let toast = match result {
                 Ok(outcome) => crate::toast::Toast::success(outcome.message()),
-                Err(message) => crate::action_error::failed_toast("update", agent.label(), Some(message)),
+                Err(message) => crate::action_error::failed_toast(verb, agent.label(), Some(message)),
             };
             crate::toast::show_in_active_window(toast, cx);
             crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);

@@ -237,7 +237,7 @@ export interface ComponentProps {
   QrCode: { value: string | Dynamic; size?: number; level?: QrLevelValue; label?: string }
   Carousel: { page?: number | Dynamic; loop?: boolean; indicators?: boolean; counter?: boolean; thumbnails?: string[] }
   Mosaic: { pictures: Shapes["picture"][]; label?: string }
-  Tabs: { tabs: Shapes["tab"][]; value?: string | Dynamic; variant?: TabsVariantValue; fill?: boolean; closable?: TabClosableValue; addable?: boolean }
+  Tabs: { tabs: Shapes["tab"][]; value?: string | Dynamic; variant?: TabsVariantValue; fill?: boolean; closable?: TabClosableValue; addable?: boolean; swipeable?: boolean }
   Segmented: { items: Shapes["option"][]; type?: GroupTypeValue; value?: string | Dynamic; variant?: SegmentedVariantValue; size?: ControlSizeValue; fill?: boolean; orientation?: OrientationValue }
   Accordion: { items: Shapes["accordionItem"][]; type?: GroupTypeValue; value?: string | Dynamic }
   Collapsible: { title: string; open?: boolean | Dynamic; count?: number }
