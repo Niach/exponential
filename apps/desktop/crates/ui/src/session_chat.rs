@@ -4902,12 +4902,22 @@ mod tests {
             crate::steer_viewer::TRANSCRIPT_MENU_TEXT.with(|text| text.borrow().clone())
         };
         // The bubble's lines: the first paragraph, the second, the list item.
-        let (first, second, item) = (10., 40., 70.);
+        // #EXP-1736: the bubble's width cap may wrap the long code line, so
+        // the sweep walks down the second paragraph until it hits the span
+        // (`Install with ` is ~13 characters, the span starts right after).
+        let first = 10.;
         let prose = copy_after_sweep(text(0., first), text(144., first), cx);
         assert!(prose.starts_with("Package"), "prose: {prose:?}");
-        let code = copy_after_sweep(text(304., second), text(404., second), cx);
+        let mut code = String::new();
+        for step in 0..16 {
+            let y = 24. + step as f32 * 4.;
+            code = copy_after_sweep(text(110., y), text(150., y), cx);
+            if !code.is_empty() {
+                break;
+            }
+        }
         assert_eq!(code, "curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh", "a code span copies its code");
-        let all = copy_after_sweep(text(0., first), text(804., item), cx);
+        let all = copy_after_sweep(text(0., first), text(f32::from(body.size.width) - 2., f32::from(body.size.height) - 8.), cx);
         for part in ["Package repos:", "pkg.exponential.at is a small server.", "Install with curl -fsSL", "Phone writes: live test"] {
             assert!(all.contains(part), "multi-paragraph Copy carries {part:?}: {all:?}");
         }
