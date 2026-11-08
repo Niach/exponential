@@ -1,54 +1,188 @@
-/* Styles of the landing area: home, pricing, download, contact, legal,
-   blog and the site footer (shared tokens live in theme.css). */
+/* Styles of the landing area: home, the product pages, pricing, download,
+   contact, legal, blog, the closing band and the site footer (shared
+   tokens live in theme.css). Every page without a docs sidebar is a
+   landing page: a 75rem column between two hairline rails, sections on a
+   128px rhythm split by full-bleed hairlines. */
+
+/* ─── Shell ─── */
+:root:not([data-has-sidebar]) {
+  --sl-content-width: 75rem;
+  --exp-rhythm: clamp(5rem, 10vw, 8rem);
+}
+body {
+  overflow-x: clip;
+}
+:root:not([data-has-sidebar]) main .sl-container {
+  padding-inline: clamp(0rem, 2.5vw, 2rem);
+  border-inline: 1px solid var(--sl-color-hairline-light);
+}
+:root:not([data-has-sidebar]) main .content-panel {
+  padding-block: 0;
+}
+
+/* ─── Hero (Starlight's, restyled) ─── */
+:root:not([data-has-sidebar]) .hero {
+  grid-template-columns: 100%;
+  padding-block: clamp(4rem, 12vw, 8rem) clamp(2rem, 5vw, 3rem);
+}
+:root:not([data-has-sidebar]) .hero h1 {
+  font-size: clamp(2.5rem, 1rem + 5.5vw, 4.75rem);
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+  max-width: 16ch;
+  animation: exp-rise 700ms var(--exp-ease-out) both;
+}
+:root:not([data-has-sidebar]) .hero .tagline {
+  font-size: clamp(1.05rem, 0.9rem + 0.6vw, 1.3rem);
+  line-height: 1.5;
+  max-width: 38rem;
+  animation: exp-rise 700ms 80ms var(--exp-ease-out) both;
+}
+:root:not([data-has-sidebar]) .hero .actions {
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  animation: exp-rise 700ms 160ms var(--exp-ease-out) both;
+}
+/* The home page centres its hero. */
+:root:has(.exp-home) .hero .stack {
+  text-align: center;
+}
+:root:has(.exp-home) .hero .copy {
+  align-items: center;
+}
+:root:has(.exp-home) .hero .actions {
+  justify-content: center;
+}
+:root:has(.exp-home) .hero h1 {
+  margin-inline: auto;
+}
 
 /* ─── Sections ─── */
 .exp-landing {
   display: flex;
   flex-direction: column;
-  gap: clamp(4rem, 9vw, 7.5rem);
 }
 .exp-landing > * {
   margin-top: 0 !important;
 }
+/* A band: the rhythm's padding and a hairline across the whole window. */
+.exp-band {
+  position: relative;
+  padding-block: var(--exp-rhythm);
+}
+.exp-band::before,
+.exp-cta::before,
+.exp-site-footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  translate: -50% 0;
+  border-top: 1px solid var(--sl-color-hairline-light);
+}
 .exp-feature h2,
-.exp-section h2 {
+.exp-section h2,
+.exp-band-head h2,
+.exp-faq h2 {
   margin: 0;
-  font-size: clamp(1.6rem, 3.2vw, 2.25rem);
+  font-size: clamp(1.75rem, 1rem + 2.4vw, 2.75rem);
   font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
   color: var(--sl-color-white);
 }
 .exp-feature p,
-.exp-section > p {
+.exp-section > p,
+.exp-band-head p {
   margin: 0.75rem 0 0;
   font-size: var(--sl-text-lg);
   line-height: 1.55;
   color: var(--sl-color-gray-2);
   max-width: 34rem;
 }
+.exp-band-first {
+  padding-top: 0;
+}
+.exp-band-first::before {
+  display: none;
+}
+/* Questions: the title beside the accordion. */
+.exp-faq {
+  display: grid;
+  gap: 2rem;
+}
+@media (min-width: 60rem) {
+  .exp-faq {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 4rem;
+  }
+}
+/* Product pages: every h2 opens a band. */
+:root:not([data-has-sidebar]) .sl-markdown-content > h2 {
+  position: relative;
+  margin-top: var(--exp-rhythm);
+  padding-top: var(--exp-rhythm);
+  font-size: clamp(1.75rem, 1rem + 2.4vw, 2.75rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+:root:not([data-has-sidebar]) .sl-markdown-content > h2::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  translate: -50% 0;
+  border-top: 1px solid var(--sl-color-hairline-light);
+}
+:root:not([data-has-sidebar]) .sl-markdown-content > h2 + * {
+  margin-top: 2.5rem;
+}
+.exp-band-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
+  text-align: center;
+}
 .exp-more {
-  display: inline-block;
-  margin-top: 1rem;
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-top: 1.25rem;
   font-size: var(--sl-text-sm);
   font-weight: 500;
   color: var(--sl-color-white);
   text-decoration: none;
 }
-.exp-more:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.exp-more span {
+  transition: transform 200ms var(--exp-ease-out);
+}
+.exp-more:hover span {
+  transform: translateX(3px);
 }
 
+/* A feature row: copy and visual side by side, sides alternating. */
 .exp-feature {
   display: grid;
-  gap: 1.75rem;
+  gap: 2rem;
   align-items: center;
+  padding-block: clamp(2.5rem, 5vw, 4.5rem);
+}
+.exp-feature h2 {
+  font-size: clamp(1.5rem, 1rem + 1.4vw, 2rem);
 }
 @media (min-width: 60rem) {
   .exp-feature {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    gap: 3rem;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 4.5rem;
+  }
+  .exp-feature:nth-of-type(even) {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+  .exp-feature:nth-of-type(even) .exp-feature-copy {
+    order: 2;
   }
 }
 
@@ -57,172 +191,127 @@
   flex-direction: column;
   align-items: flex-start;
 }
-.exp-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
+
+/* ─── The hero's live surface ─── */
+.exp-hero-visual {
+  position: relative;
+  padding-bottom: var(--exp-rhythm);
+}
+/* A soft light behind the window. */
+.exp-hero-visual::before {
+  content: "";
+  position: absolute;
+  inset: -10% 10% 30%;
+  background: radial-gradient(closest-side, oklch(1 0 0 / 7%), transparent);
+  filter: blur(40px);
+  pointer-events: none;
 }
 
-/* ─── Duo: a desktop picture with a phone over its corner ─── */
-.exp-duo {
-  position: relative;
-  margin: 0;
+/* ─── Platforms: one app on every screen, one height ─── */
+.exp-platform-row {
+  display: flex;
+  gap: clamp(0.5rem, 1.5vw, 1rem);
+  align-items: flex-end;
 }
-.exp-duo.has-phone {
-  padding-bottom: 6%;
-  margin-right: 7%;
-}
-.exp-duo img {
+.exp-platform-row img {
   display: block;
+  flex: var(--exp-ar) 1 0;
+  min-width: 0;
   height: auto;
   border: 1px solid var(--exp-card-stroke);
-  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.55);
+  border-radius: clamp(6px, 1vw, 12px);
 }
-.exp-duo-desktop {
-  width: 100%;
-  border-radius: clamp(8px, 1.2vw, 14px);
-}
-.exp-duo-phone {
-  position: absolute;
-  right: -7%;
-  bottom: 0;
-  width: 24%;
-  border-radius: clamp(10px, 2vw, 22px);
-}
-/* A landscape "phone" picture (an app's narrow view) sits wider. */
-.exp-duo-phone[width="780"] {
-  width: 34%;
-}
-
-/* ─── Libraries ─── */
-.exp-lib-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 0.75rem;
-  width: 100%;
-  margin-top: 1.5rem;
-}
-.exp-lib-grid .sl-link-card {
-  margin: 0;
-  background: var(--exp-card);
-  border-color: var(--exp-card-stroke);
-}
-
-/* ─── Pricing ─── */
-.exp-plans {
-  display: grid;
-  gap: 1rem;
-  width: 100%;
-}
-@media (min-width: 50rem) {
-  .exp-plans {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+@media (max-width: 40rem) {
+  .exp-platform-row {
+    flex-wrap: wrap;
+  }
+  .exp-platform-row img {
+    flex-basis: 40%;
   }
 }
-.exp-plan {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.5rem;
-  border: 1px solid var(--exp-card-stroke);
-  border-radius: var(--exp-radius-card);
-  background: var(--exp-card);
-}
-.exp-plan.is-highlight {
-  border-color: var(--sl-color-gray-3);
-}
-.exp-plan h3 {
-  margin: 0;
-  font-size: var(--sl-text-lg);
-  font-weight: 500;
-  color: var(--sl-color-white);
-}
-.exp-plan-price {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
-  color: var(--sl-color-gray-3);
-  font-size: var(--sl-text-sm);
-}
-.exp-plan-amount {
-  font-size: 2.5rem;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  color: var(--sl-color-white);
-}
-.exp-plan ul {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  flex: 1;
+
+/* ─── The SDK wall: hairline tiles, icon + name ─── */
+.exp-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--sl-text-sm);
-  color: var(--sl-color-gray-2);
+  border-top: 1px solid var(--sl-color-hairline);
+  border-left: 1px solid var(--sl-color-hairline);
 }
-.exp-plan li {
+.exp-tiles li {
+  margin: 0;
+}
+@media (min-width: 50rem) {
+  .exp-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.exp-tiles a {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  height: 100%;
+  padding: 1.75rem 1.5rem;
+  border-right: 1px solid var(--sl-color-hairline);
+  border-bottom: 1px solid var(--sl-color-hairline);
+  color: var(--sl-color-gray-1);
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
 }
-.exp-plan li svg {
+.exp-tiles a svg {
   flex: none;
+  color: var(--sl-color-gray-2);
+  transition: color 200ms ease;
+}
+.exp-tiles a:hover {
+  background: var(--exp-card);
   color: var(--sl-color-white);
 }
-.exp-plan li.is-caveat svg {
-  color: var(--sl-color-gray-3);
+.exp-tiles a:hover svg {
+  color: var(--sl-color-white);
 }
-.exp-plan .sl-link-button {
+
+/* ─── Cards: icon + title ─── */
+.exp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
   margin: 0;
-  justify-content: center;
+  padding: 0;
+  list-style: none;
 }
+.exp-cards li {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 3.5rem;
+  margin: 0;
+  padding: 1.75rem;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: var(--exp-radius-card);
+  background: var(--exp-card);
+  color: var(--sl-color-white);
+  font-size: var(--sl-text-lg);
+  font-weight: 500;
+}
+.exp-cards li svg {
+  color: var(--sl-color-gray-2);
+}
+
+/* ─── Fine print under a section ─── */
 .exp-fine {
-  margin: 1.25rem 0 0;
+  margin: 1.5rem 0 0;
+  text-align: center;
   font-size: var(--sl-text-sm);
   color: var(--sl-color-gray-3);
 }
 .exp-fine a {
   color: var(--sl-color-white);
-}
-
-.exp-compare {
-  width: 100%;
-  margin-top: 1.5rem;
-  border-collapse: collapse;
-  font-size: var(--sl-text-sm);
-}
-.exp-compare th,
-.exp-compare td {
-  padding: 0.75rem 0.75rem 0.75rem 0;
-  border-bottom: 1px solid var(--sl-color-hairline);
-  text-align: left;
-  vertical-align: top;
-}
-.exp-compare thead th {
-  color: var(--sl-color-gray-3);
-  font-weight: 500;
-}
-.exp-compare tbody th {
-  color: var(--sl-color-gray-2);
-  font-weight: 400;
-  white-space: nowrap;
-}
-.exp-compare td:nth-child(2) {
-  color: var(--sl-color-white);
-}
-.exp-compare td:nth-child(3) {
-  color: var(--sl-color-gray-3);
-}
-@media (max-width: 40rem) {
-  .exp-compare tbody th {
-    white-space: normal;
-  }
 }
 
 /* ─── Download ─── */
@@ -441,20 +530,51 @@
 
 /* ─── Site footer ─── */
 .exp-site-footer {
-  margin-top: clamp(4rem, 9vw, 7rem);
-  padding-top: 2rem;
-  border-top: 1px solid var(--sl-color-hairline);
+  position: relative;
+  padding-block: 4rem 2.5rem;
   font-size: var(--sl-text-sm);
+}
+:root[data-has-sidebar] .exp-site-footer {
+  margin-top: clamp(4rem, 9vw, 7rem);
+}
+.exp-site-footer-top {
+  display: grid;
+  gap: 2.5rem;
+}
+@media (min-width: 50rem) {
+  .exp-site-footer-top {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 4fr);
+  }
+}
+.exp-site-footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+.exp-site-footer-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--sl-color-white) !important;
+  font-size: var(--sl-text-base);
+  font-weight: 600;
 }
 .exp-site-footer nav {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 2rem 1.5rem;
+}
+.exp-site-footer h2 {
+  margin: 0 0 0.9rem;
+  font-size: var(--sl-text-sm);
+  font-weight: 500;
+  color: var(--sl-color-white);
 }
 .exp-site-footer ul {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.55rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -462,16 +582,28 @@
 .exp-site-footer a {
   color: var(--sl-color-gray-2);
   text-decoration: none;
+  transition: color 150ms ease;
 }
 .exp-site-footer a:hover {
   color: var(--sl-color-white);
 }
-.exp-site-footer p {
-  margin: 2rem 0 0;
+.exp-site-footer-legal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--sl-color-hairline-light);
   color: var(--sl-color-gray-3);
 }
+.exp-site-footer-legal p {
+  display: flex;
+  gap: 1.25rem;
+  margin: 0;
+}
 /* A link inside the copyright line is told apart by more than colour. */
-.exp-site-footer p a {
+.exp-site-footer-legal p:first-child a {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
