@@ -16,8 +16,8 @@
 // NOTICE — a repo URL, deliberately not an instance one, because self-hosters
 // serve this widget from their own domain.
 //
-// `/*!` (not `/*`) is what marks it a legal comment for esbuild; vite.config
-// pairs this with `esbuild.legalComments: "inline"` so minification keeps it.
+// vite.config emits it as Rolldown's `postBanner`, after minification, so it
+// stays verbatim; `/*!` still marks it a legal comment for any re-minifier.
 // Gated by legal-banner.test.ts.
 export const legalBanner = `/*! Exponential feedback widget · Apache-2.0 · https://github.com/Niach/exponential
  * This widget bundles the following software, both under the MIT License:
