@@ -7,6 +7,7 @@ import {
   issueSearchMatchIds,
   issueSearchOpenSql,
   issueSearchRankSql,
+  issueSearchRecencySql,
 } from "./issue-search-sql"
 import { ISSUE_SEARCH_CLOSED_STATUSES } from "./issue-search"
 
@@ -86,6 +87,46 @@ describe(`issueSearchMatchIds`, () => {
     expect(sql).toContain(`ts_rank(to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, '')), websearch_to_tsquery('english', $1))`)
     expect(params).toEqual([`login`])
     expect(issueSearchFtsQuery(`  #Login  `)).toBe(`login`)
+  })
+})
+
+// #NEW-21: the creator rides the same predicate as the client engine.
+describe(`issueSearchMatchIds creator`, () => {
+  const scope = { teamId: `11111111-1111-4111-8111-111111111111` }
+
+  it(`narrows every branch to a by: creator and keeps by: out of the FTS text`, () => {
+    const { sql, params } = render(`editor by:@Lukas`, scope)
+    expect((sql.match(/u\.email ilike \$/g) ?? []).length).toBe(3)
+    expect(sql).toContain(`exists (select 1 from issues i where i.id = c.issue_id and`)
+    expect(params).toContain(`lukas%`)
+    expect(params).toContain(`% lukas%`)
+    expect(params).toContain(`editor`)
+    expect(params).not.toContain(`editor by:@lukas`)
+    expect(issueSearchFtsQuery(`editor by:lukas`)).toBe(`editor`)
+  })
+
+  it(`a by:-only query is the creator filter alone, capped when asked`, () => {
+    const { sql, params } = render(`by:triage`, scope, { limit: 10 })
+    expect(sql).not.toContain(`union`)
+    expect(sql).not.toContain(`websearch_to_tsquery`)
+    expect(sql).toContain(`a.id = i.creator_agent_id`)
+    expect(params).toContain(10)
+  })
+
+  it(`a bare token may hit the creator's name in the ILIKE fallback`, () => {
+    const { sql } = render(`lukas`, scope)
+    expect(sql).toContain(`u.id = i.creator_id and u.name ilike $`)
+  })
+
+  it(`a by:-only query breaks ties newest created, like the client`, () => {
+    const recency = (query: string) =>
+      new PgDialect().sqlToQuery(issueSearchRecencySql(query)).sql
+    expect(recency(`by:alex`)).toBe(`i.created_at desc`)
+    expect(recency(`login by:alex`)).toBe(`i.updated_at desc`)
+  })
+
+  it(`an empty by: is ignored`, () => {
+    expect(render(`by:`, scope).sql).toContain(`where false`)
   })
 })
 

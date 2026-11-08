@@ -972,6 +972,12 @@ impl Surface {
         self.engine.mark_all_dirty();
     }
 
+    /// EXP-1629: lay out on the device-pixel grid like gpui at `scale`
+    /// (`None` = off, the default): see [`crate::engine::Engine::set_pixel_snap`].
+    pub fn set_pixel_snap(&mut self, scale: Option<f32>) {
+        self.engine.set_pixel_snap(scale);
+    }
+
     /// Surface size. Height ≤ 0 = as tall as the content (a scrolling host).
     /// `max_height` bounds a transcript card; `LayoutOutput::overflow` says
     /// when the content is taller. Returns whether anything changed.

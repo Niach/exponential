@@ -608,6 +608,8 @@ impl SourceControlView {
                         let file_for_click = file.clone();
                         gpui_component::h_flex()
                             .id(SharedString::from(format!("scm-conflict-{file}")))
+                            .role(gpui::Role::ListItem)
+                            .aria_label(SharedString::from(file.to_string()))
                             .items_center()
                             .gap_1()
                             .px_2()
@@ -1284,6 +1286,9 @@ impl HistoryList {
         // EXP-509: an h_flex now — graph gutter cell + the two-line text.
         gpui_component::h_flex()
             .id(SharedString::from(format!("hist-commit-{}", commit.hash)))
+            .role(gpui::Role::ListItem)
+            .aria_selected(selected)
+            .aria_label(SharedString::from(commit.subject.clone()))
             .w_full()
             .h(px(HISTORY_ROW_HEIGHT))
             .overflow_hidden()
@@ -1379,6 +1384,9 @@ impl HistoryList {
 
         gpui_component::h_flex()
             .id("hist-uncommitted")
+            .role(gpui::Role::ListItem)
+            .aria_selected(selected)
+            .aria_label(if dirty { "Uncommitted changes" } else { "Unpushed commits" })
             .w_full()
             .h(px(HISTORY_ROW_HEIGHT))
             .overflow_hidden()

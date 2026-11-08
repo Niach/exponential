@@ -166,7 +166,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
     let base = node == PrNodeState::Base;
     let interactive = on_click.is_some();
 
-    let title_el = div().flex_1().min_w_0().truncate().child(title);
+    let title_el = div().flex_1().min_w_0().truncate().child(title.clone());
     let title_el = if base {
         title_el
             .text_xs()
@@ -261,7 +261,11 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
         }))
         .children(trailing);
     if let Some(on_click) = on_click {
-        row = row.on_click(move |event, window, cx| on_click(event, window, cx));
+        row = row
+            .role(gpui::Role::ListItem)
+            .aria_label(title.clone())
+            .aria_selected(active)
+            .on_click(move |event, window, cx| on_click(event, window, cx));
     }
     if let Some(on_hover) = on_hover {
         row = row.on_hover(move |hovered, window, cx| on_hover(hovered, window, cx));

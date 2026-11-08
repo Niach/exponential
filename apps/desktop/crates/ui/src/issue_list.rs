@@ -628,6 +628,9 @@ impl IssueListView {
             // Stable per-issue ElementId (§4.6): echo/refetch keeps row
             // identity, no scroll reset.
             .id(row_id("issue-row", &issue.id))
+            .role(gpui::Role::ListItem)
+            .aria_label(format!("{} {}", issue.identifier, issue.title))
+            .aria_selected(is_selected || is_active)
             .group(ROW_GROUP)
             .h(px(ROW_HEIGHT))
             .w_full()
@@ -676,6 +679,7 @@ impl IssueListView {
                 let toggle_id = issue.id.clone();
                 select_cell(
                     &issue.id,
+                    format!("Select {}", issue.identifier).into(),
                     is_selected,
                     any_selected,
                     cx.listener(move |this, _, _, cx| {
@@ -929,6 +933,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         let marked: Vec<String> = shared.iter().map(|status| status.group_key.clone()).collect();
         let trigger = with_label(
             Button::new("bulk-status")
+                .accessibility_label("Set status")
                 .ghost()
                 .web_sm()
                 .icon(trigger_icon),
@@ -994,6 +999,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         let list = list.clone();
         let trigger = with_label(
             Button::new("bulk-priority")
+                .accessibility_label("Set priority")
                 .ghost()
                 .web_sm()
                 .icon(Icon::new(registry::PRIORITY_HIGH)),
@@ -1046,6 +1052,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         has_assignee.then(|| {
             let trigger = with_label(
                 Button::new("bulk-assignee")
+                    .accessibility_label("Set assignee")
                     .ghost()
                     .web_sm()
                     .icon(Icon::new(registry::UI_ASSIGNEE)),
@@ -1103,6 +1110,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         // check/minus column, on any client.
         let trigger = with_label(
             Button::new("bulk-labels")
+                .accessibility_label("Set labels")
                 .ghost()
                 .web_sm()
                 .icon(Icon::new(registry::SETTINGS_LABELS)),
@@ -1209,6 +1217,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
                 // its own row.
                 crate::surface::PillSize::Md,
             )
+            .accessibility_label("Start coding")
             .icon(Icon::new(registry::ACTION_RUN)),
             "Start coding",
         )
@@ -1232,6 +1241,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         let list = list.clone();
         // Destructive: the whole control reads danger, web parity.
         bulk_bar_button("bulk-delete", registry::UI_DELETE, "Delete", labels, true, cx)
+            .accessibility_label("Delete selected")
             .tooltip("Delete selected")
             .disabled(busy)
             .on_click(move |_, window, cx| {
@@ -1723,9 +1733,11 @@ pub(crate) fn selectable_row_fill(
 /// the [`SELECT_CELL_W`] cell holding THE checkbox, hover-revealed (the
 /// enclosing [`ROW_GROUP`]) and pinned visible while ANY selection exists
 /// (web `group-hover/row` parity); a click on it toggles `key`'s row (the
-/// cell swallows the click, so the row never sees it). `key` = the row's id.
+/// cell swallows the click, so the row never sees it). `key` = the row's id,
+/// `name` = the checkbox's accessible name (web: "Select <identifier>").
 pub(crate) fn select_cell(
     key: &str,
+    name: SharedString,
     selected: bool,
     any_selected: bool,
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -1736,7 +1748,7 @@ pub(crate) fn select_cell(
         .when(!any_selected, |cell| {
             cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
         })
-        .child(crate::controls::checkbox(row_id("select", key), selected.into(), false, cx).on_click(on_toggle))
+        .child(crate::controls::checkbox(row_id("select", key), selected.into(), false, cx).aria_label(name).on_click(on_toggle))
 }
 
 /// THE bulk bar's dock ×2 (the board's issue list, #EXP-1388's Chats page):
@@ -1770,16 +1782,18 @@ pub(crate) fn bulk_bar_button(
     if destructive {
         icon = icon.text_color(danger);
     }
-    let button = Button::new(id).ghost().web_sm().icon(icon);
+    let label: SharedString = label.into();
+    let button = Button::new(id).accessibility_label(label.clone()).ghost().web_sm().icon(icon);
     let button = if destructive { button.text_color(danger) } else { button };
     if labels {
-        button.label(label.into())
+        button.label(label)
     } else {
         button
     }
 }
 
 pub(crate) fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
+    // a11y: a click guard, not a control
     div()
         .id(id)
         .flex_shrink_0()
@@ -1804,6 +1818,7 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let picker_id = row_id("priority-picker", &issue.id);
 
     let trigger = Button::new(row_id("priority", &issue.id))
+        .accessibility_label(format!("Change priority (current: {})", config.label))
         .ghost().cursor_pointer()
         .xsmall()
         .icon(option_icon(config, cx))
@@ -1849,6 +1864,7 @@ pub(crate) fn status_dropdown(
     let picker_id = row_id("status-picker", &issue.id);
 
     let trigger = Button::new(row_id("status", &issue.id))
+        .accessibility_label(format!("Change status (current: {})", resolved.name))
         .ghost().cursor_pointer()
         .xsmall()
         .icon(resolved_status_icon(&resolved, cx))
@@ -1979,6 +1995,7 @@ fn assignee_dropdown(
         // assigned to the wrong person — web's `AssigneeDropdown` shows the
         // picture, so does the picker menu below.
         (None, Some(id)) => Button::new(row_id("assignee", &issue.id))
+            .accessibility_label(crate::comments::user_label(id, assignee.as_ref()))
             .ghost().cursor_pointer()
             .xsmall()
             .child(crate::user_avatar::user_avatar(
@@ -1988,7 +2005,7 @@ fn assignee_dropdown(
                 gpui_component::Size::XSmall,
                 cx,
             )),
-        (None, None) => Button::new(row_id("assignee", &issue.id)).ghost().cursor_pointer().xsmall().child(
+        (None, None) => Button::new(row_id("assignee", &issue.id)).accessibility_label("Unassigned").ghost().cursor_pointer().xsmall().child(
             div()
                 .size_4()
                 .rounded_full()

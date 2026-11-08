@@ -423,7 +423,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                         }
                     }) as crate::mosaic::OnMosaicOpen
                 });
-                crate::mosaic::mosaic(&format!("{message_id}-{ix}"), &urls, Some(props.images), on_open, cx)
+                crate::mosaic::mosaic(&format!("{message_id}-{ix}"), pictures, Some(props.images), on_open, cx)
             }
             PlanBlock::Markdown { text } => {
                 let mut prose = v_flex().w_full().min_w_0().gap(px(layout.block_gap));
@@ -525,6 +525,8 @@ fn lone_picture(
     let src = src.to_string();
     div()
         .id(SharedString::from(format!("plan-picture-{id}")))
+        .role(gpui::Role::Button)
+        .aria_label(alt.to_string())
         .w_full()
         .aspect_ratio(aspect)
         .overflow_hidden()

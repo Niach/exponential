@@ -124,16 +124,17 @@ fun AgentsSettingsList(
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val events by viewModel.events.collectAsStateWithLifecycle()
-    val coordinator by viewModel.coordinator.collectAsStateWithLifecycle()
+    val lead by viewModel.lead.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
-    // FEED-79: a refused coordinator pick = the failed-action toast.
+    // FEED-79: a refused lead pick = the failed-action toast.
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     // NEW-2 (web Settings → Agents): the agents band over the team's Events.
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        // #EXP-1717: the Coordinator row heads the group (owners pick it).
-        CoordinatorRow(coordinator, enabled = isOwner && !busy, onPick = viewModel::setCoordinator)
+        // #EXP-1735: the Lead Assistant row heads the group where the
+        // Coordinator row was (owners pick it).
+        LeadAssistantRow(lead, enabled = isOwner && !busy, onPick = viewModel::setLeadAssistant)
         AgentsSettingsListContent(
             agents = agents,
             canCreate = isOwner,
@@ -145,18 +146,19 @@ fun AgentsSettingsList(
 }
 
 /**
- * #EXP-1717 (agent-settings.json `coordinator`, web `CoordinatorRow`): THE
- * settings Picker row (single-select, the merge-mode row's look): value =
- * the coordinator's name or `None`; owners pick, members read it disabled.
+ * #EXP-1735 (agent-settings.json `lead`, web `LeadAssistantRow`): THE
+ * settings Picker row where the Coordinator row was (single-select, the
+ * merge-mode row's look): value = the lead member's display name or `None`;
+ * owners pick, members read it disabled.
  */
 @Composable
-internal fun CoordinatorRow(
-    state: AgentSettingsViewModel.CoordinatorState,
+internal fun LeadAssistantRow(
+    state: AgentSettingsViewModel.LeadState,
     enabled: Boolean,
-    onPick: (agentId: String?) -> Unit,
+    onPick: (userId: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val none = AgentSettings.Coordinator.NONE
+    val none = AgentSettings.Lead.NONE
     val items = state.options.map { (id, name) ->
         com.exponential.app.ui.components.picker.PickerItem(id ?: none, name)
     }
@@ -169,15 +171,15 @@ internal fun CoordinatorRow(
             onChange = { picked ->
                 picked.firstOrNull()?.takeIf { it != current }?.let { id -> onPick(id.takeIf { it != none }) }
             },
-            title = AgentSettings.Coordinator.LABEL,
+            title = AgentSettings.Lead.LABEL,
             enabled = enabled,
         ) { open ->
             PickerValueRow(
-                label = AgentSettings.Coordinator.LABEL,
-                value = items.firstOrNull { it.value == current }?.label ?: AgentSettings.Coordinator.NONE_LABEL,
+                label = AgentSettings.Lead.LABEL,
+                value = items.firstOrNull { it.value == current }?.label ?: AgentSettings.Lead.NONE_LABEL,
                 onClick = open,
                 enabled = enabled,
-                modifier = Modifier.testTag(AgentSettings.Coordinator.TEST_ID_ROW),
+                modifier = Modifier.testTag(AgentSettings.Lead.TEST_ID_ROW),
             )
         }
     }
@@ -378,8 +380,10 @@ fun AgentSettingsScreen(
         name = row.name
         icon = row.icon ?: SessionTree.ListCopy.AGENT_DEFAULT_ICON
         color = row.color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR
-        deviceId = row.deviceId
-        accountKey = row.account?.let { account -> row.cli?.let { "$it:$account" } }
+        // #EXP-1730: the runner picks read `agents.defaults`.
+        val picks = row.runnerDefaults
+        deviceId = picks.deviceId
+        accountKey = picks.account?.let { account -> picks.cli?.let { "$it:$account" } }
     }
     LaunchedEffect(loadedInstructions) {
         val text = loadedInstructions ?: return@LaunchedEffect
@@ -393,12 +397,13 @@ fun AgentSettingsScreen(
     val accountOptions = remember(device) { accountOptionsFor(device, device?.acpAgents.orEmpty()) }
     // EXP-1306: the Account row's value = `agentAccountValue` over the pin
     // (`<cli>:<profile>` while editing, the synced row's cli otherwise).
-    val accountValueKey = remember(accountOptions, accountKey, agent?.cli) {
+    val syncedCli = agent?.runnerDefaults?.cli
+    val accountValueKey = remember(accountOptions, accountKey, syncedCli) {
         val parsed = accountKey?.let(AccountOptions::parseKey)
         AgentSettings.agentAccountValue(
             options = accountOptions.map { AgentSettings.AccountValueOption(it.id, it.agent, it.email, it.isLastUsed) },
             account = parsed?.id,
-            cli = parsed?.agent ?: agent?.cli,
+            cli = parsed?.agent ?: syncedCli,
         )?.let { "${it.agent}:${it.id}" }
     }
     val triggers = if (isNew) draftTriggers else syncedTriggers
@@ -543,9 +548,9 @@ fun AgentSettingsScreen(
                 val tz = java.util.TimeZone.getDefault().id
                 patch(UpdateAgentPatch(triggers = AgentSettings.Assistant.scheduleTriggers(id, tz).map { it.toWireJson() }))
             },
-            model = agent?.model,
-            modelOptions = com.exponential.app.ui.components.modelOptionsFor(agent?.cli?.takeIf { it.isNotBlank() } ?: "claude"),
-            modelCli = agent?.cli?.takeIf { it.isNotBlank() },
+            model = agent?.runnerDefaults?.model,
+            modelOptions = com.exponential.app.ui.components.modelOptionsFor(syncedCli ?: "claude"),
+            modelCli = syncedCli,
             onModelChange = { patch(UpdateAgentPatch(model = it)) },
             voice = if (assistant && editable) {
                 { AssistantVoiceBlock() }

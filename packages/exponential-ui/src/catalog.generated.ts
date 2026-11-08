@@ -190,7 +190,8 @@ export interface Shapes {
   searchItem: { label: string | Dynamic; value: string; icon?: IconName; identifier?: string; disabled?: boolean }
   accordionItem: { title: string | Dynamic; value: string; count?: number }
   segment: { value: number; tone?: ToneValue; label?: string }
-  series: { name: string; values: number[]; tone?: ToneValue }
+  series: { name: string; values?: number[]; field?: string; tone?: ToneValue }
+  valueFormat: { type?: "number" | "currency" | "percent" | "compact"; currency?: string; decimals?: number }
   pageItem: { title?: string }
   step: { label: string; description?: string }
   column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number; truncate?: boolean }
@@ -208,7 +209,7 @@ export interface ComponentProps {
   Box: { style?: Style; pressable?: boolean }
   Stack: { direction?: OrientationValue | Responsive<OrientationValue> | Dynamic; gap?: GapValue | Responsive<GapValue>; align?: AlignValue | Responsive<AlignValue> | Dynamic; justify?: JustifyValue | Responsive<JustifyValue> | Dynamic; wrap?: boolean | Responsive<boolean>; style?: Style }
   Grid: { columns?: number | Responsive<number>; gap?: GapValue | Responsive<GapValue>; style?: Style }
-  Card: { title?: string; description?: string; padded?: boolean; style?: Style }
+  Card: { title?: string; description?: string; padded?: boolean; style?: Style; pressable?: boolean }
   Window: { title?: string; style?: Style }
   Separator: { orientation?: OrientationValue }
   List: { direction?: ListDirectionValue; gap?: GapValue; divided?: boolean; sectionBy?: string; stickyHeaders?: boolean; style?: Style }
@@ -267,9 +268,9 @@ export interface ComponentProps {
   VoiceWave: { activity?: VoiceWaveActivityValue | Dynamic; variant?: VoiceWaveVariantValue; level?: number | Dynamic; bands?: number[] | Dynamic; size?: VoiceWaveSizeValue; label?: string }
   CallSurface: { name: string | Dynamic; avatar?: string | Dynamic; state?: CallStateValue | Dynamic; activity?: VoiceWaveActivityValue | Dynamic; level?: number | Dynamic; bands?: number[] | Dynamic; status?: string | Dynamic; caption?: string | Dynamic; muted?: boolean | Dynamic; speaker?: boolean | Dynamic }
   Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean }
-  Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
+  Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; rows?: Record<string, unknown>[] | Dynamic; categoryField?: string; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; valueFormat?: Shapes["valueFormat"]; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
-  StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic }
+  StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic; pressable?: boolean }
   Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; checks?: Shapes["check"][]; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
   Link: { label: string | Dynamic; href?: string; external?: boolean }
   Toggle: { label: string; icon?: IconName; pressed?: boolean | Dynamic; variant?: "default" | "outline"; size?: ControlSizeValue }

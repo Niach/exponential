@@ -29,7 +29,7 @@ public enum LaunchVocabulary {
     // MARK: - Option lists
 
     /// THE model list of an agent, for EVERY model pick (session model,
-    /// thread model, subagents, computer use): claude = contract
+    /// computer use): claude = contract
     /// `codingModel`, codex = `codexModel`. No default row.
     /// Parameterized because a seed validates an advertised value against the
     /// agent it belongs to, which isn't always the selected one yet (EXP-437).
@@ -55,14 +55,6 @@ public enum LaunchVocabulary {
             : DomainContract.deviceAgentDefaultsModel
     }
 
-    /// The dispatcher root's model (threads + team agents) a machine that
-    /// never set one runs.
-    public static func defaultThreadModel(for agent: String) -> String {
-        agent == "codex"
-            ? DomainContract.deviceAgentDefaultsCodexThreadModel
-            : DomainContract.deviceAgentDefaultsThreadModel
-    }
-
     /// The model the session composer's pill shows (web `session-composer.tsx`
     /// `fallbackModel`): the live relay model, else the row's own pick, else
     /// the device's session `model` for the row's agent, else the contract
@@ -86,12 +78,6 @@ public enum LaunchVocabulary {
     public static func seedModel(_ value: String?, for agent: String, fallback: String) -> String {
         guard let value, modelValues(for: agent).contains(value) else { return fallback }
         return value
-    }
-
-    /// Subagents are claude's (EXP-981) — codex has no such option, so the
-    /// picker hides exactly like Ultracode does.
-    public static func supportsSubagentModel(_ agent: String) -> Bool {
-        agent == "claude"
     }
 
     /// The stored `launchDefaults.computerUseModel` as the picker's draft: a

@@ -315,13 +315,11 @@ public enum AgentSettings {
     public static let assistantPrompt = "You are this member's Assistant in this team: the main agent that manages every other chat, agent and pull request they have here. They talk to you; you run the rest.\n\nYour job: know at all times what each of their chats and agents is doing (progressing, stuck, waiting on them, done). Start, steer, nudge, move and end their chats to get the work done. Answer a chat's question yourself when what they told you settles it; escalate only real decisions.\n\nYour status card: keep ONE live status card (a genUI surface via exponential_show): in progress (chat, PR, state), shipped since they last wrote, stuck, decisions needed. Every surface you show updates that card in place. Keep it short: one row per chat, newest first; drop finished items once they have seen them.\n\nWhen to speak: write a message only (a) to answer the member after they write, or (b) when a decision needs them: then use exponential_show ask with clear options (it notifies them). Scheduled check-ins, a PR opened, still running, a child's routine reply: update the card and end your turn silently. Never repeat what the card already says.\n\nScope: only this team exists for you: its boards, people, devices and sessions. Never use a device or account of another team.\n\nCoordinator: when this team has one (exponential_agents list: role coordinator), hand the work you would start as a thread in the team to it instead (exponential_sessions_send {agentId, text}) and follow its replies; only this team's work, the rest stays yours.\n\nStyle: short, concrete, no filler. Name issues as #IDENT."
 
     /// The Assistant's Model row value (`modelValueCases`): the pinned
-    /// model, else the dispatcher root's default for the login's CLI (never
-    /// `Last used`).
+    /// model, else the device default for the login's CLI (#EXP-1734: no
+    /// separate thread model; never `Last used`).
     public static func assistantModelValue(model: String?, cli: String?) -> String {
         if let model, !model.trimmingCharacters(in: .whitespaces).isEmpty { return model }
-        return cli == "codex"
-            ? DomainContract.deviceAgentDefaultsCodexThreadModel
-            : DomainContract.deviceAgentDefaultsThreadModel
+        return LaunchVocabulary.defaultModel(for: cli == "codex" ? "codex" : "claude")
     }
 
     /// NEW-99 (`runsOnCases`): the Runs on device picker's devices. An
@@ -467,6 +465,45 @@ public enum AgentSettings {
 
     public static func coordinatorOf(_ agents: [AgentDefinitionEntity], teamId: String) -> String? {
         coordinatorOf(agents, teamId: teamId, teamOf: \.teamId)
+    }
+
+    // MARK: - Lead Assistant (#EXP-1735, `lead`)
+
+    /// The team's lead Assistant: one member's Assistant every member's
+    /// Assistant reports to. Replaces the Coordinator row (one row, ×4).
+    public enum LeadCopy {
+        public static let label = "Lead Assistant"
+        public static let none = "None"
+        public static let refusedOwner = "Only the team's owners set its lead Assistant"
+        public static let refusedMember = "Only a member of this team can lead it"
+        public static let noAssistant = "That member has no device to run an Assistant on yet"
+    }
+
+    /// The Team settings › Agents Lead Assistant row.
+    public static let leadRowTestId = "settings-agents-lead"
+    /// The option id of "no lead Assistant".
+    public static let leadNone = "none"
+
+    /// A Lead Assistant option: a team member and their display name.
+    public struct LeadMember: Equatable, Sendable {
+        public let userId: String
+        public let name: String
+
+        public init(userId: String, name: String) {
+            self.userId = userId
+            self.name = name
+        }
+    }
+
+    /// `lead.optionCases`: the Lead Assistant row's option ids: `leadNone`,
+    /// then the team's members by display name, then id.
+    public static func leadOptions(_ members: [LeadMember]) -> [String] {
+        let sorted = members.sorted { a, b in
+            let order = a.name.localizedCompare(b.name)
+            if order != .orderedSame { return order == .orderedAscending }
+            return a.userId < b.userId
+        }
+        return [leadNone] + sorted.map(\.userId)
     }
 }
 

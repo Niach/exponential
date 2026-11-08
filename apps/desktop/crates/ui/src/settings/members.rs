@@ -396,6 +396,7 @@ fn member_actions_menu(
         Icon::new(registry::UI_MORE),
         cx,
     )
+        .accessibility_label(format!("Member actions for {name}"))
         .pointer_menu({
             let member_id = member_id.clone();
             let team_id = team_id.to_string();
@@ -727,6 +728,7 @@ impl Render for MembersPane {
                             .child(invite_identity)
                             .child(
                                 Button::new(row_id("invite-revoke", &invite.id))
+                                    .accessibility_label("Revoke invite")
                                     .ghost()
                                     .web_icon_xs()
                                     .icon(registry::UI_DELETE)

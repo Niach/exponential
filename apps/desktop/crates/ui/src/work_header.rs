@@ -115,9 +115,9 @@ pub(crate) fn status_pill_button(
     cx: &App,
 ) -> gpui_component::button::Button {
     let button = if view.primary {
-        glass_pill_button_primary(id, size)
+        glass_pill_button_primary(id, size).accessibility_label(view.label.clone())
     } else {
-        glass_pill_button(id, size, cx)
+        glass_pill_button(id, size, cx).accessibility_label(view.label.clone())
     };
     // THE glyph leads the label (the crate's icon slot only takes an Icon,
     // so both ride as children in the slot's order).

@@ -49,7 +49,6 @@ import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
-import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
@@ -183,8 +182,6 @@ data class LaunchDraft(
     val pickedDeviceId: String? = null,
     val agent: String = DEFAULT_AGENT,
     val model: String = "",
-    /** EXP-981: claude only — the model its subagents run on. */
-    val subagentModel: String = "",
     val effort: String = "",
     val ultracode: Boolean = false,
     val account: String = "",
@@ -797,11 +794,6 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(effort = value)
     }
 
-    /** EXP-981: claude's subagent model (always explicit). */
-    fun setSubagentModel(value: String) {
-        _launch.value = _launch.value.copy(subagentModel = value)
-    }
-
     fun setUltracode(value: Boolean) {
         _launch.value = _launch.value.copy(ultracode = value)
     }
@@ -901,7 +893,6 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(
             agent = agent,
             model = seed.model,
-            subagentModel = seed.subagentModel,
             effort = seed.effort,
             ultracode = seed.ultracode,
             // Profiles are per machine AND per agent — reset on either change.
@@ -943,8 +934,6 @@ class AgentComposerViewModel @Inject constructor(
             model = draft.model.takeIf { it.isNotEmpty() },
             effort = draft.effort.takeIf { it.isNotEmpty() },
             ultracode = if (agent == DEFAULT_AGENT && draft.ultracode) true else null,
-            // EXP-1583: claude only, never blank.
-            subagentModel = draft.subagentModel.takeIf { supportsSubagentModel(agent) && it.isNotEmpty() },
             // The row stores what was sent (NOT NULL, default off), so send the
             // SHOWN value, device default included, not only an explicit flip.
             computerUse = computerUse.value.takeIf { device.value?.canToggleComputerUse == true },

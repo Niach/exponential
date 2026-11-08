@@ -2431,6 +2431,9 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                                 let ordinal = blocks[..i].iter().filter(|b| matches!(b.kind, BlockKind::ListItem { task: Some(_), .. })).count();
                                 div()
                                     .id(SharedString::from(format!("{bid}.task")))
+                                    .role(gpui::Role::CheckBox)
+                                    .aria_label(plain(&b.inlines))
+                                    .aria_toggled(if checked { gpui::Toggled::True } else { gpui::Toggled::False })
                                     .cursor_pointer()
                                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                     .on_click(move |_, window, cx| {

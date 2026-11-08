@@ -3,7 +3,9 @@
 //! (Heckbert's nice numbers), the series colour order and the donut hole.
 //! Pure; geometry (bars, arcs) stays each painter's. Mirrors `src/chart.ts`.
 
+use crate::format::{fixed_digits, Formatter, NumberOptions};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// One series as the painter reads it off the Chart props.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -123,6 +125,84 @@ pub fn series_color(index: usize, tone: Option<&str>) -> String {
     }
 }
 
+/// FEED-205: `Chart.valueFormat` (`src/chart.ts` `ChartValueFormat`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ValueFormat {
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decimals: Option<f64>,
+}
+
+impl ValueFormat {
+    /// Read off the prop; anything that is not an object = the default.
+    pub fn of(v: Option<&Value>) -> ValueFormat {
+        v.and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default()
+    }
+}
+
+/// A chart value through the surface formatter, as a Table cell of the
+/// same type (`src/chart.ts` `formatChartValue`): `number` (default),
+/// `currency` (`currency`, default USD; not 3 letters = a number),
+/// `percent` (a ratio), `compact` ([`Formatter::compact`]; with a valid
+/// `currency` a compact currency); `decimals` fixes the fraction digits.
+pub fn format_chart_value(formatter: &dyn Formatter, value: f64, format: &ValueFormat) -> String {
+    let decimals = format.decimals.and_then(fixed_digits);
+    let code = match &format.currency {
+        None | Some(Value::Null) => Some("USD".to_string()),
+        Some(Value::String(c)) if c.len() == 3 && c.bytes().all(|b| b.is_ascii_alphabetic()) => Some(c.to_uppercase()),
+        Some(_) => None,
+    };
+    let options = NumberOptions { decimals, grouping: true };
+    match format.kind.as_deref() {
+        Some("currency") => match &code {
+            Some(code) => formatter.currency(value, code, options),
+            None => formatter.number(value, options),
+        },
+        Some("percent") => formatter.percent(value, decimals),
+        Some("compact") => formatter.compact(value, if matches!(format.currency, Some(Value::String(_))) { code.as_deref() } else { None }, decimals),
+        _ => formatter.number(value, options),
+    }
+}
+
+/// FEED-205: a Chart's categories and series over `rows` (`src/chart.ts`
+/// `chartData`): with `rows`, the categories are each row's
+/// `categoryField` and a series with a `field` takes that field of every
+/// row (a numeric string counts, anything else is NaN = no point); without,
+/// the props as written.
+pub fn chart_data(props: &serde_json::Map<String, Value>) -> (Vec<String>, Vec<ChartSeries>) {
+    let rows = props.get("rows").and_then(Value::as_array);
+    let field = props.get("categoryField").and_then(Value::as_str).unwrap_or("");
+    let show = |v: Option<&Value>| match v {
+        Some(Value::String(s)) => s.clone(),
+        Some(v @ (Value::Number(_) | Value::Bool(_))) => crate::format::display_string(v),
+        _ => String::new(),
+    };
+    let num = crate::format::to_num;
+    let categories = match rows {
+        Some(rows) if !field.is_empty() => rows.iter().map(|r| show(r.get(field))).collect(),
+        _ => props.get("categories").and_then(Value::as_array).map(|a| a.iter().map(|c| show(Some(c))).collect()).unwrap_or_default(),
+    };
+    let series = props
+        .get("series")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|s| {
+                    let values = match (rows, s.get("field").and_then(Value::as_str)) {
+                        (Some(rows), Some(f)) => rows.iter().map(|r| num(r.get(f))).collect(),
+                        _ => s.get("values").and_then(Value::as_array).map(|v| v.iter().map(|v| num(Some(v))).collect()).unwrap_or_default(),
+                    };
+                    ChartSeries { name: show(s.get("name")), values, tone: s.get("tone").and_then(Value::as_str).map(str::to_string) }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    (categories, series)
+}
+
 /// The donut's hole as a share of its radius (pie = 0).
 pub const DONUT_HOLE: f64 = 0.6;
 /// Rows past which Table and List window their children (`layout.json`).
@@ -158,5 +238,33 @@ mod tests {
         assert_eq!(t.ticks.first(), Some(&-20.0));
         assert_eq!(series_color(9, None), "$color.chart2");
         assert_eq!(series_color(0, Some("danger")), "$color.destructive");
+    }
+
+    #[test]
+    fn rows_feed_categories_and_series() {
+        let props = serde_json::json!({
+            "rows": [{"month": "Jan", "income": 4200, "expenses": "3100"}, {"month": "Feb", "income": 3900, "expenses": null}],
+            "categoryField": "month",
+            "series": [{"name": "Income", "field": "income", "tone": "success"}, {"name": "Expenses", "field": "expenses"}]
+        });
+        let (categories, series) = chart_data(props.as_object().unwrap());
+        assert_eq!(categories, vec!["Jan", "Feb"]);
+        assert_eq!(series[0].values, vec![4200.0, 3900.0]);
+        assert_eq!(series[0].tone.as_deref(), Some("success"));
+        assert_eq!(series[1].values[0], 3100.0);
+        assert!(series[1].values[1].is_nan());
+        let plain = serde_json::json!({"categories": ["a"], "series": [{"name": "s", "values": [1]}]});
+        assert_eq!(chart_data(plain.as_object().unwrap()), (vec!["a".to_string()], vec![ChartSeries { name: "s".into(), values: vec![1.0], tone: None }]));
+    }
+
+    #[test]
+    fn value_formats() {
+        let en = crate::format::EnglishFormatter;
+        let vf = |v: serde_json::Value| ValueFormat::of(Some(&v));
+        assert_eq!(format_chart_value(&en, 12000.0, &ValueFormat::default()), "12,000");
+        assert_eq!(format_chart_value(&en, 12000.0, &vf(serde_json::json!({"type": "currency", "currency": "EUR", "decimals": 0}))), "€12,000");
+        assert_eq!(format_chart_value(&en, 1234567.0, &vf(serde_json::json!({"type": "compact"}))), "1.2M");
+        assert_eq!(format_chart_value(&en, 12000.0, &vf(serde_json::json!({"type": "compact", "currency": "eur"}))), "€12K");
+        assert_eq!(format_chart_value(&en, 1.0, &vf(serde_json::json!("nonsense"))), "1");
     }
 }

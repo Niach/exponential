@@ -99,7 +99,9 @@ fn xref_line(
             this.child(Icon::new(registry::UI_CHEVRON_RIGHT).with_size(px(XREF_CHEVRON_PX)).flex_shrink_0())
         })
         .when_some(on_click, |this, on_click| {
-            this.cursor_pointer()
+            this.role(gpui::Role::Button)
+                .aria_label(SharedString::from(xref.name.clone()))
+                .cursor_pointer()
                 .rounded(px(theme::tokens::radius::SM))
                 .hover(move |style| style.text_color(foreground))
                 .active(|style| style.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))

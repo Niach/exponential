@@ -210,7 +210,9 @@
       "description": "A bordered card with an optional title and description, for grouped content, not page headers.",
       "children": "many",
       "slots": [],
-      "events": [],
+      "events": [
+        "press"
+      ],
       "basic": [
         "Card"
       ],
@@ -247,12 +249,23 @@
           "bindable": false,
           "responsive": false,
           "description": "Extra Box styles merged over the card's own."
+        },
+        {
+          "name": "pressable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A press target firing `press` (an `on.press` implies it)."
         }
       ],
       "accessibility": {
         "role": "group",
-        "notes": "group labelled by its title",
-        "keys": []
+        "notes": "group labelled by its title; a button when pressable",
+        "keys": [
+          "Enter, Space: press (pressable only)"
+        ]
       },
       "example": {
         "id": "example",
@@ -4582,6 +4595,22 @@
           "description": "One per line, bar group or pie ring."
         },
         {
+          "name": "rows",
+          "type": "[object]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A query's `groups`; series read their `field`."
+        },
+        {
+          "name": "categoryField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The rows' category field."
+        },
+        {
           "name": "title",
           "type": "string",
           "required": false,
@@ -4629,6 +4658,14 @@
           "bindable": false,
           "responsive": false,
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        {
+          "name": "valueFormat",
+          "type": "valueFormat",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         {
           "name": "showAxes",
@@ -4760,7 +4797,9 @@
       "description": "A dashboard tile: label, big value, toned change, trend sparkline.",
       "children": "none",
       "slots": [],
-      "events": [],
+      "events": [
+        "press"
+      ],
       "basic": [],
       "props": [
         {
@@ -4803,12 +4842,23 @@
           "bindable": true,
           "responsive": false,
           "description": "Recent values (sparkline)."
+        },
+        {
+          "name": "pressable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A press target firing `press` (an `on.press` implies it)."
         }
       ],
       "accessibility": {
         "role": "group",
-        "notes": "group labelled by its label; the sparkline is an img with the generated summary",
-        "keys": []
+        "notes": "group labelled by its label; pressable: its card is a button named by the label; the sparkline is an img with the generated summary",
+        "keys": [
+          "Enter, Space: press (pressable only)"
+        ]
       },
       "example": {
         "id": "example",

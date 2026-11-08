@@ -464,6 +464,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// (`sessions.scope_team_ids`, uuid[] on the wire, JSON text here);
     /// nil = every team.
     public let scopeTeamIds: [String]?
+    /// #EXP-1730: the server-kept list digest of this session's messages
+    /// (`sessions.digest` jsonb, stored as its JSON text like `messages.card`):
+    /// every Chats list reads `Chats.digestMessages` over it, never a
+    /// transcript. nil = nothing yet.
+    public let digest: String?
 
     public init(
         id: String,
@@ -503,9 +508,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         sealEpoch: Int? = nil,
         sealedTitle: String? = nil,
         viaAppId: String? = nil,
-        scopeTeamIds: [String]? = nil
+        scopeTeamIds: [String]? = nil,
+        digest: String? = nil
     ) {
         self.scopeTeamIds = scopeTeamIds
+        self.digest = digest
         self.sealPublicKey = sealPublicKey
         self.sealEpoch = sealEpoch
         self.sealedTitle = sealedTitle
@@ -556,7 +563,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     enum CodingKeys: String, CodingKey {
         case id, depth, cli, account, model, effort, ultracode, branch, status
-        case busy, background, blocked, shared, title, guide
+        case busy, background, blocked, shared, title, guide, digest
         case teamId = "team_id"
         case parentId = "parent_id"
         case rootId = "root_id"
@@ -640,6 +647,9 @@ extension SessionEntity: Codable {
         scopeTeamIds = (try? c.decodeNil(forKey: .scopeTeamIds)) == false
             ? c.decodeWireStringList(forKey: .scopeTeamIds)
             : nil
+        // #EXP-1730: the jsonb as JSON text (object off the wire, text out of
+        // GRDB); absent on a pre-v103 row / an older server = no digest.
+        digest = c.decodeWireJsonString(forKey: .digest)
     }
 }
 
@@ -724,10 +734,10 @@ extension SessionIssueEntity: Codable {
 // MARK: - Message (EXP-1291)
 
 // The Conversation: one row per person message, per agent turn reply (the
-// turn's FINAL text) and per card, in the CONVERSATION that holds it
-// (`root_id` names its thread/agent). NEW-8: a message never names its
-// session; it belongs to the session of its conversation
-// (`MessageConversations`, read through `SessionMessage`). `card` = the raw
+// turn's FINAL text) and per card (`root_id` names its thread/agent).
+// #EXP-1730: the row names its session (`messages.session_id`, server-kept
+// beside the legacy `conversation_id`; NULL only on a dm/channel row), read
+// through `SessionMessage`. `card` = the raw
 // jsonb TEXT of a `MessageCard` (`{kind, …}`, contract `messageCardKind`; an
 // unknown kind renders as nothing); `consumed_at` nil on a person's message =
 // still queued for the device.
@@ -736,8 +746,12 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     public let id: String
     /// NEW-3/NEW-8: the conversation it lives in (`messages.conversation_id`,
-    /// NOT NULL on the server); a legacy `session_id` on the wire is ignored.
+    /// NOT NULL on the server until #EXP-1730 phase B). Read by nothing:
+    /// `sessionId` keys the row.
     public let conversationId: String
+    /// #EXP-1730: the session it lives in (`messages.session_id`); nil = a
+    /// dm/channel row, or one synced before v103 re-arrived.
+    public let sessionId: String?
     public let rootId: String
     public let teamId: String
     /// `user` | `agent` | `system` (`DomainContract.messageAuthorKindValues`).
@@ -772,11 +786,13 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         createdAt: String,
         updatedAt: String,
         authorSessionId: String? = nil,
-        attachmentIds: [String] = []
+        attachmentIds: [String] = [],
+        sessionId: String? = nil
     ) {
         self.authorSessionId = authorSessionId
         self.attachmentIds = attachmentIds
         self.conversationId = conversationId
+        self.sessionId = sessionId
         self.id = id
         self.rootId = rootId
         self.teamId = teamId
@@ -798,6 +814,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case authorId = "author_id"
         case authorSessionId = "author_session_id"
         case conversationId = "conversation_id"
+        case sessionId = "session_id"
         case attachmentIds = "attachment_ids"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
@@ -825,18 +842,18 @@ extension MessageEntity: Codable {
         // #EXP-1682: `{a,b}` off the wire, JSON text out of GRDB; absent on
         // a partial or a pre-v99 row = none.
         attachmentIds = c.decodeWireStringList(forKey: .attachmentIds)
+        // #EXP-1730: null on a dm/channel row; absent on a pre-v103 row.
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
     }
 }
 
-// NEW-8: a message KEYED to the session of its conversation
-// (`MessageConversations.keyMessagesBySession`, contract
-// `message-conversation.json`): fetched by `SessionQueries.messages`, which
-// joins the synced `conversations` — a dm/channel message or one whose
-// conversation has not synced yet never reaches it.
+// #EXP-1730: a message KEYED to its session (`messages.session_id`):
+// fetched by `SessionQueries.messages` (`keyedMessagesSQL`) — a dm/channel
+// message (no session) never reaches it.
 @dynamicMemberLookup
 public struct SessionMessage: FetchableRecord, Identifiable, Equatable, Sendable {
     public let message: MessageEntity
-    /// The RESOLVED session: its conversation's `session_id`.
+    /// The session it lives in (`messages.session_id`).
     public let sessionId: String
 
     public var id: String { message.id }
@@ -846,79 +863,14 @@ public struct SessionMessage: FetchableRecord, Identifiable, Equatable, Sendable
         self.sessionId = sessionId
     }
 
-    /// A `messages` row joined with its conversation's session as
-    /// `conversation_session_id` (`SessionQueries.keyedMessagesSQL`).
+    /// A `messages` row with a session (`SessionQueries.keyedMessagesSQL`).
     public init(row: Row) throws {
         message = try MessageEntity(row: row)
-        sessionId = row["conversation_session_id"]
+        sessionId = message.sessionId ?? ""
     }
 
     public subscript<T>(dynamicMember keyPath: KeyPath<MessageEntity, T>) -> T {
         message[keyPath: keyPath]
-    }
-}
-
-// MARK: - Conversation (NEW-3)
-
-// The chat primitive's row: `kind` dm | channel | session (contract
-// `conversationKind`). In step 1 every row is a session's own (kind
-// `session`, `session_id` set) and syncs on the session rule; dm/channel
-// readers (`conversation_members`) stay server-only until NEW-8.
-public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
-    public static let databaseTableName = "conversations"
-
-    public let id: String
-    public let teamId: String
-    public let kind: String
-    public let sessionId: String?
-    public let title: String?
-    public let createdAt: String
-    public let updatedAt: String
-    /// Thread e4a04d22: the server-kept list digest (`conversations.digest`
-    /// jsonb, stored as its JSON text like `messages.card`): every Chats list
-    /// reads `Chats.digestMessages` over it instead of the synced messages.
-    public let digest: String?
-
-    public init(
-        id: String,
-        teamId: String,
-        kind: String = "session",
-        sessionId: String? = nil,
-        title: String? = nil,
-        createdAt: String,
-        updatedAt: String,
-        digest: String? = nil
-    ) {
-        self.id = id
-        self.teamId = teamId
-        self.kind = kind
-        self.sessionId = sessionId
-        self.title = title
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-        self.digest = digest
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, kind, title, digest
-        case teamId = "team_id"
-        case sessionId = "session_id"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-}
-
-extension ConversationEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "session"
-        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
-        title = try c.decodeIfPresent(String.self, forKey: .title)
-        createdAt = try c.decode(String.self, forKey: .createdAt)
-        updatedAt = try c.decode(String.self, forKey: .updatedAt)
-        digest = c.decodeWireJsonString(forKey: .digest)
     }
 }
 
@@ -1264,11 +1216,10 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     public let icon: String?
     public let color: String?
     public let triggers: String
-    /// The steer device its conversations run on; nil = unset.
-    public let deviceId: String?
-    public let cli: String?
-    public let account: String?
-    public let model: String?
+    /// #EXP-1730: the runner defaults (`agents.defaults` jsonb, stored as
+    /// its JSON text): the ONLY source of `deviceId`/`cli`/`account`/`model`
+    /// below; the legacy columns are never read.
+    public let defaults: AgentDefaults
     public let ownerId: String?
     public let sortOrder: Double
     public let createdAt: String
@@ -1284,6 +1235,12 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
 
     /// S-3: the member's own Assistant (`agents.role = assistant`).
     public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
+
+    /// The steer device its conversations run on; nil = unset.
+    public var deviceId: String? { defaults.deviceId }
+    public var cli: String? { defaults.cli }
+    public var account: String? { defaults.account }
+    public var model: String? { defaults.model }
 
     public init(
         id: String,
@@ -1313,10 +1270,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         self.icon = icon
         self.color = color
         self.triggers = triggers
-        self.deviceId = deviceId
-        self.cli = cli
-        self.account = account
-        self.model = model
+        self.defaults = AgentDefaults(deviceId: deviceId, cli: cli, account: account, model: model)
         self.ownerId = ownerId
         self.sortOrder = sortOrder
         self.createdAt = createdAt
@@ -1324,9 +1278,8 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, triggers, cli, account, model, role
+        case id, name, icon, color, triggers, defaults, role
         case teamId = "team_id"
-        case deviceId = "device_id"
         case ownerId = "owner_id"
         case sortOrder = "sort_order"
         case createdAt = "created_at"
@@ -1345,10 +1298,9 @@ extension AgentDefinitionEntity: Codable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         color = try c.decodeIfPresent(String.self, forKey: .color)
         triggers = c.decodeWireJsonString(forKey: .triggers) ?? "[]"
-        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
-        cli = try c.decodeIfPresent(String.self, forKey: .cli)
-        account = try c.decodeIfPresent(String.self, forKey: .account)
-        model = try c.decodeIfPresent(String.self, forKey: .model)
+        // #EXP-1730: the jsonb object (wire) or its JSON text (store);
+        // missing, null or garbage = no defaults.
+        defaults = AgentDefaults.parse(c.decodeWireJsonString(forKey: .defaults))
         ownerId = try c.decodeIfPresent(String.self, forKey: .ownerId)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
         createdAt = try c.decode(String.self, forKey: .createdAt)
@@ -1362,6 +1314,37 @@ extension AgentDefinitionEntity: Codable {
         // null or garbage = none.
         skillIds = c.decodeWireJsonString(forKey: .skillIds)
             .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+    }
+}
+
+/// #EXP-1730 (one-tree model): an agent's runner defaults, the picks every
+/// run of it starts with (`agents.defaults` jsonb, domain `AgentDefaults`).
+/// Encodes as one JSON object (GRDB stores it as JSON text); a nil pick is
+/// omitted.
+public struct AgentDefaults: Codable, Equatable, Hashable, Sendable {
+    public let deviceId: String?
+    public let cli: String?
+    public let account: String?
+    public let model: String?
+
+    public init(deviceId: String? = nil, cli: String? = nil, account: String? = nil, model: String? = nil) {
+        self.deviceId = deviceId
+        self.cli = cli
+        self.account = account
+        self.model = model
+    }
+
+    /// The jsonb's JSON text; nil, garbage or a non-object = no defaults
+    /// (an empty string reads as unset too).
+    public static func parse(_ raw: String?) -> AgentDefaults {
+        guard let raw, let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return AgentDefaults() }
+        func pick(_ key: String) -> String? {
+            guard let value = object[key] as? String, !value.isEmpty else { return nil }
+            return value
+        }
+        return AgentDefaults(deviceId: pick("deviceId"), cli: pick("cli"), account: pick("account"), model: pick("model"))
     }
 }
 
@@ -1575,6 +1558,9 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
     /// VAPP-120: the exact `exponential.*` function names the app may run as
     /// the viewer without the consent card (`AppActions.grantAllows`).
     public let grantedTools: [String]
+    /// #EXP-1730: the app's agent (`apps.agent_id`; its editor = the agent's
+    /// root session); nil = a standalone app.
+    public let agentId: String?
     public let deletedAt: String?
     public let createdAt: String
     public let updatedAt: String
@@ -1593,10 +1579,12 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         draftPackage: String? = nil,
         createdBy: String,
         grantedTools: [String] = [],
+        agentId: String? = nil,
         deletedAt: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
+        self.agentId = agentId
         self.id = id
         self.teamId = teamId
         self.slug = slug
@@ -1618,6 +1606,7 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
     enum CodingKeys: String, CodingKey {
         case id, slug, name, icon, color, description, package
         case grantedTools = "granted_tools"
+        case agentId = "agent_id"
         case teamId = "team_id"
         case headVersion = "head_version"
         case publishedVersion = "published_version"
@@ -1656,6 +1645,8 @@ extension AppEntity: Codable {
         // garbage = no grants.
         grantedTools = c.decodeWireJsonString(forKey: .grantedTools)
             .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+        // #EXP-1730: absent on a pre-v103 row / an older server = standalone.
+        agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
         deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)

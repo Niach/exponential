@@ -1,7 +1,6 @@
 package com.exponential.app.data.sealed
 
 import android.util.Log
-import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.SessionEntity
 import kotlinx.serialization.json.Json
@@ -131,20 +130,30 @@ object SealedContent {
         return if (body === row.body && card === row.card) row else row.copy(body = body, card = card)
     }
 
-    /** The sealed title opened into [SessionEntity.title]; the neutral title when it cannot be. */
+    /** The sealed title opened into [SessionEntity.title] (the neutral title
+     *  when it cannot be) and its [SessionEntity.digest] opened with the
+     *  root's keys (#EXP-1730: the digest lives on the session). */
     fun session(row: SessionEntity, keys: TreeKeys = SealedKeys.keys.value): SessionEntity {
+        val rootId = row.rootId.ifEmpty { row.id }
+        val titled = sessionTitle(row, rootId, keys)
+        val opened = digest(titled.digest, rootId, keys)
+        return if (opened === titled.digest) titled else titled.copy(digest = opened)
+    }
+
+    private fun sessionTitle(row: SessionEntity, rootId: String, keys: TreeKeys): SessionEntity {
         val sealed = row.sealedTitle ?: return row
         if (!isSealedBody(sealed)) return row.copy(title = sealed)
-        val opened = openBody(row.rootId.ifEmpty { row.id }, sealed, keys)
+        val opened = openBody(rootId, sealed, keys)
         return if (opened === sealed) row else row.copy(title = opened)
     }
 
-    /** `conversations.digest`: its first / preview / waiting bodies and cards opened with [rootId]'s keys. */
-    fun conversation(row: ConversationEntity, rootId: String?, keys: TreeKeys = SealedKeys.keys.value): ConversationEntity {
-        val digest = row.digest ?: return row
-        if (rootId == null || !digest.contains(BODY_PREFIX) && !digest.contains("\"$CARD_SEALED\"")) return row
-        val opened = openDigest(rootId, digest, keys)
-        return if (opened === digest) row else row.copy(digest = opened)
+    /** A list digest (`sessions.digest`, was `conversations.digest`): its
+     *  first / preview / waiting bodies and cards opened with [rootId]'s keys;
+     *  no root = as synced. */
+    fun digest(digest: String?, rootId: String?, keys: TreeKeys = SealedKeys.keys.value): String? {
+        if (digest == null || rootId == null) return digest
+        if (!digest.contains(BODY_PREFIX) && !digest.contains("\"$CARD_SEALED\"")) return digest
+        return openDigest(rootId, digest, keys)
     }
 
     internal fun openDigest(rootId: String, digest: String, keys: TreeKeys): String {

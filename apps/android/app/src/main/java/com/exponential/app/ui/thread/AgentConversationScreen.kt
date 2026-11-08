@@ -431,7 +431,7 @@ fun AgentConversationScreen(
                             onExpandedChange = { expanded = it },
                             attach = attach,
                             menu = com.exponential.app.ui.session.SessionComposerMenu(
-                                agent = row.cli?.takeIf { it.isNotBlank() } ?: com.exponential.app.ui.components.DEFAULT_AGENT,
+                                agent = row.runnerDefaults.cli ?: com.exponential.app.ui.components.DEFAULT_AGENT,
                                 effort = "",
                                 ultracode = false,
                                 computerUse = false,

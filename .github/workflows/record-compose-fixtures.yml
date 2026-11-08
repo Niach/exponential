@@ -38,6 +38,9 @@ name: record-compose-fixtures
 # EXP-1745 (2026-11-08): re-recorded for the Exponential theme's Switch at
 # the IDE's 36×20 (glass-active off track, light off-thumb, no shadow).
 
+# FEED-205 (2026-11-08): re-recorded for the core catalog's Chart
+# `valueFormat=currency` and `rows+valueFormat=compact` states (the Compose
+# snapshot `components.json`).
 on:
   workflow_dispatch: {}
   push:

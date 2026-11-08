@@ -175,6 +175,8 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
     Some(
         h_flex()
             .id(SharedString::from(format!("{id}-button")))
+            .role(gpui::Role::Button)
+            .aria_label(name)
             .flex_shrink_0()
             .items_center()
             .justify_center()

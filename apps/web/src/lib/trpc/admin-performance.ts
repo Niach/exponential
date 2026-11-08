@@ -44,17 +44,20 @@ export interface SteerRelayProbe {
   counters?: SteerRelayCounters
 }
 
+/** The relay's /stats: the push API's counters (its `api` object) plus the
+ * EXP-1289 deep health check's (top level). */
 export interface PushRelayStats {
-  sendRequests: number
-  sendOk: number
-  sendFailed: number
-  deadlineTimeouts: number
-  tokensRequested: number
-  tokensOk: number
-  tokensFailed: number
-  invalidTokens: number
-  lastErrorAt: number | null
-  lastError: string | null
+  registrations: number
+  pushRequests: number
+  delivered: number
+  deadInstalls: number
+  rateLimited: number
+  authFailures: number
+  providerErrors: number
+  deepChecks: number
+  deepCheckFailures: number
+  lastDeepCheckAt: number | null
+  lastDeepCheckOk: boolean | null
 }
 
 export interface PushRelayProbe {
@@ -133,9 +136,13 @@ export async function probePushRelay(
       const json = (await res.json()) as {
         startedAt?: number
         firebaseConfigured?: boolean
-        lastErrorAt?: number | null
-        lastError?: string | null
-      } & Partial<Record<keyof PushRelayStats, unknown>>
+        deepChecks?: unknown
+        deepCheckFailures?: unknown
+        lastDeepCheckAt?: unknown
+        lastDeepCheckOk?: unknown
+        api?: Partial<Record<string, unknown>>
+      }
+      const api = json.api ?? {}
       return {
         configured: true,
         ok: true,
@@ -146,18 +153,19 @@ export async function probePushRelay(
             : null,
         startedAt: typeof json.startedAt === `number` ? json.startedAt : null,
         stats: {
-          sendRequests: asCount(json.sendRequests),
-          sendOk: asCount(json.sendOk),
-          sendFailed: asCount(json.sendFailed),
-          deadlineTimeouts: asCount(json.deadlineTimeouts),
-          tokensRequested: asCount(json.tokensRequested),
-          tokensOk: asCount(json.tokensOk),
-          tokensFailed: asCount(json.tokensFailed),
-          invalidTokens: asCount(json.invalidTokens),
-          lastErrorAt:
-            typeof json.lastErrorAt === `number` ? json.lastErrorAt : null,
-          lastError:
-            typeof json.lastError === `string` ? json.lastError : null,
+          registrations: asCount(api.registrations),
+          pushRequests: asCount(api.pushRequests),
+          delivered: asCount(api.delivered),
+          deadInstalls: asCount(api.deadInstalls),
+          rateLimited: asCount(api.rateLimited),
+          authFailures: asCount(api.authFailures),
+          providerErrors: asCount(api.providerErrors),
+          deepChecks: asCount(json.deepChecks),
+          deepCheckFailures: asCount(json.deepCheckFailures),
+          lastDeepCheckAt:
+            typeof json.lastDeepCheckAt === `number` ? json.lastDeepCheckAt : null,
+          lastDeepCheckOk:
+            typeof json.lastDeepCheckOk === `boolean` ? json.lastDeepCheckOk : null,
         },
       }
     }

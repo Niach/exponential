@@ -6,7 +6,7 @@ import { openMessageWith } from "@/lib/enet/sealed-open"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { messageCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
-import { useConversationSessions, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
+import { useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 
 // #FEED-191 RESULTS TAB (fixtures/results-tab.json): every result of the root's
 // tree (#EXP-1380: its session-authored card rows, narrowed by rootId; sealed
@@ -15,7 +15,8 @@ import { useConversationSessions, useSessionTitles, useTeamSessions } from "@/ho
 type LoadedCardRow = {
   id: string
   rootId: string
-  conversationId: string
+  // #EXP-1730: the session the row lives in (null = a dm/channel row).
+  sessionId: string | null
   authorSessionId: string | null
   createdAt: unknown
   card: unknown
@@ -42,7 +43,6 @@ export interface ResultsTabState {
 }
 
 export function useResultsTab(teamId: string | null | undefined, rootId: string | null): ResultsTabState {
-  const { conversations } = useConversationSessions()
   const { data, isLoading } = useLiveQuery(
     (query) =>
       rootId
@@ -60,7 +60,7 @@ export function useResultsTab(teamId: string | null | undefined, rootId: string 
     for (const row of (data ?? []) as LoadedCardRow[]) {
       const card = openedCard(row)
       if (!isResultCard(card)) continue
-      const sessionId = conversations.get(row.conversationId)
+      const sessionId = row.sessionId
       if (!sessionId) continue
       out.push({
         id: row.id,
@@ -72,7 +72,7 @@ export function useResultsTab(teamId: string | null | undefined, rootId: string 
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, conversations, keyVersion])
+  }, [data, keyVersion])
 
   const { rows } = useTeamSessions(teamId ?? undefined)
   const tree = useMemo(() => rows.filter((row) => (row.rootId ?? row.id) === rootId), [rows, rootId])

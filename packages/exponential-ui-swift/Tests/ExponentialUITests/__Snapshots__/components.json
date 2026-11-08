@@ -4737,6 +4737,142 @@
       }
     ]
   },
+  "Card\/pressable=false" : {
+    "height" : 120,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          120
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          52
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          83,
+          356,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
+  "Card\/pressable=true" : {
+    "height" : 120,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          120
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          52
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          83,
+          356,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
   "Carousel\/counter=false" : {
     "height" : 20,
     "nodes" : [
@@ -5109,6 +5245,21 @@
       }
     ]
   },
+  "Chart\/rows+valueFormat=compact" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
   "Chart\/showAxes=false" : {
     "height" : 200,
     "nodes" : [
@@ -5215,6 +5366,21 @@
     ]
   },
   "Chart\/showValues=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/valueFormat=currency" : {
     "height" : 200,
     "nodes" : [
       {
@@ -30844,6 +31010,182 @@
     ]
   },
   "StatTile\/example" : {
+    "height" : 138,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          136
+        ],
+        "id" : "stat-tile.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          20
+        ],
+        "id" : "stat-tile.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          308,
+          20
+        ],
+        "id" : "stat-tile.card.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          333,
+          17,
+          40,
+          20
+        ],
+        "id" : "stat-tile.card.header.delta"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          49,
+          356,
+          28
+        ],
+        "id" : "stat-tile.card.value"
+      },
+      {
+        "component" : "Chart",
+        "frame" : [
+          17,
+          89,
+          356,
+          32
+        ],
+        "id" : "stat-tile.card.trend"
+      }
+    ]
+  },
+  "StatTile\/pressable=false" : {
+    "height" : 138,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          138
+        ],
+        "id" : "stat-tile.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          136
+        ],
+        "id" : "stat-tile.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          20
+        ],
+        "id" : "stat-tile.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          308,
+          20
+        ],
+        "id" : "stat-tile.card.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          333,
+          17,
+          40,
+          20
+        ],
+        "id" : "stat-tile.card.header.delta"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          49,
+          356,
+          28
+        ],
+        "id" : "stat-tile.card.value"
+      },
+      {
+        "component" : "Chart",
+        "frame" : [
+          17,
+          89,
+          356,
+          32
+        ],
+        "id" : "stat-tile.card.trend"
+      }
+    ]
+  },
+  "StatTile\/pressable=true" : {
     "height" : 138,
     "nodes" : [
       {

@@ -21,9 +21,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     public var computerUse: Bool?
     /// Claude only.
     public var ultracode: Bool?
-    /// EXP-1583: the model claude's subagents run on (claude only; a blank
-    /// is never sent).
-    public var subagentModel: String?
     /// The team MCP servers the session gets; nil = none picked.
     public var mcpServerIds: [String]?
     /// #EXP-1661: the team skills the session runs with; nil or empty = none
@@ -37,7 +34,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         effort: String? = nil,
         computerUse: Bool? = nil,
         ultracode: Bool? = nil,
-        subagentModel: String? = nil,
         mcpServerIds: [String]? = nil,
         skillIds: [String]? = nil
     ) {
@@ -47,7 +43,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         self.effort = effort
         self.computerUse = computerUse
         self.ultracode = ultracode
-        self.subagentModel = subagentModel
         self.mcpServerIds = mcpServerIds
         self.skillIds = skillIds
     }
@@ -99,8 +94,15 @@ public enum SessionsSendInput: Sendable, Equatable {
     )
     /// VAPP-110: a message to an APP — into the caller's own EDITOR session
     /// with it (created on first use on `deviceId`, else the caller's default
-    /// device; an ended one continues). Needs text or files.
-    case app(appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil)
+    /// device; an ended one continues). Needs text or files. #EXP-1729:
+    /// `account` / `model` = the editor composer's picks, riding the send
+    /// that opens or revives the root, with the agent the login belongs to
+    /// (`cli`, so the server reads the model in that agent's list; nil =
+    /// omitted).
+    case app(
+        appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil,
+        cli: String? = nil, account: String? = nil, model: String? = nil
+    )
     /// A CHILD session of `parentId` on any device.
     case child(
         parentId: String,
@@ -129,7 +131,7 @@ public enum SessionsSendInput: Sendable, Equatable {
 extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
-        case cli, account, model, effort, computerUse, ultracode, subagentModel, mcpServerIds, skillIds
+        case cli, account, model, effort, computerUse, ultracode, mcpServerIds, skillIds
         case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId, scopeTeamIds
     }
 
@@ -151,7 +153,6 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.effort, forKey: .effort)
             try c.encodeIfPresent(options.computerUse, forKey: .computerUse)
             try c.encodeIfPresent(options.ultracode, forKey: .ultracode)
-            try c.encodeIfPresent(options.subagentModel.flatMap { $0.isEmpty ? nil : $0 }, forKey: .subagentModel)
             try c.encodeIfPresent(options.mcpServerIds, forKey: .mcpServerIds)
             // #EXP-1661: only while the pick is non-empty.
             try c.encodeIfPresent(options.skillIds.flatMap { $0.isEmpty ? nil : $0 }, forKey: .skillIds)
@@ -172,11 +173,14 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try encodeScope(scope)
-        case let .app(appId, deviceId, text, attachmentIds):
+        case let .app(appId, deviceId, text, attachmentIds, cli, account, model):
             try c.encode(appId, forKey: .appId)
             try c.encodeIfPresent(deviceId, forKey: .deviceId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+            try c.encodeIfPresent(cli, forKey: .cli)
+            try c.encodeIfPresent(account, forKey: .account)
+            try c.encodeIfPresent(model.flatMap { $0.isEmpty ? nil : $0 }, forKey: .model)
         case let .child(parentId, deviceId, options, text):
             try c.encode(parentId, forKey: .parentId)
             try c.encode(deviceId, forKey: .deviceId)

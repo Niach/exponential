@@ -12,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -107,12 +106,6 @@ internal fun LaunchOptionsSection(
     onModelChange: (String) -> Unit,
     effort: String,
     onEffortChange: (String) -> Unit,
-    /** EXP-981: claude's subagent model (always explicit). */
-    subagentModel: String = DomainContract.deviceAgentDefaultsSubagentModel,
-    onSubagentModelChange: ((String) -> Unit)? = null,
-    /** The dispatcher root's model (threads + team agents); null = no row. */
-    threadModel: String = defaultThreadModelFor(agent),
-    onThreadModelChange: ((String) -> Unit)? = null,
     noDeviceNote: String? = null,
     ultracode: Boolean = false,
     onUltracodeChange: (Boolean) -> Unit = {},
@@ -214,29 +207,7 @@ internal fun LaunchOptionsSection(
         // Every model row = THE model picker (all of the agent's models, no
         // default entry: every model is explicit).
         ModelPickerRow(label = "Model", agent = agent, value = model, onSelect = onModelChange)
-        // The dispatcher root's model, right under Model, per agent.
-        if (onThreadModelChange != null) {
-            GroupDivider()
-            ModelPickerRow(
-                label = THREAD_MODEL_LABEL,
-                agent = agent,
-                value = threadModel,
-                onSelect = onThreadModelChange,
-            )
-        }
-        // P25: Model · Thread model · Subagent model · Effort ×4.
-        // EXP-981: the model a claude run's SUBAGENTS spend, stored per agent
-        // in the machine's launch defaults. Offered only where the caller
-        // edits it (the device sheet today); every other agent has none.
-        if (onSubagentModelChange != null && supportsSubagentModel(agent)) {
-            GroupDivider()
-            ModelPickerRow(
-                label = SUBAGENT_MODEL_LABEL,
-                agent = DEFAULT_AGENT,
-                value = subagentModel,
-                onSelect = onSubagentModelChange,
-            )
-        }
+        // EXP-1734: Model · Effort ×4 (no chat or subagent model).
         GroupDivider()
         PickerRow(
             label = when (agent) {
@@ -319,8 +290,6 @@ internal fun availableAgentsFor(device: SteerDevice?): List<String> =
 /** Every launch option for one agent, ready to drop into the sheet's state. */
 internal data class AgentSeed(
     val model: String,
-    /** EXP-981: claude only (always explicit). */
-    val subagentModel: String,
     val effort: String,
     val ultracode: Boolean,
 )
@@ -352,7 +321,6 @@ internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
     val defaults = device?.launchDefaults?.agents?.get(agent)
         ?: return AgentSeed(
             defaultModelFor(agent),
-            DomainContract.deviceAgentDefaultsSubagentModel,
             CLI_DEFAULT_EFFORT,
             false,
         )
@@ -360,12 +328,6 @@ internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
         // Every model is explicit: a blank or unknown stored value reads as
         // the contract default.
         model = seedModel(defaults.model, agent, defaultModelFor(agent)),
-        // EXP-981: claude only; every other agent ignores a stored value.
-        subagentModel = seedModel(
-            defaults.subagentModel?.takeIf { supportsSubagentModel(agent) },
-            DEFAULT_AGENT,
-            DomainContract.deviceAgentDefaultsSubagentModel,
-        ),
         effort = defaults.effort
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,

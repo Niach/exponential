@@ -38,13 +38,10 @@ use gpui_component::{select::Select, ActiveTheme as _, Icon};
 use coding::{CodingAgent, LaunchOptions};
 
 use crate::coding_selects::{
-    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect, MODEL_CHOICES,
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
 use crate::icons::ExpIcon;
 use crate::surface;
-
-/// The defaults row naming the model a dispatcher root runs on.
-pub(crate) const THREAD_MODEL_LABEL: &str = "Chat model";
 
 /// The label the model/effort pickers show while nothing is pinned — the
 /// run then follows the agent CLI's own defaults, same wording as launch.
@@ -360,6 +357,7 @@ pub(crate) fn inline_pin_trigger_with(
 ) -> Button {
     use gpui::prelude::FluentBuilder as _;
     Button::new(id)
+        .accessibility_label(label.clone())
         .ghost()
         .cursor_pointer()
         .h_auto()
@@ -377,6 +375,7 @@ pub(crate) fn inline_pin_trigger_with(
 /// session composer's Device pin inside the card; the name lives in the
 /// picker and the tooltip.
 pub(crate) fn inline_pin_glyph_trigger(id: SharedString, icon: ExpIcon, cx: &App) -> Button {
+    // a11y: named by the caller (its label, tooltip or `accessibility_label`).
     Button::new(id)
         .ghost()
         .cursor_pointer()
@@ -507,10 +506,9 @@ impl<V: Render> DefaultsToggle<V> {
 /// row a surface splices in:
 ///
 /// - [`Self::leading`] — between the tabs and Model (the CLI-path row).
-/// - [`Self::thread`] — right under Model: the model a DISPATCHER root
-///   (every new thread or team agent) runs on, per agent.
-/// - [`Self::subagent`] — EXP-1020, under that: claude's subagent model, the
-///   row the device settings had on web and nowhere else.
+///
+/// #EXP-1734: no Chat model or Subagent model rows; Model is the ONE default
+/// every session runs on.
 ///
 /// EXP-862 dropped the trailing account + usage rows with the device-settings
 /// dialog's account block; the composer's own options row is the only launch
@@ -527,8 +525,6 @@ pub(crate) struct AgentDefaultsGroup<V: Render> {
     effort_disabled: bool,
     toggles: Vec<DefaultsToggle<V>>,
     leading: Vec<Div>,
-    thread: Option<ChoiceSelect>,
-    subagent: Option<ChoiceSelect>,
 }
 
 impl<V: Render> AgentDefaultsGroup<V> {
@@ -552,8 +548,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled: false,
             toggles: Vec::new(),
             leading: Vec::new(),
-            thread: None,
-            subagent: None,
         }
     }
 
@@ -574,20 +568,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
         self
     }
 
-    /// The model a dispatcher root runs on (`Settings.*_thread_model`),
-    /// directly under Model — the same select component over the same list.
-    pub(crate) fn thread(mut self, select: ChoiceSelect) -> Self {
-        self.thread = Some(select);
-        self
-    }
-
-    /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on, under Model
-    /// (and Thread model) as on web. Callers pass it only where the agent supports one.
-    pub(crate) fn subagent(mut self, select: ChoiceSelect) -> Self {
-        self.subagent = Some(select);
-        self
-    }
-
     pub(crate) fn render(self, cx: &mut Context<V>) -> Div {
         let Self {
             prefix,
@@ -600,8 +580,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled,
             toggles,
             leading,
-            thread,
-            subagent,
         } = self;
         let mut rows: Vec<Div> = vec![agent_tabs_row(prefix, pills, active, on_select, cx)];
         rows.extend(leading);
@@ -611,22 +589,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
             surface::glass_picker_select(Select::new(&model), cx).into_any_element(),
             cx,
         ));
-        if let Some(thread) = thread {
-            rows.push(surface::glass_picker_row(
-                THREAD_MODEL_LABEL,
-                None,
-                surface::glass_picker_select(Select::new(&thread), cx).into_any_element(),
-                cx,
-            ));
-        }
-        if let Some(subagent) = subagent {
-            rows.push(surface::glass_picker_row(
-                "Subagent model",
-                None,
-                surface::glass_picker_select(Select::new(&subagent), cx).into_any_element(),
-                cx,
-            ));
-        }
         rows.push(surface::glass_picker_row(
             agent.effort_label(),
             // The hint the two-column layout carried under the Effort select
@@ -701,10 +663,6 @@ pub(crate) struct LaunchOptionsSection {
     pub(crate) agent: CodingAgent,
     model: ChoiceSelect,
     effort: ChoiceSelect,
-    /// EXP-981: the model claude's SUBAGENTS run on
-    /// (`CLAUDE_CODE_SUBAGENT_MODEL`). Claude-only, explicit like every
-    /// model pick ([`MODEL_CHOICES`]).
-    subagent_model: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     pub(crate) ultracode: bool,
     /// EXP-696: `Some` while the run targets another machine — its agents
@@ -755,12 +713,6 @@ impl LaunchOptionsSection {
             effort: choice_select(
                 effort_choices_for(agent),
                 settings.effort_for(agent),
-                window,
-                cx,
-            ),
-            subagent_model: choice_select(
-                &MODEL_CHOICES,
-                settings.subagent_model_for(agent),
                 window,
                 cx,
             ),
@@ -984,12 +936,6 @@ impl LaunchOptionsSection {
             window,
             cx,
         );
-        self.subagent_model = choice_select(
-            &MODEL_CHOICES,
-            settings.subagent_model_for(agent),
-            window,
-            cx,
-        );
         self.ultracode = agent_defaults(settings, agent);
     }
 
@@ -1059,12 +1005,8 @@ impl LaunchOptionsSection {
             ultracode: self.ultracode && self.agent.supports_ultracode(),
             // S-3: no plan toggle; a launch never enters plan mode.
             plan_mode: false,
-            // EXP-981: claude-only, clamped like the toggles above.
-            subagent_model: if self.agent.supports_subagent_model() {
-                selected(&self.subagent_model, cx)
-            } else {
-                String::new()
-            },
+            // #EXP-1734: no subagent pick; subagents run on the model.
+            subagent_model: String::new(),
             // EXP-792/747 B7: the run's own picks, no longer hardcoded — the
             // launcher resolves the ids against the device's secret store
             // and the account against its profile dirs.
@@ -1096,6 +1038,27 @@ impl LaunchOptionsSection {
         set_choice(&self.effort, value, window, cx);
     }
 
+    /// #EXP-1729: seed the picks off an existing session (an ENDED app
+    /// editor root): its agent, its own login and model, until a pick here.
+    pub(crate) fn seed_from_session(
+        &mut self,
+        agent: CodingAgent,
+        account: Option<String>,
+        model: Option<&str>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.agent != agent {
+            self.agent = agent;
+            let settings = self.seed_settings(cx);
+            self.reseed(&settings, window, cx);
+        }
+        self.account = account.filter(|account| !account.trim().is_empty());
+        if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
+            set_choice(&self.model, model, window, cx);
+        }
+    }
+
     /// S-3: the "+" menu's Model pick (any agent: codex too), into the
     /// same select the grouped cluster edits.
     pub(crate) fn pick_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
@@ -1105,11 +1068,6 @@ impl LaunchOptionsSection {
     /// S-3: the Model submenu's rows and pick (the picked agent's list).
     pub(crate) fn model_menu(&self, cx: &App) -> (&'static [(&'static str, &'static str)], String) {
         (model_choices_for(self.agent), selected(&self.model, cx))
-    }
-
-    /// EXP-1249: the "+" menu's Subagents pick (claude only).
-    pub(crate) fn pick_subagent_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
-        set_choice(&self.subagent_model, value, window, cx);
     }
 
     /// EXP-792: the servers the "+" menu's MCP picker offers and the
@@ -1129,10 +1087,6 @@ impl LaunchOptionsSection {
             effort_choices: effort_choices_for(self.agent),
             effort_picked: selected(&self.effort, cx),
             effort_locked: ultracode_on,
-            subagent_picked: self
-                .agent
-                .supports_subagent_model()
-                .then(|| selected(&self.subagent_model, cx)),
             ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
             mcp_servers,
             mcp_selected,
@@ -1159,8 +1113,6 @@ pub(crate) struct ComposerMenu {
     /// Ultracode IS the effort level while it is on, so the row says so and
     /// takes no submenu.
     pub(crate) effort_locked: bool,
-    /// `None` for an agent whose subagents take no model pin.
-    pub(crate) subagent_picked: Option<String>,
     /// `None` for an agent without dynamic workflows.
     pub(crate) ultracode: Option<bool>,
     /// Empty hides the MCP servers row.
@@ -1187,18 +1139,6 @@ impl ComposerMenu {
         }
     }
 
-    /// The Subagents row's trailing value (`None` = no row).
-    pub(crate) fn subagent_value(&self) -> Option<String> {
-        // Models are explicit: an unset pick reads as the contract default
-        // it resolves to, never "Default".
-        self.subagent_picked.as_deref().map(|picked| {
-            let picked = Some(picked)
-                .filter(|value| !value.is_empty())
-                .unwrap_or(domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL);
-            pin_label(&MODEL_CHOICES, Some(picked))
-        })
-    }
-
     /// The MCP servers row's trailing value: how many are picked, `None` at
     /// zero (composer-menu.json: no value at zero; the row itself shows
     /// whenever the team has a server).
@@ -1209,6 +1149,102 @@ impl ComposerMenu {
     /// #EXP-1660: the Skills row's value (skills.json `menuValueCases`).
     pub(crate) fn skills_value(&self) -> Option<String> {
         domain::skills::skills_menu_value(self.skills_picked)
+    }
+}
+
+/// #EXP-1729 (apps.json `editorHeader`, composer-menu.json `account`/`model`:
+/// "an app editor's composer, always"): an app editor's held Account and
+/// Model picks while it has no root or an ENDED one, snapshotted off the
+/// chat's [`LaunchOptionsSection`] (seeded from the editor device's launch
+/// defaults exactly like the launch composer) and handed to whichever
+/// composer draws the "+". A pick rides the next send ([`Self::apply`]); a
+/// LIVE root's rows are the session's own switches instead.
+#[derive(Clone)]
+pub(crate) struct EditorRunner {
+    /// THE launch composer's Account / Model rows' state.
+    pub(crate) menu: crate::chat_screen::RunnerMenu,
+    pub(crate) picks: EditorPicks,
+    pub(crate) on_account: std::rc::Rc<dyn Fn(coding::AccountOption, &mut Window, &mut App)>,
+    pub(crate) on_model: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>,
+}
+
+/// #EXP-1729: what an app editor's next send names (plain data: it rides
+/// the background send job): the login (`None` = the device's last used),
+/// its agent (a new root's `cli`) and the model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditorPicks {
+    pub(crate) account: Option<String>,
+    pub(crate) agent: CodingAgent,
+    pub(crate) model: String,
+}
+
+impl EditorPicks {
+    /// The picks onto a `sessions.send({appId, …})`; `new_root` = no root
+    /// yet, so the login's agent is the run's `cli` too.
+    pub(crate) fn apply(&self, input: &mut api::sessions::SendInput, new_root: bool) {
+        input.account = self.account.clone();
+        input.model = Some(self.model.clone()).filter(|model| !model.trim().is_empty());
+        if new_root {
+            input.cli = Some(self.agent.id().to_string());
+        }
+    }
+}
+
+impl EditorRunner {
+    /// Off the section: its accounts, its pick, the picked agent's models.
+    pub(crate) fn from_section(
+        section: &LaunchOptionsSection,
+        on_account: std::rc::Rc<dyn Fn(coding::AccountOption, &mut Window, &mut App)>,
+        on_model: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>,
+        cx: &mut App,
+    ) -> Self {
+        let (models, model_picked) = section.model_menu(cx);
+        Self {
+            menu: crate::chat_screen::RunnerMenu {
+                accounts: section.account_options(cx),
+                account_picked: section.account_key(),
+                models,
+                model_picked: model_picked.clone(),
+                ..Default::default()
+            },
+            picks: EditorPicks { account: section.account.clone(), agent: section.agent, model: model_picked },
+            on_account,
+            on_model,
+        }
+    }
+
+    /// Everything but the callbacks: a repaint is due only when these differ.
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
+        self.menu.accounts == other.menu.accounts
+            && self.menu.account_picked == other.menu.account_picked
+            && self.menu.models == other.menu.models
+            && self.menu.model_picked == other.menu.model_picked
+            && self.picks == other.picks
+    }
+
+    /// The "+" Account › row: THE launch composer's rows (none while the
+    /// device reports no login).
+    pub(crate) fn account_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        test_id: &'static str,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        if self.menu.accounts.is_empty() {
+            return menu;
+        }
+        self.menu.account_row(menu, test_id, self.on_account.clone(), window, cx)
+    }
+
+    /// The "+" Model › row: THE launch composer's rows.
+    pub(crate) fn model_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        self.menu.model_row(menu, self.on_model.clone(), window, cx)
     }
 }
 
@@ -1259,7 +1295,6 @@ mod tests {
             effort_choices: &[("Low", "low"), ("High", "high")],
             effort_picked: "high".into(),
             effort_locked: false,
-            subagent_picked: Some(String::new()),
             ultracode: Some(false),
             mcp_servers: vec![server("a", "Linear", true), server("b", "Sentry", false)],
             mcp_selected: vec!["a".into()],
@@ -1268,14 +1303,11 @@ mod tests {
             computer_use: Some(true),
         };
         assert_eq!(menu.effort_value(), "High");
-        assert_eq!(menu.subagent_value().as_deref(), Some("Opus"), "unset = the contract default");
         assert_eq!(menu.mcp_value().as_deref(), Some("1"));
         let locked = ComposerMenu { effort_locked: true, ..menu.clone() };
         assert_eq!(locked.effort_value(), "Ultracode");
         let none_picked = ComposerMenu { mcp_selected: Vec::new(), ..menu.clone() };
         assert_eq!(none_picked.mcp_value(), None, "no value at zero");
-        let bare = ComposerMenu { mcp_servers: Vec::new(), subagent_picked: None, ..menu };
-        assert_eq!(bare.subagent_value(), None);
     }
 
     #[test]

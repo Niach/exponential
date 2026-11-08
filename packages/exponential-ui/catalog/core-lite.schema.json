@@ -573,8 +573,16 @@
           "$ref": "#/$defs/Style",
           "description": "Extra Box styles merged over the card's own."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (an `on.press` implies it).",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
+        },
+        "on": {
+          "$ref": "#/$defs/On_Card"
         },
         "visible": {
           "$ref": "common_types.json#/$defs/DynamicBoolean"
@@ -589,7 +597,10 @@
             "kind": "macro",
             "group": "layout",
             "lite": true,
-            "children": "many"
+            "children": "many",
+            "events": [
+              "press"
+            ]
           }
         }
       }
@@ -6528,6 +6539,14 @@
           ],
           "description": "Recent values (sparkline)."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (an `on.press` implies it).",
+          "default": false
+        },
+        "on": {
+          "$ref": "#/$defs/On_StatTile"
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -6547,7 +6566,10 @@
             "kind": "macro",
             "group": "data",
             "lite": true,
-            "children": "none"
+            "children": "none",
+            "events": [
+              "press"
+            ]
           }
         }
       }
@@ -19593,7 +19615,11 @@
           "items": {
             "type": "number"
           },
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "type": "string",
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "enum": [
@@ -19608,9 +19634,33 @@
         }
       },
       "required": [
-        "name",
-        "values"
+        "name"
       ],
+      "additionalProperties": false
+    },
+    "valueFormat": {
+      "type": "object",
+      "description": "How a chart prints values.",
+      "properties": {
+        "type": {
+          "enum": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "description": "The format.",
+          "default": "number"
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "Fixed fraction digits."
+        }
+      },
       "additionalProperties": false
     },
     "pageItem": {
@@ -21115,6 +21165,15 @@
       },
       "additionalProperties": false
     },
+    "On_Card": {
+      "type": "object",
+      "properties": {
+        "press": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
     "Slots_List": {
       "type": "object",
       "properties": {
@@ -21335,6 +21394,15 @@
       "additionalProperties": false
     },
     "On_EmptyState": {
+      "type": "object",
+      "properties": {
+        "press": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_StatTile": {
       "type": "object",
       "properties": {
         "press": {

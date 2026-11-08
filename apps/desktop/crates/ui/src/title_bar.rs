@@ -160,6 +160,15 @@ impl ControlIcon {
         }
     }
 
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Minimize => "Minimize",
+            Self::Restore => "Restore",
+            Self::Maximize => "Maximize",
+            Self::Close { .. } => "Close",
+        }
+    }
+
     fn icon(&self) -> IconName {
         match self {
             Self::Minimize => IconName::WindowMinimize,
@@ -233,6 +242,8 @@ impl RenderOnce for ControlIcon {
 
         div()
             .id(self.id())
+            .role(gpui::Role::Button)
+            .aria_label(self.label())
             .flex()
             .w(TITLE_BAR_HEIGHT)
             .h_full()

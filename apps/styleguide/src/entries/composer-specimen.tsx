@@ -184,13 +184,11 @@ const SAMPLE_CHECKED: Record<string, boolean> = {
   "computer-use": true,
 }
 
-/** The "+" rows straight from the fixture, every condition met (EXP-1293:
- *  minus Subagents, which `sessions.send` does not carry), on the phase's
+/** The "+" rows straight from the fixture, every condition met, on the phase's
  *  surface (S-3: launch | session; a row's `surfaces`), separators tidied. */
 export function composerMenuEntries(phase: ComposerPhase): MenuEntry[] {
   const surface = phase === `start` ? `launch` : `session`
   const rows = composerMenu.rows
-    .filter((row) => row.id !== `subagents`)
     .filter((row) => row.kind === `separator` || (`surfaces` in row && (row.surfaces ?? []).includes(surface)))
     .filter((row, index, all) => row.kind !== `separator` || (index > 0 && all[index - 1]!.kind !== `separator`))
   while (rows[rows.length - 1]?.kind === `separator`) rows.pop()

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { createAppAgentInTx } from "@/lib/apps/app-agent"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
 import { boardIconSchema } from "@exp/db-schema/domain"
@@ -358,6 +359,8 @@ async function importAppText(ctx: Context & { session: NonNullable<Context[`sess
         createdBy: userId,
       })
       .returning()
+    // #EXP-1730: an app comes with its agent.
+    app!.agentId = await createAppAgentInTx(tx, app!, userId)
     const { number } = await writeVersionInTx(tx, app!, file.package, { note, sessionId: null, createdBy: userId, byOwner: false })
     // eApps V1: an imported app file is a finished app: v1 is published at once.
     await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
@@ -505,6 +508,8 @@ export const appsRouter = router({
               createdBy: userId,
             })
             .returning()
+          // #EXP-1730: an app comes with its agent.
+          app!.agentId = await createAppAgentInTx(tx, app!, userId)
           let headVersion = 0
           if (pkg) {
             headVersion = (await writeVersionInTx(tx, app!, pkg as unknown as Record<string, unknown>, { note: input.note ?? null, sessionId: null, createdBy: userId, byOwner: false })).number

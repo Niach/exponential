@@ -27,6 +27,9 @@ class IssueSearchTest {
         override val createdAt: String? = null,
         override val updatedAt: String? = null,
         override val status: String? = null,
+        override val creatorName: String? = null,
+        override val creatorEmail: String? = null,
+        override val creatorAgentName: String? = null,
     ) : IssueSearch.Row
 
     private data class TestHit(
@@ -63,6 +66,9 @@ class IssueSearchTest {
                         createdAt = str(obj, "createdAt"),
                         updatedAt = str(obj, "updatedAt"),
                         status = str(obj, "status"),
+                        creatorName = str(obj, "creatorName"),
+                        creatorEmail = str(obj, "creatorEmail"),
+                        creatorAgentName = str(obj, "creatorAgentName"),
                     )
                 },
                 query = case.getValue("query").jsonPrimitive.content,
@@ -131,6 +137,7 @@ class IssueSearchTest {
         assertTrue(covers("no match"))
         assertTrue(covers("limit caps the list"))
         assertTrue(covers("hash inside the query"))
+        assertTrue(covers("by: token"))
         assertTrue(cases().count { it.serverHits != null } >= 2)
         assertTrue(cases().any { it.allowUnsynced })
     }
@@ -145,6 +152,14 @@ class IssueSearchTest {
     fun `tokenizes on whitespace and drops per token hashes`() {
         assertEquals(listOf("fix", "87", "login"), IssueSearch.tokens("Fix  #87 login"))
         assertEquals(emptyList<String>(), IssueSearch.tokens("#"))
+    }
+
+    @Test
+    fun `parses by tokens into creator needles`() {
+        assertEquals(
+            IssueSearch.ParsedQuery(listOf("editor"), listOf("lukas", "triage")),
+            IssueSearch.parseQuery("editor BY:lukas by:@triage by:"),
+        )
     }
 
     @Test

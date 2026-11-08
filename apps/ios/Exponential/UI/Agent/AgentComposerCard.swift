@@ -17,7 +17,7 @@ import UIKit
 ///   since wave D, the pending files (a file tile each);
 /// - tools: EXP-1249 / S-3 — the ONE "+" (`ComposerPlusMenu`, a bottom
 ///   sheet: Photo or file · Issue › | Device › · Account › · Model › ·
-///   Repository › (pushed pages) | Effort › · Subagents › · Ultracode | MCP
+///   Repository › (pushed pages) | Effort › · Ultracode | MCP
 ///   servers › · Computer use) and NOTHING else: no options line under the
 ///   card, no inline image/file/#/emoji buttons. The agent row above the
 ///   card (composer-home.json, the host's) picks the recipient through
@@ -218,7 +218,7 @@ struct AgentComposerCard: View {
         case .mcpServers: showMcpPicker = true
         case .skills: showSkillsPicker = true
         // Issue and the runner submenus are pages of the sheet itself.
-        case .implementIssue, .prompts, .teams, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
+        case .implementIssue, .prompts, .teams, .device, .account, .model, .repository, .ultracode, .computerUse: break
         }
     }
 

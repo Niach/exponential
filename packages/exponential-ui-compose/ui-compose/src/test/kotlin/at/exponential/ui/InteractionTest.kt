@@ -442,7 +442,9 @@ class InteractionTest {
      */
     @Test
     fun boxHoverCasesFireOnEntering() {
-        val f = Fixtures.json("interactions-round1.json")["boxHover"]!!
+        // #FEED-201: `tilePress` (StatTile and Card presses) has the same shape.
+        for (key in listOf("boxHover", "tilePress")) {
+        val f = Fixtures.json("interactions-round1.json")[key]!!
         val cases = f["cases"]?.array.orEmpty()
         assertTrue(cases.isNotEmpty())
         for (c in cases) {
@@ -466,6 +468,7 @@ class InteractionTest {
             val want = c["events"]?.array.orEmpty()
             assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
             assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+        }
         }
     }
 

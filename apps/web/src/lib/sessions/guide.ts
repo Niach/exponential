@@ -416,7 +416,8 @@ export async function publishGuidePicture(
       if (exceedsGuideCap(upsert.results.filter(owns))) throw guideCapError()
       const inserted = await tx
         .insert(attachments)
-        .values(sessionAttachmentValues(prepared, { teamId: input.teamId }, input.uploaderId))
+        // #EXP-1730: a result names the session that filed it.
+        .values({ ...sessionAttachmentValues(prepared, { teamId: input.teamId }, input.uploaderId), sessionId: writer })
         .onConflictDoNothing({ target: attachments.id })
         .returning({ id: attachments.id })
       if (inserted.length === 0) {

@@ -137,6 +137,7 @@ fn enabled_picker_row(
     let value_color = cx.theme().foreground.opacity(if enabled { 0.7 } else { 0.4 });
     let on_pick = on_pick.filter(|_| enabled);
     let button = Button::new(id)
+        .accessibility_label(label.to_string())
         .ghost()
         .disabled(!enabled)
         .cursor_pointer()
@@ -217,6 +218,8 @@ fn recorder_control(value: &str, recorder: &ShortcutRecorder, cx: &App) -> AnyEl
     let recording = recorder.capture.as_ref().filter(|capture| capture.status == CaptureStatus::Recording);
     let field = div()
         .id("settings-voice-shortcut")
+        .role(gpui::Role::Button)
+        .aria_label(VOICE.copy.push_to_talk.clone())
         .cursor_pointer()
         .px_2()
         .py_1()
@@ -334,6 +337,7 @@ pub(crate) fn apps_control(
     let stored = settings.desktop_audio_apps.clone();
     let empty = stored.is_empty();
     let trigger = Button::new("settings-voice-apps")
+        .accessibility_label(MEETING.copy.apps.clone())
         .ghost()
         .cursor_pointer()
         .h_auto()

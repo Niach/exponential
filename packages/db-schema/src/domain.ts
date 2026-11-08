@@ -874,6 +874,17 @@ export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
  *  `firedAt` = its last firing. */
 export type AgentTriggerState = Record<string, { checkedAt?: string; firedAt?: string }>
 
+/** #EXP-1730 (one-tree model): an agent's runner defaults, the picks every
+ *  run of it starts with. Phase A keeps them in step with the legacy
+ *  `agents.device_id`/`cli`/`account`/`model` columns (trigger
+ *  `sync_agent_defaults`); phase B drops those columns. */
+export interface AgentDefaults {
+  deviceId: string | null
+  cli: string | null
+  account: string | null
+  model: string | null
+}
+
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // EXP-630: story points — a non-negative integer (issues.estimate). The
@@ -981,12 +992,10 @@ export function formatDateForMutation(date: Date | null | undefined) {
 }
 
 /** EXP-1029: a device's agent defaults as ONE flattened view — the shape the
- *  settings UI edits (EXP-1020). `model` / `subagentModel` are the last used
- *  agent's launch defaults, stored in `DeviceLaunchDefaults.agents[agent]`. */
+ *  settings UI edits (EXP-1020). `model` is the last used agent's launch
+ *  default, stored in `DeviceLaunchDefaults.agents[agent]`. */
 export interface DeviceAgentDefaults {
   model: string
-  subagentModel: string
-  threadModel: string
 }
 
 /** Contract `deviceAgentDefaults`, hand-mirrored (drift-tested): what a
@@ -994,9 +1003,7 @@ export interface DeviceAgentDefaults {
  *  install defaults (`coding::settings`, wired to the SAME contract
  *  constants). Every model is explicit: no blank = "CLI default". */
 export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
-  model: `fable`,
-  subagentModel: `opus`,
-  threadModel: `haiku`,
+  model: `opus`,
 }
 
 // ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────

@@ -676,6 +676,9 @@ pub struct GpuiMeasure<'a> {
     /// Field id → the text the user typed (not yet in the props).
     live: &'a HashMap<String, String>,
     identity: u64,
+    /// EXP-1629: a text's width rounds UP to a whole pixel, as gpui's text
+    /// element measures it (on while the view pixel-snaps).
+    ceil_text: bool,
     calls: u64,
     shaped: u64,
     /// Extension leaves measured before their kind was known.
@@ -698,7 +701,24 @@ impl<'a> GpuiMeasure<'a> {
         live: &'a HashMap<String, String>,
     ) -> Self {
         let identity = fonts.identity();
-        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, calls: 0, shaped: 0, unknown_extensions: Vec::new() }
+        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new() }
+    }
+
+    /// Text widths round up to whole pixels like gpui's text element
+    /// (`elements/text.rs`); part of the measurer's identity, so a switch
+    /// re-measures.
+    pub(crate) fn ceil_text(mut self, on: bool) -> Self {
+        self.ceil_text = on;
+        self.identity = if on { self.identity ^ 0x9e37_79b9_7f4a_7c15 } else { self.identity };
+        self
+    }
+
+    fn text_width(&self, w: f32) -> f32 {
+        if self.ceil_text {
+            w.ceil()
+        } else {
+            w
+        }
     }
 
     /// Per-request measure calls answered this pass.
@@ -770,7 +790,7 @@ impl<'a> GpuiMeasure<'a> {
             }
         };
         self.shaped += s.calls;
-        (out.0, out.1, baseline)
+        (self.text_width(out.0), out.1, baseline)
     }
 
     fn line(&mut self, raw: &str, ts: &TextStyle) -> f32 {
@@ -779,7 +799,7 @@ impl<'a> GpuiMeasure<'a> {
         let mut s = self.shaper().tracked(ts);
         let w = s.max_content(&shown, &font, ts.font_size);
         self.shaped += s.calls;
-        w
+        self.text_width(w)
     }
 
     fn line_baseline(&mut self, ts: &TextStyle) -> f32 {

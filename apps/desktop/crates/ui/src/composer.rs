@@ -41,6 +41,7 @@ use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Div, ElementId, Entity,
     IntoElement as _, ParentElement as _, SharedString, Styled, Window,
 };
+use gpui::prelude::FluentBuilder as _;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 use theme::tokens as t;
@@ -73,6 +74,14 @@ impl SubmitKind {
         match self {
             SubmitKind::Send => crate::icons::registry::UI_SUBMIT,
             SubmitKind::Stop => crate::icons::registry::UI_STOP,
+        }
+    }
+
+    /// The button's accessible name (the web session composer's `Send` / `Stop`).
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            SubmitKind::Send => "Send",
+            SubmitKind::Stop => "Stop",
         }
     }
 }
@@ -180,6 +189,7 @@ pub(crate) fn composer_tool(
     icon: crate::icons::ExpIcon,
     cx: &App,
 ) -> Button {
+    // a11y: named by the caller (the tooltip every caller chains).
     Button::new(id)
         .ghost()
         .web_icon_xs()
@@ -197,7 +207,7 @@ pub(crate) fn composer_submit(
     disabled: bool,
     cx: &App,
 ) -> Button {
-    composer_round(id, icon, disabled, cx)
+    composer_round(id, icon, None, disabled, cx)
 }
 
 /// EXP-790: the one round button as Send OR Stop — [`composer_submit`] with
@@ -209,12 +219,15 @@ pub(crate) fn composer_submit_kind(
     disabled: bool,
     cx: &App,
 ) -> Button {
-    composer_round(id, kind.icon(), disabled, cx)
+    composer_round(id, kind.icon(), Some(kind.label()), disabled, cx)
 }
 
+/// `label` = the accessible name; `None` leaves it to the caller (the
+/// launch composer's tooltip, the comment composer's `Send comment`).
 fn composer_round(
     id: impl Into<gpui::ElementId>,
     icon: crate::icons::ExpIcon,
+    label: Option<&'static str>,
     disabled: bool,
     cx: &App,
 ) -> Button {
@@ -226,6 +239,7 @@ fn composer_round(
         cx.theme().primary
     };
     Button::new(id)
+        .when_some(label, |button, label| button.accessibility_label(label))
         .ghost()
         .with_size(px(t::size::CONTROL_MD))
         .rounded_full()
@@ -925,8 +939,8 @@ mod tests {
         }
     }
 
-    /// Web `fallbackModel`: the row's pick, else (a dispatcher) the device's
-    /// thread model, else the device's model, else the contract defaults.
+    /// Web `fallbackModel`: the row's pick, else the device's model, else
+    /// the contract defaults (an old device's `threadModel` is ignored).
     #[test]
     fn the_pin_falls_back_like_web() {
         let agents = serde_json::json!({

@@ -14,13 +14,6 @@ export interface CodingLaunchPrefs {
   /** Coding agent CLI (`claude`/`codex`) — EXP-201. */
   agent: string
   model: string
-  /** EXP-981: claude only — the model the run's SUBAGENTS get (the device
-   * sets it as the CLI's env at launch). Always explicit (contract
-   * `deviceAgentDefaults.subagentModel` when the device names none). */
-  subagentModel?: string
-  /** The dispatcher root's model (threads + team agents), per agent; a
-   * device setting, never a launch-payload field. */
-  threadModel?: string
   /** `""` = "CLI default" (omit the effort flag) — a valid value. */
   effort: string
   ultracode: boolean
@@ -112,10 +105,6 @@ function savePick(key: string, teamId: string, ids: string[]): void {
  * (the desktop skip-serializes false). */
 export interface AgentLaunchDefaults {
   model?: string
-  /** EXP-981: claude only. */
-  subagentModel?: string
-  /** The dispatcher root's model (threads + team agents). */
-  threadModel?: string
   effort?: string
   ultracode?: boolean
   /** EXP-1005: claude only; absent = ON. */
@@ -162,30 +151,14 @@ export function agentSupportsAccountRotation(agent: string): boolean {
   return agent === `claude`
 }
 
-/** EXP-981: the subagent model is a claude CLI env var — nothing else reads
- * it, so the picker hides for every other agent (the ultracode rule). */
-export function agentSupportsSubagentModel(agent: string): boolean {
-  return agent === `claude`
-}
-
 /** The default model for `agent` — contract `deviceAgentDefaults` (claude
- * `fable`, codex `gpt-5.6-sol`). */
+ * `opus`, codex `gpt-5.6-sol`; #EXP-1734: one default, no thread or
+ * subagent model). */
 export function defaultModelFor(agent: string): string {
   return agent === `codex`
     ? contract.deviceAgentDefaults.codexModel
     : contract.deviceAgentDefaults.model
 }
-
-/** The default dispatcher (thread) model for `agent` — contract
- * `deviceAgentDefaults` (claude `haiku`, codex `gpt-5.6-luna`). */
-export function defaultThreadModelFor(agent: string): string {
-  return agent === `codex`
-    ? contract.deviceAgentDefaults.codexThreadModel
-    : contract.deviceAgentDefaults.threadModel
-}
-
-/** The default subagent model (claude only): contract `opus`. */
-export const DEFAULT_SUBAGENT_MODEL: string = contract.deviceAgentDefaults.subagentModel
 
 /** The static default agent when no device advertises one. */
 export const DEFAULT_LAUNCH_AGENT: string = contract.codingAgent.values[0]
@@ -207,27 +180,13 @@ export function agentSeed(
     typeof defaults?.model === `string` && models.includes(defaults.model)
       ? defaults.model
       : defaultModelFor(agent)
-  const threadModel =
-    typeof defaults?.threadModel === `string` && models.includes(defaults.threadModel)
-      ? defaults.threadModel
-      : defaultThreadModelFor(agent)
   const effort =
     typeof defaults?.effort === `string` &&
     (defaults.effort === `` || efforts.includes(defaults.effort))
       ? defaults.effort
       : ``
-  // EXP-981: claude's subagent model is always one of ITS models (never the
-  // picked agent's), explicit (contract default `opus`); other agents none.
-  const subagentModel = !agentSupportsSubagentModel(agent)
-    ? ``
-    : typeof defaults?.subagentModel === `string` &&
-        contract.codingModel.values.includes(defaults.subagentModel)
-      ? defaults.subagentModel
-      : DEFAULT_SUBAGENT_MODEL
   return {
     model,
-    subagentModel,
-    threadModel,
     effort,
     ultracode: (defaults?.ultracode ?? false) && agentSupportsUltracode(agent),
   }

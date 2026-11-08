@@ -81,7 +81,7 @@ extension SessionsSendInput {
         switch self {
         case let .newThread(_, _, _, text, _, _, _, _): text
         case let .agent(_, text, _, _, _): text
-        case let .app(_, _, text, _): text
+        case let .app(_, _, text, _, _, _, _): text
         case let .child(_, _, _, text): text
         case let .message(_, text, _, _): text
         case .switchAccount, .moveDevice: nil
@@ -93,7 +93,7 @@ extension SessionsSendInput {
         switch self {
         case let .newThread(_, _, _, _, ids, _, _, _): ids ?? []
         case let .agent(_, _, ids, _, _): ids ?? []
-        case let .app(_, _, _, ids): ids ?? []
+        case let .app(_, _, _, ids, _, _, _): ids ?? []
         case let .message(_, _, ids, _): ids ?? []
         case .child, .switchAccount, .moveDevice: []
         }
@@ -106,8 +106,8 @@ extension SessionsSendInput {
             .newThread(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
         case let .agent(agentId, _, attachmentIds, issueIds, scope):
             .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope)
-        case let .app(appId, deviceId, _, attachmentIds):
-            .app(appId: appId, deviceId: deviceId, text: text, attachmentIds: attachmentIds)
+        case let .app(appId, deviceId, _, attachmentIds, cli, account, model):
+            .app(appId: appId, deviceId: deviceId, text: text, attachmentIds: attachmentIds, cli: cli, account: account, model: model)
         case let .child(parentId, deviceId, options, _):
             .child(parentId: parentId, deviceId: deviceId, options: options, text: text)
         case let .message(sessionId, _, attachmentIds, scope):
@@ -178,7 +178,7 @@ public struct SendSealing: Sendable {
         case let .newThread(team, device, _, _, _, _, _, _):
             teamId = team
             steerDevice = device
-        case let .app(_, device, _, _):
+        case let .app(_, device, _, _, _, _, _):
             steerDevice = device
         default:
             break

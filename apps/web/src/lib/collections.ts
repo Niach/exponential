@@ -14,7 +14,6 @@ import {
   selectAppSchema,
   selectSyncedAppVersionSchema,
   selectSyncedAppRecordSchema,
-  selectSyncedConversationSchema,
   selectSyncedSessionSchema,
   selectSyncedSessionIssueSchema,
   selectSyncedMessageSchema,
@@ -388,30 +387,23 @@ export const sessionIssueCollection = createCollection(
   })
 )
 
-// NEW-3: the chat primitive's rows: a session's own conversation (kind
-// `session`) in step 1; a message names its `conversationId`.
-export const conversationCollection = createCollection(
-  electricCollectionOptions({
-    id: `conversations`,
-    shapeOptions: shapeOptions(`/api/shapes/conversations`),
-    schema: selectSyncedConversationSchema,
-    getKey: (item) => item.id,
-  })
-)
+// #EXP-1730: the web no longer syncs `conversations`: a message names its
+// session (`messages.session_id`) and a session carries its list digest
+// (`sessions.digest`). The shape stays for the shipped native clients.
 
 // #EXP-1380: ON DEMAND — the web never syncs every visible transcript: a
 // live query loads the rows its `where` names (a chat's root / its
-// conversations) as an Electric subset snapshot (the proxy validates the
+// sessions) as an Electric subset snapshot (the proxy validates the
 // predicate, `prepareSubsetParams`), and only changes stream after that.
-// The lists read each conversation's digest instead (`useDigestMessages`).
-// Every query on this collection MUST narrow by `rootId` or
-// `conversationId`: an unscoped one would snapshot the whole shape.
+// The lists read each session's digest instead (`useDigestMessages`).
+// Every query on this collection MUST narrow by `rootId` or `sessionId`
+// (or message ids): an unscoped one would snapshot the whole shape.
 export const messageCollection = createCollection(
   electricCollectionOptions({
     id: `messages`,
     syncMode: `on-demand`,
     shapeOptions: shapeOptions(`/api/shapes/messages`),
-    // NEW-8: a message is keyed through its conversation.
+    // #EXP-1730: a message is keyed by its own `sessionId`.
     schema: selectSyncedMessageSchema,
     getKey: (item) => item.id,
   })

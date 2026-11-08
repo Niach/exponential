@@ -635,7 +635,7 @@
         "anchorDelayMs": 2500,
         "env": {
           "EXP_DEV_TOOL": "board",
-          "EXP_DEV_SEARCH_QUERY": "cold start"
+          "EXP_DEV_SEARCH_QUERY": "by:alex"
         }
       },
       "diffTolerance": 0.0005
@@ -1856,6 +1856,14 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-agents",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-agents",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1864,8 +1872,8 @@
       },
       "notes": {
         "web": "The demo team's three agents (Triage, Designer, Release) over the events the seed emitted (issue.created, pr.opened, …). Members see the same page without New agent.",
-        "ios": "NEW-7: the team settings page lists the agents and, under them, the team's Events band (`TeamEventsSection`: the trigger-event glyph, name, emitter, age; newest first, 50 at most); not captured on its own (`sg_settings-team` shows the page's top).",
-        "android": "NEW-7: the team settings page lists the agents (`sg_settings-team`); the Events band is web + desktop only in step 1."
+        "ios": "#EXP-1735: the Team tab's Agents page from its top: the Lead Assistant row (the seeded lead, the demo user) over the agents list and the Events band.",
+        "android": "#EXP-1735: the Team tab's Agents page from its top: the Lead Assistant row (the seeded lead, the demo user) over the agents list and the Events band."
       }
     },
     {

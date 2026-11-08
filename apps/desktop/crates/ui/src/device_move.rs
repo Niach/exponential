@@ -381,6 +381,8 @@ pub(crate) struct EditorDevice {
     pub rows: Vec<(String, String)>,
     /// An ended root's next send goes to `device_id`.
     pub moves: bool,
+    /// #EXP-1729: `device_id` is among the online (launch) devices.
+    pub online: bool,
     pub on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
 }
 
@@ -396,6 +398,14 @@ impl EditorDevice {
         self.device_id == other.device_id
             && self.rows == other.rows
             && self.moves == other.moves
+            && self.online == other.online
+    }
+
+    /// #EXP-1729 (apps.json `editorHeader`): the header's device, its name
+    /// (the Device row's line, else its id) and whether it is online.
+    pub(crate) fn header_device(&self) -> Option<(String, bool)> {
+        let id = self.device_id.as_deref()?;
+        Some((self.value().unwrap_or_else(|| id.to_string()), self.online))
     }
 
     /// `(team id, app id, device id)` of the `sessions.send({appId, deviceId})`
