@@ -598,10 +598,11 @@ interface BoxHoverCase {
 }
 
 // #EDE-65: a Box's `on.hover` fires as the pointer enters (Motion's rule).
-describe(`fixtures/interactions-round1.json boxHover`, () => {
-  const hover = (fixture as unknown as { boxHover: { surface: NestedNode; cases: BoxHoverCase[] } }).boxHover
+// #FEED-201: `tilePress` = StatTile and Card presses, the same shape.
+describe.each([`boxHover`, `tilePress`] as const)(`fixtures/interactions-round1.json %s`, (key) => {
+  const hover = (fixture as unknown as Record<typeof key, { surface: NestedNode; cases: BoxHoverCase[] }>)[key]
   for (const c of hover.cases) {
-    it(`boxHover: ${c.name}`, () => {
+    it(`${key}: ${c.name}`, () => {
       const actions: SurfaceActionEvent[] = []
       const { container } = render(<ExponentialSurface root={tree(hover.surface)} theme="neutral" id="bh" host={{ onAction: (e) => void actions.push(e) }} />)
       const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement

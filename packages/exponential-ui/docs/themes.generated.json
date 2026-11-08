@@ -2426,7 +2426,9 @@
         "description",
         "body"
       ],
-      "props": []
+      "props": [
+        "pressable"
+      ]
     },
     {
       "name": "Separator",

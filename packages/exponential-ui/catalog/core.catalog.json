@@ -1501,7 +1501,16 @@
           "type": "style",
           "description": "Extra Box styles merged over the card's own."
         }
+,
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "A press target firing `press` (an `on.press` implies it)."
+        }
       },
+      "events": [
+        "press"
+      ],
       "example": {
         "title": "Overview",
         "description": "Your account summary"
@@ -4260,7 +4269,16 @@
           "bindable": true,
           "description": "Recent values (sparkline)."
         }
+,
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "A press target firing `press` (an `on.press` implies it)."
+        }
       },
+      "events": [
+        "press"
+      ],
       "example": {
         "label": "Active users",
         "value": "1,284",

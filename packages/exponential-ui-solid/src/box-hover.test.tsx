@@ -17,10 +17,11 @@ interface BoxHoverCase {
   events: { name: string; context: Record<string, unknown> }[]
 }
 
-describe(`fixtures/interactions-round1.json boxHover`, () => {
-  const hover = (fixture as unknown as { boxHover: { surface: NestedNode; cases: BoxHoverCase[] } }).boxHover
+// #FEED-201: `tilePress` = StatTile and Card presses, the same shape.
+describe.each([`boxHover`, `tilePress`] as const)(`fixtures/interactions-round1.json %s`, (key) => {
+  const hover = (fixture as unknown as Record<typeof key, { surface: NestedNode; cases: BoxHoverCase[] }>)[key]
   for (const c of hover.cases) {
-    it(`boxHover: ${c.name}`, () => {
+    it(`${key}: ${c.name}`, () => {
       const actions: { name: string; context: Record<string, unknown> }[] = []
       const root = reduceNested(hover.surface, { catalogId: CORE_CATALOG_ID }).root
       const { container } = render(() => <ExponentialSurface root={root} theme="neutral" id="bh" host={{ onAction: (e: { name: string; context: Record<string, unknown> }) => void actions.push(e) }} />)

@@ -4276,6 +4276,24 @@
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
               }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "title": [
@@ -12443,6 +12461,24 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
               }
             },
             {
@@ -20617,6 +20653,24 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
               }
             },
             {
@@ -29085,6 +29139,24 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "pressable": true
+              },
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "pressable": true,
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
               }
             },
             {

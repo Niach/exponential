@@ -216,7 +216,9 @@
             {
               "id": "s1",
               "component": "Box",
-              "props": {},
+              "props": {
+                "pressable": true
+              },
               "children": [
                 {
                   "id": "s1.body",
@@ -322,7 +324,9 @@
                   "recipe": {
                     "macro": "Card",
                     "part": "body",
-                    "props": {}
+                    "props": {
+                      "pressable": true
+                    }
                   }
                 }
               ],
@@ -335,10 +339,12 @@
               "recipe": {
                 "macro": "Card",
                 "part": "root",
-                "props": {}
+                "props": {
+                  "pressable": true
+                }
               },
               "accessibility": {
-                "role": "group"
+                "role": "button"
               },
               "on": {
                 "press": {
@@ -351,7 +357,9 @@
             {
               "id": "s2",
               "component": "Box",
-              "props": {},
+              "props": {
+                "pressable": false
+              },
               "children": [
                 {
                   "id": "s2.body",
@@ -439,7 +447,9 @@
                   "recipe": {
                     "macro": "Card",
                     "part": "body",
-                    "props": {}
+                    "props": {
+                      "pressable": false
+                    }
                   }
                 }
               ],
@@ -452,7 +462,9 @@
               "recipe": {
                 "macro": "Card",
                 "part": "root",
-                "props": {}
+                "props": {
+                  "pressable": false
+                }
               },
               "accessibility": {
                 "role": "group"

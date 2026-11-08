@@ -1324,8 +1324,15 @@
         },
         "style": {
           "type": "style"
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
         }
-      }
+      },
+      "events": [
+        "press"
+      ]
     },
     "Separator": {
       "kind": "macro",
@@ -3298,8 +3305,15 @@
             "type": "number"
           },
           "bindable": true
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
         }
-      }
+      },
+      "events": [
+        "press"
+      ]
     },
     "Button": {
       "kind": "native",

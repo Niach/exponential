@@ -208,7 +208,7 @@ export interface ComponentProps {
   Box: { style?: Style; pressable?: boolean }
   Stack: { direction?: OrientationValue | Responsive<OrientationValue> | Dynamic; gap?: GapValue | Responsive<GapValue>; align?: AlignValue | Responsive<AlignValue> | Dynamic; justify?: JustifyValue | Responsive<JustifyValue> | Dynamic; wrap?: boolean | Responsive<boolean>; style?: Style }
   Grid: { columns?: number | Responsive<number>; gap?: GapValue | Responsive<GapValue>; style?: Style }
-  Card: { title?: string; description?: string; padded?: boolean; style?: Style }
+  Card: { title?: string; description?: string; padded?: boolean; style?: Style; pressable?: boolean }
   Separator: { orientation?: OrientationValue }
   List: { direction?: ListDirectionValue; gap?: GapValue; divided?: boolean; sectionBy?: string; stickyHeaders?: boolean; style?: Style }
   Resizable: { direction?: OrientationValue | Responsive<OrientationValue>; sizes?: number[] | Dynamic; panels?: Shapes["panel"][]; handle?: boolean; style?: Style }
@@ -268,7 +268,7 @@ export interface ComponentProps {
   Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean }
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
-  StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic }
+  StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic; pressable?: boolean }
   Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; checks?: Shapes["check"][]; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
   Link: { label: string | Dynamic; href?: string; external?: boolean }
   Toggle: { label: string; icon?: IconName; pressed?: boolean | Dynamic; variant?: "default" | "outline"; size?: ControlSizeValue }

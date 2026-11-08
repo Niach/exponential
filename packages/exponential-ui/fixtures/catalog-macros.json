@@ -1359,7 +1359,9 @@
       "expected": {
         "id": "card",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "card.header",
@@ -1377,7 +1379,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "title",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               },
               {
@@ -1391,7 +1395,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "description",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -1405,7 +1411,9 @@
             "recipe": {
               "macro": "Card",
               "part": "header",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             }
           },
           {
@@ -1431,7 +1439,9 @@
             "recipe": {
               "macro": "Card",
               "part": "body",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             }
           }
         ],
@@ -1444,7 +1454,9 @@
         "recipe": {
           "macro": "Card",
           "part": "root",
-          "props": {}
+          "props": {
+            "pressable": false
+          }
         },
         "accessibility": {
           "role": "group",
@@ -1475,7 +1487,9 @@
       "expected": {
         "id": "card",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "card.header",
@@ -1493,7 +1507,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "title",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               },
               {
@@ -1507,7 +1523,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "description",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -1521,7 +1539,9 @@
             "recipe": {
               "macro": "Card",
               "part": "header",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             }
           },
           {
@@ -1547,7 +1567,9 @@
             "recipe": {
               "macro": "Card",
               "part": "body",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             }
           }
         ],
@@ -1560,7 +1582,9 @@
         "recipe": {
           "macro": "Card",
           "part": "root",
-          "props": {}
+          "props": {
+            "pressable": false
+          }
         },
         "accessibility": {
           "role": "group",
@@ -1591,7 +1615,9 @@
       "expected": {
         "id": "card",
         "component": "Box",
-        "props": {},
+        "props": {
+          "pressable": false
+        },
         "children": [
           {
             "id": "card.header",
@@ -1609,7 +1635,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "title",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               },
               {
@@ -1623,7 +1651,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "description",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -1637,7 +1667,9 @@
             "recipe": {
               "macro": "Card",
               "part": "header",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             }
           },
           {
@@ -1663,7 +1695,9 @@
             "recipe": {
               "macro": "Card",
               "part": "body",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             }
           }
         ],
@@ -1676,7 +1710,265 @@
         "recipe": {
           "macro": "Card",
           "part": "root",
-          "props": {}
+          "props": {
+            "pressable": false
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Overview"
+        }
+      }
+    },
+    {
+      "name": "Card/pressable=true",
+      "input": {
+        "id": "card",
+        "component": "Card",
+        "props": {
+          "title": "Overview",
+          "description": "Your account summary",
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "card",
+        "component": "Box",
+        "props": {
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "card.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "card.header.title",
+                "component": "Text",
+                "props": {
+                  "text": "Overview",
+                  "variant": "title"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Card",
+                  "part": "title",
+                  "props": {
+                    "pressable": true
+                  }
+                }
+              },
+              {
+                "id": "card.header.description",
+                "component": "Text",
+                "props": {
+                  "text": "Your account summary",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Card",
+                  "part": "description",
+                  "props": {
+                    "pressable": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "paddingTop": "$spacing.lg",
+              "paddingHorizontal": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "header",
+              "props": {
+                "pressable": true
+              }
+            }
+          },
+          {
+            "id": "card.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "padding": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "body",
+              "props": {
+                "pressable": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "borderRadius": "$radius.xl",
+          "overflow": "hidden"
+        },
+        "recipe": {
+          "macro": "Card",
+          "part": "root",
+          "props": {
+            "pressable": true
+          }
+        },
+        "accessibility": {
+          "role": "button",
+          "label": "Overview"
+        }
+      }
+    },
+    {
+      "name": "Card/pressable=false",
+      "input": {
+        "id": "card",
+        "component": "Card",
+        "props": {
+          "title": "Overview",
+          "description": "Your account summary",
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "card",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "card.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "card.header.title",
+                "component": "Text",
+                "props": {
+                  "text": "Overview",
+                  "variant": "title"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Card",
+                  "part": "title",
+                  "props": {
+                    "pressable": false
+                  }
+                }
+              },
+              {
+                "id": "card.header.description",
+                "component": "Text",
+                "props": {
+                  "text": "Your account summary",
+                  "variant": "muted"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Card",
+                  "part": "description",
+                  "props": {
+                    "pressable": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "paddingTop": "$spacing.lg",
+              "paddingHorizontal": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "header",
+              "props": {
+                "pressable": false
+              }
+            }
+          },
+          {
+            "id": "card.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "padding": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "body",
+              "props": {
+                "pressable": false
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "borderRadius": "$radius.xl",
+          "overflow": "hidden"
+        },
+        "recipe": {
+          "macro": "Card",
+          "part": "root",
+          "props": {
+            "pressable": false
+          }
         },
         "accessibility": {
           "role": "group",
@@ -11276,7 +11568,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -11712,7 +12006,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -11725,7 +12021,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -11783,7 +12081,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -12219,7 +12519,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -12232,7 +12534,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -12290,7 +12594,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -12776,7 +13082,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -12789,7 +13097,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -12847,7 +13157,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -13228,7 +13540,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -13241,7 +13555,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -13299,7 +13615,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -13680,7 +13998,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -13693,7 +14013,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -28587,7 +28909,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -28708,7 +29032,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -28721,7 +29047,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -28772,7 +29100,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -28893,7 +29223,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -28906,7 +29238,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -28957,7 +29291,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -29078,7 +29414,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -29091,7 +29429,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -29142,7 +29482,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -29263,7 +29605,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -29276,7 +29620,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -29327,7 +29673,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -29448,7 +29796,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -29461,7 +29811,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -29512,7 +29864,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -29633,7 +29987,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -29646,7 +30002,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -29697,7 +30055,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -29818,7 +30178,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -29831,7 +30193,394 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Active users"
+        }
+      }
+    },
+    {
+      "name": "StatTile/pressable=true",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ],
+          "pressable": true
+        }
+      },
+      "expected": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Active users",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": "+12 %",
+                          "variant": "caption",
+                          "tone": "success"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "1,284",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": [
+                            3,
+                            4,
+                            3,
+                            5,
+                            6,
+                            8
+                          ],
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {
+                    "pressable": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {
+                "pressable": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Active users"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Active users"
+        }
+      }
+    },
+    {
+      "name": "StatTile/pressable=false",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ],
+          "pressable": false
+        }
+      },
+      "expected": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Active users",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": "+12 %",
+                          "variant": "caption",
+                          "tone": "success"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "1,284",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": [
+                            3,
+                            4,
+                            3,
+                            5,
+                            6,
+                            8
+                          ],
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {
+                    "pressable": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -49619,7 +50368,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -50057,7 +50808,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -50070,7 +50823,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -50131,7 +50886,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -50579,7 +51336,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -50592,7 +51351,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -50652,7 +51413,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -51237,7 +52000,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -51250,7 +52015,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -51312,7 +52079,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -51748,7 +52517,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -51761,7 +52532,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -60266,7 +61039,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -60389,7 +61164,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -60402,7 +61179,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -60457,7 +61236,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -60580,7 +61361,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -60593,7 +61376,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -60646,7 +61431,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -60779,7 +61566,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -60792,7 +61581,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -60845,7 +61636,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -60968,7 +61761,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -60981,7 +61776,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -61027,7 +61824,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -61153,7 +61952,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -61166,7 +61967,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"

@@ -100,8 +100,10 @@
     },
     "Card": {
       "role": "group",
-      "notes": "group labelled by its title",
-      "keys": []
+      "notes": "group labelled by its title; a button when pressable",
+      "keys": [
+        "Enter, Space: press (pressable only)"
+      ]
     },
     "Separator": {
       "role": "separator",
@@ -747,8 +749,10 @@
     },
     "StatTile": {
       "role": "group",
-      "notes": "group labelled by its label; the sparkline is an img with the generated summary",
-      "keys": []
+      "notes": "group labelled by its label; pressable: its card is a button named by the label; the sparkline is an img with the generated summary",
+      "keys": [
+        "Enter, Space: press (pressable only)"
+      ]
     },
     "Calendar": {
       "role": "table",

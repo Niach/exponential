@@ -711,6 +711,48 @@
       }
     },
     {
+      "name": "Card/pressable=true",
+      "node": {
+        "id": "card",
+        "component": "Card",
+        "props": {
+          "title": "Overview",
+          "description": "Your account summary",
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Card/pressable=false",
+      "node": {
+        "id": "card",
+        "component": "Card",
+        "props": {
+          "title": "Overview",
+          "description": "Your account summary",
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Separator/example",
       "node": {
         "id": "separator",
@@ -8764,6 +8806,50 @@
             6,
             8
           ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/pressable=true",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ],
+          "pressable": true
+        }
+      }
+    },
+    {
+      "name": "StatTile/pressable=false",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ],
+          "pressable": false
         }
       }
     },

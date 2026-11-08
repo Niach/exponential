@@ -876,6 +876,10 @@ const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // #FEED-201: a dashboard tile and a card that open a detail screen (a
+  // button with the Row hover fill; at rest they look like the others).
+  StatTile: [{ label: `pressable · true`, node: { id: `tile-press`, component: `StatTile`, props: { label: `Income`, value: `4,200`, delta: `+8 %`, tone: `success`, pressable: true } } }],
+  Card: [{ label: `pressable · true`, node: { id: `card-press`, component: `Card`, props: { title: `Expenses`, description: `12 this month`, pressable: true }, children: [{ id: `card-press-t`, component: `Text`, props: { text: `Rent, travel, software`, variant: `body` } }] } }],
   // Round 8 (docs/round-8-contract.md): the download row, a bar with only
   // its trailing text, the collapsed Stepper, the mixed Checkbox.
   Progress: [

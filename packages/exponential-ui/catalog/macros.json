@@ -72,13 +72,24 @@
       }
     },
     "Card": {
-      "recipeProps": [],
+      "recipeProps": [
+        "pressable"
+      ],
       "root": {
         "part": "root",
         "component": "Box",
         "$a11y": {
-          "role": "group",
+          "role": {
+            "$cond": [
+              "props.pressable",
+              "button",
+              "group"
+            ]
+          },
           "label": "{props.title}"
+        },
+        "props": {
+          "pressable": "{props.pressable|false}"
         },
         "style": {
           "display": "flex",
@@ -4576,6 +4587,20 @@
           {
             "part": "card",
             "component": "Card",
+            "$a11y": {
+              "label": {
+                "$cond": [
+                  "props.pressable",
+                  "{props.label}"
+                ]
+              }
+            },
+            "props": {
+              "pressable": "{props.pressable|false}"
+            },
+            "$on": {
+              "press": "press"
+            },
             "children": [
               {
                 "part": "header",

@@ -392,6 +392,44 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen-card-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-card-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "pressable · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-card-press",
+                "component": "Card",
+                "props": {
+                  "title": "Expenses",
+                  "description": "12 this month",
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "c2-card-press-t",
+                    "component": "Text",
+                    "props": {
+                      "text": "Rent, travel, software",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -9046,6 +9084,36 @@
                 "props": {
                   "label": "Open issues",
                   "value": "37"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-stat-tile-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stat-tile-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "pressable · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-tile-press",
+                "component": "StatTile",
+                "props": {
+                  "label": "Income",
+                  "value": "4,200",
+                  "delta": "+8 %",
+                  "tone": "success",
+                  "pressable": true
                 }
               }
             ]
