@@ -1160,9 +1160,12 @@ class StyleguideScreenshotsTest {
             // so the starters show, as on iOS).
             if (ScreenshotFlow.anyRequested("sg_app-draft")) {
                 // VAPP-242: a draft's editor = its row's `…` › Edit app.
+                // The `…` sits inside the clickable row, which merges its
+                // descendants' semantics (and keeps its own tag): look the
+                // menu up in the unmerged tree.
                 val draftMenu = hasTestTag("${Apps.TestIds.ROW}-menu-$DEMO_DRAFT_APP_SLUG")
-                flow.waitFor(draftMenu, SYNC_TIMEOUT)
-                composeRule.onNode(draftMenu).performClick()
+                flow.waitFor(draftMenu, SYNC_TIMEOUT, useUnmergedTree = true)
+                composeRule.onNode(draftMenu, useUnmergedTree = true).performClick()
                 flow.waitFor(hasTestTag("apps-row-edit"), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag("apps-row-edit")).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)

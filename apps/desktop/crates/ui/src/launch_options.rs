@@ -1038,6 +1038,27 @@ impl LaunchOptionsSection {
         set_choice(&self.effort, value, window, cx);
     }
 
+    /// #EXP-1729: seed the picks off an existing session (an ENDED app
+    /// editor root): its agent, its own login and model, until a pick here.
+    pub(crate) fn seed_from_session(
+        &mut self,
+        agent: CodingAgent,
+        account: Option<String>,
+        model: Option<&str>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.agent != agent {
+            self.agent = agent;
+            let settings = self.seed_settings(cx);
+            self.reseed(&settings, window, cx);
+        }
+        self.account = account.filter(|account| !account.trim().is_empty());
+        if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
+            set_choice(&self.model, model, window, cx);
+        }
+    }
+
     /// S-3: the "+" menu's Model pick (any agent: codex too), into the
     /// same select the grouped cluster edits.
     pub(crate) fn pick_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
@@ -1128,6 +1149,102 @@ impl ComposerMenu {
     /// #EXP-1660: the Skills row's value (skills.json `menuValueCases`).
     pub(crate) fn skills_value(&self) -> Option<String> {
         domain::skills::skills_menu_value(self.skills_picked)
+    }
+}
+
+/// #EXP-1729 (apps.json `editorHeader`, composer-menu.json `account`/`model`:
+/// "an app editor's composer, always"): an app editor's held Account and
+/// Model picks while it has no root or an ENDED one, snapshotted off the
+/// chat's [`LaunchOptionsSection`] (seeded from the editor device's launch
+/// defaults exactly like the launch composer) and handed to whichever
+/// composer draws the "+". A pick rides the next send ([`Self::apply`]); a
+/// LIVE root's rows are the session's own switches instead.
+#[derive(Clone)]
+pub(crate) struct EditorRunner {
+    /// THE launch composer's Account / Model rows' state.
+    pub(crate) menu: crate::chat_screen::RunnerMenu,
+    pub(crate) picks: EditorPicks,
+    pub(crate) on_account: std::rc::Rc<dyn Fn(coding::AccountOption, &mut Window, &mut App)>,
+    pub(crate) on_model: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>,
+}
+
+/// #EXP-1729: what an app editor's next send names (plain data: it rides
+/// the background send job): the login (`None` = the device's last used),
+/// its agent (a new root's `cli`) and the model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditorPicks {
+    pub(crate) account: Option<String>,
+    pub(crate) agent: CodingAgent,
+    pub(crate) model: String,
+}
+
+impl EditorPicks {
+    /// The picks onto a `sessions.send({appId, …})`; `new_root` = no root
+    /// yet, so the login's agent is the run's `cli` too.
+    pub(crate) fn apply(&self, input: &mut api::sessions::SendInput, new_root: bool) {
+        input.account = self.account.clone();
+        input.model = Some(self.model.clone()).filter(|model| !model.trim().is_empty());
+        if new_root {
+            input.cli = Some(self.agent.id().to_string());
+        }
+    }
+}
+
+impl EditorRunner {
+    /// Off the section: its accounts, its pick, the picked agent's models.
+    pub(crate) fn from_section(
+        section: &LaunchOptionsSection,
+        on_account: std::rc::Rc<dyn Fn(coding::AccountOption, &mut Window, &mut App)>,
+        on_model: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>,
+        cx: &mut App,
+    ) -> Self {
+        let (models, model_picked) = section.model_menu(cx);
+        Self {
+            menu: crate::chat_screen::RunnerMenu {
+                accounts: section.account_options(cx),
+                account_picked: section.account_key(),
+                models,
+                model_picked: model_picked.clone(),
+                ..Default::default()
+            },
+            picks: EditorPicks { account: section.account.clone(), agent: section.agent, model: model_picked },
+            on_account,
+            on_model,
+        }
+    }
+
+    /// Everything but the callbacks: a repaint is due only when these differ.
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
+        self.menu.accounts == other.menu.accounts
+            && self.menu.account_picked == other.menu.account_picked
+            && self.menu.models == other.menu.models
+            && self.menu.model_picked == other.menu.model_picked
+            && self.picks == other.picks
+    }
+
+    /// The "+" Account › row: THE launch composer's rows (none while the
+    /// device reports no login).
+    pub(crate) fn account_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        test_id: &'static str,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        if self.menu.accounts.is_empty() {
+            return menu;
+        }
+        self.menu.account_row(menu, test_id, self.on_account.clone(), window, cx)
+    }
+
+    /// The "+" Model › row: THE launch composer's rows.
+    pub(crate) fn model_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        self.menu.model_row(menu, self.on_model.clone(), window, cx)
     }
 }
 

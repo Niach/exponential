@@ -539,8 +539,14 @@ class AppEditorViewModel @Inject constructor(
         val appMove: AgentSessionViewModel.AppMove? = null,
     )
 
+    /** The team's devices (the Device › rows, the header's name, the
+     *  Account/Model seeding); null while resolving. */
+    private val devices: StateFlow<List<com.exponential.app.data.api.SteerDevice>?> =
+        steerDeviceFlow(dbFlow, app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val editorDevice: StateFlow<EditorDevice> = combine(
-        steerDeviceFlow(dbFlow, app.map { it?.teamId }.distinctUntilChanged(), auth.userId),
+        devices,
         root,
         rememberedDevice,
         auth.userId,
@@ -586,6 +592,85 @@ class AppEditorViewModel @Inject constructor(
     val deviceId: StateFlow<String?> = editorDevice.map { it.choice.deviceId }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #EXP-1729 (apps.json `editorHeader`): the phone header's `status ·
+     *  device` subtitle; the device = the composer's shown one, its name the
+     *  Device row's, online = among the online devices. */
+    val header: StateFlow<Apps.EditorHeaderValue> = combine(root, editorDevice, devices) { session, picked, all ->
+        val shown = picked.choice.deviceId
+        Apps.editorHeader(
+            session?.let { Apps.EditorHeaderRoot(it.status, it.busy, it.needsInput) },
+            shown?.let { id ->
+                val row = all.orEmpty().firstOrNull { it.deviceId == id }
+                Apps.EditorHeaderDevice(
+                    name = picked.rows.firstOrNull { it.id == id }?.name ?: row?.let(SessionDeviceMove::name) ?: id,
+                    online = row?.online == true,
+                )
+            },
+        )
+    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Apps.editorHeader(null, null))
+
+    /** #EXP-1729 (apps.json `editorHeader`, composer-menu.json `account` /
+     *  `model`): the composer's Account › and Model › with no root or an
+     *  ENDED one = THE launch composer's rows, seeded like it from the editor
+     *  device's launch defaults (its last used login, that agent's default
+     *  model); an ended root keeps its agent, so its logins only, its own
+     *  account/model first. The picks are held while the editor is open and
+     *  ride the next send. */
+    data class EditorRunner(
+        val accountOptions: List<com.exponential.app.domain.AccountOption> = emptyList(),
+        val account: com.exponential.app.domain.AccountOption? = null,
+        val agent: String = com.exponential.app.ui.components.DEFAULT_AGENT,
+        val model: String = "",
+    ) {
+        val modelOptions: List<String> get() = com.exponential.app.ui.components.modelOptionsFor(agent)
+    }
+
+    private val accountPick = MutableStateFlow<String?>(null)
+    private val modelPick = MutableStateFlow<String?>(null)
+
+    val editorRunner: StateFlow<EditorRunner> = combine(devices, editorDevice, root, accountPick, modelPick) { all, picked, session, accountKey, modelKey ->
+        val device = all.orEmpty().firstOrNull { it.deviceId == picked.choice.deviceId }
+        val rootCli = session?.let { it.cli?.takeIf(String::isNotBlank) ?: com.exponential.app.ui.components.DEFAULT_AGENT }
+        val options = com.exponential.app.ui.components.accountOptionsFor(device, com.exponential.app.ui.components.availableAgentsFor(device))
+            .filter { rootCli == null || it.agent == rootCli }
+        val account = options.firstOrNull { it.key == accountKey }
+            ?: session?.account?.let { own -> options.firstOrNull { it.id == own } }
+            ?: com.exponential.app.domain.AccountOptions.lastUsed(options)
+            ?: options.firstOrNull()
+        val agent = account?.agent ?: rootCli ?: com.exponential.app.ui.components.defaultAgentFor(device)
+        val choices = com.exponential.app.ui.components.modelOptionsFor(agent)
+        val model = modelKey?.takeIf { it in choices }
+            ?: session?.model?.takeIf { it in choices }
+            ?: com.exponential.app.ui.components.agentSeed(device, agent).model
+        EditorRunner(options, account, agent, model)
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorRunner())
+
+    /** An Account › pick (an option's key); another agent's login drops a
+     *  model pick it cannot run. */
+    fun pickAccount(key: String) {
+        val agent = com.exponential.app.domain.AccountOptions.parseKey(key)?.agent
+        if (agent != null && modelPick.value?.let { it in com.exponential.app.ui.components.modelOptionsFor(agent) } == false) modelPick.value = null
+        accountPick.value = key
+    }
+
+    fun pickModel(model: String) {
+        modelPick.value = model
+    }
+
+    /** What the picks add to the next send: a NEW root takes the agent the
+     *  login implies (`cli`), the login and the model (the launch composer's
+     *  fields); an ended root's revive takes the login and the model. */
+    fun runnerSend(input: SessionsSendInput): SessionsSendInput {
+        val runner = editorRunner.value
+        val fresh = root.value == null
+        return input.copy(
+            cli = if (fresh) runner.agent else input.cli,
+            account = runner.account?.let { com.exponential.app.domain.AccountOptions.pinnedAccount(it.id) },
+            model = runner.model.takeIf { it.isNotEmpty() },
+        )
+    }
+
     /** #FEED-204: a pick is remembered per app, never as the default. */
     fun pickDevice(id: String) {
         devicePicks.edit().putString(appId, id).apply()
@@ -623,7 +708,7 @@ class AppEditorViewModel @Inject constructor(
         _sending.value = true
         viewModelScope.launch {
             try {
-                sender.send(SessionsSendInput.toApp(appId, text, deviceId.value))
+                sender.send(runnerSend(SessionsSendInput.toApp(appId, text, deviceId.value)))
                 onSent()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t

@@ -124,7 +124,20 @@ import com.exponential.app.ui.thread.ThreadRowMeta
 import com.exponential.app.ui.thread.ThreadUiCopy
 import com.exponential.app.ui.thread.ThreadViewModel
 import com.exponential.app.ui.thread.clockTime
-import com.exponential.app.ui.work.WorkTopBar
+import com.exponential.app.ui.thread.ChatHeader
+import com.exponential.app.ui.thread.ChatHeaderButton
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.domain.Chats
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import com.exponential.app.ui.components.toPickerAccount
+import com.exponential.app.ui.components.modelLabel
+import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.ModelPicker
+import com.exponential.app.ui.components.picker.ModelPickerOption
+import com.exponential.app.ui.session.SessionComposerAccount
+import com.exponential.app.ui.session.SessionComposerModel
 import dev.chrisbanes.haze.rememberHazeState
 
 // VAPP-110 / VAPP-177 (fixtures/apps.json THE EDITOR + PHONES, web
@@ -182,6 +195,8 @@ fun AppEditorScreen(
     val publishing by viewModel.publishing.collectAsStateWithLifecycle()
     val myAccess by viewModel.myAccess.collectAsStateWithLifecycle()
     val screenRequest by viewModel.screen.collectAsStateWithLifecycle()
+    // #EXP-1729: the header's `status · device` subtitle.
+    val header by viewModel.header.collectAsStateWithLifecycle()
     // eApps R3: Publish needs write access to the app (null = write until known).
     val canWrite = (myAccess ?: "write") == "write"
     var exportOpen by rememberSaveable { mutableStateOf(false) }
@@ -222,46 +237,57 @@ fun AppEditorScreen(
             containerColor = Color.Transparent,
             modifier = Modifier.testTag(Apps.TestIds.EDITOR),
             topBar = {
-                WorkTopBar(
+                // #EXP-1729 (apps.json `editorHeader`, PHONES): THE chat
+                // header: back · the lead disc carrying the app's glyph · the
+                // name over its `status · device` subtitle in its tone · `…`
+                // (the editor menu, Publish first). The version pill leaves
+                // the phone header; the tabs ride under it.
+                ChatHeader(
                     title = entry?.name.orEmpty(),
-                    titleContent = {
-                        if (entry != null) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                AppGlyph(entry.icon, entry.color, size = 20.dp)
-                                Text(
-                                    entry.name,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false).testTag("app-editor-title"),
-                                )
-                                AppVersionPill(entry)
-                                // VAPP-235: pending offline record writes (the outbox).
-                                AppOutboxPendingGlyph(viewModel.appId)
-                            }
+                    subtitle = if (entry != null) header.subtitle else null,
+                    subtitleColor = when (header.tone) {
+                        Apps.EditorHeaderTone.Attention -> NeedsInputAmber
+                        Apps.EditorHeaderTone.Active -> MaterialTheme.colorScheme.onSurface
+                        Apps.EditorHeaderTone.Muted -> null
+                    },
+                    lead = {
+                        Box(
+                            modifier = Modifier
+                                .size(Chats.Shell.ChatHeader.DISC.dp)
+                                .clip(CircleShape)
+                                .background(DesignTokens.Palette.Muted),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (entry != null) AppGlyph(entry.icon, entry.color, size = Chats.Shell.ChatHeader.DISC_GLYPH.dp)
                         }
                     },
                     onBack = onBack,
-                    verb = null,
-                    verbEnabled = false,
-                    onVerb = {},
-                    // VAPP-177: the header's trailing `…` (`editorTabs.menu`).
-                    menu = if (entry != null) {
-                        {
-                            AppEditorMenu(
-                                title = entry.name,
-                                canPublish = canWrite && Apps.canPublish(entry.versions),
-                                onPublish = { viewModel.publish(entry.headVersion) },
-                                versionCount = versions.size,
-                                canExport = entry.headVersion > 0,
-                                canDelete = canManage,
-                                onVersions = { sheet = Apps.EditorTabs.VERSIONS },
-                                onSettings = { sheet = Apps.EditorTabs.SETTINGS },
-                                onExport = { exportOpen = true },
-                                onDelete = { deleteOpen = true },
-                            )
+                    // VAPP-235: pending offline record writes (the outbox),
+                    // then VAPP-177's trailing `…` (`editorTabs.menu`): the
+                    // editor's bottom sheet, never the chat header's dropdown.
+                    action = {
+                        // The slot draws its own leading gap.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Chats.Shell.ChatHeader.GAP.dp),
+                            modifier = Modifier.padding(start = Chats.Shell.ChatHeader.GAP.dp),
+                        ) {
+                            AppOutboxPendingGlyph(viewModel.appId)
+                            if (entry != null) {
+                                AppEditorMenu(
+                                    title = entry.name,
+                                    canPublish = canWrite && Apps.canPublish(entry.versions),
+                                    onPublish = { viewModel.publish(entry.headVersion) },
+                                    versionCount = versions.size,
+                                    canExport = entry.headVersion > 0,
+                                    canDelete = canManage,
+                                    onVersions = { sheet = Apps.EditorTabs.VERSIONS },
+                                    onSettings = { sheet = Apps.EditorTabs.SETTINGS },
+                                    onExport = { exportOpen = true },
+                                    onDelete = { deleteOpen = true },
+                                )
+                            }
                         }
-                    } else {
-                        null
                     },
                     tabs = {
                         GlassSegmentedControl(
@@ -444,12 +470,13 @@ private fun AppEditorMenu(
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        CircleIconButton(
+        // #EXP-1729: THE chat header's ghost `…`, opening the editor's own
+        // bottom sheet (THE Menu on phones, as iOS and web-mobile).
+        ChatHeaderButton(
             ExpIcons.uiMore,
             contentDescription = "App actions",
             onClick = { open = true },
-            borderless = true,
-            modifier = Modifier.padding(end = 8.dp).testTag(Apps.TestIds.MENU),
+            modifier = Modifier.testTag(Apps.TestIds.MENU),
         )
     }
     if (open) {
@@ -838,9 +865,11 @@ private fun AppChatPane(
     }
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val deviceId by viewModel.deviceId.collectAsStateWithLifecycle()
-    // #FEED-204: the "+" (apps.json EDITOR DEVICE). This first composer takes
-    // text only, so Device is its one row.
+    // #FEED-204 / #EXP-1729: the "+" (apps.json EDITOR DEVICE, `editorHeader`).
+    // This first composer takes text only, so Device, Account and Model are
+    // its rows; the picks ride the first send.
     val editorDevice by viewModel.editorDevice.collectAsStateWithLifecycle()
+    val runner by viewModel.editorRunner.collectAsStateWithLifecycle()
     var plusOpen by remember { mutableStateOf(false) }
     // VAPP-176: a DRAFT (no version yet) with an empty chat = the starters +
     // the composer open and focused on `draftPlaceholder`.
@@ -969,10 +998,12 @@ private fun AppChatPane(
     }
     if (plusOpen) {
         val menu = editorDevice.composerDevice(viewModel::pickDevice)
+        val account = runner.composerAccount(viewModel::pickAccount)
+        val editorRows = setOf(ComposerMenuRowId.Device, ComposerMenuRowId.Account, ComposerMenuRowId.Model)
         ComposerPlusMenuSheet(
-            layout = ComposerMenu.composerMenuLayout(ComposerMenuSurface.Session, ComposerMenuConditions(device = true))
-                .filter { it is ComposerMenuEntry.Row && it.id == ComposerMenuRowId.Device },
-            codex = false,
+            layout = ComposerMenu.composerMenuLayout(ComposerMenuSurface.Session, ComposerMenuConditions(device = true, account = true, model = true))
+                .filter { it is ComposerMenuEntry.Row && it.id in editorRows },
+            codex = runner.agent == "codex",
             effortValue = null,
             effortEnabled = false,
             ultracode = false,
@@ -984,7 +1015,11 @@ private fun AppChatPane(
             onComputerUseChange = {},
             onDismiss = { plusOpen = false },
             issuePage = {},
-            values = mapOf(ComposerMenuRowId.Device to menu.label),
+            values = mapOf(
+                ComposerMenuRowId.Device to menu.label,
+                ComposerMenuRowId.Account to runner.account?.email,
+                ComposerMenuRowId.Model to runner.model.takeIf { it.isNotEmpty() }?.let(::modelLabel),
+            ),
             pages = teamsPagePlus(null, mapOf(
                 ComposerMenuRowId.Device to { close ->
                     DevicePicker(
@@ -995,10 +1030,36 @@ private fun AppChatPane(
                         onOpenChange = { open -> if (!open) close() },
                     )
                 },
+                // #EXP-1729: THE launch composer's account and model pickers.
+                ComposerMenuRowId.Account to { close ->
+                    AccountPicker(
+                        options = account.options,
+                        value = account.value,
+                        onChange = account.onPick,
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+                ComposerMenuRowId.Model to { close ->
+                    ModelPicker(
+                        options = runner.modelOptions.map { ModelPickerOption(it, modelLabel(it)) },
+                        value = runner.model,
+                        onChange = viewModel::pickModel,
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
             )),
         )
     }
 }
+
+/** #EXP-1729: the Account › row's binding over the editor's runner picks. */
+private fun AppEditorViewModel.EditorRunner.composerAccount(onPick: (String) -> Unit) = SessionComposerAccount(
+    options = accountOptions.map { it.toPickerAccount() },
+    value = account?.key,
+    onPick = onPick,
+)
 
 /** #FEED-204: the Device › row's binding. */
 private fun AppEditorViewModel.EditorDevice.composerDevice(onPick: (String) -> Unit) = SessionComposerDevice(
@@ -1066,6 +1127,21 @@ private fun AppEditorConversation(
     // #FEED-204: an ended root's next send may go to another device.
     val editorDevice by viewModel.editorDevice.collectAsStateWithLifecycle()
     LaunchedEffect(rootSession, editorDevice.appMove) { rootSession.appMove = editorDevice.appMove }
+    // #EXP-1729: an ENDED root's Account › / Model › = picks for its next
+    // send (they ride the revive); a live root's rows are its own switches.
+    val runner by viewModel.editorRunner.collectAsStateWithLifecycle()
+    val rootRow by viewModel.root.collectAsStateWithLifecycle()
+    val ended = rootRow?.isEnded == true
+    LaunchedEffect(rootSession, ended, runner) {
+        rootSession.appPicks = if (ended) {
+            AgentSessionViewModel.AppPicks(
+                account = runner.account?.let { com.exponential.app.domain.AccountOptions.pinnedAccount(it.id) },
+                model = runner.model.takeIf { it.isNotEmpty() },
+            )
+        } else {
+            null
+        }
+    }
 
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = { row ->
@@ -1149,6 +1225,8 @@ private fun AppEditorConversation(
                         viewModel.pickDevice(picked)
                         if (viewModel.editing) rootSession.moveToDevice(picked)
                     },
+                    accountMenu = if (ended) runner.composerAccount(viewModel::pickAccount) else null,
+                    modelMenu = if (ended) SessionComposerModel(runner.model, viewModel::pickModel) else null,
                     modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
                     // N-12: THE Dock: the tree's waiting cards, then the
                     // root's Queue and banners, over the composer.

@@ -146,6 +146,14 @@ final class AppEditorModel {
     private(set) var deviceId: String?
     private(set) var deviceRows: [DevicePickerDevice] = []
     private(set) var deviceMove = false
+    /// #EXP-1729 (apps.json `editorHeader`): the shown device among the
+    /// online ones (the header's `no device online` otherwise).
+    private(set) var deviceOnline = false
+    /// My editor root (the header's status word; a live root's Account row).
+    private(set) var root: SessionEntity?
+    /// #EXP-1729: Account or Model picked here (an ended root's next send
+    /// then carries them).
+    private(set) var picked = false
     private(set) var missing = false
     /// VAPP-177: I own the app's team (grants; delete and edit any app).
     private(set) var isOwner = false
@@ -159,6 +167,20 @@ final class AppEditorModel {
     @ObservationIgnored private var boundAppId = ""
     @ObservationIgnored private var boundUserId = ""
     @ObservationIgnored private var lastSnapshot: Snapshot?
+    /// The composed devices of the last snapshot (the shown one's launch
+    /// defaults, a live root's logins).
+    @ObservationIgnored private var composedDevices: [SteerDevice] = []
+    @ObservationIgnored private var launchState: LaunchOptionsState?
+
+    /// #EXP-1729: the composer's Account and Model picks, seeded from the
+    /// shown device's launch defaults like the launch composer's
+    /// (`LaunchOptionsState`); held while the editor is open.
+    var launch: LaunchOptionsState {
+        if let launchState { return launchState }
+        let made = LaunchOptionsState()
+        launchState = made
+        return made
+    }
 
     /// eApps V1 (#VAPP-210): Publish needs write access to the app.
     var canWrite: Bool { (access ?? "write") == "write" }
@@ -245,6 +267,7 @@ final class AppEditorModel {
                     self.users = snapshot.users
                     self.rootId = snapshot.root?.id
                     self.rootLive = snapshot.root?.isLive ?? false
+                    self.root = snapshot.root
                     self.lastSnapshot = snapshot
                     self.settleDevice()
                     self.isOwner = snapshot.isOwner
@@ -275,10 +298,85 @@ final class AppEditorModel {
         )
     }
 
-    /// #FEED-204: an ended root's next send, elsewhere; nil = a plain message.
+    /// #FEED-204: an ended root's next send, elsewhere; #EXP-1729: or with
+    /// the Account / Model picked here (the send carries them); nil = a
+    /// plain message.
     var deviceAppMove: ThreadComposerDraft.AppMove? {
-        guard deviceMove, let deviceId else { return nil }
-        return ThreadComposerDraft.AppMove(appId: boundAppId, deviceId: deviceId)
+        guard let deviceId, root?.status == DomainContract.sessionStatusEnded, deviceMove || picked else { return nil }
+        let picks = sendPicks
+        return ThreadComposerDraft.AppMove(
+            appId: boundAppId, deviceId: deviceId, cli: picks.cli, account: picks.account, model: picks.model
+        )
+    }
+
+    /// #EXP-1729: what a send that opens or revives the root carries.
+    var sendPicks: (cli: String?, account: String?, model: String?) {
+        (launch.agent, AccountOptions.wireAccount(launch.account), launch.wireModel)
+    }
+
+    /// The device the composer shows, with its launch defaults and logins.
+    private var shownDevice: SteerDevice? {
+        guard let deviceId else { return nil }
+        return composedDevices.first { $0.deviceId == deviceId }
+    }
+
+    /// #EXP-1729 (apps.json `editorHeader`): the header's `status · device`.
+    var header: Apps.EditorHeader {
+        Apps.editorHeader(
+            root: root.map { (status: $0.status, busy: $0.busy, needsInput: $0.needsInput) },
+            device: deviceId.map { id in
+                (name: deviceMenu.value ?? id, online: deviceOnline)
+            }
+        )
+    }
+
+    /// #EXP-1729 (composer-menu.json `account`, an app editor's composer):
+    /// no root or an ended one = THE launch composer's Account rows over the
+    /// shown device's logins (an ended root: its own agent's only, its login
+    /// checked until a pick); a pick rides the next send.
+    var launchAccountMenu: SessionComposerFooter.AccountMenu {
+        let device = shownDevice
+        let launch = launch
+        let all = launch.accountOptions(on: device)
+        let options = root?.status == DomainContract.sessionStatusEnded ? all.filter { $0.agent == launch.agent } : all
+        return SessionComposerFooter.AccountMenu(
+            options: options,
+            current: launch.selectedAccount(in: options),
+            disabledKeys: [],
+            onPick: { [weak self] key in
+                guard let option = options.first(where: { $0.key == key }) else { return }
+                launch.selectAccount(option, device: device)
+                self?.picked = true
+            }
+        )
+    }
+
+    /// #EXP-1729: the launch composer's Model pick (no root or an ended one).
+    func pickModel(_ model: String) {
+        launch.model = model
+        picked = true
+    }
+
+    /// #EXP-1729: a LIVE root's Account rows when its own switch offers none
+    /// (its device offline, not mine to steer): the root's logins, its own
+    /// checked, every row refused; nil = no login reported.
+    var liveAccountFallback: SessionComposerFooter.AccountMenu? {
+        guard let root, root.isLive else { return nil }
+        let device = composedDevices.first { $0.deviceId == root.deviceId }
+        let options = SessionAccountSwitch.options(
+            accounts: device?.agentAccounts,
+            usage: device?.agentUsage,
+            launchDefaults: device?.launchDefaults,
+            cli: root.cli,
+            account: root.account
+        )
+        guard !options.isEmpty else { return nil }
+        return SessionComposerFooter.AccountMenu(
+            options: options.map(\.account),
+            current: options.first(where: \.current)?.account,
+            disabledKeys: Set(options.map(\.account.key)),
+            onPick: { _ in }
+        )
     }
 
     /// A pick is remembered per app on this device, never as the default.
@@ -336,5 +434,30 @@ final class AppEditorModel {
         deviceId = choice.deviceId
         deviceRows = rows
         deviceMove = choice.move
+        deviceOnline = choice.deviceId.map { id in devices.contains { $0.deviceId == id && $0.isOnline } } ?? false
+        composedDevices = devices
+        // #EXP-1729: the launch composer's seeding (a different device
+        // reseeds Account and Model from its launch defaults) without a
+        // root; an ENDED root's rows read its own agent, login and model
+        // until a pick here.
+        launch.reconcile(device: shownDevice)
+        if let root, root.status == DomainContract.sessionStatusEnded {
+            let agent = endedRootAgent(root)
+            if !picked {
+                launch.agent = agent
+                launch.account = root.account ?? ""
+                launch.model = LaunchOptionsState.seedModel(root.model, for: agent)
+            } else if launch.agent != agent {
+                launch.selectAgent(agent, device: shownDevice)
+            }
+        }
+    }
+
+    /// The ended root's agent (its `cli`, else its device's default agent).
+    private func endedRootAgent(_ root: SessionEntity) -> String {
+        SessionAccountSwitch.agent(
+            cli: root.cli,
+            defaultAgent: composedDevices.first { $0.deviceId == root.deviceId }?.launchDefaults?.defaultAgent
+        ) ?? "claude"
     }
 }
