@@ -83,7 +83,7 @@ use eui_core::host::{nav_screens, package_screens, resolve_screen, screen_data, 
 use sync::Store;
 
 use domain::apps::{
-    editor_tab, is_draft, preview_template, preview_templates, screen_shell, surface_state, version_label, version_row, viewing_label, EditorTab,
+    is_draft, preview_template, preview_templates, screen_shell, surface_state, version_label, version_row, viewing_label, EditorTab,
     PreviewFrame, ScreenShell, SurfaceState, VersionRowKind,
     APPS,
 };
@@ -1867,6 +1867,7 @@ impl Render for AppScreenView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::apps::editor_tab;
 
     #[test]
     fn the_preview_applies_the_first_template_of_the_package() {

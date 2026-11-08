@@ -30,7 +30,6 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
     Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,

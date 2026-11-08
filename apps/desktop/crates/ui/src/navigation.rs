@@ -1222,7 +1222,24 @@ fn forward_to_owner_shell(window: &Window, cx: &mut App, screen: &Screen) -> boo
     true
 }
 
+/// #EXP-1732 (session-screen.json): an app's editor session IS the app's
+/// screen, so the chat route of an app root opens the app editor.
+fn app_editor_screen(screen: Screen, cx: &App) -> Screen {
+    let Screen::Chat { session_id } = &screen else {
+        return screen;
+    };
+    match crate::session_data::session(session_id, cx)
+        .filter(|row| row.is_root())
+        .and_then(|row| row.app_id)
+        .filter(|app_id| !app_id.is_empty())
+    {
+        Some(app) => Screen::App { app },
+        None => screen,
+    }
+}
+
 fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
+    let screen = app_editor_screen(screen, cx);
     // EXP-771: the screen may already have its own window (EXP-65 undock) —
     // then this is a REVEAL, not a navigation: bring that window forward and
     // leave this window's tab strip alone. Every tab-opening entry funnels
@@ -1271,6 +1288,7 @@ pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
 }
 
 fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen) {
+    let screen = app_editor_screen(screen, cx);
     if forward_to_owner_shell(window, cx, &screen) {
         return;
     }

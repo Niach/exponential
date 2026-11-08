@@ -2657,36 +2657,6 @@ impl SteerSessionView {
         self.answer_via_server(&key, Vec::new(), Vec::new(), input, item_id, cx);
     }
 
-    /// #EXP-1562: a waiting chip's card in this view (a tool-posted
-    /// Conversation card, or an engine ask's feed card by its row): its
-    /// list row scrolled to the centre and the card ringed.
-    pub(crate) fn reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
-        let items = self.feed.items();
-        let row_holding = |hit: &dyn Fn(&FeedItem) -> bool| {
-            self.rows
-                .iter()
-                .position(|spec| spec.item_indices().iter().filter_map(|&index| items.get(index)).any(|item| hit(item)))
-        };
-        let ix = match self.conv_cards.iter().position(|row| row.id() == message_id) {
-            Some(card) if self.conv_head().contains(&card) => Some(0),
-            Some(card) => match self.conv_tail().iter().position(|&tail| tail == card) {
-                Some(at) => Some(self.rows.len() + self.orphan_workflows.len() + at),
-                None => row_holding(&|item| self.conv_anchors.get(&item.id).is_some_and(|cards| cards.contains(&card))),
-            },
-            None => {
-                let messages = crate::session_data::messages_of_session(&self.session_id, cx);
-                row_holding(&|item| {
-                    item.question()
-                        .is_some_and(|card| card_row_id(&messages, &card.question_id).as_deref() == Some(message_id))
-                })
-            }
-        };
-        match ix {
-            Some(ix) => crate::waiting_cards::reveal_in_list(&self.list, ix, message_id, cx),
-            None => crate::waiting_cards::highlight(message_id, cx),
-        }
-    }
-
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
     /// (the host's `question_resolved` settles it); a refusal unlocks it
     /// with the usual "Couldn't answer the question" toast.

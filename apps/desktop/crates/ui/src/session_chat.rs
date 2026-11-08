@@ -21,8 +21,8 @@
 //!   between. The chat = the root's messages plus its children's question /
 //!   plan cards on THE transcript (#EXP-1736's MessageBubble rows), THE Dock
 //!   and THE session composer ([`crate::composer::session_composer_card`],
-//!   `sessions.send({sessionId: root})`). NEW-6 (N-1): a chat with ONE
-//!   session shows that session's raw work as its chat body.
+//!   `sessions.send({sessionId: root})`). The Chat tab ALWAYS shows the
+//!   transcript, a one-session chat's too (its raw work = a Sessions row).
 //! * THE TABS: Issues = THE issue rows of the tree led by the `+` (THE Menu:
 //!   `Link an issue` › the search list, `New issue`; a root link's row
 //!   `Unlink <IDENT>` on its context menu), a row opens that issue EMBEDDED
@@ -3386,10 +3386,6 @@ pub(crate) struct SessionChatScreenView {
     /// (the Conversation's Tasks card + status line), while it shows.
     tail: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _tail_sub: Option<Subscription>,
-    /// NEW-6 (N-1): the chat's ONE session (`view.main_session_id`) while
-    /// it is the main thing: its raw work is the body, in place.
-    main: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
-    _main_sub: Option<Subscription>,
     /// #EXP-1545 (dock.json CHAT QUEUE): one relay viewer per Live child
     /// of the tree, read for its Queue only (its per-session slots, seeded
     /// LOCAL FIRST from the last-known memo), while the Conversation shows.
@@ -3497,8 +3493,6 @@ impl SessionChatScreenView {
             _focus_sub: None,
             tail: None,
             _tail_sub: None,
-            main: None,
-            _main_sub: None,
             queue_feeds: HashMap::new(),
             closed_queue_reads: HashMap::new(),
             probe_timer: None,
@@ -3588,10 +3582,6 @@ impl SessionChatScreenView {
         if let Some((_, view)) = self.tail.take() {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
-        if let Some((_, view)) = self.main.take() {
-            view.update(cx, |view, cx| view.shutdown(cx));
-        }
-        self._main_sub = None;
         for (_, feed) in self.queue_feeds.drain() {
             feed.view.update(cx, |view, _| view.shutdown());
         }
@@ -3772,15 +3762,9 @@ impl SessionChatScreenView {
         cx.notify();
     }
 
-    /// #EXP-1562: the pending reveal: THE list's row (the chat) or the ONE
-    /// session's view (NEW-6).
+    /// #EXP-1562: the pending reveal: THE list's row.
     fn take_reveal(&mut self, model: &ChatModel, cx: &mut gpui::Context<Self>) {
         let Some(id) = self.reveal.take() else { return };
-        if let Some((_, view)) = self.main.clone() {
-            let inner = view.read(cx).inner().clone();
-            inner.update(cx, |inner, cx| inner.reveal_card(&id, cx));
-            return;
-        }
         let row = self.conv.rows.iter().position(|&index| model.view.rows.get(index).is_some_and(|row| row.id() == id));
         match row {
             Some(ix) => crate::waiting_cards::reveal_in_list(&self.list, ix, &id, cx),
@@ -4052,23 +4036,6 @@ impl SessionChatScreenView {
         let name = pick.session_name?;
         let feed = self.queue_feeds.get(&pick.session_id)?;
         Some((feed.view.clone(), name))
-    }
-
-    /// NEW-6 (N-1): keep the ONE session's view while it is the body.
-    fn sync_main(&mut self, main: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.main.as_ref().map(|(id, _)| id.as_str()) == main {
-            return;
-        }
-        if let Some((_, view)) = self.main.take() {
-            view.update(cx, |view, cx| view.shutdown(cx));
-        }
-        self._main_sub = None;
-        if let Some(main) = main {
-            let id = main.to_string();
-            let view = cx.new(|cx| crate::session_screen::SessionScreenView::new(id.clone(), window, cx));
-            self._main_sub = Some(cx.observe(&view, |_, _, cx| cx.notify()));
-            self.main = Some((id, view));
-        }
     }
 
     /// EXP-1323: the live tail after the last row ([`sync_tail`]'s viewer).
@@ -4707,22 +4674,13 @@ impl Render for SessionChatScreenView {
         // EXP-1346: ONE memoised chip resolver per frame for every text.
         self.text = ChatText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()))
             .answering(self.composer.read(cx).may_message());
-        // NEW-6 (N-1): a chat with ONE session = that session's raw work in
-        // the chat pane (its composer). S-3 (chats.json CHAT MODE): an agent
-        // conversation always paints its bubbles. Never twice: the session
-        // open in the pane wins.
-        let bubbles = domain::session_tree::chat_mode(model.root.agent_id.as_deref())
-            == domain::session_tree::ChatMode::Bubbles;
-        let main = (!bubbles)
-            .then(|| model.view.main_session_id.clone())
-            .flatten()
-            .filter(|id| self.focus_id() != Some(id.as_str()));
-        self.sync_main(main.as_deref(), window, cx);
+        // #EXP-1732: the Chat tab ALWAYS shows THE transcript (a one-session
+        // chat too, ×4); its session's raw work is a Sessions row.
         // EXP-1323: the live tail's viewer rides the Conversation.
-        let live = main.is_none().then(|| model.view.live_session_id.clone()).flatten();
+        let live = model.view.live_session_id.clone();
         self.sync_tail(live.as_deref(), window, cx);
         // #EXP-1545: the Live children's Queues ride the Conversation's Dock.
-        let children = if main.is_none() { live_children(&model.view, &model.root, cx) } else { Vec::new() };
+        let children = live_children(&model.view, &model.root, cx);
         self.sync_queue_feeds(children, window, cx);
         // EXP-1323: what is on screen is read: the chat (the whole tree's
         // agent replies) and the session open in the pane (its own).
@@ -4732,20 +4690,8 @@ impl Render for SessionChatScreenView {
         }
         let screen = self.screen_of(&model, cx);
         let header = self.render_header(&model, &screen, window, cx);
-        // THE chat body (every layout): the transcript + Dock + composer, or
-        // the ONE session's raw work.
-        let chat = match self.main.clone() {
-            Some((_, view)) => {
-                self.take_reveal(&model, cx);
-                let inner = view.read(cx).inner().clone();
-                let origin = model.view.origin.clone();
-                if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
-                    inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
-                }
-                session_pane(&view, cx)
-            }
-            None => self.render_conversation(&model, window, cx),
-        };
+        // THE chat body (every layout): the transcript + Dock + composer.
+        let chat = self.render_conversation(&model, window, cx);
         // EXP-1686: the call panel covers an agent chat's body while it runs.
         let chat = match agent_chat {
             Some(_) => div()
