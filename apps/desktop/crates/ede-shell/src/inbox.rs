@@ -63,6 +63,11 @@ pub struct AccountRows {
     pub pull_requests: Vec<PullRequestRow>,
 }
 
+/// A shape's rows off the account's store, typed (rows that do not parse drop out).
+pub fn read_rows<T: DeserializeOwned>(store: &sync::store::ShapeStore, shape: &str) -> Vec<T> {
+    rows(store, shape)
+}
+
 fn rows<T: DeserializeOwned>(store: &sync::store::ShapeStore, shape: &str) -> Vec<T> {
     let Some(spec) = sync::shapes::shape_by_name(shape) else { return Vec::new() };
     store.read_all(spec).unwrap_or_default().into_iter().filter_map(|row| serde_json::from_value(Value::Object(row)).ok()).collect()

@@ -78,6 +78,7 @@ mod settings;
 mod settings_pages;
 mod share;
 mod system;
+mod team_chat;
 mod thumbs;
 
 use std::{
@@ -302,6 +303,8 @@ struct Shell {
     chat_local: Option<local_runs::LocalChat>,
     /// #EDE-65 lane I: the agent picked on the chat's home.
     chat_agent: Option<String>,
+    /// The chat on a team: its account, team and open session.
+    chat_team: Option<team_chat::TeamChat>,
     /// The chat document's literal composer props (placeholder, busy) as drawn.
     chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
@@ -794,7 +797,7 @@ impl HostPlugin for Host {
                     let arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
                     match args.get("action").and_then(Value::as_str) {
                         Some("send") => chat_send(&shell, &arg("text"), cx),
-                        Some("answer") => chat_answer(&shell, &arg("answer"), cx),
+                        Some("answer") => chat_answer(&shell, &arg("messageId"), &arg("answer"), cx),
                         Some("pick") => {
                             shell.borrow_mut().chat_agent = Some(arg("agentId"));
                             chatting_changed(&shell, cx);
@@ -1660,11 +1663,14 @@ fn chat_local(shell: &SharedShell) -> bool {
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
     let local = !demo && chat_local(shell);
+    let team = if demo || local { None } else { team_chat(shell) };
     let (mut input, no_cli) = {
         let s = shell.borrow();
-        match (demo, s.chat_local.as_ref().filter(|_| local)) {
-            (true, _) if on_local(shell) => (local_runs::demo_input(), false),
-            (false, Some(chat)) => (chat.input(), chat.agent.is_empty()),
+        match (demo, s.chat_local.as_ref().filter(|_| local), team) {
+            (true, _, _) if on_local(shell) => (local_runs::demo_input(), false),
+            (true, _, _) => (team_chat::demo_input(), false),
+            (false, Some(chat), _) => (chat.input(), chat.agent.is_empty()),
+            (false, None, Some((chat, rows))) => (team_chat::input(&rows, &chat, now_ms()), false),
             _ => (local_runs::assistant_home(), false),
         }
     };
@@ -1711,39 +1717,110 @@ fn patch_chat(shell: &Shell, doc: &mut Document) {
     }
 }
 
-/// The composer's text to the desktop's agent (#EDE-58); on a team the app
-/// takes it until the shell talks to the team's sessions.
-fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
-    if !chat_local(shell) {
-        launch_app(shell, "at.exponential");
-        return;
+/// The chat on the current team (its account's synced rows), kept on its
+/// session while the team stays current; `None` off a team or before its
+/// account's store opened.
+fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::TeamRows)> {
+    let current = shell.borrow().model.switcher.current.clone();
+    let account_id = current.account.clone().filter(|_| current.kind == uicore_model::SwitcherKind::Team)?;
+    let (account, store) = {
+        let s = shell.borrow();
+        (s.workspaces.account(&account_id)?, s.workspaces.store(&account_id)?)
+    };
+    let mut chat = team_chat::TeamChat { account_id: account_id.clone(), team_id: current.id.clone(), session_id: None };
+    if let Some(open) = shell.borrow().chat_team.as_ref().filter(|c| c.account_id == chat.account_id && c.team_id == chat.team_id) {
+        chat.session_id = open.session_id.clone();
     }
-    let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
-    if let Err(e) = sent {
-        tracing::warn!("chat send: {e}");
-    }
-    chat_clear_draft(shell, cx);
+    shell.borrow_mut().chat_team = Some(chat.clone());
+    let rows = team_chat::TeamRows {
+        account: inbox::AccountRows::read(&account_id, &account.user_id, &store),
+        messages: inbox::read_rows(&store, "messages"),
+        users: inbox::read_rows(&store, "users"),
+    };
+    Some((chat, rows))
 }
 
-/// A question's option: the answer to the chat's agent.
-fn chat_answer(shell: &SharedShell, label: &str, cx: &mut App) {
-    if !chat_local(shell) || label.trim().is_empty() {
+/// The composer's text: to the desktop's agent (#EDE-58), or on a team
+/// through `sessions.send` (the IDE's path): the open session, else the
+/// picked agent; the chat then shows the session the server names.
+fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
+    if chat_local(shell) {
+        let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
+        if let Err(e) = sent {
+            tracing::warn!("chat send: {e}");
+        }
+        chat_clear_draft(shell, cx);
         return;
     }
-    if let Some(Err(e)) = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label)) {
-        tracing::warn!("chat answer: {e}");
+    let Some((chat, rows)) = team_chat(shell) else {
+        launch_app(shell, "at.exponential");
+        return;
+    };
+    let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
+    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text) else { return };
+    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
+        if let Some(sealed) = team_chat::seal(root, &text) {
+            input.text = Some(sealed);
+        }
     }
-    chatting_changed(shell, cx);
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    chat_clear_draft(shell, cx);
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        match sent {
+            Ok(out) => {
+                if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
+                    open.session_id = Some(out.session_id);
+                }
+                cx.update(|cx| chatting_changed(&shell, cx));
+            }
+            Err(e) => tracing::warn!("chat send: {}", e.user_message()),
+        }
+    })
+    .detach();
+}
+
+/// A question's option: on a team `sessions.answer` stamps it in the card
+/// (the IDE's path); the desktop's runs take it as the next message.
+fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App) {
+    if label.trim().is_empty() {
+        return;
+    }
+    if chat_local(shell) {
+        if let Some(Err(e)) = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label)) {
+            tracing::warn!("chat answer: {e}");
+        }
+        chatting_changed(shell, cx);
+        return;
+    }
+    let Some(account_id) = shell.borrow().chat_team.as_ref().map(|c| c.account_id.clone()) else { return };
+    let Some(account) = shell.borrow().workspaces.account(&account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    let input = api::sessions::AnswerInput { message_id: message_id.to_string(), answer: Some(label.to_string()), answers: Some(json!([label])), ..Default::default() };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(e) = api::sessions::answer(&trpc, &input) {
+                tracing::warn!("chat answer: {}", e.user_message());
+            }
+        })
+        .detach();
 }
 
 /// A card's or a rail chat's session (`None` = New chat: the home).
 fn chat_open(shell: &SharedShell, session_id: Option<&str>, cx: &mut App) {
+    let session_id = session_id.filter(|id| !id.is_empty());
     if chat_local(shell) {
         if let Some(chat) = shell.borrow_mut().chat_local.as_mut() {
-            match session_id.filter(|id| !id.is_empty()) {
+            match session_id {
                 Some(id) => chat.open(id),
                 None => chat.new_chat(),
             }
+        }
+    } else if team_chat(shell).is_some() {
+        if let Some(chat) = shell.borrow_mut().chat_team.as_mut() {
+            chat.session_id = session_id.map(str::to_string);
         }
     }
     chatting_changed(shell, cx);
@@ -2493,6 +2570,7 @@ fn main() {
             pending_pick: saved_team,
             chat_local: None,
             chat_agent: None,
+            chat_team: None,
             chat_composer: Value::Null,
             engine: None,
             launches: system::LaunchGuard::default(),
@@ -2556,6 +2634,8 @@ fn main() {
         cx.spawn(async move |cx| {
             let mut minute = clock::time();
             let (mut tray_pending, mut last_tray) = (false, Instant::now());
+            // #EDE-65 lane I: an open team chat repaints at most every 250 ms while a reply streams.
+            let (mut chat_pending, mut last_chat) = (false, Instant::now());
             loop {
                 let mut dirty = false;
                 while let Ok(changes) = changes_rx.try_recv() {
@@ -2603,10 +2683,15 @@ fn main() {
                 let mut teams_changed = false;
                 let mut records_changed = false;
                 let mut tray_changed = false;
+                let mut team_chat_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
                     if let sync::ShapeDelta::Applied { shape, account_id, .. } = &delta {
                         if *shape == "teams" || inbox::SHAPES.contains(shape) {
                             tray_changed = true;
+                        }
+                        // #EDE-65 lane I: the open team chat's rows moved.
+                        if team_chat::SHAPES.contains(shape) && s.borrow().chat_team.as_ref().is_some_and(|c| &c.account_id == account_id) {
+                            team_chat_changed = true;
                         }
                         match *shape {
                             "teams" | "team_members" => teams_changed = true,
@@ -2656,6 +2741,14 @@ fn main() {
                 }
                 // #EDE-65: the tray's inbox and Needs you, at most once a second while a sync streams.
                 tray_pending |= tray_changed;
+                chat_pending |= team_chat_changed;
+                if chat_pending && last_chat.elapsed() >= Duration::from_millis(250) {
+                    chat_pending = false;
+                    last_chat = Instant::now();
+                    if s.borrow().surfaces.is_open("chat") {
+                        cx.update(|cx| chatting_changed(&s, cx));
+                    }
+                }
                 if tray_pending && last_tray.elapsed() >= Duration::from_secs(1) {
                     tray_pending = false;
                     last_tray = Instant::now();
