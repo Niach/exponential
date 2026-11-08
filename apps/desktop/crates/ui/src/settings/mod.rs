@@ -64,7 +64,7 @@ mod mcp_server_dialog;
 mod statuses;
 mod local_repos;
 mod members;
-mod all_boards;
+pub(crate) mod all_boards;
 mod change_email_dialog;
 mod sign_in_methods;
 pub(crate) mod notifications_prefs;
@@ -764,7 +764,7 @@ impl SettingsView {
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
-        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), cx));
+        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), window, cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let agent_detail =

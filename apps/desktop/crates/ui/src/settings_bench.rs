@@ -14,6 +14,7 @@ use crate::settings::about::AboutPane;
 use crate::settings::sessions::SessionsPane;
 use crate::settings::api_keys::{ApiKeysPane, ShotLoad as KeysLoad};
 use crate::settings::widget::WidgetPane;
+use crate::settings::all_boards::AllBoardsPane;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::shell_bench::headless;
@@ -284,4 +285,28 @@ fn settings_widget_empty() {
 #[ignore]
 fn settings_widget_failed() {
     shoot_pane("widget-failed", WidgetPane::for_shots, |pane, cx| pane.show(None, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_all_boards_put_away() {
+    shoot_pane("all-boards-put-away", AllBoardsPane::for_shots, |pane, cx| {
+        let archived = serde_json::from_value(serde_json::json!([
+            {"id": "b1", "name": "Old roadmap", "color": "#3b82f6", "icon": "rocket", "archivedAt": "2026-06-30"},
+            {"id": "b2", "name": "Experiments", "icon": "flask-conical"},
+        ]))
+        .expect("archived boards");
+        let trash = serde_json::from_value(serde_json::json!([
+            {"id": "b3", "name": "Scratch", "color": "#ef4444", "icon": "code", "purgeAt": "2020-01-01T00:00:00Z"},
+            {"id": "b4", "name": "Duplicates"},
+        ]))
+        .expect("trashed boards");
+        pane.show(archived, trash, cx)
+    });
+}
+
+#[test]
+#[ignore]
+fn settings_all_boards_empty() {
+    shoot_pane("all-boards-empty", AllBoardsPane::for_shots, |pane, cx| pane.show(Vec::new(), Vec::new(), cx));
 }
