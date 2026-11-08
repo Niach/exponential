@@ -668,7 +668,12 @@ class ShapeClient<T : Any>(
         val sawUpToDate = decoded.any { it is ShapeMessage.UpToDate }
         // The refetch batch: the wipe rides IN FRONT of the snapshot rows, so
         // SyncManager's single transaction does DELETE-then-INSERT atomically.
-        val messages = if (refetching) listOf(ShapeMessage.MustRefetch) + decoded else decoded
+        // A first snapshot (no cursor at all) wipes too: the batch is applied
+        // before its cursor is written, so a process that dies in between (or
+        // an older build that never stored this shape's cursor) leaves rows
+        // without one, and a later delete on the server never reaches them —
+        // a deleted conversation's messages showed twice next to the new one.
+        val messages = if (isSnapshot) listOf(ShapeMessage.MustRefetch) + decoded else decoded
         if (messages.isNotEmpty()) {
             onMessages(messages)
             onApplied(countDataOps(messages))

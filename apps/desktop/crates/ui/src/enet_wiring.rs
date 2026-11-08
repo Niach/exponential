@@ -64,6 +64,9 @@ fn installs(cx: &mut App) -> &mut EnetInstalls {
 /// Starts `account`'s node (idempotent: a running one only re-reads its
 /// allowlist). From `steer_wiring::start_control_channel`.
 pub fn start(account: &api::Account, cx: &mut App) {
+    if account.is_local() {
+        return;
+    }
     let Some(runtime) = crate::steer_wiring::runtime(cx) else {
         return;
     };

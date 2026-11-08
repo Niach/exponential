@@ -17,6 +17,63 @@ const SIDEBAR: (f32, f32) = (272., 900.);
 
 #[test]
 #[ignore]
+fn shell_local_desktop() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().to_path_buf();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        crate::local_desktops::install(path, cx);
+        assert!(crate::local_desktops::enter_current(cx));
+    });
+    let handle = open(&mut cx, size(px(SIDEBAR.0), px(SIDEBAR.1)));
+    let window: gpui::AnyWindowHandle = handle.into();
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join("ide-local.png")).expect("the PNG");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+
+#[test]
+#[ignore]
+fn shell_header() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = cx
+        .open_window(size(px(SIDEBAR.0), px(64.)), |window: &mut Window, cx| {
+            let nav = nav_for_window(window, cx);
+            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            crate::shell_regions::HeaderRegion::new(nav, window, cx)
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.entity(cx).expect("the header"));
+    cx.update_window(window, |_, window, cx| {
+        let nav = nav_for_window(window, cx);
+        let mut live = std::collections::BTreeMap::new();
+        live.insert("t2".to_string(), crate::session_data::TeamLiveRuns { count: 1, needs_input: true });
+        region.update(cx, |region, cx| region.refresh(&nav, &live, cx));
+    })
+    .expect("the window");
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join("ide-header.png")).expect("the PNG");
+    std::mem::forget(cx);
+}
+
+#[test]
+#[ignore]
 fn shell_tab_bar_frames() {
     let mut cx = headless();
     cx.update(seeded);
@@ -88,7 +145,7 @@ fn seeded(cx: &mut gpui::App) {
     let store = sync::Store::open(cx, None, None);
     cx.set_global(store);
     let c = sync::Store::global(cx).collections().clone();
-    seed(&c.teams, json!([{"id": "t1", "name": "Exponential", "slug": "exponential"}]), cx);
+    seed(&c.teams, json!([{"id": "t1", "name": "Exponential", "slug": "exponential"}, {"id": "t2", "name": "Acme", "slug": "acme"}]), cx);
     seed(&c.boards, json!([
         {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "color": "#22c55e", "sort_order": 1},
         {"id": "b2", "team_id": "t1", "name": "Website", "slug": "website", "prefix": "WEB", "color": "#3b82f6", "sort_order": 2},

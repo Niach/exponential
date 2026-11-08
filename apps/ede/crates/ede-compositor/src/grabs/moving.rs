@@ -50,10 +50,12 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
             }
             let Some(tiled) = data.space.element_geometry(&self.window) else { return };
             let restore = data.restore_size(&self.window).unwrap_or(tiled.size);
-            let loc = layout::untile_location(event.location, tiled, restore);
+            // From where the press was: a client-side title bar asks for
+            // the move only past its own drag threshold, so the pointer is
+            // already further down by now (#EDE-65).
+            self.initial_window_location = layout::untile_location(self.start_data.location, tiled, restore);
+            let loc = (self.initial_window_location.to_f64() + delta).to_i32_round();
             data.untile(&self.window, Some(loc));
-            self.initial_window_location = loc;
-            self.start_data.location = event.location;
             return;
         }
 

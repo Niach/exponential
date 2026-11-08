@@ -552,25 +552,9 @@ impl HostPlugin for Host {
                     Some("pick") => {
                         let kind: Option<uicore_model::SwitcherKind> = args.get("kind").cloned().and_then(|k| serde_json::from_value(k).ok());
                         if let (Some(entry_kind), Some(id)) = (kind, args.get("id").and_then(Value::as_str)) {
-                            if entry_kind == uicore_model::SwitcherKind::Local {
-                                // The desktops index remembers the current Local desktop.
-                                if let Err(e) = shell.borrow_mut().workspaces.desktops.set_current(id) {
-                                    tracing::warn!("desktops.json: {e}");
-                                }
-                            }
-                            let picked_local = entry_kind == uicore_model::SwitcherKind::Local;
-                            dispatch(&shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
-                            // Another desktop or a team: the opened desktop and its chat go.
-                            let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
-                            if changed {
-                                if let Some(chat) = shell.borrow_mut().chat_local.take() {
-                                    chat.stop();
-                                }
-                                shell.borrow_mut().local = None;
-                            }
-                            chatting_changed(&shell, cx);
-                            // #VAPP-273: the apps follow the desktop (local records or the team's).
-                            engine_boot(&shell, cx);
+                            // #EDE-65: the menu goes with the pick (it stayed open, the pick looked like nothing).
+                            shell.borrow_mut().surfaces.dismiss_hosted(cx);
+                            switcher_picked(&shell, entry_kind, id, cx);
                         }
                     }
                     Some("new") => {
@@ -578,7 +562,7 @@ impl HostPlugin for Host {
                         match created {
                             Ok(entry) => {
                                 switcher_refresh_entries(&shell, cx);
-                                dispatch(&shell, ShellEvent::SwitcherPick { entry_kind: uicore_model::SwitcherKind::Local, id: entry.id }, cx);
+                                switcher_picked(&shell, uicore_model::SwitcherKind::Local, &entry.id, cx);
                             }
                             Err(e) => tracing::warn!("new local desktop: {e}"),
                         }
@@ -957,8 +941,42 @@ fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::SwitcherSet { entries }, cx);
     if let Some(id) = pending {
         shell.borrow_mut().pending_pick = None;
-        dispatch(shell, ShellEvent::SwitcherPick { entry_kind: uicore_model::SwitcherKind::Team, id }, cx);
+        switcher_picked(shell, uicore_model::SwitcherKind::Team, &id, cx);
     }
+}
+
+/// #EDE-65: a pick from the switcher (or a team that arrived for a pending
+/// one): the current entry, remembered across logins; the chat, the apps and
+/// the Exponential app follow it (a team: the app switches to it too).
+fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, id: &str, cx: &mut App) {
+    let picked_local = entry_kind == uicore_model::SwitcherKind::Local;
+    if picked_local {
+        // The desktops index remembers the current Local desktop.
+        if let Err(e) = shell.borrow_mut().workspaces.desktops.set_current(id) {
+            tracing::warn!("desktops.json: {e}");
+        }
+    }
+    dispatch(shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
+    let current = shell.borrow().model.switcher.current.clone();
+    if current.id != id {
+        tracing::warn!(id, "the switcher does not list the pick");
+        return;
+    }
+    shell.borrow().workspaces.save_current(&current);
+    if !picked_local {
+        accounts::ide_follow_team(id);
+    }
+    // Another desktop or a team: the opened desktop and its chat go.
+    let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
+    if changed {
+        if let Some(chat) = shell.borrow_mut().chat_local.take() {
+            chat.stop();
+        }
+        shell.borrow_mut().local = None;
+    }
+    chatting_changed(shell, cx);
+    // #VAPP-273: the apps follow the desktop (local records or the team's).
+    engine_boot(shell, cx);
 }
 
 /// The Exponential app's ids: one IDE per person, a hand-off target.
@@ -1050,6 +1068,8 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
         .collect();
     value["sidebar"]["workspaces"] = Value::Array(workspaces);
     value["sessions"] = json!([]);
+    // #EDE-65: Connect only without an account, Share as a team only on a Local desktop.
+    value["switcher"]["connection"] = accounts::connection_json(&shell.model.switcher.current, &shell.workspaces.signed_in());
     if let Some(entries) = value["switcher"]["entries"].as_array_mut() {
         for e in entries {
             let current = e["kind"] == shell.model.switcher.current.kind.clone().into_json() && e["id"] == json!(shell.model.switcher.current.id);
@@ -1150,20 +1170,24 @@ fn output_size(shell: &Shell) -> (u32, u32) {
 /// of its edges) sized to the output, since the window takes the size it
 /// asks for; any other document's as written.
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
+    layer_header(doc, output_size(shell), shell.model.rail)
+}
+
+/// [`header_for`] on an output of `(out_w, out_h)` logical px.
+fn layer_header(doc: &Document, (out_w, out_h): (u32, u32), rail: bool) -> SurfaceHeader {
     let mut header = doc.surface.clone();
     if let SurfaceHeader::Layer { size, exclusive_zone, anchor, .. } = &mut header {
-        let (out_w, out_h) = output_size(shell);
+        let sidebar = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
         if anchor.contains(&ede_ui::surface::Edge::Left) && anchor.contains(&ede_ui::surface::Edge::Right) {
-            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { if shell.model.rail { shell_layout().rail_width } else { shell_layout().sidebar_width } } else { 0 }).max(1));
+            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { sidebar } else { 0 }).max(1));
         }
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
             size.height = Some(out_h.max(1));
         }
         if doc.name == "sidebar" {
-            let width = if shell.model.rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
-            size.width = Some(width);
+            size.width = Some(sidebar);
             if *exclusive_zone > 0 {
-                *exclusive_zone = width as i32;
+                *exclusive_zone = sidebar as i32;
             }
         }
     }
@@ -1305,20 +1329,39 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
     model_changed(shell, cx);
 }
 
-/// The sidebar as the rail or the full column: the sidebar re-opens at its
-/// new width, and the taskbar after it (the arrangement follows the
-/// mapping order).
+/// The sidebar as the rail or the full column: the sidebar and the
+/// taskbar take their new widths in place (#EDE-65: re-opening them
+/// dropped both bars for a frame).
 fn rail_toggle(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::RailToggle, cx);
-    let reopen: Vec<Document> = ["sidebar", "taskbar"].iter().filter_map(|n| document(&shell.borrow(), n)).filter(|d| shell.borrow().surfaces.is_open(&d.name)).collect();
-    for d in &reopen {
-        close(shell, &d.name, cx);
-    }
-    for d in &reopen {
-        open_layer(shell, d, cx);
-    }
+    relayout(shell, cx);
     let rail = shell.borrow().model.rail;
     settings::persist_shell(json!({"rail": rail}));
+}
+
+/// Every open layer document at the size its header asks for now (the
+/// output changed, the rail): resized in place, never re-opened (#EDE-65:
+/// after a VM window resize the taskbar kept its old width, centred, its
+/// first button floating mid-bar, and the ground and sidebar kept theirs).
+fn relayout(shell: &SharedShell, cx: &mut App) {
+    let docs: Vec<Document> = {
+        let s = shell.borrow();
+        let names: Vec<String> = s.surfaces.open_names().map(String::from).collect();
+        names.iter().filter_map(|n| document(&s, n)).filter(|d| matches!(d.surface, SurfaceHeader::Layer { .. })).collect()
+    };
+    for doc in docs {
+        let (header, feed) = {
+            let s = shell.borrow();
+            (header_for(&s, &doc), s.feed.clone())
+        };
+        if header == doc.surface {
+            continue;
+        }
+        let mut doc = doc;
+        size_root(&mut doc, &header);
+        doc.surface = header;
+        shell.borrow_mut().surfaces.resize_layer(&doc, &feed, cx);
+    }
 }
 
 /// Mint's click on a taskbar button: launch, focus, minimize, or the
@@ -1426,11 +1469,23 @@ fn chat_local(shell: &SharedShell) -> bool {
 /// `/chatting` into the views: the local conversation, or the app's Assistant.
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
+        // The goldens: the sample conversation on a Local desktop, the app's on a team.
+        let feed = if on_local(shell) { local_runs::demo_feed() } else { remote_feed(&shell.borrow()) };
+        shell.borrow_mut().feed.set("/chatting", feed);
+        refresh(shell, cx);
         return;
     }
-    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()).unwrap_or_else(local_runs::remote_feed) } else { local_runs::remote_feed() };
+    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()) } else { None }.unwrap_or_else(|| remote_feed(&shell.borrow()));
     shell.borrow_mut().feed.set("/chatting", feed);
     refresh(shell, cx);
+}
+
+/// `/chatting` on a team: the team and the account it is connected through.
+fn remote_feed(shell: &Shell) -> Value {
+    let current = &shell.model.switcher.current;
+    let connection = accounts::connection_json(current, &shell.workspaces.signed_in());
+    let team = if current.kind == uicore_model::SwitcherKind::Team { current.name.as_str() } else { "" };
+    local_runs::remote_feed(team, connection["account"].as_str().unwrap_or_default())
 }
 
 /// The composer's text to the desktop's agent (#EDE-58).
@@ -1974,7 +2029,7 @@ fn main() {
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
-        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed() });
+        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed("", "") });
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
@@ -2015,6 +2070,7 @@ fn main() {
         if let Some(current) = workspaces.current_local() {
             model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
+        let saved_team = workspaces.saved_team();
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
         feed.set("/shell", uicore_data::shell_feed(&model, &menu_apps, &favourites));
@@ -2055,7 +2111,8 @@ fn main() {
             connect,
             share,
             local: None,
-            pending_pick: None,
+            // #EDE-65: the team picked last, once its account's teams are listed.
+            pending_pick: saved_team,
             chat_local: None,
             engine: None,
             launches: system::LaunchGuard::default(),
@@ -2143,8 +2200,12 @@ fn main() {
                     sh.feed.set("/applets", applets);
                     dirty = true;
                 }
-                while let Ok(()) = outputs_rx.try_recv() {
+                if outputs_rx.try_iter().count() > 0 {
+                    let before = output_size(&s.borrow());
                     outputs_refresh(&s);
+                    if output_size(&s.borrow()) != before {
+                        cx.update(|cx| relayout(&s, cx));
+                    }
                     dirty = true;
                 }
                 while let Ok((document, layers)) = hosted_rx.try_recv() {
@@ -2298,5 +2359,35 @@ mod function_names {
             }
         }
         assert!(checked > 40, "the headers were read ({checked})");
+    }
+}
+
+#[cfg(test)]
+mod layer_sizes {
+    use super::*;
+
+    fn factory(name: &str) -> Document {
+        uicore_gpui::inline::document(uicore_docs::DOCS.iter().find(|d| d.name == name).expect(name))
+    }
+
+    fn size(header: &SurfaceHeader) -> (Option<u32>, Option<u32>, i32) {
+        let SurfaceHeader::Layer { size, exclusive_zone, .. } = header else { panic!("a layer header") };
+        (size.width, size.height, *exclusive_zone)
+    }
+
+    /// #EDE-65: the stretched bars follow the output: a VM window resized
+    /// to 1920×1080 gives the taskbar the width right of the sidebar, the
+    /// ground and the sidebar the full height (eDE 0.2.6 kept the sizes of
+    /// the start, so the taskbar sat centred with its first button mid-bar).
+    #[test]
+    fn the_bars_take_the_outputs_size() {
+        let (taskbar, sidebar, ground) = (factory("taskbar"), factory("sidebar"), factory("ground"));
+        for (out, rail) in [((1280, 720), false), ((1920, 1080), false), ((1920, 1080), true)] {
+            let side = if rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
+            assert_eq!(size(&layer_header(&taskbar, out, rail)), (Some(out.0 - side), Some(48), 48), "{out:?} rail {rail}");
+            assert_eq!(size(&layer_header(&sidebar, out, rail)), (Some(side), Some(out.1), side as i32), "{out:?} rail {rail}");
+            assert_eq!(size(&layer_header(&ground, out, rail)), (Some(out.0), Some(out.1), -1), "{out:?} rail {rail}");
+        }
+        assert_ne!(layer_header(&taskbar, (1280, 720), false), layer_header(&taskbar, (1920, 1080), false), "a new size is a relayout");
     }
 }

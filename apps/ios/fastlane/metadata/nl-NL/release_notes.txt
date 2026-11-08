@@ -48,3 +48,4 @@
 - Je Assistent werkt in al je teams
 - Teameigenaren kunnen een Coördinator-agent kiezen
 - Apps kunnen tekenen op een canvas en reageren op tikken en slepen
+- Een record opslaan in een app-formulier werkt weer

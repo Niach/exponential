@@ -364,6 +364,9 @@ pub fn today_local() -> String {
 /// The signed-in account (per the §5 session machine) — `None` unless Synced.
 pub fn active_account(cx: &App) -> Option<api::Account> {
     let account_id = Store::global(cx).session(cx).account_id()?.to_string();
+    if let Some(local) = crate::local_desktops::account(&account_id, cx) {
+        return Some(local);
+    }
     cx.try_global::<AuthContext>()?
         .auth
         .account(&account_id)
@@ -386,10 +389,24 @@ pub(crate) fn active_user(cx: &App) -> Option<domain::rows::User> {
 /// Build per mutation — cheap (an `Agent` + two `Arc`s), and always pointed at
 /// the CURRENT account even across re-login.
 pub fn trpc_client(cx: &App) -> Option<api::TrpcClient> {
+    // #EXP-1727: on a Local desktop the calls go to its executor.
+    if let Some(client) = crate::local_desktops::client(cx) {
+        return Some(client);
+    }
     let auth = cx.try_global::<AuthContext>()?;
     let account = active_account(cx)?;
     let provider: Arc<dyn api::TokenProvider> = auth.auth.token_provider(&account.id);
     Some(api::TrpcClient::new(&account.instance_url, provider))
+}
+
+/// #EXP-1727: a client for `account`: a Local desktop's executor, else the
+/// instance with the account's call-time token.
+pub(crate) fn client_for(account: &api::Account, cx: &App) -> Option<api::TrpcClient> {
+    if account.is_local() {
+        return crate::local_desktops::client(cx);
+    }
+    let auth = cx.try_global::<AuthContext>()?;
+    Some(api::TrpcClient::new(&account.instance_url, auth.auth.token_provider(&account.id)))
 }
 
 /// The auth-gated attachment transport bound to the active account (§4.5's

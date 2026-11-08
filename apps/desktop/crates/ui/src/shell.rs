@@ -203,6 +203,8 @@ pub struct Shell {
     session_bar: Entity<crate::session_bar::SessionBar>,
     /// #EXP-1726: the bottom tab bar: work tabs and terminals, one strip.
     tab_bar: Entity<crate::shell_regions::TabBarRegion>,
+    /// #EXP-1725: the left column's fixed header, the shared document's.
+    header: Entity<crate::shell_regions::HeaderRegion>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the session bar spans everything right of it).
     rail: Entity<RailView>,
@@ -465,6 +467,10 @@ impl Shell {
         // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
         let tab_bar = crate::shell_regions::TabBarRegion::new(window, cx);
+        let header = {
+            let nav = navigation::nav_for_window(window, cx);
+            crate::shell_regions::HeaderRegion::new(nav, window, cx)
+        };
         // EXP-769: the session bar (and with it this window's terminal
         // manager). After the nav registry entry above — a tab opening
         // navigates through it — and before the first frame, so the coding
@@ -485,6 +491,7 @@ impl Shell {
             dock_area,
             session_bar,
             tab_bar,
+            header,
             rail,
             settings_nav,
             left_anim,
@@ -589,8 +596,9 @@ impl Shell {
             cx,
         );
         let nav = navigation::nav_for_window(window, cx);
-        let header =
-            crate::sidebar::render_left_column_header(&nav, &self.team_live_runs, cx);
+        let live = self.team_live_runs.clone();
+        self.header.update(cx, |header, cx| header.refresh(&nav, &live, cx));
+        let header = self.header.clone();
 
         // EXP-1192: under the fixed header the column is ONE slot — the rail
         // or the settings nav. Rail ⇄ Settings slides a [rail | settings]

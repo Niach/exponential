@@ -19,6 +19,10 @@ RUN curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_V
     && install -m 0755 "/tmp/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" /usr/local/bin/sccache \
     && rm -rf /tmp/sccache-*
 
+# #EXP-76: the desktop job's test runner.
+ARG NEXTEST_VERSION=0.9.151
+RUN curl -fsSL "https://get.nexte.st/${NEXTEST_VERSION}/linux" | tar -xz -C /usr/local/bin
+
 # Jobs run as the image's `runner` user, never root: root walks through file
 # permissions, and the desktop suite asserts a read-only dir refuses an unlink.
 # The cache volumes mount over these dirs and inherit the ownership.

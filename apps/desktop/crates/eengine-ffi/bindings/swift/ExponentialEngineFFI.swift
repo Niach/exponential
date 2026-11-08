@@ -2223,7 +2223,7 @@ public func FfiConverterTypeEngineClock_lower(_ value: EngineClock) -> UInt64 {
 public protocol OutboxLog: AnyObject, Sendable {
     
     /**
-     * The entries as a JSON array; a row that no longer parses is left out.
+     * The entries as a JSON array (a row the Engine cannot read is skipped).
      */
     func entriesJson() throws  -> String
     
@@ -2291,7 +2291,7 @@ open class OutboxLogImpl: OutboxLog, @unchecked Sendable {
 
     
     /**
-     * The entries as a JSON array; a row that no longer parses is left out.
+     * The entries as a JSON array (a row the Engine cannot read is skipped).
      */
 open func entriesJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
@@ -5817,7 +5817,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_method_engineclock_now() != 836) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_eengine_ffi_checksum_method_outboxlog_entries_json() != 24899) {
+    if (uniffi_eengine_ffi_checksum_method_outboxlog_entries_json() != 12100) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_method_outboxlog_push() != 57455) {

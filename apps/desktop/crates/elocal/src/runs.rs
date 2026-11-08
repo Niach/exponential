@@ -196,6 +196,12 @@ impl ToolProvider for Merged {
 impl LocalRuns {
     /// Starts the runner for `desktop`: the MCP hub, the hub state from the
     /// store's live sessions, the worker thread.
+    /// The runner over the person's first usable CLI, `None` without one.
+    pub fn start_first_cli(desktop: Arc<LocalDesktop>, cwd: PathBuf) -> Option<Result<Arc<Self>, String>> {
+        let acp = [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex].into_iter().map(AcpRunner::new).find(AcpRunner::available)?;
+        Some(Self::start(desktop, Arc::new(acp), cwd))
+    }
+
     pub fn start(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf) -> Result<Arc<Self>, String> {
         Self::start_with(desktop, runner, cwd, None)
     }

@@ -48,3 +48,4 @@
 - Dein Assistent arbeitet in allen deinen Teams
 - Team-Inhaber können einen Koordinator-Agenten bestimmen
 - Apps können auf einer Leinwand zeichnen und auf Tippen und Ziehen reagieren
+- Einträge in App-Formularen lassen sich wieder speichern

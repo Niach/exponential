@@ -2184,14 +2184,14 @@ fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Ve
     let range = p.selection.filter(|s| s.node == p.node).and_then(|s| s.range_in(unit, text.len()));
     let styled = StyledText::new(text.clone()).with_runs(highlight(runs, range, p.selection_bg));
     // #VAPP-258: the host's window-level selection takes the unit instead.
-    let joined = p.window_selection.map(|bg| (styled.layout().clone(), text.clone(), bg));
+    let joined = p.window_selection.map(|bg| (styled.layout().clone(), text.clone(), chips.clone(), bg));
     if let Some(units) = &p.units {
         let live = p.live.borrow().clone().unwrap_or_else(|| Rc::new(std::cell::Cell::new(true)));
         units.borrow_mut().entry(p.node).or_default().push(MdUnit { layout: styled.layout().clone(), text, chips, live });
     }
     let el = unit_element(id.clone(), styled, links, p);
     match joined {
-        Some((layout, text, bg)) => super::markdown_selection::SelectableUnit::new(format!("{id}.sel"), el, layout, text, bg).into_any_element(),
+        Some((layout, text, chips, bg)) => super::markdown_selection::SelectableUnit::new(format!("{id}.sel"), el, layout, text, bg).chips(chips).into_any_element(),
         None => el,
     }
 }

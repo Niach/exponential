@@ -70,6 +70,9 @@ struct UiPrefs {
     /// #EXP-1724: the sidebar is folded into its icon rail.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     rail: bool,
+    /// #EXP-1727: the app reopens on the current Local desktop.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    local_desktop: bool,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -184,6 +187,22 @@ pub(crate) fn set_rail(rail: bool) {
             return;
         };
         prefs.rail = rail;
+    }
+    schedule_write();
+}
+
+/// #EXP-1727: was the app on a Local desktop?
+pub(crate) fn on_local_desktop() -> bool {
+    prefs().lock().is_ok_and(|prefs| prefs.local_desktop)
+}
+
+/// #EXP-1727: remember being on a Local desktop.
+pub(crate) fn set_on_local_desktop(on: bool) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        prefs.local_desktop = on;
     }
     schedule_write();
 }

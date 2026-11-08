@@ -48,3 +48,4 @@
 - Din Assistent fungerar i alla dina team
 - Teamägare kan välja en Koordinator-agent
 - Appar kan rita på en duk och reagera på tryck och dragningar
+- Att spara en post i ett appformulär fungerar igen

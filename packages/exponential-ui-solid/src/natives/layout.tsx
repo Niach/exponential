@@ -17,6 +17,10 @@ export function BoxNative(props: NativeProps): JSX.Element {
   // #EXP-1674: `Row.href` lands here and opens like a Link's (the policy decides).
   const href = () => str(props.props.href)
   const pressable = () => bool(props.props.pressable) || Boolean(props.node.on?.press) || Boolean(href())
+  // #EDE-65: `on.hover` fires as the pointer enters, like Motion's (no payload).
+  const onPointerEnter = () => {
+    if (props.node.on?.hover) void props.emit(`hover`)
+  }
   const press = (e?: MouseEvent) => {
     // #VAPP-284: a press target inside another (a foldable Row's fold
     // button in its head) fires only its own press.
@@ -49,8 +53,8 @@ export function BoxNative(props: NativeProps): JSX.Element {
     }
   }
   return (
-    <Show when={pressable()} fallback={<div {...props.rootProps}>{props.children}</div>}>
-      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey}>
+    <Show when={pressable()} fallback={<div {...props.rootProps} onPointerEnter={onPointerEnter}>{props.children}</div>}>
+      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter}>
         {props.children}
       </div>
     </Show>

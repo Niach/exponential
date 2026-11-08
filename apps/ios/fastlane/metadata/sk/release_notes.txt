@@ -48,3 +48,4 @@
 - Váš Asistent funguje vo všetkých vašich tímoch
 - Vlastníci tímu môžu určiť agenta Koordinátora
 - Aplikácie môžu kresliť na plátno a reagovať na ťuknutia a ťahanie
+- Ukladanie záznamov vo formulároch aplikácií opäť funguje

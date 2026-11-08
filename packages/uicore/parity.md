@@ -75,6 +75,10 @@ goes. The rows of the left column are `sidebar.json`, fed from `/shell/ide`
 animated mark, a dot, a count) is painted by the host (`HostPlugin::icon_element`,
 named `ide:<kind>:<id>`), so the document stays the catalog's.
 
+The bottom tab bar is `docs/tabbar.json`, the IDE's own document (eDE keeps
+Mint's icon-only `taskbar.json`). The IDE's Local desktops are `elocal`
+(`crates/ui/src/local_desktops.rs`): the same store, executor and runs as eDE.
+
 ## eDE-only regions (not counted by the gate)
 
 | eDE region | state / selector | genUI components | numbers |

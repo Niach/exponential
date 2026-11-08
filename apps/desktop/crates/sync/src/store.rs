@@ -173,6 +173,16 @@ impl ShapeStore {
     // -- cursor state --------------------------------------------------------
 
     /// Read the persisted cursor state for a shape (read-only connection).
+    /// #EXP-1727: a Local desktop's store is authoritative: every shape is
+    /// live with no pipeline behind it.
+    pub fn mark_live(&self, shapes: &[&str]) -> Result<()> {
+        let conn = self.writer.lock().expect("writer poisoned");
+        for shape in shapes {
+            upsert_state(&conn, shape, &ShapeState { handle: String::new(), offset: String::new(), needs_refetch: false, is_live: true })?;
+        }
+        Ok(())
+    }
+
     pub fn shape_state(&self, shape: &str) -> Result<Option<ShapeState>> {
         let conn = self.reader.lock().expect("reader poisoned");
         let mut stmt = conn.prepare_cached(

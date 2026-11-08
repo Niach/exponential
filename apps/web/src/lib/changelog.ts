@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-07-app-forms-save-on-phones`,
+    date: `2026-11-07`,
+    title: `App forms save again on phones`,
+    summary: `Saving a record in an app works again on iPhone and Android.`,
+    body: `- **App forms on phones**: on iPhone and Android, saving a record in an app form was silently refused; it saves again, and no half-sent change stays stuck in the outbox.`,
+  },
+  {
     id: `2026-11-07-canvas-and-a2ui`,
     date: `2026-11-07`,
     title: `Drawing in apps, and the next app format`,

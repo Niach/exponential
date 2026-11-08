@@ -177,6 +177,10 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
 /// the background executor: failures (offline, a transport error) only
 /// mean the next sign-in tries again.
 fn claim_timezone(account: &api::Account, cx: &mut App) {
+    // #EXP-1727: a Local desktop has no digest to send.
+    if account.is_local() {
+        return;
+    }
     let timezone = match iana_time_zone::get_timezone() {
         Ok(timezone) => timezone,
         Err(err) => {
@@ -217,6 +221,11 @@ pub fn sign_out_active(cx: &mut App) {
     let Some(account_id) = store.session(cx).account_id().map(String::from) else {
         return;
     };
+    // #EXP-1727: leaving a Local desktop signs nobody out.
+    if crate::local_desktops::account(&account_id, cx).is_some() {
+        crate::local_desktops::leave(cx);
+        return;
+    }
     // EXP-1457: an explicit sign-out revokes this install's eNet endpoint
     // (taken before the control-channel stop, which only stops it).
     let enet = crate::enet_wiring::stop(&account_id, cx);
@@ -402,6 +411,10 @@ pub fn bootstrap(cx: &mut App) {
         return;
     }
 
+    // #EXP-1727: the window reopens where it was: on a Local desktop.
+    if crate::ui_prefs::on_local_desktop() && crate::local_desktops::enter_current(cx) {
+        return;
+    }
     let auth = AuthContext::global(cx).clone();
     if let Some(account) = auth.auth.signed_in_accounts().into_iter().next() {
         connect_account(&account, cx);

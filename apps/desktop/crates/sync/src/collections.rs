@@ -1156,6 +1156,34 @@ impl Store {
         Ok(())
     }
 
+    /// #EXP-1727: a Local desktop as the active account: its store is
+    /// authoritative, so there is no pipeline: the collections hydrate from
+    /// `db_path` and follow `changes` (`(table, row ids)`, the local store's
+    /// deltas) until another account connects.
+    pub fn connect_local(&self, account_id: &str, db_path: &std::path::Path, changes: flume::Receiver<(String, Vec<String>)>, cx: &mut App) -> Result<(), StoreError> {
+        let sqlite = Arc::new(ShapeStore::open(db_path)?);
+        let shapes: Vec<&str> = crate::shapes::SHAPES.iter().map(|spec| spec.name).collect();
+        sqlite.mark_live(&shapes)?;
+        self.manager.adopt_store(account_id, Arc::clone(&sqlite), db_path.to_path_buf());
+        self.collections.clear_all(cx);
+        self.collections.hydrate_all(&sqlite, cx);
+        self.set_session(SessionPhase::Synced { account_id: account_id.to_string() }, cx);
+        let store = self.clone();
+        let account_id = account_id.to_string();
+        cx.spawn(async move |cx| {
+            while let Ok((table, ids)) = changes.recv_async().await {
+                let active = store.state.read_with(cx, |state, _| state.session.account_id() == Some(account_id.as_str()));
+                if !active {
+                    return;
+                }
+                let keys: Vec<RowKey> = ids.into_iter().map(RowKey::Single).collect();
+                store.collections.apply(&table, &keys, false, true, &sqlite, cx);
+            }
+        })
+        .detach();
+        Ok(())
+    }
+
     /// EXP-1459: tree keys arrived (the key cache's change counter moved):
     /// re-open every row whose sealed content stayed closed.
     pub fn reopen_sealed(&self, cx: &mut App) {

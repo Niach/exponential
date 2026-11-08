@@ -91,4 +91,27 @@ class AppRecordOutboxLogTest {
         assertEquals("1 change waiting to sync", store.pendingLabel("a"))
         assertEquals(listOf("w1"), rows.rows.map { it.writeId })
     }
+
+    /** Valid JSON the Engine still can't read (an unknown call, a create
+     *  without a kind) used to stay in Room: skipped by the Engine, pending and
+     *  overlaying its rows (and counted by the header glyph) forever. */
+    @Test
+    fun `a row the Engine can't read leaves too and the good one replays`() {
+        engine()
+        val rows = Rows()
+        val create = listOf(AppRecords.OutboxWrite("create", "r1", "entry", emptyMap()))
+        rows.rows.add(stored("bad-call", 1, create, call = "frobnicate"))
+        rows.rows.add(stored("bad-kind", 2, emptyList()).copy(writes = """[{"op":"create","id":"r2","data":{}}]"""))
+        rows.rows.add(stored("bad-state", 3, create).copy(state = "sent"))
+        rows.rows.add(stored("no-write", 4, emptyList(), call = "upsert"))
+        rows.rows.add(stored("w1", 5, create))
+        val transport = Replies("""{"ok":true}""")
+        val store = SyncedRecordStore(RoomLog(rows), transport, null, null)
+        assertEquals("1 change waiting to sync", store.pendingLabel("a"))
+        assertEquals(listOf("w1"), rows.rows.map { it.writeId })
+        store.flush()
+        assertEquals(listOf("batch"), transport.sent)
+        assertEquals(listOf("acked"), rows.rows.map { it.state })
+        assertEquals(null, AppRecords.outboxPendingLabel(rows.rows.map(AppRecordOutbox::entryOf), "a"))
+    }
 }

@@ -20,6 +20,37 @@ val ffiCrate = File(repoRoot, "apps/desktop/crates/exponential-ui-ffi")
 /** The host dylib the JVM unit tests load through JNA (the release build of the facade). */
 val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoot, "apps/desktop/target")
 
+// The facade's `.so` per ABI, built here (cargo-ndk, before merge*JniLibFolders)
+// so a plain gradle build (the app's included `:ui-compose`, the runner, a
+// fresh worktree) never packages an app host without it: opening an app would
+// crash on `libexponential_ui_ffi.so` not found. Up to date while the facade's
+// sources and Cargo.lock are unchanged; ABIS narrows it (build-android.sh).
+// ENET_SKIP_NATIVE=1 (or no cargo-ndk on this machine) skips it and keeps
+// whatever out/jniLibs holds; CI fails without cargo-ndk.
+val cargoNdk: File? = (System.getenv("PATH").orEmpty().split(File.pathSeparator).map { File(it, "cargo-ndk") } +
+    File(System.getProperty("user.home"), ".cargo/bin/cargo-ndk")).firstOrNull { it.canExecute() }
+val buildUiFfi = tasks.register<Exec>("buildUiFfi") {
+    description = "Builds the Exponential UI facade .so per ABI (apps/desktop/crates/exponential-ui-ffi/build-android.sh)."
+    val desktop = File(repoRoot, "apps/desktop")
+    inputs.dir(File(ffiCrate, "src"))
+    listOf("eui-core", "eui-motion").forEach { inputs.dir(File(desktop, "crates/$it/src")) }
+    inputs.files(
+        File(ffiCrate, "build-android.sh"), File(ffiCrate, "Cargo.toml"), File(desktop, "crates/eui-core/Cargo.toml"),
+        File(desktop, "crates/eui-motion/Cargo.toml"), File(desktop, "Cargo.lock"),
+    )
+    inputs.property("abis", System.getenv("ABIS") ?: "")
+    outputs.dir(File(ffiCrate, "out/jniLibs"))
+    onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") return@onlyIf false
+        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Exponential UI .so")
+        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+    }
+    environment("SKIP_BINDINGS", "1")
+    environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
+    commandLine("bash", File(ffiCrate, "build-android.sh").absolutePath)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildUiFfi) }
+
 // The Maven coordinates (the POM maps project dependencies through them).
 // `-PuiVersion=…` sets the release version (VAPP-91).
 group = "at.exponential"
