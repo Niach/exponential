@@ -546,7 +546,7 @@ struct AgentChatLead: View {
     }
 
     init(app row: Chats.AppChatRow) {
-        icon = BoardTypeDisplay.iconName(for: row.icon) ?? "puzzle"
+        icon = BoardTypeDisplay.iconName(for: row.icon) ?? AppIcons.navApps
         color = Color(hex: row.color ?? AppGlyph.neutralColor) ?? .white
         assistant = false
         needsYou = row.needsYou

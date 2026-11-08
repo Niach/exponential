@@ -71,9 +71,9 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     var pillMuted: Bool { publishedVersion == 0 }
 
     /// The glyph (the board icon set; an unknown name falls back to the
-    /// generic puzzle).
+    /// Apps glyph, `nav-apps`, ×4).
     var glyph: String {
-        BoardTypeDisplay.iconName(for: icon) ?? "puzzle"
+        BoardTypeDisplay.iconName(for: icon) ?? AppIcons.navApps
     }
 }
 

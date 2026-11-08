@@ -68,6 +68,14 @@ import {
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { escalateTarget } from "@/lib/sessions/escalate"
+import {
+  SUBAGENT_KEY_MAX,
+  SUBAGENT_NO_KEY,
+  SUBAGENT_SUMMARY_MAX,
+  SUBAGENT_TITLE_MAX,
+  subagentEdgeInTx,
+  sweepSubagentsInTx,
+} from "@/lib/sessions/subagent"
 import { sendTarget } from "@/lib/sessions/send-target"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage, postMovedMessage, inSession, sessionConversation } from "@/lib/sessions/messages"
@@ -820,6 +828,8 @@ export const sessionsRouter = router({
               updatedAt: now,
             })
             .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
+          // #EXP-1731: its process is gone, and with it every subagent it ran.
+          if (session.subagentKey === null) await sweepSubagentsInTx(tx, session.id)
           // S-3: the interruption is silent (no bus line ×4).
           return txid
         })
@@ -879,7 +889,9 @@ export const sessionsRouter = router({
         if (ending) {
           // The agent process went away = the session ended: like an
           // explicit End of this one row (once: only when THIS report flips
-          // it). The bus posts its report.
+          // it). The bus posts its report. #EXP-1731: the subagents its
+          // device never closed end first.
+          if (session.subagentKey === null) await sweepSubagentsInTx(tx, session.id)
           endedHere = await endDeadSessionInTx(tx, session)
           return txid
         }
@@ -932,6 +944,8 @@ export const sessionsRouter = router({
             waking: true,
           })
         }
+        // #EXP-1731: a parent whose turn is over runs no subagent any more.
+        if (!nowBusy && session.subagentKey === null) await sweepSubagentsInTx(tx, session.id)
         return txid
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)
@@ -940,6 +954,33 @@ export const sessionsRouter = router({
       // EXP-1413: a turn ending (or a child's process going) is a merge-train edge.
       if (trainTurnEnd) trainEdge(session.rootId)
       return { txid }
+    }),
+
+  /** #EXP-1731 (eagent subagents.json): a CLI subagent's edge from the
+   *  device running its parent (`sessionId`): the first edge of a `key`
+   *  writes the child row, later ones are its progress, `ended` its End
+   *  (`summary`, `failed`). Device-authed like `report`. → its row's id,
+   *  null = ignored (the parent ended, or another device's edge). */
+  subagent: authedProcedure
+    .input(
+      z.object({
+        sessionId: uuid,
+        deviceId: z.string().min(1).max(128).optional(),
+        key: z.string().min(1, SUBAGENT_NO_KEY).max(SUBAGENT_KEY_MAX),
+        status: z.enum([`running`, `ended`]),
+        title: z.string().max(SUBAGENT_TITLE_MAX).nullish(),
+        summary: z.string().max(SUBAGENT_SUMMARY_MAX).nullish(),
+        failed: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }): Promise<{ sessionId: string | null; txid: number }> => {
+      const parent = await loadDeviceSession(ctx, input.sessionId)
+      if (!parent) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const { sessionId } = await subagentEdgeInTx(tx, parent, input)
+        return { sessionId, txid }
+      })
     }),
 
   /** #EXP-1618: the device parked a session's unpushed work on a leftover

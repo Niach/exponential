@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { APPS_COPY, APPS_TEST_IDS } from "@exp/domain-contract/apps"
 import {
   conceptIcon,
-  getActionIcon,
+  getAppIcon,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -28,7 +28,7 @@ const NavSettingsIcon = conceptIcon(`nav-settings`)
 
 /** An app's glyph: the curated set boards and agents share. */
 export function AppIcon({ app, className }: { app: Pick<AppListEntry, `icon` | `color`>; className?: string }) {
-  const Icon = getActionIcon({ icon: app.icon })
+  const Icon = getAppIcon({ icon: app.icon })
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: app.color ?? undefined }} />
 }
 
