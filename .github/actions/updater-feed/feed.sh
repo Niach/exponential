@@ -53,11 +53,21 @@ esac
 
 work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/updater-feed.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-curl -fsSL --retry 3 -o "$work/minisign.tgz" \
-  "https://github.com/jedisct1/minisign/releases/download/$MINISIGN_VERSION/minisign-$MINISIGN_VERSION-linux.tar.gz"
-echo "$MINISIGN_SHA256  $work/minisign.tgz" | sha256sum -c --quiet -
-tar --warning=no-unknown-keyword -xzf "$work/minisign.tgz" -C "$work"
-minisign="$work/minisign-linux/$arch/minisign"
+# The pinned release, checked against its digest; when github.com's release
+# download is down (the 2026-11-08 504s), the distro's minisign instead (same
+# key and signature format; `-H` signs prehashed on every version since 0.8).
+if curl -fsSL --retry 3 -o "$work/minisign.tgz" \
+  "https://github.com/jedisct1/minisign/releases/download/$MINISIGN_VERSION/minisign-$MINISIGN_VERSION-linux.tar.gz" &&
+  echo "$MINISIGN_SHA256  $work/minisign.tgz" | sha256sum -c --quiet -; then
+  tar --warning=no-unknown-keyword -xzf "$work/minisign.tgz" -C "$work"
+  minisign="$work/minisign-linux/$arch/minisign"
+else
+  echo "::warning::the minisign release download failed; using the distro's minisign"
+  if ! command -v minisign >/dev/null; then
+    sudo apt-get update -qq && sudo apt-get install -y -qq minisign >/dev/null
+  fi
+  minisign="$(command -v minisign)"
+fi
 
 # The key arrives raw (the file) or base64 of it.
 umask 077

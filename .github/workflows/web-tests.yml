@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Typecheck web
         run: bun run typecheck
@@ -26,7 +26,7 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Web unit tests (shard ${{ matrix.shard }}/4)
         working-directory: apps/web
