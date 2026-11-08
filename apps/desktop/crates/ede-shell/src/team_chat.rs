@@ -37,21 +37,42 @@ pub const SHAPES: &[&str] = &["sessions", "conversations", "messages", "agents",
 /// The brand mark: the viewer's Assistant (the IDE's agent row draws it).
 const ASSISTANT_ICON: &str = "brand-exponential";
 
-/// An agent's icon in its colour as the documents name it
-/// (`agent:<icon>:<#rrggbb>`; the shell's host paints it tinted): its stored
-/// icon and colour, else `threads-list.json` `agentDefaults` (the IDE's
-/// `agent_glyph` / `agent_tint`).
-pub fn agent_icon(icon: Option<&str>, color: Option<&str>) -> String {
-    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
-    let icon = icon.filter(|i| !i.is_empty()).unwrap_or(&defaults.icon);
-    let color = color.filter(|c| hex(c).is_some()).unwrap_or(&defaults.color);
-    format!("agent:{icon}:{color}")
+/// An agent's icon as the documents name it: the IDE rail's name
+/// (`ide:agent:<id>`, #EXP-1725 `shell_regions`), painted by the host from
+/// its glyph map ([`glyphs`]), never a glyph name of its own.
+pub fn agent_icon(agent_id: &str) -> String {
+    format!("{AGENT_ICON_PREFIX}{agent_id}")
 }
 
-/// [`agent_icon`]'s name back: the icon and the colour as `0xrrggbb`.
-pub fn parse_agent_icon(name: &str) -> Option<(&str, u32)> {
-    let (icon, color) = name.strip_prefix("agent:")?.rsplit_once(':')?;
-    Some((icon, hex(color)?))
+pub const AGENT_ICON_PREFIX: &str = "ide:agent:";
+
+/// What the host paints for an agent: its icon in its colour (`0xrrggbb`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentGlyph {
+    pub icon: String,
+    pub color: u32,
+}
+
+/// An agent's glyph: its stored icon and colour, else `threads-list.json`
+/// `agentDefaults` (the IDE's `agent_glyph` / `agent_tint`).
+pub fn agent_glyph(icon: Option<&str>, color: Option<&str>) -> AgentGlyph {
+    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+    AgentGlyph {
+        icon: icon.filter(|i| !i.is_empty()).unwrap_or(&defaults.icon).to_string(),
+        color: color.and_then(hex).or_else(|| hex(&defaults.color)).unwrap_or(0x737373),
+    }
+}
+
+/// The team's agents' glyphs by their icon name (the Assistant is the
+/// brand mark, no glyph).
+pub fn glyphs(rows: &AccountRows, team_id: &str) -> HashMap<String, AgentGlyph> {
+    let me = Some(rows.user_id.as_str());
+    let team_ids: Vec<&str> = rows.teams.iter().map(|t| t.id.as_str()).collect();
+    domain::agent_settings::agents_in_team(rows.agents.iter(), team_id, &team_ids, me)
+        .into_iter()
+        .filter(|a| !a.is_assistant())
+        .map(|a| (agent_icon(&a.id), agent_glyph(a.icon.as_deref(), a.color.as_deref())))
+        .collect()
 }
 
 fn hex(color: &str) -> Option<u32> {
@@ -70,7 +91,7 @@ pub fn agents(rows: &AccountRows, team_id: &str) -> Vec<ChatAgentInput> {
         .map(|a| ChatAgentInput {
             id: a.id.clone(),
             name: a.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| "Agent".into()),
-            icon: if a.is_assistant() { ASSISTANT_ICON.into() } else { agent_icon(a.icon.as_deref(), a.color.as_deref()) },
+            icon: if a.is_assistant() { ASSISTANT_ICON.into() } else { agent_icon(&a.id) },
         })
         .collect()
 }
@@ -146,6 +167,11 @@ pub fn seal(root: &SessionRow, text: &str) -> Option<String> {
     enet_core::sealed::seal_body(&public, epoch, text).ok()
 }
 
+/// The demo's agents' glyphs: Triage, a purple bug.
+pub fn demo_glyphs() -> HashMap<String, AgentGlyph> {
+    HashMap::from([(agent_icon("a2"), agent_glyph(Some("bug"), Some("#a855f7")))])
+}
+
 /// The demo's team chat (the goldens): an agent conversation.
 pub fn demo_input() -> ChatInput {
     let message = |id: &str, author: &str, body: &str, time: &str| uicore_model::chat::ChatRowInput::Message {
@@ -158,12 +184,12 @@ pub fn demo_input() -> ChatInput {
     };
     let agents = vec![
         ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },
-        ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: agent_icon(Some("bug"), Some("#a855f7")) },
+        ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: agent_icon("a2") },
     ];
     ChatInput {
         session_id: Some("s1".into()),
         title: "Triage".into(),
-        icon: agent_icon(Some("bug"), Some("#a855f7")),
+        icon: agent_icon("a2"),
         bubbles: true,
         agent_id: Some("a2".into()),
         agents,
@@ -224,7 +250,8 @@ mod tests {
         let input = input(&rows(), &chat(Some("s1")), 0);
         assert!(input.bubbles);
         assert_eq!(input.title.as_str(), "Triage");
-        assert_eq!(parse_agent_icon(&input.icon).map(|(icon, _)| icon), Some("bug"));
+        assert_eq!(input.icon, agent_icon("a2"));
+        assert_eq!(glyphs(&rows().account, "t1").get(&input.icon).map(|g| g.icon.as_str()), Some("bug"));
         let bodies: Vec<String> = input
             .rows
             .iter()
@@ -238,15 +265,15 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_s_icon_carries_its_colour_else_the_fixture_s_defaults() {
-        assert_eq!(agent_icon(Some("bug"), Some("#a855f7")), "agent:bug:#a855f7");
-        assert_eq!(parse_agent_icon("agent:bug:#a855f7"), Some(("bug", 0xa855f7)));
+    fn an_agent_s_glyph_is_its_icon_in_its_colour_else_the_fixture_s_defaults() {
+        assert_eq!(agent_icon("a2"), "ide:agent:a2", "the IDE rail's name");
+        assert_eq!(agent_glyph(Some("bug"), Some("#a855f7")), AgentGlyph { icon: "bug".into(), color: 0xa855f7 });
         let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
-        let fallback = agent_icon(None, Some("purple"));
-        assert_eq!(fallback, format!("agent:{}:{}", defaults.icon, defaults.color));
-        assert!(parse_agent_icon(&fallback).is_some(), "the default colour is a hex");
-        assert_eq!(parse_agent_icon("ui-close"), None);
-        assert_eq!(parse_agent_icon("agent:bug:#zzz"), None);
+        let fallback = agent_glyph(None, Some("purple"));
+        assert_eq!(fallback.icon, defaults.icon);
+        assert_eq!(Some(fallback.color), hex(&defaults.color), "the default colour is a hex");
+        let glyphs = glyphs(&rows().account, "t1");
+        assert_eq!(glyphs.len(), 1, "Triage; my Assistant is the brand mark: {glyphs:?}");
     }
 
     #[test]
