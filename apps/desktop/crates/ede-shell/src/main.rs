@@ -289,6 +289,8 @@ struct Shell {
     thumbs_tx: mpsc::Sender<(String, String)>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
+    /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
+    switcher_generation: u64,
     notifications: Notifications,
     /// #EDE-65: Needs you across the accounts' teams (the tray button, needs-you.json).
     needs_you: Vec<inbox::NeedsYouItem>,
@@ -1374,7 +1376,13 @@ fn output_size(shell: &Shell) -> (u32, u32) {
 /// width and exclusive zone (`shell-layout.json`), standing on the taskbar
 /// (#EDE-65); any other document's as written.
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
-    layer_header(doc, output_size(shell))
+    let out = output_size(shell);
+    let mut header = layer_header(doc, out);
+    // The Alt-Tab popup hugs its tiles (#EDE-65).
+    if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == "switcher", &mut header) {
+        size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), out.0));
+    }
+    header
 }
 
 /// [`header_for`] on an output of `(out_w, out_h)` logical px.
@@ -1538,6 +1546,15 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
     }
     previews_refresh(shell);
     overlays_refresh(shell);
+    // A window closed or renamed under the switcher: its tiles follow, and
+    // the last one gone closes it.
+    if shell.borrow().surfaces.is_open("switcher") {
+        if shell.borrow().model.alt_tab.shown {
+            switcher_refresh(shell);
+        } else {
+            switcher_close(shell, cx);
+        }
+    }
     model_changed(shell, cx);
 }
 
@@ -2056,7 +2073,10 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
 fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
     tracing::info!(name, "hotkey");
     match name {
-        "switcher.next" | "switcher.prev" => switcher_step(shell, name == "switcher.prev", cx),
+        "switcher.next" => switcher_step(shell, ShellEvent::AltTabNext, cx),
+        "switcher.prev" => switcher_step(shell, ShellEvent::AltTabPrev, cx),
+        "switcher.next-app" => switcher_step(shell, ShellEvent::AltTabNextApp, cx),
+        "switcher.prev-app" => switcher_step(shell, ShellEvent::AltTabPrevApp, cx),
         "switcher.commit" => switcher_commit(shell, None, cx),
         "switcher.cancel" => switcher_close(shell, cx),
         "menu.toggle" => start_menu_toggle(shell, cx),
@@ -2118,35 +2138,92 @@ fn overlay_close(shell: &SharedShell, name: &str, cx: &mut App) {
     thumbnails_retarget(shell);
 }
 
-/// Alt+Tab: open the switcher on the first step, move the selection after.
-fn switcher_step(shell: &SharedShell, reverse: bool, cx: &mut App) {
+/// Cinnamon's `alttab-switcher-delay`: a quick Alt+Tab flips windows
+/// without the popup ever showing.
+const SWITCHER_DELAY: Duration = Duration::from_millis(100);
+
+/// Alt+Tab / Alt+`: the first step opens Alt-Tab and arms the delay, the
+/// next ones move the selection.
+fn switcher_step(shell: &SharedShell, event: ShellEvent, cx: &mut App) {
     let fresh = !shell.borrow().model.alt_tab.open;
-    dispatch(shell, if reverse { ShellEvent::AltTabPrev } else { ShellEvent::AltTabNext }, cx);
+    dispatch(shell, event, cx);
     if !shell.borrow().model.alt_tab.open {
         return;
     }
-    if fresh {
-        open_on_demand(shell, "switcher", cx);
+    if !fresh {
+        if shell.borrow().model.alt_tab.shown {
+            switcher_refresh(shell);
+            refresh(shell, cx);
+        }
+        return;
+    }
+    let generation = {
+        let mut s = shell.borrow_mut();
+        s.switcher_generation += 1;
+        s.switcher_generation
+    };
+    let s = shell.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(SWITCHER_DELAY).await;
+        cx.update(|cx| {
+            let current = s.borrow().switcher_generation == generation && s.borrow().model.alt_tab.open;
+            if current {
+                switcher_show(&s, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// The delay elapsed with Alt held: the popup, sized to its windows, centred.
+fn switcher_show(shell: &SharedShell, cx: &mut App) {
+    dispatch(shell, ShellEvent::AltTabShow, cx);
+    if !shell.borrow().model.alt_tab.shown {
+        return;
     }
     switcher_refresh(shell);
+    open_on_demand(shell, "switcher", cx);
     thumbnails_retarget(shell);
     refresh(shell, cx);
 }
 
-/// `/switcher`: the Alt-Tab order with the selection and the thumbnails.
+/// `/switcher`: the Alt-Tab order with the selection, the app icons, the
+/// thumbnails and the selected window's title (the line under the tiles).
 fn switcher_refresh(shell: &SharedShell) {
-    let mut s = shell.borrow_mut();
-    let order = uicore_model::alt_tab_order(&s.model);
-    let selected = s.model.alt_tab.selected;
+    let value = {
+        let s = shell.borrow();
+        switcher_feed(&s.model, |app| app_icon(&s, app), |id| s.thumbnails.get(id).cloned().unwrap_or_default())
+    };
+    shell.borrow_mut().feed.set("/switcher", value);
+}
+
+fn switcher_feed(model: &ShellState, icon: impl Fn(&str) -> String, thumbnail: impl Fn(&str) -> String) -> Value {
+    let order = uicore_model::alt_tab_order(model);
+    let selected = model.alt_tab.selected;
+    let mut title = String::new();
     let windows: Vec<Value> = order
         .iter()
         .enumerate()
         .filter_map(|(i, id)| {
-            let w = s.model.windows.iter().find(|w| &w.id == id)?;
-            Some(json!({"id": id, "title": w.title, "app": w.app, "selected": i == selected, "thumbnail": s.thumbnails.get(id).cloned().unwrap_or_default()}))
+            let w = model.windows.iter().find(|w| &w.id == id)?;
+            if i == selected {
+                title = w.title.clone();
+            }
+            Some(json!({"id": id, "title": w.title, "app": w.app, "icon": icon(&w.app), "minimized": w.minimized, "selected": i == selected, "thumbnail": thumbnail(id)}))
         })
         .collect();
-    s.feed.set("/switcher", json!({"windows": windows}));
+    json!({"windows": windows, "title": title})
+}
+
+/// The switcher's width for `n` tiles: Mint's popup hugs its entries,
+/// capped at the output. Tile 208 px (`tile` in switcher.json: a 192 px
+/// thumbnail and `$spacing.sm` around it), `sm` gaps, `lg` padding.
+fn switcher_width(n: usize, output_width: u32) -> u32 {
+    const TILE: u32 = 208;
+    const GAP: u32 = 8;
+    const PADDING: u32 = 16;
+    let n = n.max(1) as u32;
+    (2 * PADDING + n * TILE + (n - 1) * GAP).min(output_width.saturating_sub(2 * PADDING)).max(TILE + 2 * PADDING)
 }
 
 /// The windows the capture thread photographs: the switcher's while it is
@@ -2157,7 +2234,7 @@ fn thumbnails_retarget(shell: &SharedShell) {
         let s = shell.borrow();
         if s.surfaces.is_open("expo") || s.surfaces.is_open("scale") {
             s.model.windows.iter().map(|w| w.id.clone()).collect()
-        } else if s.model.alt_tab.open {
+        } else if s.model.alt_tab.shown {
             uicore_model::alt_tab_order(&s.model)
         } else if let Some(app) = s.model.taskbar.previews.as_deref() {
             s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
@@ -2238,7 +2315,7 @@ fn switcher_commit(shell: &SharedShell, pick: Option<ede_protocol::WindowId>, cx
 
 fn switcher_close(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::AltTabCancel, cx);
-    shell.borrow_mut().feed.set("/switcher", json!({"windows": []}));
+    shell.borrow_mut().feed.set("/switcher", json!({"windows": [], "title": ""}));
     close(shell, "switcher", cx);
     thumbnails_retarget(shell);
 }
@@ -2676,6 +2753,7 @@ fn main() {
             capturing: Arc::new(AtomicBool::new(false)),
             thumbs_tx,
             osd_until: None,
+            switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
                 demo: if demo {
@@ -2942,7 +3020,8 @@ fn main() {
         for name in open_now {
             // The goldens: the switcher opens as Alt+Tab would (the sample windows, the second selected).
             if name == "switcher" {
-                switcher_step(&shell, false, cx);
+                switcher_step(&shell, ShellEvent::AltTabNext, cx);
+                switcher_show(&shell, cx);
             } else {
                 open_on_demand(&shell, &name, cx);
             }
@@ -2999,6 +3078,59 @@ mod function_names {
             }
         }
         assert!(checked > 40, "the headers were read ({checked})");
+    }
+}
+
+#[cfg(test)]
+mod switcher {
+    use super::*;
+
+    fn opened(windows: &[(&str, &str, &str, usize, bool)]) -> ShellState {
+        let mut s = ShellState::default();
+        s.workspaces.count = 2;
+        for (id, app, title, workspace, _) in windows {
+            s = reduce(&s, &ShellEvent::WindowOpened { id: id.to_string(), app: app.to_string(), title: title.to_string(), workspace: *workspace });
+        }
+        for (id, ..) in windows.iter().rev() {
+            s = reduce(&s, &ShellEvent::WindowFocused { id: id.to_string() });
+        }
+        for (id, .., minimized) in windows {
+            if *minimized {
+                s = reduce(&s, &ShellEvent::WindowMinimized { id: id.to_string() });
+            }
+        }
+        s
+    }
+
+    /// #EDE-65: the current workspace's windows (minimized included) with
+    /// their app icons, the second most recent selected, its title under the tiles.
+    #[test]
+    fn the_feed_lists_this_workspaces_windows_with_icons_and_the_selected_title() {
+        let s = opened(&[("w1", "firefox", "Firefox", 0, false), ("w2", "nemo", "Files", 0, true), ("w3", "code", "Elsewhere", 1, false)]);
+        let s = reduce(&s, &ShellEvent::AltTabNext);
+        let feed = switcher_feed(&s, |app| format!("icon:{app}"), |id| format!("thumb:{id}"));
+        assert_eq!(feed["title"], "Files");
+        let windows = feed["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[1], json!({"id": "w2", "title": "Files", "app": "nemo", "icon": "icon:nemo", "minimized": true, "selected": true, "thumbnail": "thumb:w2"}));
+        assert_eq!(windows[0]["selected"], false);
+    }
+
+    #[test]
+    fn alt_grave_lists_only_the_focused_apps_windows() {
+        let s = opened(&[("w1", "firefox", "One", 0, false), ("w2", "nemo", "Files", 0, false), ("w3", "firefox", "Two", 0, false)]);
+        let s = reduce(&s, &ShellEvent::AltTabNextApp);
+        let feed = switcher_feed(&s, |_| String::new(), |_| String::new());
+        let ids: Vec<&str> = feed["windows"].as_array().unwrap().iter().filter_map(|w| w["id"].as_str()).collect();
+        assert_eq!(ids, ["w1", "w3"]);
+        assert_eq!(feed["title"], "Two");
+    }
+
+    #[test]
+    fn the_popup_hugs_its_tiles_and_stays_on_the_output() {
+        assert_eq!(switcher_width(3, 1920), 2 * 16 + 3 * 208 + 2 * 8);
+        assert_eq!(switcher_width(0, 1920), switcher_width(1, 1920));
+        assert_eq!(switcher_width(40, 1280), 1280 - 32);
     }
 }
 

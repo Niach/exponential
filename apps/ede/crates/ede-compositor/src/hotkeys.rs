@@ -1,8 +1,9 @@
 //! Hotkeys the shell answers (#EDE-12): the compositor keeps the key and
 //! tells the shell over ede-protocol (`hotkey` events, [`names`]), because
 //! the shell's layer surfaces never hold the keyboard while an app has it.
-//! Alt+Tab opens the switcher and cycles it (Shift reverses), releasing Alt
-//! commits, Escape cancels; Super alone toggles the menu; Super+Space the
+//! Alt+Tab opens the switcher and cycles it (Shift reverses), Alt+` (the
+//! key above Tab, whatever the layout) cycles the focused app's windows, the
+//! arrow keys move while it is held, releasing Alt commits, Escape cancels; Super alone toggles the menu; Super+Space the
 //! agent panel; Ctrl+Alt+Up Expo and Ctrl+Alt+Down Scale (#EDE-49); Print
 //! the screenshot; Ctrl+Alt+T a terminal; the media keys
 //! (volume, microphone, brightness, play/next/previous) show the OSD.
@@ -21,6 +22,9 @@ use crate::state::Ede;
 pub mod names {
     pub const SWITCHER_NEXT: &str = "switcher.next";
     pub const SWITCHER_PREV: &str = "switcher.prev";
+    /// Alt+` / Shift+Alt+`: the focused app's windows only (#EDE-65).
+    pub const SWITCHER_NEXT_APP: &str = "switcher.next-app";
+    pub const SWITCHER_PREV_APP: &str = "switcher.prev-app";
     pub const SWITCHER_COMMIT: &str = "switcher.commit";
     pub const SWITCHER_CANCEL: &str = "switcher.cancel";
     pub const MENU_TOGGLE: &str = "menu.toggle";
@@ -49,6 +53,8 @@ pub mod names {
 pub enum Hotkey {
     SwitcherNext,
     SwitcherPrev,
+    SwitcherNextApp,
+    SwitcherPrevApp,
     SwitcherCommit,
     SwitcherCancel,
     MenuToggle,
@@ -68,6 +74,8 @@ impl Hotkey {
         match self {
             Hotkey::SwitcherNext => names::SWITCHER_NEXT,
             Hotkey::SwitcherPrev => names::SWITCHER_PREV,
+            Hotkey::SwitcherNextApp => names::SWITCHER_NEXT_APP,
+            Hotkey::SwitcherPrevApp => names::SWITCHER_PREV_APP,
             Hotkey::SwitcherCommit => names::SWITCHER_COMMIT,
             Hotkey::SwitcherCancel => names::SWITCHER_CANCEL,
             Hotkey::MenuToggle => names::MENU_TOGGLE,
@@ -95,6 +103,12 @@ pub struct Hotkeys {
     fallback_steps: usize,
 }
 
+/// The keysym `decide` sees for the key above Tab (xkb keycode 49, evdev
+/// KEY_GRAVE) while Alt is held: `grave` on a US layout, a dead key on
+/// others, so the compositor names it by position as Cinnamon does
+/// (`<Alt>Above_Tab`).
+pub const ABOVE_TAB_KEYCODE: u32 = 49;
+
 /// `(keep the key from the app?, the hotkey)`, pure so it can be tested.
 #[allow(non_upper_case_globals)]
 pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState, shell_listening: bool) -> (bool, Option<Hotkey>) {
@@ -120,6 +134,9 @@ pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState,
     if h.switcher {
         return match sym {
             KEY_Tab | KEY_ISO_Left_Tab if mods.alt => (true, Some(if mods.shift { Hotkey::SwitcherPrev } else { Hotkey::SwitcherNext })),
+            KEY_grave if mods.alt => (true, Some(if mods.shift { Hotkey::SwitcherPrevApp } else { Hotkey::SwitcherNextApp })),
+            KEY_Right => (true, Some(Hotkey::SwitcherNext)),
+            KEY_Left => (true, Some(Hotkey::SwitcherPrev)),
             KEY_Escape => {
                 h.switcher = false;
                 h.fallback_steps = 0;
@@ -134,6 +151,11 @@ pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState,
         KEY_Tab | KEY_ISO_Left_Tab if mods.alt && !mods.ctrl && !mods.logo => {
             h.switcher = true;
             (true, Some(if mods.shift { Hotkey::SwitcherPrev } else { Hotkey::SwitcherNext }))
+        }
+        // Alt+`: a shell that listens cycles the app's windows; without one the app keeps the key.
+        KEY_grave if mods.alt && !mods.ctrl && !mods.logo && shell_listening => {
+            h.switcher = true;
+            (true, Some(if mods.shift { Hotkey::SwitcherPrevApp } else { Hotkey::SwitcherNextApp }))
         }
         KEY_space if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => (true, Some(Hotkey::AgentToggle)),
         // Expo and Scale are shell overlays (#EDE-49): with no shell the
@@ -242,6 +264,22 @@ mod tests {
         // Other keys stay with the switcher while it is up.
         assert_eq!(decide(&mut h, &mods(true, false, false, false), keysyms::KEY_a, KeyState::Pressed, true), (true, None));
         assert_eq!(decide(&mut h, &mods(false, false, false, false), keysyms::KEY_Alt_L, KeyState::Released, true), (false, Some(Hotkey::SwitcherCommit)));
+        assert!(!h.switcher);
+    }
+
+    #[test]
+    fn alt_grave_cycles_the_apps_windows_and_arrows_move_while_alt_is_held() {
+        let mut h = Hotkeys::default();
+        let alt = mods(true, false, false, false);
+        assert_eq!(decide(&mut h, &alt, keysyms::KEY_grave, KeyState::Pressed, true), (true, Some(Hotkey::SwitcherNextApp)));
+        assert_eq!(Hotkey::SwitcherNextApp.name(), "switcher.next-app");
+        assert_eq!(decide(&mut h, &mods(true, false, false, true), keysyms::KEY_grave, KeyState::Pressed, true), (true, Some(Hotkey::SwitcherPrevApp)));
+        assert_eq!(decide(&mut h, &alt, keysyms::KEY_Right, KeyState::Pressed, true), (true, Some(Hotkey::SwitcherNext)));
+        assert_eq!(decide(&mut h, &alt, keysyms::KEY_Left, KeyState::Pressed, true), (true, Some(Hotkey::SwitcherPrev)));
+        assert_eq!(decide(&mut h, &mods(false, false, false, false), keysyms::KEY_Alt_L, KeyState::Released, true), (false, Some(Hotkey::SwitcherCommit)));
+        // Arrows without the switcher are the app's; Alt+` without a shell too.
+        assert_eq!(decide(&mut h, &alt, keysyms::KEY_Right, KeyState::Pressed, true), (false, None));
+        assert_eq!(decide(&mut h, &alt, keysyms::KEY_grave, KeyState::Pressed, false), (false, None));
         assert!(!h.switcher);
     }
 

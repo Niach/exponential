@@ -122,8 +122,11 @@ Host functions: `ede_notify_close {id}`, `ede_notify_action {id, key}`,
 
 The compositor keeps these keys and tells the shell over ede-protocol
 (`hotkey` events; the shell's layer surfaces never hold the keyboard while
-an app has it): **Alt+Tab** opens the switcher and cycles it (Shift
-reverses), releasing Alt focuses the selected window, Escape cancels, a
+an app has it): **Alt+Tab** opens the switcher and cycles the current
+workspace's windows (Shift or the arrow keys reverse; Mint's look and
+100 ms delay, so a quick Alt+Tab flips windows with no popup), **Alt+`**
+(the key above Tab) cycles the focused app's windows, releasing Alt
+focuses the selected window (restoring a minimized one), Escape cancels, a
 click on a tile picks it; **Super** alone toggles the menu (its search box
 takes the keyboard); **Ctrl+Alt+Up** toggles Expo and **Ctrl+Alt+Down**
 Scale (`expo.toggle`, `scale.toggle`, #EDE-49: the shell's overlays, no

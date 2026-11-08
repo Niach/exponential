@@ -8276,7 +8276,7 @@
       "id": "ede-switcher",
       "group": "ede",
       "title": "Exponential Desktop · switcher",
-      "blurb": "The factory switcher (apps/ede/ui/switcher.json): Alt+Tab's overlay in the middle of the screen with the open windows most recent first (sample windows in the golden, live thumbnails in the session), the selected one underlined.",
+      "blurb": "The factory switcher (apps/ede/ui/switcher.json, Mint's Icons and thumbnails, #EDE-65): Alt+Tab's overlay in the middle of the screen with the current workspace's windows most recent first, each a thumbnail with its app icon (sample windows in the golden, live thumbnails in the session), the selected one on a highlighted tile and its title under the row.",
       "order": 3,
       "ede": {
         "size": "1280x720",
