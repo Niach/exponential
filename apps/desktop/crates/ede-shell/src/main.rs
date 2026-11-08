@@ -1761,10 +1761,10 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if chat_local(shell) {
         let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
-        if let Err(e) = sent {
-            tracing::warn!("chat send: {e}");
+        match sent {
+            Ok(()) => chat_clear_draft(shell, cx),
+            Err(e) => failed_action(shell, "send", "the message", &e, cx),
         }
-        chat_clear_draft(shell, cx);
         return;
     }
     let Some((chat, rows)) = team_chat(shell) else {
@@ -1780,18 +1780,18 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     }
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
-    chat_clear_draft(shell, cx);
     let shell = shell.clone();
     cx.spawn(async move |cx| {
         let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
         match sent {
+            // The draft goes once the server took it; a failure keeps it.
             Ok(out) => {
                 if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
                     open.session_id = Some(out.session_id);
                 }
-                cx.update(|cx| chatting_changed(&shell, cx));
+                cx.update(|cx| chat_clear_draft(&shell, cx));
             }
-            Err(e) => tracing::warn!("chat send: {}", e.user_message()),
+            Err(e) => cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx)),
         }
     })
     .detach();
@@ -1804,8 +1804,9 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
         return;
     }
     if chat_local(shell) {
-        if let Some(Err(e)) = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label)) {
-            tracing::warn!("chat answer: {e}");
+        let answered = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label));
+        if let Some(Err(e)) = answered {
+            failed_action(shell, "answer", "the question", &e, cx);
         }
         chatting_changed(shell, cx);
         return;
@@ -1814,13 +1815,42 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
     let Some(account) = shell.borrow().workspaces.account(&account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let input = api::sessions::AnswerInput { message_id: message_id.to_string(), answer: Some(label.to_string()), answers: Some(json!([label])), ..Default::default() };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(e) = api::sessions::answer(&trpc, &input) {
-                tracing::warn!("chat answer: {}", e.user_message());
-            }
-        })
-        .detach();
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let answered = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
+        if let Err(e) = answered {
+            cx.update(|cx| failed_action(&shell, "answer", "the question", &e.user_message(), cx));
+        }
+    })
+    .detach();
+}
+
+/// A failed action the person just took (feedback-states.json `errors`):
+/// the toast `Couldn't <verb> <thing>` with the server's message, as one of
+/// the shell's own notifications (the IDE's toast on this desktop).
+fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx: &mut App) {
+    tracing::warn!("{verb} {thing}: {message}");
+    shell.borrow_mut().notifications.push(failed_toast(verb, thing, message, now_ms()));
+    notifications_changed(shell, cx);
+}
+
+/// The shell's own ids count down from the top, clear of the bus's.
+static OWN_NOTIFICATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+
+/// [`failed_action`]'s toast.
+fn failed_toast(verb: &str, thing: &str, message: &str, received_ms: i64) -> dbus::Notification {
+    dbus::Notification {
+        id: OWN_NOTIFICATION.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
+        app: "Exponential".into(),
+        summary: domain::action_error::title(verb, thing),
+        body: domain::action_error::description_of(message).unwrap_or_default(),
+        icon: String::new(),
+        actions: Vec::new(),
+        urgency: 1,
+        expires_at: Some(Instant::now() + INBOX_TOAST),
+        at: clock::time(),
+        received_ms,
+    }
 }
 
 /// A card's or a rail chat's session (`None` = New chat: the home).
@@ -3014,3 +3044,16 @@ mod start_menu_document {
     }
 }
 
+
+#[cfg(test)]
+mod failed_actions {
+    #[test]
+    fn a_failed_send_toasts_the_fixture_s_title_with_the_server_s_sentence() {
+        let toast = super::failed_toast("send", "the message", " The session ended. ", 7);
+        assert_eq!((toast.summary.as_str(), toast.body.as_str(), toast.app.as_str()), ("Couldn't send the message", "The session ended.", "Exponential"));
+        assert!(toast.expires_at.is_some(), "a toast, not a sticky notification");
+        let dump = super::failed_toast("answer", "the question", "{\"code\":\"CONFLICT\"}", 7);
+        assert_eq!((dump.summary.as_str(), dump.body.as_str()), ("Couldn't answer the question", ""));
+        assert_ne!(toast.id, dump.id, "each its own id");
+    }
+}

@@ -24,14 +24,12 @@ use gpui_component::{ActiveTheme as _, Icon};
 
 use crate::toast::{self, Toast};
 
-/// `errors.titlePattern`.
-const TITLE_PATTERN: &str = "Couldn't {verb} {thing}";
 /// `errors.inline.size`: the field error's text size (px).
 pub(crate) const FIELD_ERROR_PX: f32 = 13.;
 
 /// `Couldn't <verb> <thing>`, the failed action's toast title.
 pub(crate) fn action_error_title(verb: &str, thing: &str) -> String {
-    TITLE_PATTERN.replace("{verb}", verb).replace("{thing}", thing)
+    domain::action_error::title(verb, thing)
 }
 
 /// The toast's description for `err`: the server's message when it reads like
@@ -43,11 +41,7 @@ pub(crate) fn action_error_description(err: &api::ApiError) -> Option<String> {
 
 /// [`action_error_description`] for a message a site already holds.
 pub(crate) fn description_of(message: &str) -> Option<String> {
-    let trimmed = message.trim();
-    if trimmed.is_empty() || trimmed.starts_with('[') || trimmed.starts_with('{') {
-        return None;
-    }
-    Some(trimmed.to_string())
+    domain::action_error::description_of(message)
 }
 
 /// The failed action's toast itself, for a site that shows it in a window
@@ -140,7 +134,7 @@ mod tests {
     fn titles_and_numbers_are_the_fixture() {
         let fixture: Value = serde_json::from_str(FIXTURE).expect("feedback-states.json parses");
         let errors = &fixture["errors"];
-        assert_eq!(errors["titlePattern"].as_str(), Some(TITLE_PATTERN));
+        assert_eq!(errors["titlePattern"].as_str(), Some(domain::action_error::TITLE_PATTERN));
         assert_eq!(errors["retry"].as_str(), Some(crate::feedback::RETRY));
         assert_eq!(errors["inline"]["size"].as_f64(), Some(FIELD_ERROR_PX as f64));
         let mut actions = 0;
