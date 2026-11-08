@@ -66,7 +66,6 @@ import {
   type AgentRow,
 } from "@/lib/session-tree"
 import { useSession } from "@/hooks/use-session"
-import { useAgentRows } from "@/hooks/use-agent-row"
 import { useNow } from "@/hooks/use-now"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import { TriggerDialog } from "@/components/trigger-dialog"
@@ -81,11 +80,10 @@ import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.j
 import {
   ASSISTANT_COPY,
   ASSISTANT_SCHEDULES,
-  COORDINATOR,
-  COORDINATOR_COPY,
-  COORDINATOR_NONE,
-  coordinatorOf,
-  coordinatorOptions,
+  LEAD,
+  LEAD_COPY,
+  LEAD_NONE,
+  leadOptions,
   assistantModelValue,
   assistantScheduleOf,
   assistantScheduleTriggers,
@@ -306,10 +304,10 @@ export function AgentSettingsPage({
     setName(agent?.name ?? ``)
     setIcon(((agent?.icon as BoardIcon | null) ?? DEFAULT_AGENT_ICON))
     setColor(agent?.color ?? DEFAULT_AGENT_COLOR)
-    setDeviceId(agent?.deviceId ?? null)
+    setDeviceId(agent?.defaults?.deviceId ?? null)
     setSkillIds(agent?.skillIds ?? [])
-    setPin({ agent: agent?.cli ?? ``, account: agent?.account ?? `` })
-    setModel(agent?.model ?? null)
+    setPin({ agent: agent?.defaults?.cli ?? ``, account: agent?.defaults?.account ?? `` })
+    setModel(agent?.defaults?.model ?? null)
     setTriggers(readTriggers(agent?.triggers))
     setErrors([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,7 +316,7 @@ export function AgentSettingsPage({
   // Remote edits to the pickers and the trigger list land as they sync.
   const syncedIcon = agent?.icon
   const syncedColor = agent?.color
-  const syncedDevice = agent?.deviceId
+  const syncedDevice = agent?.defaults?.deviceId
   const syncedTriggers = agent?.triggers
   useEffect(() => {
     if (syncedIcon) setIcon(syncedIcon as BoardIcon)
@@ -370,7 +368,7 @@ export function AgentSettingsPage({
   // ── Account ──
   // An existing agent's CLI stays put (the page never re-picks it), so its
   // Account picker offers only that CLI's logins; no stored CLI = all.
-  const lockedCli = creating ? null : (agent?.cli ?? null)
+  const lockedCli = creating ? null : (agent?.defaults?.cli ?? null)
   // EXP-1306: only logins the machine reports (a profile id); the stand-in
   // row named after the agent never reads as an account.
   const accountOptions = useMemo(
@@ -1218,27 +1216,48 @@ export function AgentEventsBand({ teamId }: { teamId: string }) {
   )
 }
 
-/** #EXP-1717 (agent-settings.json `coordinator`): Team settings › Agents'
- *  Coordinator row, THE settings Picker row (the merge-mode row's look):
- *  None or one team agent; owners pick, members read. */
-export function CoordinatorRow({ team, isOwner }: { team: Team; isOwner: boolean }) {
-  const agents = useAgentRows(team.id)
+/** #EXP-1735 (agent-settings.json `lead`): Team settings › Agents' Lead
+ *  Assistant row where the Coordinator row was (the lead replaces the
+ *  coordinator), THE settings Picker row: None or one member, whose
+ *  Assistant every member's Assistant reports to; owners pick, members read. */
+export function LeadAssistantRow({ team, isOwner }: { team: Team; isOwner: boolean }) {
+  const { users } = useTeamUsers(team.id)
   const [busy, setBusy] = useState(false)
-  const current = coordinatorOf(agents, team.id) ?? COORDINATOR_NONE
-  const items = coordinatorOptions(agents).map((option) =>
-    typeof option === `string`
-      ? { value: COORDINATOR_NONE, label: COORDINATOR_COPY.none }
-      : { value: option.id, label: option.name }
+  const [leadUserId, setLeadUserId] = useState<string | null>(null)
+  // The lead row is another member's Assistant (never in my synced agents):
+  // its member comes from the server, re-read whenever the lead changes.
+  const leadAssistantId = team.leadAssistantId ?? null
+  useEffect(() => {
+    if (!leadAssistantId) {
+      setLeadUserId(null)
+      return
+    }
+    let live = true
+    trpc.agents.lead
+      .query({ teamId: team.id })
+      .then((result) => live && setLeadUserId(result.lead?.userId ?? null))
+      .catch(() => live && setLeadUserId(null))
+    return () => {
+      live = false
+    }
+  }, [team.id, leadAssistantId])
+  const current = leadAssistantId && leadUserId ? leadUserId : LEAD_NONE
+  const items = leadOptions(users.map((user) => ({ userId: user.id, name: displayUserName(user, user.id) }))).map(
+    (option) =>
+      typeof option === `string`
+        ? { value: LEAD_NONE, label: LEAD_COPY.none }
+        : { value: option.userId, label: option.name }
   )
   const save = async (next: string) => {
     setBusy(true)
     try {
-      await trpc.agents.setCoordinator.mutate(
-        { teamId: team.id, agentId: next === COORDINATOR_NONE ? null : next },
+      await trpc.agents.setLeadAssistant.mutate(
+        { teamId: team.id, userId: next === LEAD_NONE ? null : next },
         SKIP_ERROR_TOAST
       )
+      setLeadUserId(next === LEAD_NONE ? null : next)
     } catch (error) {
-      failedAction(`save`, `the coordinator`, error, { retry: () => void save(next) })
+      failedAction(`save`, `the lead Assistant`, error, { retry: () => void save(next) })
     } finally {
       setBusy(false)
     }
@@ -1248,8 +1267,8 @@ export function CoordinatorRow({ team, isOwner }: { team: Team; isOwner: boolean
       <Picker
         mode="single"
         triggerVariant="row"
-        triggerLabel={COORDINATOR_COPY.label}
-        mobileTitle={COORDINATOR_COPY.label}
+        triggerLabel={LEAD_COPY.label}
+        mobileTitle={LEAD_COPY.label}
         value={current}
         onChange={(picked) => {
           if (picked === null || picked === current) return
@@ -1258,7 +1277,7 @@ export function CoordinatorRow({ team, isOwner }: { team: Team; isOwner: boolean
         items={items}
         width="md"
         disabled={!isOwner || busy}
-        data-testid={COORDINATOR.testIds.row}
+        data-testid={LEAD.testIds.row}
       />
     </GlassGroup>
   )

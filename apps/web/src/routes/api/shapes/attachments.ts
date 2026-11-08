@@ -30,6 +30,8 @@ const ATTACHMENT_COLUMNS = [
   `poster_storage_key`,
   // EXP-1247: a FILE/paperclip upload lists in Files even when it is an image.
   `as_file`,
+  // #EXP-1730 phase A: a result's session.
+  `session_id`,
   `created_at`,
   `updated_at`,
 ]

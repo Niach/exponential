@@ -1,7 +1,9 @@
 import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { ASSISTANT } from "@exp/domain-contract/agent-settings"
 import type { MessageCard } from "@exp/db-schema/domain"
-import { agents, messages, sessions } from "@/db/schema"
+import { agents, messages, sessions, teams } from "@/db/schema"
+import { getTeamMember } from "@/lib/auth/membership"
 import { pendingInput, inSession } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { treeTeamsOfRoot } from "@/lib/sessions/tree-teams"
@@ -133,6 +135,39 @@ export async function memberChatsChanged(
         // Its own conversation's turns are not news; its children are.
         or(isNull(sessions.agentId), ne(sessions.agentId, agent.id), ne(sessions.id, sessions.rootId)),
         gt(sessions.lastActivityAt, since)
+      )
+    )
+    .limit(1)
+  return !!moved || (await reportsMoved(tx, agent, since))
+}
+
+/** #EXP-1735 (eagent wakeups.json): a team LEAD also counts the work that
+ *  reports to it (bus.ts `leadOf`) moving: sessions in the teams it leads
+ *  whose tree another member's Assistant runs (never that Assistant's own
+ *  conversation root). */
+async function reportsMoved(
+  tx: Pick<Tx, `select`>,
+  agent: { id: string; ownerId: string },
+  since: Date
+): Promise<boolean> {
+  const led = await tx.select({ id: teams.id }).from(teams).where(eq(teams.leadAssistantId, agent.id))
+  const teamIds: string[] = []
+  for (const team of led) if (await getTeamMember(agent.ownerId, team.id)) teamIds.push(team.id)
+  if (teamIds.length === 0) return false
+  const root = alias(sessions, `lead_root`)
+  const acting = alias(agents, `lead_acting`)
+  const [moved] = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .innerJoin(root, eq(root.id, sessions.rootId))
+    .innerJoin(acting, eq(acting.id, sql`coalesce(${root.agentId}, ${root.startedByAgentId})`))
+    .where(
+      and(
+        inArray(sessions.teamId, teamIds),
+        gt(sessions.lastActivityAt, since),
+        eq(acting.role, `assistant`),
+        ne(acting.id, agent.id),
+        or(ne(sessions.id, sessions.rootId), isNull(root.agentId))
       )
     )
     .limit(1)

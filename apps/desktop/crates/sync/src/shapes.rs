@@ -116,6 +116,8 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "estimation_type",
             // VAPP-201: the team time zone (app hosts read dates in it).
             "time_zone",
+            // #EXP-1735: the team's lead Assistant (Settings → Agents row).
+            "lead_assistant_id",
             "created_at",
             "updated_at",
         ],
@@ -1382,6 +1384,7 @@ mod tests {
         assert!(!pulls.columns.contains(&"merge_ready_at"));
         assert!(!pulls.columns.contains(&"merge_approved_at"));
         assert!(shape_by_name("teams").unwrap().columns.contains(&"merge_mode"));
+        assert!(shape_by_name("teams").unwrap().columns.contains(&"lead_assistant_id"));
         let checks = shape_by_name("pull_request_checks").unwrap();
         assert_eq!(checks.path, "/api/shapes/pull-request-checks");
         assert_eq!(checks.pk, PkKind::Id);

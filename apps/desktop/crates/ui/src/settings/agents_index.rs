@@ -79,8 +79,13 @@ pub(crate) fn team_events<'a>(events: impl Iterator<Item = &'a EventRow>, team_i
 /// The Agents index pane.
 pub struct AgentsIndexPane {
     nav: Entity<Navigation>,
-    /// #EXP-1717: an `agents.setCoordinator` is in flight (row disabled).
-    coordinator_busy: bool,
+    /// #EXP-1735: the team's lead member from `agents.lead`: `None` = not
+    /// read yet (row disabled), `Some(None)` = no lead.
+    lead: Option<Option<String>>,
+    /// The `(team, synced teams.lead_assistant_id)` the lead was read for.
+    lead_key: Option<(String, Option<String>)>,
+    /// An `agents.setLeadAssistant` is in flight (row disabled).
+    lead_busy: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -94,50 +99,95 @@ impl AgentsIndexPane {
             subscriptions.push(cx.observe(&collections.sessions, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.team_members, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.teams, |_, _, cx| cx.notify()));
         }
         Self {
             nav,
-            coordinator_busy: false,
+            lead: None,
+            lead_key: None,
+            lead_busy: false,
             _subscriptions: subscriptions,
         }
     }
 
-    /// #EXP-1717 (agent-settings.json `coordinator`, web `CoordinatorRow`):
-    /// THE settings Picker row (single select, the merge-mode row's look),
-    /// value = the coordinator's name or `copy.none`; options =
-    /// `coordinator_options` after None. Owners pick (saved at once);
-    /// members see it disabled.
-    fn render_coordinator(
+    /// #EXP-1735: re-read `agents.lead` when the pane first shows a team, when
+    /// the synced `teams.lead_assistant_id` moves (another owner's pick, a
+    /// deleted Assistant) and after a save. Called from `render`; the key
+    /// is stamped before the fetch, so a failure never loops.
+    fn ensure_lead(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        let synced = Store::global(cx)
+            .collections()
+            .teams
+            .read(cx)
+            .get(team_id)
+            .and_then(|team| team.lead_assistant_id.clone());
+        let key = (team_id.to_string(), synced);
+        if self.lead_key.as_ref() == Some(&key) {
+            return;
+        }
+        if self.lead_key.as_ref().map(|(team, _)| team.as_str()) != Some(team_id) {
+            self.lead = None;
+        }
+        self.lead_key = Some(key.clone());
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let team = key.0.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::agents::lead(&trpc, &team) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.lead_key.as_ref() != Some(&key) {
+                    return;
+                }
+                match result {
+                    Ok(lead) => this.lead = Some(lead.map(|lead| lead.user_id)),
+                    Err(err) => log::warn!("[ui] agents.lead failed: {err}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// #EXP-1735 (agent-settings.json `lead`, web `LeadAssistantRow`): THE
+    /// settings Picker row (single select, where the Coordinator row was),
+    /// value = the lead member's display name or `copy.none`; options =
+    /// None, then `lead_options` (the team's members by display name, then
+    /// id). Owners pick (saved at once); members see it disabled.
+    fn render_lead(
         &self,
         team_id: &str,
         owner: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        use domain::agent_settings::{coordinator_of, coordinator_options, COORDINATOR, COORDINATOR_NONE};
-        let (current, items) = {
-            let agents = Store::global(cx).collections().agents.read(cx);
-            let team: Vec<&domain::rows::AgentDefRow> =
-                agents.iter().filter(|agent| agent.team_id.as_deref() == Some(team_id)).collect();
-            let current = coordinator_of(team.iter().copied(), team_id).unwrap_or(COORDINATOR_NONE).to_string();
-            let items: Vec<crate::picker::PickerItem<String>> = std::iter::once(crate::picker::PickerItem::new(
-                COORDINATOR_NONE.to_string(),
-                COORDINATOR.copy.none.clone(),
-            ))
-            .chain(coordinator_options(team.iter().copied()).into_iter().map(|agent| {
-                crate::picker::PickerItem::new(agent.id.clone(), agent.name.clone().unwrap_or_default())
-            }))
+        use domain::agent_settings::{lead_options, LEAD, LEAD_NONE};
+        let current = self
+            .lead
+            .clone()
+            .flatten()
+            .unwrap_or_else(|| LEAD_NONE.to_string());
+        let members: Vec<(String, String)> = crate::queries::team_users(cx, team_id)
+            .iter()
+            .map(|user| (user.id.clone(), crate::issue_draft::display_name(user)))
             .collect();
-            (current, items)
-        };
+        let items: Vec<crate::picker::PickerItem<String>> =
+            std::iter::once(crate::picker::PickerItem::new(LEAD_NONE.to_string(), LEAD.copy.none.clone()))
+                .chain(
+                    lead_options(members, |member| (member.0.as_str(), member.1.as_str()))
+                        .into_iter()
+                        .map(|(id, name)| crate::picker::PickerItem::new(id, name)),
+                )
+                .collect();
         let label = items
             .iter()
             .find(|item| item.value == current)
             .map(|item| item.label.to_string())
-            .unwrap_or_else(|| COORDINATOR.copy.none.clone());
+            .unwrap_or_else(|| crate::thread_screen::member_name(Some(current.as_str()), cx));
         use gpui_component::button::ButtonVariants as _;
-        let trigger = gpui_component::button::Button::new(SharedString::from(COORDINATOR.test_ids.row.clone()))
-            .accessibility_label(COORDINATOR.copy.label.clone())
+        let trigger = gpui_component::button::Button::new(SharedString::from(LEAD.test_ids.row.clone()))
+            .accessibility_label(LEAD.copy.label.clone())
             .ghost()
             .cursor_pointer()
             .h_auto()
@@ -158,14 +208,14 @@ impl AgentsIndexPane {
                     return;
                 }
                 let team_id = team_id.clone();
-                let _ = view.update(cx, |this, cx| this.set_coordinator(team_id, pick, cx));
+                let _ = view.update(cx, |this, cx| this.set_lead(team_id, pick, cx));
             }),
         )
-        .disabled(!owner || self.coordinator_busy)
-        .id(SharedString::from(format!("{}-picker", COORDINATOR.test_ids.row)))
+        .disabled(!owner || self.lead_busy || self.lead.is_none())
+        .id(SharedString::from(format!("{}-picker", LEAD.test_ids.row)))
         .render(window, cx);
         crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(
-            COORDINATOR.copy.label.clone(),
+            LEAD.copy.label.clone(),
             None,
             control,
             cx,
@@ -173,40 +223,43 @@ impl AgentsIndexPane {
         .into_any_element()
     }
 
-    /// #EXP-1717: `agents.setCoordinator` (owner-only server-side). No
-    /// optimistic flip: the Electric echo moves the rows; a failure toasts
-    /// with Retry.
-    fn set_coordinator(&mut self, team_id: String, pick: String, cx: &mut gpui::Context<Self>) {
-        if self.coordinator_busy {
+    /// #EXP-1735: `agents.setLeadAssistant` (owner-only server-side). The
+    /// pick shows at once; settled or failed, the row re-reads `agents.lead`
+    /// (a failure toasts with Retry).
+    fn set_lead(&mut self, team_id: String, pick: String, cx: &mut gpui::Context<Self>) {
+        if self.lead_busy {
             return;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
-            crate::action_error::failed_action("save", "the coordinator", None, cx);
+            crate::action_error::failed_action("save", "the lead Assistant", None, cx);
             return;
         };
-        self.coordinator_busy = true;
+        self.lead_busy = true;
+        self.lead = Some((pick != domain::agent_settings::LEAD_NONE).then(|| pick.clone()));
         cx.notify();
         let view = cx.entity().downgrade();
         cx.spawn(async move |this, cx| {
-            let (id, agent) = (team_id.clone(), pick.clone());
+            let (id, user) = (team_id.clone(), pick.clone());
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let agent = (agent != domain::agent_settings::COORDINATOR_NONE).then_some(agent);
-                    api::agents::set_coordinator(&trpc, &id, agent.as_deref())
+                    let user = (user != domain::agent_settings::LEAD_NONE).then_some(user);
+                    api::agents::set_lead_assistant(&trpc, &id, user.as_deref())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.coordinator_busy = false;
+                this.lead_busy = false;
+                // Re-read the lead on the next frame (the server's truth).
+                this.lead_key = None;
                 if let Err(err) = result {
-                    log::warn!("[ui] agents.setCoordinator failed: {err}");
+                    log::warn!("[ui] agents.setLeadAssistant failed: {err}");
                     crate::action_error::failed_action_with_retry(
                         "save",
-                        "the coordinator",
+                        "the lead Assistant",
                         crate::action_error::action_error_description(&err),
                         move |_, cx| {
                             let (team_id, pick) = (team_id.clone(), pick.clone());
-                            let _ = view.update(cx, |this, cx| this.set_coordinator(team_id, pick, cx));
+                            let _ = view.update(cx, |this, cx| this.set_lead(team_id, pick, cx));
                         },
                         cx,
                     );
@@ -365,12 +418,14 @@ impl Render for AgentsIndexPane {
             ));
         };
         let owner = super::is_owner(cx, &team_id);
-        // #EXP-1717: the Coordinator row tops the pane.
-        let coordinator = self.render_coordinator(&team_id, owner, window, cx);
+        // #EXP-1735: the Lead Assistant row tops the pane (where the
+        // Coordinator row was).
+        self.ensure_lead(&team_id, cx);
+        let lead = self.render_lead(&team_id, owner, window, cx);
         v_flex()
             .w_full()
             .gap_6()
-            .child(coordinator)
+            .child(lead)
             .child(self.render_agents(&team_id, owner, cx))
             .child(self.render_events(&team_id, cx))
     }

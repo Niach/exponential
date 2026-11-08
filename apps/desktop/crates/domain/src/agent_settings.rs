@@ -544,6 +544,60 @@ pub fn coordinator_of<'a>(
         .map(|agent| agent.id.as_str())
 }
 
+// ---------------------------------------------------------------------------
+// #EXP-1735: THE TEAM'S LEAD ASSISTANT (`lead` in the fixture). Replays
+// `optionCases`. Supersedes the Coordinator row (its helpers stay for the
+// wire until #EXP-1730 phase B).
+// ---------------------------------------------------------------------------
+
+/// The Lead Assistant row's copy (`lead.copy`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeadCopy {
+    pub label: String,
+    pub none: String,
+    pub refused_owner: String,
+    pub refused_member: String,
+    pub no_assistant: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct LeadTestIds {
+    pub row: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeadSpec {
+    pub copy: LeadCopy,
+    pub test_ids: LeadTestIds,
+}
+
+/// `lead` off the fixture.
+pub static LEAD: LazyLock<LeadSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses");
+    serde_json::from_value(fixture["lead"].clone()).expect("lead block parses")
+});
+
+/// TS `LEAD_NONE`: the option id of "no lead Assistant".
+pub const LEAD_NONE: &str = "none";
+
+/// TS `leadOptions` (`optionCases`): the Lead Assistant row's options after
+/// [`LEAD_NONE`]: the team's members by display name, then user id.
+/// `member` maps an item to its `(user_id, display_name)`.
+pub fn lead_options<T>(members: impl IntoIterator<Item = T>, member: impl Fn(&T) -> (&str, &str)) -> Vec<T> {
+    let mut sorted: Vec<T> = members.into_iter().collect();
+    sorted.sort_by(|a, b| {
+        let ((a_id, a_name), (b_id, b_name)) = (member(a), member(b));
+        a_name
+            .to_lowercase()
+            .cmp(&b_name.to_lowercase())
+            .then_with(|| a_name.cmp(b_name))
+            .then_with(|| a_id.cmp(b_id))
+    });
+    sorted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,6 +887,30 @@ mod tests {
                 "{}",
                 case["name"]
             );
+        }
+    }
+
+    #[test]
+    fn lead_cases_match_the_fixture() {
+        let fixture = fixture();
+        let block = &fixture["lead"];
+        assert_eq!(LEAD.copy.label, block["copy"]["label"].as_str().unwrap());
+        assert_eq!(LEAD.copy.none, block["copy"]["none"].as_str().unwrap());
+        assert_eq!(LEAD.test_ids.row, block["testIds"]["row"].as_str().unwrap());
+        let option_cases = block["optionCases"].as_array().unwrap();
+        assert!(!option_cases.is_empty());
+        for case in option_cases {
+            let members: Vec<(&str, &str)> = case["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| (member["userId"].as_str().unwrap(), member["name"].as_str().unwrap()))
+                .collect();
+            let ids: Vec<&str> = std::iter::once(LEAD_NONE)
+                .chain(lead_options(members, |member| (member.0, member.1)).into_iter().map(|member| member.0))
+                .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
         }
     }
 

@@ -33,9 +33,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -97,33 +99,65 @@ class AgentSettingsViewModel @Inject constructor(
         if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me, teams.map { it.id })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** #EXP-1717: the Coordinator row: its options (null id = None) and value. */
-    data class CoordinatorState(val options: List<Pair<String?, String>>, val value: String?)
+    /** #EXP-1735: the Lead Assistant row: its options (null id = None) and
+     *  value (the lead's member, null = none). */
+    data class LeadState(val options: List<Pair<String?, String>>, val value: String?)
 
-    val coordinator: StateFlow<CoordinatorState> = combine(
-        dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
-        teamId,
-    ) { defs, team ->
-        if (team == null) {
-            CoordinatorState(listOf(null to AgentSettings.Coordinator.NONE_LABEL), null)
-        } else {
-            val own = defs.filter { it.teamId == team }
-            val options = AgentSettings.Coordinator.coordinatorOptions(own) {
-                AgentSettings.Coordinator.OptionLike(it.id, it.name, it.role, it.sortOrder)
-            }.map { row -> (row?.id) to (row?.name ?: AgentSettings.Coordinator.NONE_LABEL) }
-            CoordinatorState(options, AgentSettings.Coordinator.coordinatorOf(own, team, { it.id }, { it.teamId }, { it.role }))
+    // Bumped after a save so the row re-reads the lead at once.
+    private val leadReload = MutableStateFlow(0)
+
+    /**
+     * The lead's member (`agents.lead`): the lead row is another member's
+     * Assistant, never in the viewer's synced agents. The synced team row
+     * carries no `leadAssistantId` on Android, so the read re-runs on the
+     * team's `updated_at` (which `agents.setLeadAssistant` bumps), the
+     * selection and a save; a failed read = none (web `LeadAssistantRow`).
+     */
+    private val leadUserId = combine(dbFlow, teamId) { db, team -> db to team }
+        .flatMapLatest { (db, team) ->
+            if (db == null || team == null) {
+                flowOf(null)
+            } else {
+                db.teamDao().observeById(team).map { it?.updatedAt }.distinctUntilChanged()
+                    .combine(leadReload) { stamp, _ -> team to stamp }
+                    .mapLatest { (id, stamp) ->
+                        if (stamp == null) return@mapLatest null
+                        val accountId = auth.activeAccountId.value ?: return@mapLatest null
+                        try {
+                            agentsApi.lead(accountId, id)?.userId
+                        } catch (t: Throwable) {
+                            if (t is CancellationException) throw t
+                            null
+                        }
+                    }
+            }
         }
-    }.flowOn(Dispatchers.Default).stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        CoordinatorState(listOf(null to AgentSettings.Coordinator.NONE_LABEL), null),
-    )
 
-    /** #EXP-1717: owner-only `agents.setCoordinator` (null = none). */
-    fun setCoordinator(agentId: String?) {
+    val lead: StateFlow<LeadState> = combine(dbFlow, teamId) { db, team -> db to team }
+        .flatMapLatest { (db, team) ->
+            if (db == null || team == null) flowOf(emptyList()) else db.userDao().observeByTeam(team)
+        }
+        .combine(leadUserId) { users, leadUser ->
+            val options = AgentSettings.Lead.leadOptions(users) {
+                AgentSettings.Lead.MemberLike(it.id, com.exponential.app.ui.components.userDisplayName(it, it.id))
+            }.map { user ->
+                (user?.id) to (user?.let { com.exponential.app.ui.components.userDisplayName(it, it.id) } ?: AgentSettings.Lead.NONE_LABEL)
+            }
+            LeadState(options, leadUser)
+        }.flowOn(Dispatchers.Default).stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            LeadState(listOf(null to AgentSettings.Lead.NONE_LABEL), null),
+        )
+
+    /** #EXP-1735: owner-only `agents.setLeadAssistant` (null = none). */
+    fun setLeadAssistant(userId: String?) {
         val team = teamId.value ?: return
-        if (agentId == coordinator.value.value) return
-        write("set", "the coordinator") { accountId -> agentsApi.setCoordinator(accountId, team, agentId) }
+        if (userId == lead.value.value) return
+        write("save", "the lead Assistant") { accountId ->
+            agentsApi.setLeadAssistant(accountId, team, userId)
+            leadReload.value += 1
+        }
     }
 
     /**
