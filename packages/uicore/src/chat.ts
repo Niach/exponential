@@ -1,6 +1,6 @@
 // #EDE-65 lane I: what the shared chat document binds, a pure projection of
 // one conversation the host already resolved. `fixtures/chat.json` is the
-// spec; the document (`docs/chat.json`) binds the result under /chat/view.
+// spec; the document (`docs/chat.json`) binds the result under /chatting.
 import fixture from "../fixtures/chat.json" with { type: "json" }
 
 export interface ChatAgentInput {
@@ -12,6 +12,11 @@ export interface ChatAgentInput {
 export interface ChatOptionInput {
   label: string
   description: string | null
+}
+
+/** An option as the document draws it: its row's id rides along (a template cannot read its parent). */
+export interface ChatOption extends ChatOptionInput {
+  messageId: string
 }
 
 export type ChatRowInput =
@@ -51,7 +56,7 @@ export interface ChatRow {
   title: string
   text: string
   target: string | null
-  options: ChatOptionInput[]
+  options: ChatOption[]
   custom: boolean
   multi: boolean
   waiting: boolean
@@ -115,7 +120,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
         ...blank(input.id, `question`),
         icon: COPY.questionIcon,
         title: input.question,
-        options: input.options,
+        options: input.options.map((o) => ({ ...o, messageId: input.id })),
         custom: input.custom,
         multi: input.multi,
         waiting: input.waiting,

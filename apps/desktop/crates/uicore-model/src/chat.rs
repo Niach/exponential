@@ -2,7 +2,7 @@
 //! of one conversation the host already resolved, locked by
 //! `packages/uicore/fixtures/chat.json` (its `$comment` is the spec,
 //! `packages/uicore/src/chat.ts` the TypeScript reference). The document
-//! (`packages/uicore/docs/chat.json`) binds the result under `/chat/view`.
+//! (`packages/uicore/docs/chat.json`) binds the result under `/chatting`.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,16 @@ pub struct ChatAgentInput {
 pub struct ChatOption {
     pub label: String,
     pub description: Option<String>,
+}
+
+/// An option as the document draws it: its row's id rides along (a
+/// template cannot read its parent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRowOption {
+    pub label: String,
+    pub description: Option<String>,
+    pub message_id: String,
 }
 
 /// One row as the host resolved it from the domain's thread rows.
@@ -77,7 +87,7 @@ pub struct ChatRow {
     pub title: String,
     pub text: String,
     pub target: Option<String>,
-    pub options: Vec<ChatOption>,
+    pub options: Vec<ChatRowOption>,
     pub custom: bool,
     pub multi: bool,
     pub waiting: bool,
@@ -190,7 +200,7 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
         ChatRowInput::Question { id, question, options, custom, multi, waiting, answer } => ChatRow {
             icon: copy("questionIcon"),
             title: question.clone(),
-            options: options.clone(),
+            options: options.iter().map(|o| ChatRowOption { label: o.label.clone(), description: o.description.clone(), message_id: id.clone() }).collect(),
             custom: *custom,
             multi: *multi,
             waiting: *waiting,
