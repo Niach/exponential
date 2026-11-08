@@ -1,0 +1,19 @@
+---
+/* The closing band above the footer of every page outside the docs: one
+   line, the two ways in, over the exponential curve motif (hairlines that
+   draw in as the band scrolls into view). */
+import { LinkButton } from "@astrojs/starlight/components"
+import { CTA_BOX, CTA_CURVES } from "./cta-curves.ts"
+import { LINKS } from "./links.ts"
+---
+
+<section class="exp-cta not-content" aria-labelledby="exp-cta-title">
+  <svg class="exp-cta-motif" viewBox={`0 0 ${CTA_BOX.width} ${CTA_BOX.height}`} preserveAspectRatio="none" aria-hidden="true">
+    {CTA_CURVES.map((d) => <path d={d} pathLength="1" />)}
+  </svg>
+  <h2 id="exp-cta-title">Build your first app.</h2>
+  <div class="exp-actions">
+    <LinkButton href={LINKS.app.login} icon="right-arrow">Get started free</LinkButton>
+    <LinkButton href="/download/" variant="secondary">Download</LinkButton>
+  </div>
+</section>

@@ -73,6 +73,8 @@ import { entry as chatMenus } from "./chat-menus.tsx"
 import { entry as resultsTab } from "./results-tab.tsx"
 import { entry as needsYou } from "./needs-you.tsx"
 import { entry as edePanel } from "./ede-panel.tsx"
+import { entry as siteMegaMenu } from "./site-mega-menu.tsx"
+import { entry as siteCtaBand } from "./site-cta-band.tsx"
 import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
@@ -84,6 +86,7 @@ import { entry as recordForm } from "./record-form.tsx"
 import { entry as recordTable } from "./record-table.tsx"
 import { entry as settingsRow } from "./settings-row.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
+import { entry as windowFrame } from "./window.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
 import { entry as motion } from "./motion.tsx"
 import { entry as boxHover } from "./box-hover.tsx"
@@ -132,6 +135,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   outline,
   tree,
   mosaic,
+  windowFrame,
   zoomableImage,
   motion,
   boxHover,
@@ -190,6 +194,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   resultsTab,
   needsYou,
   edePanel,
+  siteMegaMenu,
+  siteCtaBand,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

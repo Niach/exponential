@@ -132,6 +132,55 @@ pub fn slash_menu(draft: &str, cli: Option<&str>, prompts: &[domain::rows::Promp
     serde_json::json!({"open": !rows.is_empty(), "rows": rows})
 }
 
+/// A person `@` can name: their label and email.
+pub struct Member {
+    pub name: String,
+    pub email: String,
+}
+
+/// THE `@`/`#` typeahead (`domain::typeahead`, the IDE's rules) over the
+/// token at the END of the draft (the chat's composer reports its text, not
+/// its caret: the token being typed is the last one). `@` = the members by
+/// name or email, inserting `@<email>`; `#` = the issues the engine ranks
+/// (`issues`: the caller's already ranked `(identifier, title)`), inserting
+/// `#<IDENTIFIER>`. Rows have the `/` menu's shape; `insert` is the whole
+/// new draft (the token replaced, a space after it).
+pub fn mention_menu(draft: &str, members: &[Member], issues: &[(String, String)]) -> Option<serde_json::Value> {
+    use domain::typeahead::{detect_trigger, mention_matches, CompletionTrigger, MAX_ITEMS};
+    let token = detect_trigger(draft, draft.len())?;
+    let head = &draft[..token.start];
+    let rows: Vec<serde_json::Value> = match token.trigger {
+        CompletionTrigger::Mention => {
+            let needle = token.query.to_lowercase();
+            let mut picks: Vec<&Member> = members.iter().filter(|m| mention_matches(&m.name, &m.email, &needle)).collect();
+            picks.sort_by(|a, b| a.name.cmp(&b.name));
+            picks.dedup_by(|a, b| a.email == b.email);
+            picks
+                .into_iter()
+                .take(MAX_ITEMS)
+                .map(|m| serde_json::json!({"key": format!("member:{}", m.email), "command": "", "description": m.name, "hint": m.email, "icon": "user", "insert": format!("{head}@{} ", m.email), "prompt": ""}))
+                .collect()
+        }
+        CompletionTrigger::IssueRef => issues
+            .iter()
+            .take(MAX_ITEMS)
+            .map(|(identifier, title)| serde_json::json!({"key": format!("issue:{identifier}"), "command": identifier, "description": title, "hint": "", "icon": null, "insert": format!("{head}#{identifier} "), "prompt": ""}))
+            .collect(),
+        CompletionTrigger::Emoji => Vec::new(),
+    };
+    Some(serde_json::json!({"open": !rows.is_empty(), "rows": rows}))
+}
+
+/// The goldens' people.
+pub fn demo_members() -> Vec<Member> {
+    [("Dana Reyes", "dana@example.com"), ("Alex Kim", "alex@example.com"), ("Danny", "danny@example.com")].into_iter().map(|(name, email)| Member { name: name.into(), email: email.into() }).collect()
+}
+
+/// The goldens' ranked issues.
+pub fn demo_issues() -> Vec<(String, String)> {
+    [("FB-8", "Editor takes seconds to open on older laptops"), ("FB-9", "Screenshots attached to feedback are cropped")].into_iter().map(|(i, t)| (i.into(), t.into())).collect()
+}
+
 /// The goldens' team prompts.
 pub fn demo_prompts() -> Vec<domain::rows::PromptRow> {
     [("p1", "Release notes", "rocket"), ("p2", "Triage the inbox", "")]
@@ -146,6 +195,19 @@ const PROMPT_ICON: &str = "action-default";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn at_lists_members_and_hash_the_ranked_issues_replacing_the_last_token() {
+        let members = vec![Member { name: "Dana Reyes".into(), email: "dana@x.com".into() }, Member { name: "Alex".into(), email: "alex@x.com".into() }];
+        let menu = mention_menu("ping @da", &members, &[]).expect("@");
+        assert_eq!(menu["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(menu["rows"][0]["insert"], "ping @dana@x.com ");
+        let issues = vec![("EXP-12".to_string(), "Fix the tray".to_string())];
+        let hash = mention_menu("see #EX", &members, &issues).expect("#");
+        assert_eq!((hash["rows"][0]["command"].as_str(), hash["rows"][0]["insert"].as_str()), (Some("EXP-12"), Some("see #EXP-12 ")));
+        assert!(mention_menu("plain text", &members, &issues).is_none());
+        assert_eq!(mention_menu("@zzz", &members, &[]).unwrap()["open"], false);
+    }
 
     #[test]
     fn the_team_s_prompts_follow_the_builtins_by_their_slash_name() {

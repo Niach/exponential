@@ -1534,6 +1534,26 @@
         "description": "Your account summary"
       }
     },
+    "Window": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "one",
+      "description": "A window frame: a chrome bar with three dots and an optional caption over one child that fills the body.",
+      "props": {
+        "title": {
+          "type": "string",
+          "description": "The centred caption in the chrome bar."
+        },
+        "style": {
+          "type": "style",
+          "description": "Extra Box styles merged over the window's own."
+        }
+      },
+      "example": {
+        "title": "exponential.at"
+      }
+    },
     "Separator": {
       "kind": "macro",
       "group": "layout",
