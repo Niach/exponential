@@ -62,7 +62,7 @@ mod mcp_server_dialog;
 mod statuses;
 mod local_repos;
 mod members;
-mod archived_boards;
+mod all_boards;
 mod change_email_dialog;
 mod sign_in_methods;
 mod notifications_prefs;
@@ -162,7 +162,7 @@ use members::MembersPane;
 use agent_detail::AgentDetailPane;
 use new_agent::NewAgentPane;
 use agents::AgentsPane;
-use archived_boards::ArchivedBoardsPane;
+use all_boards::AllBoardsPane;
 use board_detail::BoardDetailPane;
 use notifications_prefs::NotificationsPrefsPane;
 use voice_prefs::VoicePrefsPane;
@@ -197,12 +197,11 @@ pub(crate) enum SettingsSection {
     /// One board's detail settings page (EXP-288 — the Boards group lists
     /// every board as its own nav entry; the payload is the board id).
     Board(String),
-    /// EXP-500: the team's archived boards, with unarchive. Owner-only, and
-    /// necessarily its own pane: an archived board is excluded from the boards
-    /// shape, so it has no per-board nav row to hang off and can only be read
-    /// over tRPC. Web keeps the equivalent as a card on its single Boards
-    /// settings page, which desktop flattened into per-board panes (EXP-288).
-    ArchivedBoards,
+    /// #NEW-37: the Boards page (settings-nav.json `all-boards`): the live
+    /// boards, then the archived ones (Unarchive) and the 48h trash
+    /// (Restore). Owner-only: archived and trashed boards are out of the
+    /// boards shape (EXP-500) and only owners can read them over tRPC.
+    AllBoards,
     Repositories,
     /// EXP-771: the team's feedback widgets — a READ-ONLY list (name,
     /// submission count, disabled state) plus the "Manage on the web"
@@ -372,7 +371,7 @@ const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         id: "boards",
         label: "Boards",
-        items: &[NavItem::leaf("archived-boards", "Archived boards", SettingsSection::ArchivedBoards)],
+        items: &[NavItem::leaf("all-boards", "All boards", SettingsSection::AllBoards)],
     },
     // The viewer's Assistant, the team agents and New agent are injected at
     // render; MCP closes the group.
@@ -468,7 +467,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Labels => Icon::from(registry::SETTINGS_LABELS),
         SettingsSection::Statuses => Icon::from(registry::SETTINGS_STATUSES),
         SettingsSection::Storage => Icon::from(registry::SETTINGS_STORAGE),
-        SettingsSection::ArchivedBoards => Icon::from(registry::UI_ARCHIVE),
+        SettingsSection::AllBoards => Icon::from(registry::SETTINGS_BOARDS),
         SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
         SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
@@ -508,7 +507,7 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
     match section {
         SettingsSection::General
         | SettingsSection::Storage
-        | SettingsSection::ArchivedBoards
+        | SettingsSection::AllBoards
         | SettingsSection::Widget
         | SettingsSection::NewAgent
         | SettingsSection::NewPrompt
@@ -683,9 +682,9 @@ pub struct SettingsView {
     statuses: Entity<StatusesPane>,
     /// EXP-297 owner-only attachment manager (fetch-on-open server read).
     storage: Entity<StoragePane>,
-    /// EXP-500 owner-only archived-boards list (fetch-on-open server read —
-    /// archived boards are not synced).
-    archived_boards: Entity<ArchivedBoardsPane>,
+    /// #NEW-37 owner-only Boards page: live boards + the archived and trashed
+    /// ones (fetch-on-open server reads, those two are not synced).
+    all_boards: Entity<AllBoardsPane>,
     /// EXP-288: ONE per-board detail pane — it reads the selected `Board(id)`
     /// from the shared selection itself and re-points at board switches.
     board_detail: Entity<BoardDetailPane>,
@@ -763,7 +762,7 @@ impl SettingsView {
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
-        let archived_boards = cx.new(|cx| ArchivedBoardsPane::new(nav.clone(), cx));
+        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let agent_detail =
@@ -813,7 +812,7 @@ impl SettingsView {
             labels,
             statuses,
             storage,
-            archived_boards,
+            all_boards,
             board_detail,
             agent_detail,
             new_agent: None,
@@ -1000,9 +999,7 @@ impl Render for SettingsView {
             SettingsSection::Labels => self.labels.clone().into_any_element(),
             SettingsSection::Statuses => self.statuses.clone().into_any_element(),
             SettingsSection::Storage => self.storage.clone().into_any_element(),
-            SettingsSection::ArchivedBoards => {
-                self.archived_boards.clone().into_any_element()
-            }
+            SettingsSection::AllBoards => self.all_boards.clone().into_any_element(),
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
@@ -1953,7 +1950,7 @@ mod tests {
         for gated in [
             SettingsSection::General,
             SettingsSection::Storage,
-            SettingsSection::ArchivedBoards,
+            SettingsSection::AllBoards,
             // EXP-771: the Features group mirrors the web's
             // `canManageWidgets` gate, which IS `isOwner`.
             SettingsSection::Widget,
@@ -2260,14 +2257,14 @@ mod tests {
     /// EXP-500: archiving the board whose settings pane is open drops it out
     /// of the synced collection, which is exactly the stale-`Board(id)` case
     /// above — the nav clamps to General instead of rendering a blank pane.
-    /// The Archived boards pane it was archived from stays reachable.
+    /// The All boards pane it lands on stays reachable.
     #[test]
-    fn archived_boards_pane_is_owner_only_and_never_clamped() {
-        assert!(section_visible(&SettingsSection::ArchivedBoards, true));
-        assert!(!section_visible(&SettingsSection::ArchivedBoards, false));
+    fn all_boards_pane_is_owner_only_and_never_clamped() {
+        assert!(section_visible(&SettingsSection::AllBoards, true));
+        assert!(!section_visible(&SettingsSection::AllBoards, false));
         assert_eq!(
-            effective_selection(SettingsSection::ArchivedBoards, true, |_| false, |_| false),
-            SettingsSection::ArchivedBoards
+            effective_selection(SettingsSection::AllBoards, true, |_| false, |_| false),
+            SettingsSection::AllBoards
         );
     }
 

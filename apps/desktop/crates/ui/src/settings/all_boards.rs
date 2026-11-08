@@ -1,71 +1,65 @@
-//! Settings → Boards → Archived boards (EXP-500).
+//! Settings → Boards → All boards (#NEW-37, settings-nav.json `boards`).
 //!
-//! Web parity: the "Archived boards" card in `components/team/boards-section.tsx`.
-//! Owner-only, like the `boards.listArchived` / `boards.unarchive` procedures
-//! behind it.
+//! Web parity: `BoardsListBand` in `components/team/boards-section.tsx`. ONE
+//! list of the team's boards: the `Boards` band (New board) over the live
+//! synced boards (a row opens that board's pane), then the `Archived` and
+//! `Trash` bands, each drawn only while non-empty, with Unarchive / Restore
+//! and the archived date / purge countdown. Owner-only here: members read the
+//! live boards straight off the nav, and the two server reads are owners'.
 //!
-//! Archiving is the NON-PURGING sibling of the 48h trash: an archived board
-//! and every one of its issues drop out of the Electric shapes server-side, so
-//! they are invisible on every client without a single client-side filter —
-//! and so an archived board is NOT in the synced boards collection. That makes
-//! this pane the only place one can be seen at all, and the tRPC read the only
-//! way to fetch it. (The first archiving attempt synced the flag and asked all
-//! four clients to filter it; it leaked and was deleted, REV2-103.)
-//!
-//! Reads are fetch-on-open + refetch after every unarchive (never optimistic:
-//! the row leaves this server list and re-enters sync at its own pace).
-//!
-//! Web parity (`BoardsTrashPage`): under the archived list, the 48h TRASH
-//! (`boards.listDeleted`, Restore = `boards.restore`), drawn only while a
-//! board is pending deletion; its countdown re-renders every minute.
+//! Archiving is the NON-PURGING sibling of the 48h trash: an archived or
+//! trashed board and every one of its issues drop out of the Electric shapes
+//! server-side (EXP-500, REV2-103), so the tRPC reads (`boards.listArchived`,
+//! `boards.listDeleted`) are the only way to see either. Both are fetched on
+//! open + after every action (never optimistic: the row leaves the server list
+//! and re-enters sync at its own pace); a failed read is quiet (FEED-79).
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, Entity, IntoElement, ParentElement, Render, SharedString,
+    div, App, InteractiveElement as _, StatefulInteractiveElement as _, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
 use gpui_component::{
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
 
 use api::boards::{ArchivedBoard, TrashedBoard};
 
 use crate::icons::{board_icon_name_glyph, registry};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{active_team_id, navigate, Navigation, Screen};
 use crate::queries;
+use crate::sidebar::select_settings_section;
 use crate::surface::{glass_pill_button, PillSize};
 
-use super::{section, settings_skeleton};
+use super::{parse_hex_color, section, SettingsSection};
 
-enum Load {
-    Idle,
-    Loading,
-    Ready(Result<Vec<ArchivedBoard>, String>),
-}
-
-pub struct ArchivedBoardsPane {
+pub struct AllBoardsPane {
     nav: Entity<Navigation>,
-    load: Load,
+    /// Whether the server reads for `loaded_team` are fetched / in flight.
+    loaded: bool,
+    /// The archived boards (`boards.listArchived`).
+    archived: Vec<ArchivedBoard>,
     /// The team the current `load` belongs to; a switch re-fetches.
     loaded_team: Option<String>,
     /// The account it was fetched as — a re-login must re-fetch.
     account_id: Option<String>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
-    /// The trashed boards (`boards.listDeleted`); a failed read is quiet,
-    /// the section just stays away (web parity).
+    /// The trashed boards (`boards.listDeleted`).
     trash: Vec<TrashedBoard>,
     /// The board being unarchived or restored — disables its row's button.
     pending: Option<String>,
-    /// FEED-79: the load in flight is the person's Retry press (its failure
-    /// toasts); a load on open fails quietly into the empty state.
-    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
-impl ArchivedBoardsPane {
+impl AllBoardsPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
-        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        // The live band follows the synced boards.
+        let boards = Store::global(cx).collections().boards.clone();
+        let subscriptions = vec![
+            cx.observe(&nav, |_, _, cx| cx.notify()),
+            cx.observe(&boards, |_, _, cx| cx.notify()),
+        ];
         // The trash countdown ("Purges in ~Nh") re-renders every minute.
         cx.spawn(async move |this, cx| loop {
             cx.background_executor()
@@ -78,13 +72,13 @@ impl ArchivedBoardsPane {
         .detach();
         Self {
             nav,
-            load: Load::Idle,
+            loaded: false,
+            archived: Vec::new(),
             trash: Vec::new(),
             loaded_team: None,
             account_id: None,
             generation: 0,
             pending: None,
-            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -98,28 +92,31 @@ impl ArchivedBoardsPane {
             .map(str::to_string);
         if account_id != self.account_id {
             self.account_id = account_id;
-            self.load = Load::Idle;
+            self.loaded = false;
         }
         let same_team = self.loaded_team.as_deref() == Some(team_id);
-        if same_team && !matches!(self.load, Load::Idle) {
+        if same_team && self.loaded {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
+        if !same_team {
+            self.archived.clear();
+            self.trash.clear();
+        }
 
-        self.load = Load::Loading;
+        self.loaded = true;
         self.loaded_team = Some(team_id.to_string());
         self.generation += 1;
         let generation = self.generation;
         let team_id = team_id.to_string();
 
         cx.spawn(async move |this, cx| {
-            let (result, trash) = cx
+            let (archived, trash) = cx
                 .background_executor()
                 .spawn(async move {
-                    let archived = api::boards::boards_list_archived(&trpc, &team_id)
-                        .map_err(|err| err.user_message());
+                    let archived = api::boards::boards_list_archived(&trpc, &team_id);
                     let trash = api::boards::boards_list_deleted(&trpc, &team_id);
                     (archived, trash)
                 })
@@ -128,39 +125,26 @@ impl ArchivedBoardsPane {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
                 }
+                // FEED-79 (web parity): a failed read is quiet, the band
+                // keeps the rows it last had.
+                match archived {
+                    Ok(rows) => this.archived = rows,
+                    Err(error) => log::warn!("[ui] boards.listArchived failed: {error}"),
+                }
                 match trash {
                     Ok(rows) => this.trash = rows,
                     Err(error) => log::warn!("[ui] boards.listDeleted failed: {error}"),
                 }
-                // FEED-79: a failed load = the empty state + Retry; only a
-                // Retry press that fails again toasts.
-                let attended = std::mem::take(&mut this.retry_pressed);
-                if let Err(message) = &result {
-                    crate::action_error::failed_load(
-                        "the archived boards",
-                        attended,
-                        Some(message.clone()),
-                        cx,
-                    );
-                }
-                this.load = Load::Ready(result);
                 cx.notify();
             });
         })
         .detach();
     }
 
-    /// Refetch (after an unarchive): drop the cached list; the next render
-    /// re-fetches.
+    /// Refetch (after an unarchive / restore): the next render re-fetches.
     fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
-        self.load = Load::Idle;
+        self.loaded = false;
         cx.notify();
-    }
-
-    /// The failed list's Retry: the same load, attended.
-    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
-        self.retry_pressed = true;
-        self.refetch(cx);
     }
 
     /// `boards.unarchive` → refetch. No confirm: unarchiving only makes things
@@ -191,8 +175,7 @@ impl ArchivedBoardsPane {
                 this.pending = None;
                 // The list is a server read — refetch on success AND failure:
                 // a failure can mean the board was trashed out from under us,
-                // in which case it belongs to the web trash card now and must
-                // drop off this list.
+                // in which case it belongs to the Trash band now.
                 this.refetch(cx);
                 cx.notify();
             });
@@ -249,16 +232,13 @@ impl ArchivedBoardsPane {
         .detach();
     }
 
-    /// One Trash row: the archived row's shape with the purge countdown and
-    /// Restore.
+    /// One Trash row: the purge countdown and Restore.
     fn trash_row(&self, board: &TrashedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let pending = self.pending.as_deref() == Some(board.id.as_str());
         let board_for_click = board.clone();
         board_row(
-            &board.id,
             board.icon.as_deref(),
             &board.name,
-            board.prefix.clone(),
             purge_countdown(board.purge_at.as_deref(), chrono::Utc::now()),
             glass_pill_button(
                 SharedString::from(format!("restore-{}", board.id)),
@@ -274,14 +254,12 @@ impl ArchivedBoardsPane {
         )
     }
 
-    fn row(&self, board: &ArchivedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
+    fn archived_row(&self, board: &ArchivedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let pending = self.pending.as_deref() == Some(board.id.as_str());
         let board_for_click = board.clone();
         board_row(
-            &board.id,
             board.icon.as_deref(),
             &board.name,
-            board.prefix.clone(),
             archived_on(board.archived_at.as_deref()),
             glass_pill_button(
                 SharedString::from(format!("unarchive-{}", board.id)),
@@ -298,16 +276,12 @@ impl ArchivedBoardsPane {
     }
 }
 
-/// One board row of either list. EXP-1076: a board is an ENTITY, so its
-/// list is the hairline LADDER, not the inset-grouped block a FORM's fields
-/// wear: `list_row` + `flat_row` at the settings row rhythm (the web
-/// `SETTINGS_LIST_CLASS` twin): glyph, name, the prefix as a mono readonly
-/// pill, the caption, the action pill.
+/// One put-away board row. EXP-1076: a board is an ENTITY, so its list is
+/// the hairline LADDER: `flat_row` at the settings row rhythm (the web
+/// `SETTINGS_LIST_CLASS` twin): glyph, name, the caption, the action pill.
 fn board_row(
-    id: &str,
     icon: Option<&str>,
     name: &str,
-    prefix: Option<String>,
     caption: SharedString,
     action: gpui_component::button::Button,
     cx: &App,
@@ -321,27 +295,7 @@ fn board_row(
         .px_3()
         .py_2()
         .child(board_icon_name_glyph(icon.unwrap_or_default()))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_sm()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .child(SharedString::from(name.to_string())),
-        )
-        .when_some(prefix.filter(|prefix| !prefix.is_empty()), |row, prefix| {
-            row.child(
-                crate::surface::glass_pill(
-                    SharedString::from(format!("board-prefix-{id}")),
-                    PillSize::Sm,
-                    crate::surface::PillMode::Readonly,
-                    cx,
-                )
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(prefix),
-            )
-        })
+        .child(board_name(name))
         .child(
             div()
                 .flex_shrink_0()
@@ -350,6 +304,16 @@ fn board_row(
                 .child(caption),
         )
         .child(action)
+}
+
+fn board_name(name: &str) -> gpui::Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_sm()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .child(SharedString::from(name.to_string()))
 }
 
 /// Web `formatPurgeCountdown`: "Purges in ~Nh" (hours rounded up), "Purging
@@ -378,7 +342,7 @@ fn archived_on(archived_at: Option<&str>) -> SharedString {
     }
 }
 
-impl Render for ArchivedBoardsPane {
+impl Render for AllBoardsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
@@ -389,75 +353,76 @@ impl Render for ArchivedBoardsPane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        // Web parity: the archive glyph leads the band; no Refresh — the list
-        // refetches on open and after every unarchive.
-        let mut body = section(cx).child(crate::surface::glass_section_band(
-            Some(
-                Icon::from(registry::UI_ARCHIVE)
-                    .xsmall()
-                    .text_color(cx.theme().foreground.opacity(0.5))
-                    .into_any_element(),
-            ),
-            "Archived boards",
+        // The live band: "New board" as its trailing pill (web parity), the
+        // synced boards in the nav's order, a row opens that board's pane.
+        let new_board = {
+            let team_id = team_id.clone();
+            glass_pill_button("all-boards-new-board", PillSize::Sm, cx)
+                .icon(Icon::new(registry::UI_ADD))
+                .label("New board")
+                .on_click(move |_, window, cx| {
+                    crate::create_board_dialog::open(window, cx, team_id.clone());
+                })
+                .into_any_element()
+        };
+        let boards = Store::global(cx).collections().boards_in_team(&team_id, cx);
+        let mut live = section(cx).child(crate::surface::glass_section_band(
             None,
+            "Boards",
+            Some(new_board),
             cx,
         ));
-
-        match &self.load {
-            Load::Idle | Load::Loading => {
-                body = body.child(settings_skeleton("archived-boards-skeleton", cx));
-            }
-            // A failed load (FEED-79): the empty state + Retry, no toast.
-            Load::Ready(Err(_)) => {
-                body = body.child(crate::action_error::load_failed_state(
-                    "archived-boards-retry",
-                    gpui_component::Icon::new(crate::icons::registry::UI_ARCHIVE),
-                    crate::empty_state_copy::ARCHIVED_BOARDS,
-                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                    cx,
-                ));
-            }
-            Load::Ready(Ok(rows)) if rows.is_empty() => {
-                body = body.child(crate::controls::empty_state_list(
-                    gpui_component::Icon::new(crate::icons::registry::UI_ARCHIVE),
-                    crate::empty_state_copy::ARCHIVED_BOARDS,
-                    cx,
-                ));
-            }
-            Load::Ready(Ok(rows)) => {
-                let rows = rows.clone();
-                // EXP-1076: the gapless ladder under the band.
-                body = body.child(v_flex().w_full().min_w_0().children(
-                    rows.iter().map(|board| {
-                        crate::surface::list_row(self.row(board, cx))
-                    }),
-                ));
-            }
+        if boards.is_empty() {
+            live = live.child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(registry::SETTINGS_BOARDS),
+                crate::empty_state_copy::TEAM_BOARDS,
+                cx,
+            ));
+        } else {
+            live = live.child(v_flex().w_full().min_w_0().children(boards.iter().map(|board| {
+                let color = board
+                    .color
+                    .as_deref()
+                    .and_then(parse_hex_color)
+                    .unwrap_or(cx.theme().muted_foreground);
+                let target = SettingsSection::Board(board.id.clone());
+                crate::surface::list_row(
+                    crate::surface::flat_row()
+                        .flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .child(crate::icons::board_icon(board).text_color(color))
+                        .child(board_name(&board.name))
+                        .id(SharedString::from(format!("all-boards-row-{}", board.id)))
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            select_settings_section(window, cx, target.clone());
+                            navigate(window, cx, Screen::Settings);
+                        }),
+                )
+            })));
         }
 
-        let mut page = v_flex().gap_6().child(body);
+        let mut page = v_flex().gap_6().child(live);
+        if !self.archived.is_empty() {
+            let rows = self.archived.clone();
+            page = page.child(
+                section(cx)
+                    .child(crate::surface::glass_section_band(None, "Archived", None, cx))
+                    .child(v_flex().w_full().min_w_0().children(
+                        rows.iter().map(|board| crate::surface::list_row(self.archived_row(board, cx))),
+                    )),
+            );
+        }
         if !self.trash.is_empty() {
             let rows = self.trash.clone();
             page = page.child(
                 section(cx)
-                    .child(crate::surface::glass_section_band(
-                        Some(
-                            Icon::from(registry::UI_DELETE)
-                                .xsmall()
-                                .text_color(cx.theme().foreground.opacity(0.5))
-                                .into_any_element(),
-                        ),
-                        "Trash",
-                        None,
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .px_1()
-                            .text_xs()
-                            .text_color(cx.theme().foreground.opacity(0.5))
-                            .child(TRASH_NOTE),
-                    )
+                    .child(crate::surface::glass_section_band(None, "Trash", None, cx))
                     .child(v_flex().w_full().min_w_0().children(
                         rows.iter().map(|board| crate::surface::list_row(self.trash_row(board, cx))),
                     )),
@@ -466,10 +431,6 @@ impl Render for ArchivedBoardsPane {
         page
     }
 }
-
-/// Web `PendingDeletionCard`'s line under the Trash band.
-const TRASH_NOTE: &str =
-    "Deleted boards are kept for 48 hours, then permanently removed with all their issues.";
 
 #[cfg(test)]
 mod tests {
