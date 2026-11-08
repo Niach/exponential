@@ -500,6 +500,23 @@ fn a_focused_number_field_selects_its_seed_and_typing_replaces_it(cx: &mut TestA
     assert!(note.contains("seeded"), "an Input keeps its text: {note}");
 }
 
+/// eDE's lock screen showed the typed password: an `Input{type: password}`
+/// draws bullets and still hands the real text to its binding.
+#[gpui::test]
+fn a_password_input_is_masked(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "password", "component": "Input", "props": {"label": "Password", "name": "password", "type": "password", "value": {"@path": "/password"}}},
+        {"id": "user", "component": "Input", "props": {"label": "User", "name": "user", "value": "danny"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, cx| v.set_data("/password", Some(json!("hunter2")), cx).unwrap());
+    draw(cx);
+    let id = "password.field";
+    assert_eq!(view.read_with(cx, |v, cx| v.field_masked(id, cx)), Some(true), "a password is drawn as bullets");
+    assert_eq!(view.read_with(cx, |v, cx| v.field_text(id, cx)).as_deref(), Some("hunter2"), "the binding keeps the real text");
+    assert_eq!(view.read_with(cx, |v, cx| v.field_masked("user.field", cx)), Some(false), "a plain field is not");
+}
+
 #[gpui::test]
 fn picked_files_reach_the_host_and_the_upload_event(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
@@ -1371,5 +1388,36 @@ fn a_mixed_checkbox_presses_to_checked_and_reads_mixed(cx: &mut TestAppContext) 
                 assert_eq!(mixed.unwrap_or(Value::Null), step["mixed"], "{name} #{k}: /mixed");
             }
         }
+    }
+}
+
+/// #EDE-65: a Box's `on.hover` through the painter: interactions-round1.json
+/// `boxHover` (real pointer moves enter / leave a tile, a click presses it),
+/// the actions the host sees, in order.
+#[gpui::test]
+fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["boxHover"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [fx["surface"].clone()]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let outside = view.read_with(vcx, |v, _| v.painted_bounds("tiles")).map(|b| b.bottom_right() + gpui::point(px(20.0), px(20.0))).unwrap();
+        for step in c["steps"].as_array().unwrap() {
+            let (kind, id) = step.as_object().unwrap().iter().next().unwrap();
+            let b = view.read_with(vcx, |v, _| v.painted_bounds(id.as_str().unwrap())).unwrap_or_else(|| panic!("{name}: {id} painted"));
+            match kind.as_str() {
+                "enter" => vcx.simulate_mouse_move(b.center(), None, Modifiers::default()),
+                "leave" => vcx.simulate_mouse_move(outside, None, Modifiers::default()),
+                _ => {
+                    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+                }
+            }
+            draw(vcx);
+        }
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}");
     }
 }

@@ -31,6 +31,8 @@ fi
 
 if [ "$WHICH" = kotlin ] || [ "$WHICH" = all ]; then
   echo "== kotlin"
+  # The binding is generated in Android mode (uniffi.toml): tests/kotlin/android-stubs
+  # stand in for android.os.Build, android.system.SystemCleaner and RequiresApi.
   # VAPP-151: exact versions, never "newest dir in the gradle cache" (`sort | tail -1`
   # ranked jna 5.6.0 above 5.17.0). Kotlin + JNA come from the Compose package's
   # version catalog; the compiler's runtime classpath from its own POM. Each jar is
@@ -66,14 +68,14 @@ if [ "$WHICH" = kotlin ] || [ "$WHICH" = all ]; then
   STDLIB="$(fetch org.jetbrains.kotlin kotlin-stdlib "$KOTLIN_VERSION" jar)"
   ANNOTATIONS="$(deps org.jetbrains.kotlin kotlin-stdlib "$KOTLIN_VERSION" | while read -r g a v; do fetch "$g" "$a" "$v" jar; done | paste -sd: -)"
   if [ -n "${KOTLINC:-}" ]; then
-    "$KOTLINC" -cp "$JNA_JAR" "$HERE/bindings/kotlin/at/exponential/ui/ffi/exponential_ui_ffi.kt" "$HERE/tests/kotlin/FacadeTest.kt" -d "$OUT/kotlin-suite.jar"
+    "$KOTLINC" -cp "$JNA_JAR" "$HERE/bindings/kotlin/at/exponential/ui/ffi/exponential_ui_ffi.kt" "$HERE"/tests/kotlin/android-stubs/*.kt "$HERE/tests/kotlin/FacadeTest.kt" -d "$OUT/kotlin-suite.jar"
   else
     CC="$(fetch org.jetbrains.kotlin kotlin-compiler-embeddable "$KOTLIN_VERSION" jar)"
     while read -r g a v; do CC="$CC:$(fetch "$g" "$a" "$v" jar)"; done < <(deps org.jetbrains.kotlin kotlin-compiler-embeddable "$KOTLIN_VERSION")
     CC="$CC:$ANNOTATIONS"
     echo "kotlin $KOTLIN_VERSION, jna $JNA_VERSION"
     java -cp "$CC" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -cp "$STDLIB:$JNA_JAR" -jvm-target 17 \
-      "$HERE/bindings/kotlin/at/exponential/ui/ffi/exponential_ui_ffi.kt" "$HERE/tests/kotlin/FacadeTest.kt" -d "$OUT/kotlin-suite.jar"
+      "$HERE/bindings/kotlin/at/exponential/ui/ffi/exponential_ui_ffi.kt" "$HERE"/tests/kotlin/android-stubs/*.kt "$HERE/tests/kotlin/FacadeTest.kt" -d "$OUT/kotlin-suite.jar"
   fi
   java -Djna.library.path="$TARGET/release" -cp "$OUT/kotlin-suite.jar:$STDLIB:$ANNOTATIONS:$JNA_JAR" tests.FacadeTestKt "$FIXTURES"
 fi

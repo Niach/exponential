@@ -198,6 +198,8 @@ pub struct RepositoriesPane {
     /// failure toasts; every other load (on open, on focus, after a write)
     /// fails quietly into the empty state.
     retry_pressed: bool,
+    /// #EXP-1727: a Local desktop's linked folders (`None` = not fetched).
+    local: Option<Vec<api::repositories::LocalRepository>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -284,6 +286,7 @@ impl RepositoriesPane {
             branches: HashMap::new(),
             branch_query,
             retry_pressed: false,
+            local: None,
             _subscriptions: subscriptions,
         }
     }
@@ -634,8 +637,77 @@ impl RepositoriesPane {
     }
 }
 
+impl RepositoriesPane {
+    /// #EXP-1727: a Local desktop's folders, read off its executor.
+    fn load_local(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        self.local = Some(api::repositories::list_local(&trpc).unwrap_or_default());
+        cx.notify();
+    }
+
+    /// Link a folder on this machine (the native open panel) to the active board.
+    fn link_folder(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some(copy::LINK_FOLDER.into()) });
+        let board = crate::navigation::active_board_id(&self.nav, cx);
+        cx.spawn_in(window, async move |this, window| {
+            let Ok(Ok(Some(paths))) = receiver.await else { return };
+            let Some(path) = paths.into_iter().next() else { return };
+            let _ = this.update_in(window, |this, _, cx| {
+                let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+                match api::repositories::link_folder(&trpc, &path.to_string_lossy(), board.as_deref()) {
+                    Ok(_) => this.load_local(cx),
+                    Err(error) => crate::action_error::failed_action("link", "the folder", Some(error.to_string()), cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn render_local(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        if self.local.is_none() {
+            self.load_local(cx);
+        }
+        let header_actions = crate::surface::glass_pill_button("repos-link-folder", crate::surface::PillSize::Sm, cx)
+            .icon(registry::UI_FOLDER)
+            .label(copy::LINK_FOLDER)
+            .on_click(cx.listener(|this, _, window, cx| this.link_folder(window, cx)))
+            .into_any_element();
+        let mut body = section(cx).child(crate::surface::glass_section_header(copy::SECTION_TITLE, Some(header_actions), cx));
+        let repos = self.local.clone().unwrap_or_default();
+        if repos.is_empty() {
+            body = body.child(crate::controls::empty_state_list(gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES), copy::NO_LOCAL_FOLDERS, cx));
+        }
+        for repo in repos {
+            body = body.child(
+                gpui_component::h_flex()
+                    .w_full()
+                    .px_2()
+                    .py_1p5()
+                    .gap_2()
+                    .items_center()
+                    .text_color(cx.theme().foreground)
+                    .child(gpui_component::Icon::new(registry::UI_FOLDER).flex_shrink_0())
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().text_sm().truncate().child(repo.full_name.clone()))
+                            .child(div().text_xs().text_color(cx.theme().muted_foreground).truncate().child(repo.path.clone())),
+                    )
+                    .child(div().flex_shrink_0().text_xs().text_color(cx.theme().muted_foreground).child(repo.default_branch.clone())),
+            );
+        }
+        body.into_any_element()
+    }
+}
+
 impl Render for RepositoriesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // #EXP-1727: a Local desktop links folders on this machine; nothing
+        // clones and no GitHub install is involved.
+        if crate::queries::active_account(cx).is_some_and(|a| a.is_local()) {
+            return v_flex().child(self.render_local(cx));
+        }
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::UI_TEAM),

@@ -47,6 +47,9 @@ on:
 jobs:
   record:
     runs-on: ubuntu-latest
+    # JVM tests load the host build through JNA: no Android .so, no cargo-ndk.
+    env:
+      ENET_SKIP_NATIVE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

@@ -222,6 +222,8 @@ struct Shell {
     chat_local: Option<local_runs::LocalChat>,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
+    /// #EDE-64: the apps launched in the last seconds.
+    launches: system::LaunchGuard,
     /// The installed packages (the factory and the person's directories).
     engine_apps: Vec<engine::EngineApp>,
     /// The launcher's entries, for the `launch` capability.
@@ -347,7 +349,8 @@ impl HostPlugin for Host {
                             refresh(&s, cx);
                         });
                     } else {
-                        launch_app(&self.shell.borrow(), app);
+                        let (s, app) = (self.shell.clone(), app.to_string());
+                        cx.defer(move |_| launch_app(&s, &app));
                     }
                 }
                 cx.defer(move |cx| {
@@ -1023,11 +1026,34 @@ fn ide_command(app: &apps::App, link: Option<&str>) -> String {
     }
 }
 
-fn launch_app(shell: &Shell, app: &str) {
+/// The Exponential app's ids: one IDE per person, a hand-off target.
+const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
+
+/// #EDE-64: the sidebar hands off to the Exponential app (Inbox, New issue,
+/// Needs you, Chats): its window comes forward when one is up, a burst of
+/// clicks launches anything once.
+fn launch_app(shell: &SharedShell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
-    match shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted) {
-        Some(a) => system::launch(&a.exec),
-        None => tracing::warn!(app, "no desktop entry to launch"),
+    if EXPONENTIAL_APPS.contains(&wanted) {
+        let open = {
+            let s = shell.borrow();
+            let mine: Vec<_> = s.model.windows.iter().filter(|w| w.app == wanted).collect();
+            mine.iter().find(|w| w.focused).or(mine.first()).map(|w| w.id.clone())
+        };
+        if let Some(id) = open.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+            with_ede(shell, |ede| ede.focus(id));
+            return;
+        }
+    }
+    let exec = shell.borrow().apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted).map(|a| a.exec.clone());
+    let Some(exec) = exec else {
+        tracing::warn!(app, "no desktop entry to launch");
+        return;
+    };
+    if shell.borrow_mut().launches.admit(wanted, Instant::now()) {
+        system::launch(&exec);
+    } else {
+        tracing::info!(app, "already starting");
     }
 }
 
@@ -1341,6 +1367,9 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
         let active = s.model.workspaces.active;
         let feed = uicore_data::windows_feed(&list, active);
         s.feed.set("/windows", Value::Array(feed));
+        for app in list.iter().filter_map(|w| w.app_id.as_deref()) {
+            s.launches.mapped(app);
+        }
         s.windows = list;
     }
     previews_refresh(shell);
@@ -1388,13 +1417,7 @@ fn relayout(shell: &SharedShell, cx: &mut App) {
 fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
     let press = uicore_model::taskbar_press(&shell.borrow().model, app);
     match press {
-        TaskbarPress::Launch => {
-            let exec = shell.borrow().apps.iter().find(|a| a.id.trim_end_matches(".desktop") == app).map(|a| a.exec.clone());
-            match exec {
-                Some(exec) => system::launch(&exec),
-                None => tracing::warn!(app, "no desktop entry to launch"),
-            }
-        }
+        TaskbarPress::Launch => launch_app(shell, app),
         TaskbarPress::Focus { id } => {
             if let Ok(id) = ede_protocol::WindowId::new(&id) {
                 with_ede(shell, |ede| ede.focus(id));
@@ -1516,7 +1539,7 @@ fn remote_feed(shell: &Shell) -> Value {
 /// The composer's text to the desktop's agent (#EDE-58).
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if !chat_local(shell) {
-        launch_app(&shell.borrow(), "at.exponential");
+        launch_app(shell, "at.exponential");
         return;
     }
     let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
@@ -2196,6 +2219,7 @@ fn main() {
             pending_pick: saved_team,
             chat_local: None,
             engine: None,
+            launches: system::LaunchGuard::default(),
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
             team_stores: None,

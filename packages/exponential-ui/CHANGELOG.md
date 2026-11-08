@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Box `on.hover` (#EDE-65): a Box fires `hover` when the pointer enters it, exactly like Motion's (no payload; leaving fires nothing, entering again fires again; it need not be pressable), on React, Solid, gpui, SwiftUI and Compose. `interactions-round1.json` `boxHover`; the styleguide's `box-hover` entry. Prompt budget 9,798 → 9,811 tokens.
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

@@ -15,15 +15,17 @@
 //!   when it opens `exponential://…`) `connect`s to that socket, `send`s the
 //!   URL, and exits — so the callback signs the running window in instead of
 //!   spawning a second app.
-//! - A `ConnectionRefused` on `connect` means the socket file outlived a
-//!   crashed instance; we remove it and become primary (Zed's stale-socket
-//!   handling).
+//! - Who is primary is an exclusive lock on `exp-desktop.lock` held for the
+//!   process's life (#EDE-64): the holder removes a dead instance's socket
+//!   file and binds; every other launch forwards.
 //!
 //! macOS keeps the native `on_open_urls` path and never calls into here.
 
+use std::fs::{File, OpenOptions, TryLockError};
 use std::os::unix::net::UnixDatagram;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use flume::Sender;
 
@@ -61,38 +63,52 @@ pub enum Instance {
 /// already is. Best-effort: any socket error degrades to a plain (non-single)
 /// launch rather than blocking startup.
 pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
-    let sock_path = socket_path();
-    let args = deep_link_args();
+    let (instance, lock) = acquire_at(&socket_path(), &deep_link_args(), url_tx);
+    // The primary holds the lock for the life of the process.
+    std::mem::forget(lock);
+    instance
+}
 
-    // Is an instance already listening on the socket?
-    if let Ok(sock) = UnixDatagram::unbound() {
-        match sock.connect(&sock_path) {
-            Ok(()) => {
-                // Live instance — hand off our URLs (or, with none, ask it
-                // for a window) and bow out.
-                if args.is_empty() {
-                    let _ = sock.send(OPEN_WINDOW.as_bytes());
-                }
-                for url in &args {
-                    let _ = sock.send(url.as_bytes());
-                }
-                return Instance::Forwarded;
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::ConnectionRefused => {
-                // Socket file outlived a crashed instance — clear it so our
-                // bind below succeeds.
-                let _ = std::fs::remove_file(&sock_path);
-            }
-            // NotFound / anything else → no instance; we are first.
-            Err(_) => {}
-        }
-    }
-
-    // Become primary: bind and listen.
+/// #EDE-64: who is primary is decided by an exclusive lock next to the
+/// socket, never by the socket file alone. Five clicks on eDE's sidebar in
+/// two seconds started five cold launches that each found no live socket (or
+/// a stale one), unlinked each other's freshly bound socket and ALL booted as
+/// primaries: three IDE windows. The lock holder is the one primary; a launch
+/// that can't take it forwards (retrying while the holder binds) and exits.
+fn acquire_at(sock_path: &Path, args: &[String], url_tx: Sender<Vec<String>>) -> (Instance, Option<File>) {
     if let Some(parent) = sock_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    match UnixDatagram::bind(&sock_path) {
+    let lock = OpenOptions::new().create(true).truncate(false).write(true).open(sock_path.with_extension("lock"));
+    match lock.as_ref().map(|file| file.try_lock()) {
+        Ok(Ok(())) => {}
+        Ok(Err(TryLockError::WouldBlock)) => {
+            // A live primary: it binds right after taking the lock.
+            let deadline = Instant::now() + FORWARD_PATIENCE;
+            loop {
+                if forward(sock_path, args) {
+                    return (Instance::Forwarded, None);
+                }
+                if Instant::now() >= deadline {
+                    // Its socket never came up (unbindable data dir): a plain
+                    // launch, as before.
+                    eprintln!("[exp-desktop] the running instance takes no launches; starting another");
+                    return (Instance::Primary, None);
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
+        // No locking here (an odd filesystem): the socket alone decides.
+        _ => {
+            if forward(sock_path, args) {
+                return (Instance::Forwarded, None);
+            }
+        }
+    }
+
+    // Primary: whatever socket file is left belongs to a dead instance.
+    let _ = std::fs::remove_file(sock_path);
+    match UnixDatagram::bind(sock_path) {
         Ok(listener) => {
             let tx = url_tx.clone();
             thread::spawn(move || {
@@ -120,8 +136,89 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
     // clicked "Sign in with Google", so the browser launched us WITH the
     // callback URL. Feed it into the same channel once we boot.
     if !args.is_empty() {
-        let _ = url_tx.send(args);
+        let _ = url_tx.send(args.to_vec());
     }
 
-    Instance::Primary
+    (Instance::Primary, lock.ok())
+}
+
+/// How long a second launch waits for the primary's socket.
+const FORWARD_PATIENCE: Duration = Duration::from_secs(5);
+
+/// Hand our URLs (or, with none, a request for a window) to the live
+/// instance; `false` = nobody listens on the socket.
+fn forward(sock_path: &Path, args: &[String]) -> bool {
+    let Ok(sock) = UnixDatagram::unbound() else { return false };
+    if sock.connect(sock_path).is_err() {
+        return false;
+    }
+    if args.is_empty() {
+        let _ = sock.send(OPEN_WINDOW.as_bytes());
+    }
+    for url in args {
+        let _ = sock.send(url.as_bytes());
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_socket(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("exp-single-instance-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("exp-desktop.sock")
+    }
+
+    #[test]
+    fn a_second_launch_asks_the_first_for_a_window_and_exits() {
+        let sock = temp_socket("second");
+        let (tx, rx) = flume::unbounded();
+        let (first, _lock) = acquire_at(&sock, &[], tx.clone());
+        assert!(matches!(first, Instance::Primary));
+        let (second, _) = acquire_at(&sock, &[], tx.clone());
+        assert!(matches!(second, Instance::Forwarded));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Vec::<String>::new(), "an empty batch = open (or raise) a window");
+        let url = "exponential://issue/EXP-1".to_string();
+        let (third, _) = acquire_at(&sock, std::slice::from_ref(&url), tx);
+        assert!(matches!(third, Instance::Forwarded));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), vec![url]);
+    }
+
+    #[test]
+    fn five_simultaneous_cold_launches_make_one_primary() {
+        let sock = temp_socket("race");
+        // A dead instance's socket file, as after a crash or a quit.
+        drop(UnixDatagram::bind(&sock).unwrap());
+        let (tx, rx) = flume::unbounded();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(5));
+        let launches: Vec<_> = (0..5)
+            .map(|_| {
+                let (sock, tx, barrier) = (sock.clone(), tx.clone(), barrier.clone());
+                thread::spawn(move || {
+                    barrier.wait();
+                    acquire_at(&sock, &[], tx)
+                })
+            })
+            .collect();
+        let results: Vec<_> = launches.into_iter().map(|l| l.join().unwrap()).collect();
+        let primaries = results.iter().filter(|(i, _)| matches!(i, Instance::Primary)).count();
+        assert_eq!(primaries, 1, "one IDE, however fast the clicks");
+        for _ in 0..4 {
+            assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Vec::<String>::new());
+        }
+    }
+
+    #[test]
+    fn a_dead_primarys_lock_and_socket_are_taken_over() {
+        let sock = temp_socket("takeover");
+        let (tx, _rx) = flume::unbounded();
+        let (first, lock) = acquire_at(&sock, &[], tx.clone());
+        assert!(matches!(first, Instance::Primary));
+        drop(lock); // the process ended: the kernel drops its lock
+        let (next, _lock) = acquire_at(&sock, &[], tx);
+        assert!(matches!(next, Instance::Primary));
+    }
 }
