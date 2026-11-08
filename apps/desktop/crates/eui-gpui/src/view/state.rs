@@ -50,6 +50,8 @@ pub(crate) struct NodeCache {
     /// block or a hover recipe rule; theme-dependent, rebuilt on a theme
     /// switch).
     pub hover_styled: Vec<bool>,
+    /// #EDE-65: a Box with an `on.hover` (it fires on entering).
+    pub hover_fires: Vec<bool>,
     /// Macro roots by slot (sparse).
     pub macros: HashMap<u32, MacroRoot>,
 }
@@ -144,6 +146,7 @@ impl NodeCache {
         }
         self.ids.resize(len, SharedString::default());
         self.hover_styled.resize(len, false);
+        self.hover_fires.resize(len, false);
     }
 
     /// Store a node in its slot; the slot's previous node (a tombstone for
@@ -166,6 +169,7 @@ impl NodeCache {
         self.ids[i] = SharedString::from(n.id.clone());
         let layout = surface.layout_node(n.index);
         self.hover_styled[i] = !n.removed && surface.hover_styled(n.index);
+        self.hover_fires[i] = !n.removed && n.component == "Box" && n.part.is_none() && layout.and_then(|l| l.on.as_ref()).is_some_and(|o| o.contains_key("hover"));
         let root = layout.filter(|l| l.owner.is_none() && !n.removed).and_then(|l| l.part_query.as_ref()).filter(|q| q.part == "root" && matches!(q.component.as_str(), "Card" | "Group" | "Alert"));
         match root {
             Some(q) => {
