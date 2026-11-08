@@ -95,8 +95,6 @@ fun ChatHeader(
     /** S-3: the action slot left of `…` (the thread's Merge pill; it may
      *  draw nothing). */
     action: (@Composable () -> Unit)? = null,
-    /** The `…` button's test tag (#EXP-1729: the app editor keeps its `menu`). */
-    menuTestTag: String = SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("thread-header")) {
@@ -152,7 +150,7 @@ fun ChatHeader(
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
                 if (groups.isNotEmpty()) {
                     Spacer(Modifier.width(gap))
-                    ChatHeaderMenu(groups, menuTestTag)
+                    ChatHeaderMenu(groups)
                 }
             }
             tabs?.invoke()
@@ -164,7 +162,7 @@ fun ChatHeader(
  *  #EXP-1611: a submenu entry (Checks) PUSHES its rows as the menu's page
  *  (a back row titled with the entry), the phone arm of THE Menu's submenu. */
 @Composable
-private fun ChatHeaderMenu(groups: List<List<ChatMenuItem>>, testTag: String) {
+private fun ChatHeaderMenu(groups: List<List<ChatMenuItem>>) {
     var open by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<ChatMenuItem?>(null) }
     Box {
@@ -175,7 +173,7 @@ private fun ChatHeaderMenu(groups: List<List<ChatMenuItem>>, testTag: String) {
                 page = null
                 open = true
             },
-            modifier = Modifier.testTag(testTag),
+            modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU),
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             // The pushed page follows the live rows (a running check ticks).

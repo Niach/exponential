@@ -125,6 +125,7 @@ import com.exponential.app.ui.thread.ThreadUiCopy
 import com.exponential.app.ui.thread.ThreadViewModel
 import com.exponential.app.ui.thread.clockTime
 import com.exponential.app.ui.thread.ChatHeader
+import com.exponential.app.ui.thread.ChatHeaderButton
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.Chats
@@ -261,25 +262,33 @@ fun AppEditorScreen(
                         }
                     },
                     onBack = onBack,
-                    // VAPP-235: pending offline record writes (the outbox).
-                    action = { AppOutboxPendingGlyph(viewModel.appId) },
-                    // VAPP-177: the header's trailing `…` (`editorTabs.menu`).
-                    menu = if (entry != null) {
-                        appEditorMenu(
-                            canPublish = canWrite && Apps.canPublish(entry.versions),
-                            onPublish = { viewModel.publish(entry.headVersion) },
-                            versionCount = versions.size,
-                            canExport = entry.headVersion > 0,
-                            canDelete = canManage,
-                            onVersions = { sheet = Apps.EditorTabs.VERSIONS },
-                            onSettings = { sheet = Apps.EditorTabs.SETTINGS },
-                            onExport = { exportOpen = true },
-                            onDelete = { deleteOpen = true },
-                        )
-                    } else {
-                        emptyList()
+                    // VAPP-235: pending offline record writes (the outbox),
+                    // then VAPP-177's trailing `…` (`editorTabs.menu`): the
+                    // editor's bottom sheet, never the chat header's dropdown.
+                    action = {
+                        // The slot draws its own leading gap.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Chats.Shell.ChatHeader.GAP.dp),
+                            modifier = Modifier.padding(start = Chats.Shell.ChatHeader.GAP.dp),
+                        ) {
+                            AppOutboxPendingGlyph(viewModel.appId)
+                            if (entry != null) {
+                                AppEditorMenu(
+                                    title = entry.name,
+                                    canPublish = canWrite && Apps.canPublish(entry.versions),
+                                    onPublish = { viewModel.publish(entry.headVersion) },
+                                    versionCount = versions.size,
+                                    canExport = entry.headVersion > 0,
+                                    canDelete = canManage,
+                                    onVersions = { sheet = Apps.EditorTabs.VERSIONS },
+                                    onSettings = { sheet = Apps.EditorTabs.SETTINGS },
+                                    onExport = { exportOpen = true },
+                                    onDelete = { deleteOpen = true },
+                                )
+                            }
+                        }
                     },
-                    menuTestTag = Apps.TestIds.MENU,
                     tabs = {
                         GlassSegmentedControl(
                             options = EditorTab.entries,
@@ -441,11 +450,14 @@ fun AppEditorScreen(
     }
 }
 
-/** VAPP-177: the phone header's `…` (`editorTabs.menu`, #EXP-1729: THE chat
- *  header's menu): eApps V1 Publish first (`Apps.canPublish` + write
- *  access), Versions (the count as its trailing value), Settings, Export (a
- *  version exists), Delete app (destructive; the creator or an owner). */
-private fun appEditorMenu(
+/** VAPP-177: the phone header's `…` (`editorTabs.menu`, THE Menu's bottom
+ *  sheet titled by the app): eApps V1 Publish
+ *  first (`Apps.canPublish` + write access), Versions (the count as trailing
+ *  meta), Settings, Export (a version exists), Delete app (destructive; the
+ *  creator or an owner). */
+@Composable
+private fun AppEditorMenu(
+    title: String,
     canPublish: Boolean,
     onPublish: () -> Unit,
     versionCount: Int,
@@ -455,22 +467,84 @@ private fun appEditorMenu(
     onSettings: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
-): List<ChatMenuItem> = buildList {
-    if (canPublish) add(ChatMenuItem(label = Apps.Copy.PUBLISH, icon = ExpIcons.uiSubmit, onClick = onPublish, testTag = Apps.TestIds.PUBLISH))
-    add(
-        ChatMenuItem(
-            label = Apps.Copy.MENU_VERSIONS,
-            icon = ExpIcons.uiHistory,
-            onClick = onVersions,
-            testTag = "app-editor-menu-versions",
-            value = versionCount.toString(),
-        ),
-    )
-    add(ChatMenuItem(label = Apps.Copy.MENU_SETTINGS, icon = ExpIcons.navSettings, onClick = onSettings, testTag = "app-editor-menu-settings"))
-    if (canExport) add(ChatMenuItem(label = Apps.Copy.MENU_EXPORT, icon = ExpIcons.uiShare, onClick = onExport, testTag = "app-editor-export"))
-    if (canDelete) add(
-        ChatMenuItem(label = Apps.Copy.MENU_DELETE, icon = ExpIcons.uiDelete, onClick = onDelete, destructive = true, testTag = "app-editor-delete"),
-    )
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        // #EXP-1729: THE chat header's ghost `…`, opening the editor's own
+        // bottom sheet (THE Menu on phones, as iOS and web-mobile).
+        ChatHeaderButton(
+            ExpIcons.uiMore,
+            contentDescription = "App actions",
+            onClick = { open = true },
+            modifier = Modifier.testTag(Apps.TestIds.MENU),
+        )
+    }
+    if (open) {
+        ChatMenuSheet(
+            title = title,
+            onDismiss = { open = false },
+            testTag = "app-menu-sheet",
+            items = buildList {
+                if (canPublish) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.PUBLISH,
+                        icon = ExpIcons.uiSubmit,
+                        onClick = {
+                            open = false
+                            onPublish()
+                        },
+                        testTag = Apps.TestIds.PUBLISH,
+                    ),
+                )
+                add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_VERSIONS,
+                        icon = ExpIcons.uiHistory,
+                        onClick = {
+                            open = false
+                            onVersions()
+                        },
+                        testTag = "app-editor-menu-versions",
+                        meta = versionCount.toString(),
+                    ),
+                )
+                add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_SETTINGS,
+                        icon = ExpIcons.navSettings,
+                        onClick = {
+                            open = false
+                            onSettings()
+                        },
+                        testTag = "app-editor-menu-settings",
+                    ),
+                )
+                if (canExport) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_EXPORT,
+                        icon = ExpIcons.uiShare,
+                        onClick = {
+                            open = false
+                            onExport()
+                        },
+                        testTag = "app-editor-export",
+                    ),
+                )
+                if (canDelete) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_DELETE,
+                        icon = ExpIcons.uiDelete,
+                        onClick = {
+                            open = false
+                            onDelete()
+                        },
+                        destructive = true,
+                        testTag = "app-editor-delete",
+                    ),
+                )
+            },
+        )
+    }
 }
 
 /** THE preview frame: the viewing banner (Publish / Restore / Current), then

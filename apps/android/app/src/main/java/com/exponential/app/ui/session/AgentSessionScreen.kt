@@ -4886,13 +4886,27 @@ internal fun SessionComposer(
     )
     val composerAccount = accountMenu ?: session?.let { row ->
         val canSteer = SessionDeviceMove.canSteer(row.shared, row.userId, viewerId)
+        // #EXP-1729 (composer-menu.json `account`): an app editor's composer
+        // ALWAYS carries the row on a live root: offline, not steerable or no
+        // login reported = the row drawn disabled with the switch's refusal.
+        val editor = deviceMenu != null
+        if (row.isEnded) return@let null
+        val runRefusal = when {
+            accountSwitch.agent != null && accountSwitch.agent != com.exponential.app.domain.SessionAccountSwitch.SWITCHABLE_AGENT ->
+                com.exponential.app.domain.SessionAccountSwitch.REASON_AGENT
+            !canSteer -> com.exponential.app.domain.SessionAccountSwitch.REASON_NOT_MINE
+            !accountSwitch.deviceOnline -> com.exponential.app.domain.SessionAccountSwitch.REASON_OFFLINE
+            accountSwitch.options.isEmpty() -> com.exponential.app.domain.SessionAccountSwitch.REASON_SIGNED_OUT
+            else -> null
+        }
         // No login reported for the session's agent = no row (web, desktop).
-        if (row.isEnded || !accountSwitch.deviceOnline || !canSteer || accountSwitch.options.isEmpty()) return@let null
+        if (!editor && (!accountSwitch.deviceOnline || !canSteer || accountSwitch.options.isEmpty())) return@let null
         // The row only shows to a viewer who steers the session: the
         // starter-only refusal reads `canSteerSession` here (web parity).
         val gate = accountSwitch.copy(mine = true)
         val options = accountSwitch.options
         SessionComposerAccount(
+            refusal = if (editor) runRefusal else null,
             options = options.map { option ->
                 com.exponential.app.ui.components.picker.AccountPickerOption(
                     key = option.profileId,
@@ -5580,6 +5594,10 @@ internal data class SessionComposerAccount(
     /** The current login's key, null when the run's login is unknowable. */
     val value: String?,
     val onPick: (String) -> Unit,
+    /** #EXP-1729: why the whole switch is refused right now (an app editor's
+     *  live root: offline, not steerable, no login); non-null = the row
+     *  draws disabled and a tap says this. */
+    val refusal: String? = null,
 )
 
 @Composable
@@ -5768,6 +5786,8 @@ private fun ExpandedSteerComposer(
             effortValue = null,
             effortEnabled = false,
             rowsReadOnly = menu.readOnly,
+            // #EXP-1729: a refused Account › stays, disabled, saying why.
+            refusedRows = menu.account?.refusal?.let { mapOf(ComposerMenuRowId.Account to it) }.orEmpty(),
             subagentsValue = null,
             ultracode = menu.ultracode,
             mcpValue = null,
