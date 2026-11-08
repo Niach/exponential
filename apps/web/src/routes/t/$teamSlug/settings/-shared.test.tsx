@@ -110,7 +110,7 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
     )
     expect(entries).toEqual({
       team: [`general`, `members`, `issues`, `repositories`, `prompts`, `widget`, `storage`, `billing`, `import`],
-      boards: [`@boards`, `@new-board`, `archived-boards`],
+      boards: [`@boards`, `@new-board`, `all-boards`],
       agents: [`@assistant`, `@agents`, `@new-agent`, `mcp`, `skills`],
       apps: [`@apps`, `@new-app`],
       personal: [`account`, `notifications`, `security`],
@@ -149,7 +149,7 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
 
   it(`keeps the owner-only pages and New entries from members`, () => {
     const team: SettingsNavContext = { isCloud: true }
-    for (const id of [`general`, `widget`, `storage`, `import`, `archived-boards`, `billing`]) {
+    for (const id of [`general`, `widget`, `storage`, `import`, `all-boards`, `billing`]) {
       const item = items.find((entry) => entry.id === id)!
       expect(item.visible(permissionsFor(`owner`), team), id).toBe(true)
       expect(item.visible(permissionsFor(`member`), team), id).toBe(false)
@@ -242,7 +242,7 @@ describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
   it(`titles a phone settings page from its path`, () => {
     expect(settingsRouteOf(`/t/acme/settings/boards/b1`)).toEqual({ section: `boards`, sub: `b1` })
     expect(settingsRouteOf(`/t/acme/settings/labels`)).toEqual({ section: `labels`, sub: null })
-    expect(settingsSectionLabel(`boards`, `archived`)).toBe(`Archived boards`)
+    expect(settingsSectionLabel(`boards`)).toBe(`Boards`)
     expect(settingsSectionLabel(`account`)).toBe(`Account`)
     expect(settingsSectionLabel(`apps`)).toBe(`Apps`)
   })

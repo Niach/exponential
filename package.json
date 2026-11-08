@@ -8,6 +8,28 @@
     "apps/runner/*",
     "packages/*"
   ],
+  "overrides": {
+    "@fastify/busboy": "^3.2.5",
+    "@grpc/grpc-js": "^1.14.7",
+    "body-parser": "^2.4.0",
+    "browserslist": "^4.29.5",
+    "fast-uri": "^3.1.9",
+    "form-data": "^2.5.6",
+    "ip-address": "^10.7.6",
+    "js-yaml": "^4.3.2",
+    "launch-editor": "^2.14.2",
+    "linkify-it": "^5.0.2",
+    "markdown-it": "^14.3.3",
+    "nanoid": "^3.3.20",
+    "postcss": "^8.5.30",
+    "protobufjs": "^7.6.6",
+    "proxy-addr": "^2.0.8",
+    "qs": "^6.17.1",
+    "shell-quote": "^1.12.0",
+    "source-map-js": "^1.2.2",
+    "websocket-driver": "^0.7.5",
+    "ws": "^8.22.1"
+  },
   "engines": {
     "node": ">=22.12.0 <26"
   },
@@ -28,7 +50,6 @@
     "migrate": "bun --filter @exp/web migrate",
     "migrate:generate": "bun --filter @exp/web migrate:generate",
     "psql": "bun --filter @exp/web psql",
-
     "dev:site": "bun --filter @exp/site dev",
     "build:site": "bun --filter @exp/site build",
     "screenshots:store": "bun run --filter @exp/store-shots screenshots:store",
@@ -44,7 +65,6 @@
     "dev:styleguide": "bun --filter @exp/styleguide dev",
     "build:styleguide": "bun --filter @exp/styleguide build",
     "social:generate": "bun run --filter @exp/store-shots social:generate",
-
     "dev:widget": "bun --filter @exp/widget dev",
     "build:widget": "bun --filter @exp/widget build",
     "build:mcp-apps": "bun --filter @exp/mcp-apps build",
@@ -52,24 +72,20 @@
     "test:lanes": "sh scripts/lanes/lock.test.sh",
     "test:merge-train": "bun test scripts/merge-train packages/domain-contract/src/merge-train.test.ts",
     "bump:versions": "node .github/actions/bump-versions/bump.mjs --config .github/release-versions.json",
-
     "dev:push-relay": "bun --filter @exp/push-relay dev",
     "start:push-relay": "bun --filter @exp/push-relay start",
     "dev:steer-relay": "bun --filter @exp/steer-relay dev",
     "start:steer-relay": "bun --filter @exp/steer-relay start",
     "test:steer-relay": "bun --filter @exp/steer-relay test && bun --filter @exp/steer-ticket test",
     "test:push-relay": "bun --filter @exp/push-relay test",
-
     "dev:desktop": "cd apps/desktop && EXP_INSTANCE_URL=http://localhost:3000 cargo run -p app",
     "build:desktop": "cd apps/desktop && cargo build --release -p app",
     "appimage:desktop": "cd apps/desktop && cargo build --release -p app && ./scripts/build-appimage.sh production",
     "macapp:desktop": "cd apps/desktop && cargo build --release -p app && ./scripts/build-macos-app.sh production",
     "test:desktop": "cd apps/desktop && cargo test",
     "clean:desktop": "cd apps/desktop && cargo clean",
-
     "android:build": "cd apps/android && ./gradlew :app:assembleProductionDebug",
     "android:install": "cd apps/android && ./gradlew :app:installProductionDebug",
-
     "backend:up": "docker compose up -d",
     "backend:down": "docker compose down",
     "backend:clear": "docker compose down -v",

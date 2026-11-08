@@ -18,7 +18,7 @@ pub(crate) const ISSUES_ACTION: &str = "New issue";
 pub(crate) const NO_TEAM: &str = "No team yet";
 pub(crate) const NO_TEAM_DESCRIPTION: &str = "Create a team, or join one with an invite link.";
 pub(crate) const BOARD_SWITCHER: &str = "No boards yet";
-pub(crate) const ARCHIVED_BOARDS: &str = "No archived boards";
+pub(crate) const TEAM_BOARDS: &str = "No boards yet";
 pub(crate) const NO_TEAM_SELECTED: &str = "No team selected";
 pub(crate) const DEVICES: &str = "No devices yet";
 pub(crate) const MCP_SERVERS: &str = "No MCP servers yet";
@@ -64,7 +64,7 @@ mod tests {
             ("issues", ISSUES),
             ("no-team", NO_TEAM),
             ("board-switcher", BOARD_SWITCHER),
-            ("archived-boards", ARCHIVED_BOARDS),
+            ("team-boards", TEAM_BOARDS),
             ("no-team-selected", NO_TEAM_SELECTED),
             ("devices", DEVICES),
             ("mcp-servers", MCP_SERVERS),

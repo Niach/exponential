@@ -802,10 +802,16 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
       .filter((statement) => statement.includes(`INSERT INTO "device_first_seen"`))
   const firstSeenIn = async (tx: { execute: typeof db.execute }, deviceId: string) =>
     (await tx.execute(sql`SELECT user_id FROM device_first_seen WHERE device_id = ${deviceId}`)).rows[0]?.user_id
+  // The migrations rewrite every first-seen row while other real-db files
+  // register devices in parallel: take the table first, so they queue
+  // behind this rolled-back transaction instead of deadlocking with it.
+  const lockFirstSeen = (tx: { execute: typeof db.execute }) =>
+    tx.execute(sql`LOCK TABLE device_first_seen IN EXCLUSIVE MODE`)
   /** 0206's backfill on a world from before it (no first-seen row), then 0213. */
   async function backfill(deviceId: string) {
     const out = { after0206: undefined as unknown, after0213: undefined as unknown, mismatch: true }
     await inRollback(async (tx) => {
+      await lockFirstSeen(tx)
       await tx.execute(sql`DELETE FROM device_first_seen WHERE device_id = ${deviceId}`)
       for (const statement of migration(`0206_feed159_device_first_seen.sql`)) await tx.execute(sql.raw(statement))
       out.after0206 = await firstSeenIn(tx, deviceId)
@@ -826,6 +832,7 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
   async function only0213(deviceId: string) {
     let after: unknown
     await inRollback(async (tx) => {
+      await lockFirstSeen(tx)
       for (const statement of migration(`0213_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
       after = await firstSeenIn(tx, deviceId)
     })
