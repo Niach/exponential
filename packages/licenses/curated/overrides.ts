@@ -64,24 +64,6 @@ export const LICENCE_OVERRIDES: LicenceOverride[] = [
       `MIT. Canonical MIT text is reproduced because the package ships none.`,
   },
   {
-    scope: `web`,
-    name: `fsevents`,
-    declared: `MIT`,
-    licenses: [`MIT`],
-    copyright: [
-      `Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shanker, Paul Miller`,
-    ],
-    reason:
-      `Checked 2026-07-31: fsevents is macOS-only (\`os: ["darwin"]\`), so its ` +
-      `licence file is only on disk for a macOS collector run and the ` +
-      `collector deliberately does not read it — otherwise the inventory would ` +
-      `differ between a macOS and an ubuntu runner. It declares MIT, so the ` +
-      `canonical body is reproduced; its copyright line is restored here ` +
-      `because that, not the permission text, is what MIT requires us to carry. ` +
-      `Every other gated family has a non-gated parent in the closure that ` +
-      `carries the copyright already.`,
-  },
-  {
     scope: `desktop`,
     name: `rio-vt`,
     declared: `MIT`,
