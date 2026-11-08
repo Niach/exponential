@@ -23,11 +23,12 @@ dotted `kind`), every id follows Core's id rule, every refusal is a
 | `wakeups.json` | watchers, pending input, schedules (fold, re-arm, quiet ticks), event triggers |
 | `watchdog.json` | unclaimed, nudges, stuck, offline, interruptions and their resume clock, usage walls, the heartbeat |
 | `reuse.json` | when an agent's message reuses a thread or forks a fresh one |
+| `subagents.json` | CLI subagents as child rows the device writes (#EXP-1731): their edges, no slot, no wake-up of the parent, sends go to the parent, strays swept |
 | `incidents.json` | the field failures of 2026-10-30/31 (#FEED-172, #EXP-1500, interrupted runs, #FEED-178) |
 
 Events: `send.start`, `send.message`, `send.watch`, `session.end`,
 `session.pr_opened`, `device.claim`, `device.report`, `device.reply`,
-`device.consume`, `device.heartbeat`, `watchdog.tick`, `trigger.schedule`,
+`device.consume`, `device.subagent`, `device.heartbeat`, `watchdog.tick`, `trigger.schedule`,
 `trigger.event`. Effects: `post`, `edit`, `brief`, `nudge`, `kill`.
 
 Out of the core on purpose: cron matching (the host scheduler sends the due
