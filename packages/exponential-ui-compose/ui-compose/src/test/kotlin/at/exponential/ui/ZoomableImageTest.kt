@@ -87,9 +87,31 @@ class ZoomableImageTest {
 
     private fun picture(): SemanticsNodeInteraction = compose.onNodeWithTag("zoomable-image")
 
+    /**
+     * A second of animation, one frame at a time (EXP-1690): one
+     * `advanceTimeBy(1000)` ran ~60 frames of the zoom / momentum
+     * animations with no layout between them and left the whole backlog to
+     * one Robolectric traversal, which once threw "performMeasureAndLayout
+     * called during measure layout". With the clock held, each frame's
+     * measure / layout drains before the next frame runs.
+     */
     private fun settle() {
-        compose.mainClock.advanceTimeBy(1000)
         compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        try {
+            repeat(SETTLE_FRAMES) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+            }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+        compose.waitForIdle()
+    }
+
+    private companion object {
+        /** 1000 ms of 16 ms frames. */
+        const val SETTLE_FRAMES = 63
     }
 
     @Test
