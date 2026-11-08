@@ -1,6 +1,6 @@
 import XCTest
 
-/// Thread 58cb32df (chats.json SURFACE CARD): the inline preview on the
+/// Session 58cb32df (chats.json SURFACE CARD): the inline preview on the
 /// styleguide's chat-transcript specimen — the real renderer paints it, a
 /// `reply` press hands its text out.
 final class SurfaceCardTests: XCTestCase {

@@ -2,7 +2,7 @@ import Foundation
 
 /// #EXP-1493 → #EXP-1662 THE PLAN TAB ×4 (`packages/domain-contract/fixtures/plan-page.json`,
 /// TS reference `src/plan-page.ts`): the expanded form of THE plan card, a
-/// tab of its thread. A plan's markdown split into blocks (title, prose, h2
+/// tab of its chat. A plan's markdown split into blocks (title, prose, h2
 /// sections, picture groups), its outline, its counts line, which plan the
 /// tab shows, its row's label and where a session's waiting plan opens.
 /// `PlanPageTests` replays every `*Cases` array.
@@ -65,7 +65,7 @@ public enum PlanPage {
         public static let carousel = "plan-carousel"
         public static let openPlan = "open-plan"
         public static let outlineToggle = "plan-outline-toggle"
-        public static let tab = "thread-tab-plan"
+        public static let tab = "chat-tab-plan"
     }
 
     public static let route = "/t/$teamSlug/sessions/$sessionId/plan/$messageId"
@@ -158,9 +158,9 @@ public enum PlanPage {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// #EXP-1662 / #FEED-191: the plan a thread's tab shows (`tabCases`): the
+    /// #EXP-1662 / #FEED-191: the plan a chat's tab shows (`tabCases`): the
     /// newest waiting card, else `kept` while it is an approved or rejected
-    /// plan of the thread (the plan the tab showed during THIS visit of the
+    /// plan of the chat (the plan the tab showed during THIS visit of the
     /// chat; the host clears it when the person leaves), else none: a decided
     /// plan leaves the strip. `plans` = oldest first.
     public static func planTabTarget(_ plans: [(id: String, decision: String?)], kept: String? = nil) -> String? {
@@ -411,7 +411,7 @@ public enum PlanPage {
         return best?.id
     }
 
-    /// The web deep link; natives open the thread's tab on the same plan.
+    /// The web deep link; natives open the chat's tab on the same plan.
     public static func path(teamSlug: String, sessionId: String, messageId: String) -> String {
         route
             .replacingOccurrences(of: "$teamSlug", with: teamSlug)

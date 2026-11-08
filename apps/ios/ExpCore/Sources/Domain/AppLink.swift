@@ -1,7 +1,7 @@
 import Foundation
 
 /// EXP-1188 — what a tapped markdown link in agent prose (narration, Guide,
-/// thread) opens. Locked ×4 against `packages/domain-contract/fixtures/app-link.json`
+/// chat) opens. Locked ×4 against `packages/domain-contract/fixtures/app-link.json`
 /// (web `lib/app-link.ts`, desktop `domain::app_link`, Android `domain/AppLink.kt`);
 /// the fixture's description is the rule. Hand-parsed on purpose: `URL` and
 /// `URLComponents` normalise, reject and percent-encode differently from the
@@ -13,10 +13,8 @@ public enum AppLink: Equatable, Sendable {
     case board(teamSlug: String, boardSlug: String)
     case session(teamSlug: String, sessionId: String)
     case plan(teamSlug: String, sessionId: String, messageId: String)
-    /// EXP-1284: a thread on this instance.
-    case thread(teamSlug: String, threadId: String)
     /// The chats list.
-    case threads(teamSlug: String)
+    case chats(teamSlug: String)
     case agent(teamSlug: String, agentId: String)
     /// The team's agent page (`/t/<team>/agent`).
     case agentHome(teamSlug: String)
@@ -118,8 +116,8 @@ public enum AppLink: Equatable, Sendable {
     public var teamSlug: String? {
         switch self {
         case let .issue(team, _, _), let .issueRef(team, _), let .board(team, _),
-             let .session(team, _), let .plan(team, _, _), let .thread(team, _),
-             let .threads(team), let .agent(team, _), let .agentHome(team),
+             let .session(team, _), let .plan(team, _, _),
+             let .chats(team), let .agent(team, _), let .agentHome(team),
              let .inbox(team), let .devices(team), let .settings(team, _),
              let .appHome(team, _), let .appScreen(team, _, _, _):
             return team
@@ -186,10 +184,8 @@ public enum AppLink: Equatable, Sendable {
             return .plan(teamSlug: team, sessionId: parts[3], messageId: parts[5])
         case "sessions" where count == 4:
             return .session(teamSlug: team, sessionId: parts[3])
-        case "threads" where count == 4:
-            return .thread(teamSlug: team, threadId: parts[3])
-        case "threads" where count == 3:
-            return .threads(teamSlug: team)
+        case "chats" where count == 3:
+            return .chats(teamSlug: team)
         case "agents" where count == 4:
             return .agent(teamSlug: team, agentId: parts[3])
         case "agent" where count == 3:

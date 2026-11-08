@@ -22,8 +22,8 @@ describe(`useSidebarOccupant`, () => {
   it(`is the main menu everywhere but Settings: nothing folds`, () => {
     for (const pathname of [
       `/t/acme/agent`,
-      `/t/acme/threads`,
-      `/t/acme/threads/t1`,
+      `/t/acme/chats`,
+      `/t/acme/chats/t1`,
       `/t/acme/agents/a1`,
       `/t/acme/sessions/s1`,
       `/t/acme/inbox`,

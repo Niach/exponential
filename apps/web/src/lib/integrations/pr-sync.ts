@@ -52,7 +52,7 @@ import {
 // carries none. Every path that learns a PR's state (pr_open, the merge and
 // close paths, the GitHub webhook, the GITHUB_POLLING poller) funnels
 // through here, so the linked issues get the team's PR automation, the
-// pr_opened/pr_merged issue events, the notifications and the thread's
+// pr_opened/pr_merged issue events, the notifications and the chat's
 // event card exactly once (each transition is an atomic claim, REV-48).
 // Merging NEVER ends a session (EXP-1291 dropped EXP-498's merge sweep).
 
@@ -324,7 +324,7 @@ export async function applyPrLifecycleStatusInTx(
      *  moving many issues resolves the team's target once). */
     automation?: ResolvedAutomation
     /** Extra keys on the status_changed payload (EXP-1350: `resumed`'s
-     *  event + thread, read back by the re-apply). */
+     *  event + chat, read back by the re-apply). */
     payloadExtra?: Record<string, unknown>
   }
 ): Promise<boolean> {
@@ -526,7 +526,7 @@ async function subIssuesOfInTx(tx: Tx, parentIds: string[]): Promise<Map<string,
 /**
  * EXP-1334: move a PR event's issues, respecting the issue tree. A plain
  * issue moves at once; a PARENT moves only once every sub-issue linked to the
- * same PR or thread has reached the stage (its sub-issues are never moved for
+ * same PR or chat has reached the stage (its sub-issues are never moved for
  * it). Each move then re-checks the mover's own parents (linked to a PR that
  * carries the event), so a parent held back follows its last sub-issue.
  */
@@ -667,7 +667,7 @@ export async function loadLivePullRequestByHead(
 
 /** Every live PR linked to the issue, newest first, with how many issues
  *  each links and whether the issue's assigned tree session opened it
- *  (FEED-111: a thread-level PR links the root's issues too, so newest-first
+ *  (FEED-111: a chat-level PR links the root's issues too, so newest-first
  *  alone picks the wrong one; `pickIssuePullRequest` ranks these). */
 export async function livePullRequestsForIssue(
   issueId: string
@@ -705,7 +705,7 @@ export async function livePullRequestsForIssue(
   }))
 }
 
-/** A session's newest live PR: one it opened, else its thread's newest. */
+/** A session's newest live PR: one it opened, else its chat's newest. */
 export async function newestLivePullRequestForSession(session: {
   id: string
   rootId: string
@@ -735,7 +735,7 @@ export async function livePullRequestsOfRepo(repositoryId: string): Promise<Pull
     )
 }
 
-/** The live PRs of a thread (root), for the PR body sync. */
+/** The live PRs of a chat (root), for the PR body sync. */
 export async function livePullRequestsOfRoot(rootSessionId: string): Promise<PullRequestRow[]> {
   return db
     .select()
@@ -890,8 +890,8 @@ export interface RecordOpenedArgs {
 
 /**
  * A PR is open on GitHub: upsert its row (by url; a known row keeps its
- * thread and opener, a closed one reopens), recompute its stack parent, link
- * the issues and, the first time the row exists, post the thread's
+ * chat and opener, a closed one reopens), recompute its stack parent, link
+ * the issues and, the first time the row exists, post the chat's
  * `pr_opened` card. Notifications fire post-commit for the newly linked
  * issues only, so the pr_open + webhook pair stays single-fire.
  */
@@ -944,7 +944,7 @@ export async function recordPullRequestOpened(
       .onConflictDoNothing()
       .returning()
     let pullRequest = inserted
-    // The thread whose card announces it: a new row's, or the one this call
+    // The chat whose card announces it: a new row's, or the one this call
     // gives a row the webhook recorded first (it beat pr_open).
     let announceRoot = inserted?.rootSessionId ?? null
     if (!pullRequest) {
@@ -960,7 +960,7 @@ export async function recordPullRequestOpened(
           ...(args.title ? { title: args.title } : {}),
           base: args.base,
           basePullRequestId: basePullRequestId === existing.id ? null : basePullRequestId,
-          // A known row keeps its thread; a row the webhook created first
+          // A known row keeps its chat; a row the webhook created first
           // (it beat pr_open) learns it here.
           rootSessionId: existing.rootSessionId ?? args.rootSessionId,
           sessionId: existing.sessionId ?? args.sessionId,
@@ -1045,7 +1045,7 @@ function invalidateOpenPullsLazy(teamId: string): void {
  * The PR merged (any path: the merge call, the webhook, the poller). The
  * `state <> 'merged'` UPDATE is the claim (REV-48): only its winner records
  * `pr_merged` on every linked issue, applies the team's merge automation,
- * posts the thread's card, notifies and retargets the PRs stacked on it.
+ * posts the chat's card, notifies and retargets the PRs stacked on it.
  * EXP-1334: a PR merged into ANOTHER PR's branch (stacked) leaves its issues
  * alone; once the stack's bottom lands in the default branch, every merged
  * PR stacked on it takes the merge automation too. `base` = the base the
@@ -1131,7 +1131,7 @@ export async function applyPullRequestMerged(opts: {
   }
   invalidateOpenPullsLazy(result.pr.teamId)
   // EXP-1397: the merging session's untagged topics went out with this PR:
-  // stamped with its URL, they leave the thread's still-open bodies.
+  // stamped with its URL, they leave the chat's still-open bodies.
   const rootId = result.pr.rootSessionId
   if (rootId) {
     try {
@@ -1223,7 +1223,7 @@ export async function deleteMergedHeadBranch(opts: {
   }
 }
 
-/** Closed without merging (live → closed). Posts the thread's card. */
+/** Closed without merging (live → closed). Posts the chat's card. */
 export async function applyPullRequestClosed(opts: {
   pullRequestId: string
 }): Promise<{ applied: boolean; txid: number | null }> {

@@ -2,13 +2,14 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-// Thread 58cb32df (chats.json): the iOS styleguide's chat entries (web
+// Session 58cb32df (chats.json): the iOS styleguide's chat entries (web
 // `apps/styleguide` entries `chat-list`, `phone-tab-bar`, `chat-transcript`,
 // `chat-menus`, `chat-selection`, the updated `schedule-picker`): the REAL views over specimen
-// values. Capture only: `-uiTestingStyleguide <id>` (`ThreadCardsScreen`).
+// values. Capture only: `-uiTestingStyleguide <id>` (`ChatCardsScreen`).
 
 /// `chat-list`: THE phone Chats screen over the bottom bar — the large
-/// "Chats" headline with the search + inbox circles, the Agents section, then
+/// "Chats" headline with the search + inbox circles, the Agents and (#EXP-1733)
+/// Apps sections, then
 /// the rows under their section headers (#FEED-191; the web entry's and
 /// Android's `ChatListSpecimenScreen` composition and data: the draft's list).
 struct ChatListSpecimens: View {
@@ -22,7 +23,7 @@ struct ChatListSpecimens: View {
         let time: String
         var unread = 0
         var needsYou = false
-        var word: ThreadRowWord?
+        var word: ChatRowWord?
         /// S-3: a DONE chat stays, dimmed (`listCases[0]` `dim`).
         var dim = false
     }
@@ -59,6 +60,26 @@ struct ChatListSpecimens: View {
             agentId: "ag2", sessionId: "c-ag2", name: "Designer", icon: "bot", color: "#6366f1",
             assistant: false, preview: Chats.ChatPreview(kind: .question, text: "Question: Which palette?"),
             time: "09:30", activityAt: "2026-10-23T09:30:00.000Z", unreadCount: 1, needsYou: true, busy: false
+        ),
+    ]
+
+    /// #EXP-1733 chats.json `appRowCases[0].expected`: the Apps section,
+    /// by name (Budget has no session yet).
+    private static let appRows = [
+        Chats.AppChatRow(
+            appId: "ap1", slug: "budget", sessionId: nil, name: "Budget", icon: nil, color: nil,
+            preview: Chats.ChatPreview(kind: .empty, text: Chats.Copy.Preview.empty),
+            time: "", activityAt: nil, unreadCount: 0, needsYou: false, busy: false
+        ),
+        Chats.AppChatRow(
+            appId: "ap3", slug: "triage-board", sessionId: "e-ap3", name: "Triage board", icon: "bug",
+            color: "#a855f7", preview: Chats.ChatPreview(kind: .question, text: "Question: Which columns?"),
+            time: "09:40", activityAt: "2026-10-23T09:40:00.000Z", unreadCount: 1, needsYou: true, busy: false
+        ),
+        Chats.AppChatRow(
+            appId: "ap2", slug: "working-hours", sessionId: "e-ap2", name: "working hours", icon: "clock",
+            color: "#22c55e", preview: Chats.ChatPreview(kind: .working, text: Chats.Copy.Preview.working),
+            time: "09:30", activityAt: "2026-10-23T09:30:00.000Z", unreadCount: 1, needsYou: false, busy: true
         ),
     ]
 
@@ -120,6 +141,18 @@ struct ChatListSpecimens: View {
                                 needsYou: row.needsYou,
                                 unreadCount: row.unreadCount
                             ) { AgentChatLead(row: row) }
+                        }
+                        ChatSectionHeader(Chats.Copy.Sections.apps)
+                        ForEach(Self.appRows) { row in
+                            ChatRowView(
+                                title: row.name,
+                                time: row.time,
+                                preview: row.preview.text,
+                                previewLabel: row.preview.kind == .question ? "Question:" : nil,
+                                previewItalic: row.preview.kind == .working,
+                                needsYou: row.needsYou,
+                                unreadCount: row.unreadCount
+                            ) { AgentChatLead(app: row) }
                         }
                         ForEach(Self.sections, id: \.key) { section in
                             ChatSectionHeader(Chats.Copy.Sections.title(section.key))
@@ -471,10 +504,14 @@ struct ChatHeaderSpecimens: View {
     }
 }
 
-/// `chat-transcript`: the web entry's phone column — the person's and the
-/// agent's bubbles (each time inside, bottom-right), the superseded plan
-/// card, the agent's inline preview (THE surface card through the real
-/// renderer, its two `reply` presses), the divider pills.
+/// `chat-transcript`: the web entry's phone column — #EXP-1736 ONE
+/// transcript read like a group chat (`TranscriptGrouping.transcriptLayout`
+/// over the specimen rows): the viewer's own bubbles right, a member's
+/// bubble under their initials, the agent's group of two bubbles under its
+/// mark, a child session's report as that session's bubble (`›`), each time
+/// inside bottom-right; the superseded plan card, the agent's inline preview
+/// (THE surface card through the real renderer, its two `reply` presses),
+/// the divider pills.
 struct ChatTranscriptSpecimens: View {
     @Environment(AppDependencies.self) private var deps
     @State private var replied: String?
@@ -513,41 +550,106 @@ struct ChatTranscriptSpecimens: View {
         AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: deps.httpClient)
     }
 
-    private func agent(_ text: String, _ time: String) -> some View {
-        AgentChatBubble(time: time) {
-            AgentMarkdownText(text: text, context: context)
+    /// The specimen's rows in order (`text` nil = a card drawn below).
+    private struct Row {
+        let item: TranscriptGrouping.Item
+        let text: String?
+        let time: String?
+    }
+
+    private static let member = UserEntity(
+        id: "u2", name: "Dana Reyes", email: "dana@example.com", image: nil, createdAt: "", updatedAt: ""
+    )
+
+    private static func message(_ id: String, _ kind: String, author: String? = nil, session: String? = nil, _ text: String, _ time: String) -> Row {
+        Row(item: TranscriptGrouping.Item(id: id, kind: .message, authorKind: kind, authorId: author, authorSessionId: session), text: text, time: time)
+    }
+
+    private static func card(_ id: String) -> Row {
+        Row(item: TranscriptGrouping.Item(id: id, kind: .full), text: nil, time: nil)
+    }
+
+    private static let rows: [Row] = [
+        message("m1", "user", author: "u1", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.", "21:02"),
+        message("m2", "user", author: "u2", "Seeing the same on the Galaxy A54.", "21:04"),
+        message("m3", "agent", "Deferred the shape subscribe until after the first frame and added a board snapshot cache.", "21:14"),
+        message("m4", "agent", "Here's where the time went:", "21:14"),
+        card("surface"),
+        message("m5", "agent", session: "c1", "Measured on the Galaxy A54: 760 ms cold, 310 ms warm.", "21:31"),
+        card("superseded"),
+        card("compact"),
+        message("m6", "user", author: "u1", "Anything new overnight?", "09:02"),
+        message("m7", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19.", "09:03"),
+        card("new"),
+    ]
+
+    private static let layouts: [String: TranscriptGrouping.RowLayout] = {
+        let input = TranscriptGrouping.Input(
+            viewerId: "u1",
+            chat: TranscriptGrouping.Chat(sessionId: "a1", title: "Triage", agentId: "ag1", originSessionId: nil),
+            members: [TranscriptGrouping.Named(id: "u1", name: "Alex"), TranscriptGrouping.Named(id: "u2", name: "Dana Reyes")],
+            agents: [TranscriptGrouping.Named(id: "ag1", name: "Triage")],
+            sessions: [TranscriptGrouping.KnownSession(id: "c1", title: "Measure on the Galaxy A54", agentId: nil)],
+            items: rows.map(\.item)
+        )
+        return Dictionary(uniqueKeysWithValues: TranscriptGrouping.transcriptLayout(input).map { ($0.id, $0) })
+    }()
+
+    private static func avatar(_ sender: TranscriptGrouping.Sender) -> SenderAvatarModel {
+        switch sender.kind {
+        case .member: .member(user: sender.id == member.id ? member : nil, id: sender.id)
+        case .agent: .agent(UserAvatarAgent(icon: "bug", color: "#f59e0b"))
+        case .session: .session
+        }
+    }
+
+    @ViewBuilder
+    private func rowContent(_ row: Row, layout: TranscriptGrouping.RowLayout?) -> some View {
+        if let text = row.text {
+            if layout?.side == .own {
+                UserMessageBubble(text: text, context: context, caption: row.time)
+            } else {
+                MessageBubble(
+                    side: .other,
+                    author: layout?.name == true ? layout?.sender?.displayName : nil,
+                    time: row.time,
+                    onPress: layout?.sender?.link.map { _ -> () -> Void in {} }
+                ) {
+                    AgentMarkdownText(text: text, context: context, hugsWidth: true)
+                }
+            }
+        } else {
+            switch row.item.id {
+            case "surface":
+                if let surface = Self.launchSurface {
+                    SurfaceCardRow(surface: surface, title: "Launch path", animate: false) { text in
+                        replied = text
+                    }
+                }
+                if let replied {
+                    Text("reply → \(replied)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(DesignTokens.Semantic.green)
+                        .accessibilityIdentifier("surface-reply-echo")
+                }
+            case "superseded":
+                SupersededPlanCard()
+            case "compact":
+                TranscriptDividerPill(icon: AppIcons.codingCompact, text: "\(Chats.Copy.Dividers.compact) · 18:20")
+            default:
+                TranscriptDividerPill(icon: AppIcons.uiClean, text: "\(Chats.Copy.Dividers.new) · 09:30")
+            }
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            UserMessageBubble(
-                text: "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.",
-                context: context,
-                caption: "21:02",
-                leadingGap: ChatBubbleMetrics.personLeadingGap,
-                inBubbleCaption: true
-            )
-            SupersededPlanCard()
-            agent("Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:", "21:14")
-            if let surface = Self.launchSurface {
-                SurfaceCardRow(surface: surface, title: "Launch path", animate: false) { text in
-                    replied = text
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Self.rows, id: \.item.id) { row in
+                let layout = Self.layouts[row.item.id]
+                TranscriptRow(layout: layout, avatar: Self.avatar) {
+                    rowContent(row, layout: layout)
                 }
             }
-            if let replied {
-                Text("reply → \(replied)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(DesignTokens.Semantic.green)
-                    .accessibilityIdentifier("surface-reply-echo")
-            }
-            TranscriptDividerPill(icon: AppIcons.codingCompact, text: "\(Chats.Copy.Dividers.compact) · 18:20")
-            UserMessageBubble(
-                text: "Anything new overnight?", context: context, caption: "09:02",
-                leadingGap: ChatBubbleMetrics.personLeadingGap, inBubbleCaption: true
-            )
-            agent("Three reports, all about the iPad sign-in. I linked them to #APP-19.", "09:03")
-            TranscriptDividerPill(icon: AppIcons.uiClean, text: "\(Chats.Copy.Dividers.new) · 09:30")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-transcript-specimen")
@@ -561,10 +663,10 @@ struct ChatMenuSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             captioned("A live chat") {
-                menu("Spike: offline queue", Chats.threadMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .thread($0) })
+                menu("Spike: offline queue", Chats.chatMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .chat($0) })
             }
             captioned("An ended chat") {
-                menu("#APP-16 Fix flaky scroll restore", Chats.threadMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .thread($0) })
+                menu("#APP-16 Fix flaky scroll restore", Chats.chatMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .chat($0) })
             }
             captioned("The agent menu (busy, owner)") {
                 menu("Triage", Chats.agentMenuEntries(busy: true, isOwner: true).map { .agent($0) })
@@ -640,7 +742,7 @@ struct SchedulePickerSpecimens: View {
     }
 }
 
-/// `mention-pill` (thread e4a04d22): a chat's `@email` renders as the
+/// `mention-pill` (session e4a04d22): a chat's `@email` renders as the
 /// comments' round name pill once it resolves to a team member; an address
 /// that is no member stays text. The real markdown path
 /// (`AgentIssueRefContext.mentionMembers`).
@@ -670,33 +772,8 @@ struct MentionPillSpecimens: View {
     }
 }
 
-/// S-3 (styleguide `session-xref`, session-thread.json): THE inter-session
-/// link header, once per kind — an agent's tree carries its mark, a
-/// person's session the session glyph.
-struct SessionXrefSpecimens: View {
-    private static let agent = SessionXrefHeader.AgentMark(
-        icon: SessionTree.ListCopy.agentDefaultIcon,
-        color: Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
-    )
-
-    private static let links: [(SessionXref, SessionXrefHeader.AgentMark?)] = [
-        (SessionXref(kind: .message, sessionId: "x1", name: "Triage", agentId: "a1"), agent),
-        (SessionXref(kind: .report, sessionId: "x2", name: "Fix the sign-in redirect", agentId: nil), nil),
-        (SessionXref(kind: .started, sessionId: "x3", name: "Triage", agentId: "a1"), agent),
-        (SessionXref(kind: .reported, sessionId: "x4", name: "Ship the login flow", agentId: nil), nil),
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(Self.links, id: \.0.sessionId) { xref, mark in
-                SessionXrefHeader(xref: xref, agent: mark) {}
-            }
-        }
-    }
-}
-
 /// #EXP-1662 `plan-page` capture (`-uiTestingStyleguide plan-page`, presented
-/// by the navigator beside `ThreadCardsScreen`).
+/// by the navigator beside `ChatCardsScreen`).
 struct PlanPageSpecimenScreen: View {
     static let kinds: Set<String> = ["plan-page"]
 
@@ -710,7 +787,7 @@ struct PlanPageSpecimenScreen: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-cards-screen")
+        .accessibilityIdentifier("chat-cards-screen")
     }
 }
 
@@ -803,18 +880,18 @@ struct ResultsTabSpecimens: View {
     }
 }
 
-/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the thread's
+/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the chat's
 /// title + strip with the plan chip active, the tab's body under them, waiting.
 private struct PlanPageSpecimen: View {
     let card: TreeMessageCard?
 
-    private var row: ThreadPlanRow? {
+    private var row: ChatPlanRow? {
         let message = TreeMessage(
             id: "plan-specimen", sessionId: "plan-specimen-session", authorKind: "agent", authorId: nil, body: "",
             card: card, answeredAt: nil, consumedAt: nil, createdAt: "1970-01-01T00:00:00.000Z",
             authorSessionId: "plan-specimen-session"
         )
-        if case let .plan(row)? = ThreadRow.askCard(message) { return row }
+        if case let .plan(row)? = SessionChatRow.askCard(message) { return row }
         return nil
     }
 
@@ -829,7 +906,7 @@ private struct PlanPageSpecimen: View {
                         .lineLimit(1)
                         .padding(.horizontal, 12)
                         .padding(.top, 4)
-                    ThreadStripTabs(
+                    ChatStripTabs(
                         tabs: [.conversation],
                         selection: .plan(nil),
                         onSelect: { _ in },
@@ -872,13 +949,11 @@ struct SealedLockedSpecimens: View {
                 UserMessageBubble(
                     text: "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.",
                     context: context,
-                    caption: "21:02",
-                    leadingGap: ChatBubbleMetrics.personLeadingGap,
-                    inBubbleCaption: true
+                    caption: "21:02"
                 )
                 pill(.noKey)
-                AgentChatBubble(time: "21:14") {
-                    AgentMarkdownText(text: "Deferred the shape subscribe until after the first frame.", context: context)
+                MessageBubble(side: .other, time: "21:14") {
+                    AgentMarkdownText(text: "Deferred the shape subscribe until after the first frame.", context: context, hugsWidth: true)
                 }
                 pill(.unreadable)
             }
@@ -894,7 +969,7 @@ struct SealedLockedSpecimens: View {
                 ChatRowView(
                     title: "Open PR", time: "08:30",
                     preview: SealedPlaceholder.copy(.unreadable), previewItalic: true,
-                    unreadCount: 1, word: ThreadRowWord.readyToMerge.text
+                    unreadCount: 1, word: ChatRowWord.readyToMerge.text
                 ) { ChatLeadMark(lead: .open) }
             }
         }

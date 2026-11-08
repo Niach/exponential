@@ -585,7 +585,7 @@ internal fun seedComputerUseModel(stored: String?): String =
 /**
  * THE model picker row: [agent]'s whole model list (all four claude models /
  * the codex models), no default entry. Every settings-sheet model row (Model,
- * Thread model, Subagent model, Computer use model) is this one composable.
+ * Chat model, Subagent model, Computer use model) is this one composable.
  */
 @Composable
 internal fun ModelPickerRow(

@@ -56,7 +56,7 @@ describe(`useOpenComposer`, () => {
     closeLaunchDialog()
   })
 
-  // EXP-1293: a started session opens its thread, so a caller's origin
+  // EXP-1293: a started session opens its chat, so a caller's origin
   // never rides the dialog request.
   it(`keeps a caller's origin out of the dialog request`, () => {
     openLauncher({ issueIds: [`i1`] }, { origin: null })

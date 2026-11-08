@@ -286,7 +286,7 @@
     "agentInstructionsMaxBytes": 16384,
     "treeMaxDepth": 3,
     "treeMaxSessions": 10,
-    "$comment": "S-3: an AGENT's message to an existing tree (messageSession from an agent tree) reuses that root only while it is not ended or ended < reuseMaxEndedHours ago, its last activity is < reuseMaxIdleHours old and it has < reuseMaxChildren children; otherwise nothing is refused: the result names the fresh-thread path (start a new thread with wakeOn).",
+    "$comment": "S-3: an AGENT's message to an existing tree (messageSession from an agent tree) reuses that root only while it is not ended or ended < reuseMaxEndedHours ago, its last activity is < reuseMaxIdleHours old and it has < reuseMaxChildren children; otherwise nothing is refused: the result names the fresh-session path (start a new root session with wakeOn).",
     "reuseMaxEndedHours": 2,
     "reuseMaxIdleHours": 24,
     "reuseMaxChildren": 8
@@ -458,7 +458,7 @@
     "values": ["claude", "codex"]
   },
   "codingModel": {
-    "$comment": "THE Claude model vocabulary for EVERY model pick (session model, subagents, thread, computer use), shown in this order by ONE model picker x4.",
+    "$comment": "THE Claude model vocabulary for EVERY model pick (session model, subagents, chat, computer use), shown in this order by ONE model picker x4.",
     "values": ["fable", "opus", "sonnet", "haiku"]
   },
   "deviceComputerUseDefaults": {
@@ -536,7 +536,7 @@
     "maxImages": 4
   },
   "steerCommands": {
-    "$comment": "NEW-2 (owner 2026-10-21): the composer's `/` menu = the team's PROMPTS (the `prompts` shape, a pick inserts the prompt as the run's first message) plus ONLY these builtins (thread 58cb32df, owner 2026-10-23: `/new` = a fresh conversation in the SAME session row: the device's engine clears the CLI's context between turns, claude via its own `/clear`, codex via a new thread; the composer's `/` menu and the agent header menu `New conversation` both send it; NOT the dead CLI-injected `/clear`, which stays hidden); commands the agent CLI injects from outside Exponential (Claude Code skills, plugins) are hidden on every platform. /model <alias> is sent as text (the CLI switches, config_state reports it), /effort <level> = sessions.configure.",
+    "$comment": "NEW-2 (owner 2026-10-21): the composer's `/` menu = the team's PROMPTS (the `prompts` shape, a pick inserts the prompt as the run's first message) plus ONLY these builtins (session 58cb32df, owner 2026-10-23: `/new` = a fresh conversation in the SAME session row: the device's engine clears the CLI's context between turns, claude via its own `/clear`, codex via a new thread; the composer's `/` menu and the agent header menu `New conversation` both send it; NOT the dead CLI-injected `/clear`, which stays hidden); commands the agent CLI injects from outside Exponential (Claude Code skills, plugins) are hidden on every platform. /model <alias> is sent as text (the CLI switches, config_state reports it), /effort <level> = sessions.configure.",
     "commands": [
       {
         "name": "compact",
@@ -763,7 +763,7 @@
       {
         "name": "comments_list",
         "title": "Read comments",
-        "blurb": "Reads an issue's comment thread, oldest first.",
+        "blurb": "Reads an issue's comments and their replies, oldest first.",
         "progressive": "Reading comments",
         "done": "Read comments",
         "progressiveMany": "Reading comments {n} times",
@@ -884,7 +884,7 @@
       {
         "name": "sessions_send",
         "title": "Send to session",
-        "blurb": "Messages a session or an agent, starts a child session, or starts a thread.",
+        "blurb": "Messages a session or an agent, starts a child session, or starts a chat.",
         "progressive": "Sending to session",
         "done": "Sent to session",
         "progressiveMany": "Sending to {n} sessions",
@@ -1456,7 +1456,7 @@
       {
         "name": "sessions_get",
         "title": "Read session",
-        "blurb": "Reads a session tree: the thread or agent, its sessions, pull requests and latest messages.",
+        "blurb": "Reads a session tree: the chat or agent, its sessions, pull requests and latest messages.",
         "progressive": "Reading session",
         "done": "Read session",
         "progressiveMany": "Reading {n} sessions",
@@ -1467,7 +1467,7 @@
       {
         "name": "sessions_list",
         "title": "List sessions",
-        "blurb": "Lists threads across your teams, newest first, or your conversations with one agent.",
+        "blurb": "Lists chats across your teams, newest first, or your conversations with one agent.",
         "progressive": "Listing sessions",
         "done": "Listed sessions",
         "progressiveMany": "Listing sessions {n} times",
@@ -1477,23 +1477,23 @@
       },
       {
         "name": "sessions_link",
-        "title": "Link issues to thread",
-        "blurb": "Links issues to a thread so its sessions and pull requests work on them.",
-        "progressive": "Linking issues to thread",
-        "done": "Linked issues to thread",
-        "progressiveMany": "Linking issues to {n} threads",
-        "doneMany": "Linked issues to {n} threads",
+        "title": "Link issues to chat",
+        "blurb": "Links issues to a chat so its sessions and pull requests work on them.",
+        "progressive": "Linking issues to chat",
+        "done": "Linked issues to chat",
+        "progressiveMany": "Linking issues to {n} chats",
+        "doneMany": "Linked issues to {n} chats",
         "subjectKey": "sessionId",
         "result": "none"
       },
       {
         "name": "sessions_unlink",
-        "title": "Unlink issue from thread",
-        "blurb": "Detaches an issue from a thread.",
-        "progressive": "Unlinking issue from thread",
-        "done": "Unlinked issue from thread",
-        "progressiveMany": "Unlinking {n} issues from threads",
-        "doneMany": "Unlinked {n} issues from threads",
+        "title": "Unlink issue from chat",
+        "blurb": "Detaches an issue from a chat.",
+        "progressive": "Unlinking issue from chat",
+        "done": "Unlinked issue from chat",
+        "progressiveMany": "Unlinking {n} issues from chats",
+        "doneMany": "Unlinked {n} issues from chats",
         "subjectKey": "issueId",
         "result": "none"
       },
@@ -1511,7 +1511,7 @@
       {
         "name": "sessions_escalate",
         "title": "Escalate card",
-        "blurb": "Shows a waiting question or plan in the agent's conversation that manages its thread.",
+        "blurb": "Shows a waiting question or plan in the agent's conversation that manages its chat.",
         "progressive": "Escalating card",
         "done": "Escalated card",
         "progressiveMany": "Escalating {n} cards",

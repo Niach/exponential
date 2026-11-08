@@ -1,6 +1,6 @@
-// EXP-1283: the Guide thread's pictures. The Guide picture viewer (tile →
+// EXP-1283: the Guide chat's pictures. The Guide picture viewer (tile →
 // full-size, `index / count`) needs a REAL picture to photograph, so the
-// batch-labels thread's topic carries two: the board's committed web and iOS
+// batch-labels chat's topic carries two: the board's committed web and iOS
 // shots. Stored exactly like a `/api/guide-uploads/$token` upload — the same
 // validate-probe-put half (`prepareSessionImageBytes`) and the same owner-less
 // team `attachments` row (`sessionAttachmentValues`); the Guide entry is what

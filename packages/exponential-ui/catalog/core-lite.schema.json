@@ -1281,6 +1281,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -1481,6 +1482,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -2367,6 +2369,7 @@
                 "camera",
                 "car",
                 "chart-line",
+                "chat-results",
                 "check",
                 "check-check",
                 "chevron-down",
@@ -2567,6 +2570,7 @@
                 "nav-apps",
                 "nav-boards",
                 "nav-changelog",
+                "nav-chats",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -3352,6 +3356,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -3552,6 +3557,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -4288,6 +4294,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -4488,6 +4495,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -5005,6 +5013,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -5205,6 +5214,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -5661,6 +5671,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -5861,6 +5872,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -6654,6 +6666,7 @@
                 "camera",
                 "car",
                 "chart-line",
+                "chat-results",
                 "check",
                 "check-check",
                 "chevron-down",
@@ -6854,6 +6867,7 @@
                 "nav-apps",
                 "nav-boards",
                 "nav-changelog",
+                "nav-chats",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -8737,6 +8751,7 @@
                 "camera",
                 "car",
                 "chart-line",
+                "chat-results",
                 "check",
                 "check-check",
                 "chevron-down",
@@ -8937,6 +8952,7 @@
                 "nav-apps",
                 "nav-boards",
                 "nav-changelog",
+                "nav-chats",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -9441,7 +9457,7 @@
     },
     "MessageBubble": {
       "type": "object",
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "properties": {
         "component": {
           "const": "MessageBubble"
@@ -9484,8 +9500,21 @@
           "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Caption above, in only."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (`on.press` or `href` imply it).",
+          "default": false
+        },
+        "href": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "format": "uri-reference",
+          "description": "The URL a press opens; implies `pressable`."
+        },
         "slots": {
           "$ref": "#/$defs/Slots_MessageBubble"
+        },
+        "on": {
+          "$ref": "#/$defs/On_MessageBubble"
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -9506,7 +9535,11 @@
             "lite": true,
             "children": "none",
             "slots": [
-              "attachment"
+              "attachment",
+              "avatar"
+            ],
+            "events": [
+              "press"
             ]
           }
         }
@@ -17066,6 +17099,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -17266,6 +17300,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -17722,6 +17757,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -17922,6 +17958,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -18351,6 +18388,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -18551,6 +18589,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -19002,6 +19041,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -19202,6 +19242,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -19904,6 +19945,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -20104,6 +20146,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -20595,6 +20638,7 @@
             "camera",
             "car",
             "chart-line",
+            "chat-results",
             "check",
             "check-check",
             "chevron-down",
@@ -20795,6 +20839,7 @@
             "nav-apps",
             "nav-boards",
             "nav-changelog",
+            "nav-chats",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -21685,6 +21730,18 @@
       "properties": {
         "attachment": {
           "$ref": "common_types.json#/$defs/ComponentId"
+        },
+        "avatar": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_MessageBubble": {
+      "type": "object",
+      "properties": {
+        "press": {
+          "$ref": "#/$defs/EuiAction"
         }
       },
       "additionalProperties": false

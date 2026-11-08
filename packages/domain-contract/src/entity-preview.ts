@@ -59,8 +59,8 @@ export const ENTITY_REF_ICON: Readonly<Record<string, string>> = {
   notification: `nav-notifications`,
   attachment: `ui-attach`,
   list: `ui-checklist`,
-  // EXP-1284: a thread = a stack of issues and runs.
-  thread: `work-faces`,
+  // EXP-1284: a chat = a stack of issues and runs.
+  thread: `work-faces`, // the wire kind stays `thread` (#EXP-1730)
   // NEW-2: prompts (the rocket actions wore), agents, events.
   prompt: `nav-actions`,
   agent: `settings-agents`,
@@ -83,7 +83,7 @@ const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
   notification: [`notification`, `notifications`],
   attachment: [`attachment`, `attachments`],
   list: [`list`, `lists`],
-  thread: [`thread`, `threads`],
+  thread: [`chat`, `chats`],
   prompt: [`prompt`, `prompts`],
   agent: [`agent`, `agents`],
   event: [`event`, `events`],

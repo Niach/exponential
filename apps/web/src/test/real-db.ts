@@ -1,6 +1,6 @@
 // Real-Postgres tests (EXP-1284 review T16). Most suites mock the db; the
 // ones that lock DATABASE rules (triggers, row locks, migrations' backfills,
-// the thread helpers' SQL) run against the migrated dev/CI Postgres named by
+// the chat helpers' SQL) run against the migrated dev/CI Postgres named by
 // DATABASE_URL instead, each case inside ONE transaction that is always
 // rolled back, so they leave nothing behind and can run beside a dev server.
 //

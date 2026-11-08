@@ -28,7 +28,7 @@ export const WORK_BAR_HEIGHT = 48
 /** The reading column every face shares: issue body, transcript, diff. */
 export const WORK_COLUMN_CLASS = `mx-auto w-full max-w-4xl`
 
-/** #EXP-1547: THE chat column (tokens.json `chat.columnWidth`): a thread's
+/** #EXP-1547: THE chat column (tokens.json `chat.columnWidth`): a chat's
  *  conversation, an agent's channel, a session's transcript and the Dock band
  *  with THE composer all centre in it, so the transcript and the composer
  *  share the same left and right edges. The IDE's `tokens::chat::COLUMN_WIDTH`. */

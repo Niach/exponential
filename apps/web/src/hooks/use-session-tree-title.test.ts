@@ -14,10 +14,10 @@ import {
   unsettledTitleRoots,
 } from "@/hooks/use-session-tree"
 
-// EXP-1316: a thread title never flips from the request text to
+// EXP-1316: a chat title never flips from the request text to
 // its issue label: it falls back past its issues only once the issue
 // shapes reported ready, and lists hold their row titles until then.
-describe(`thread title readiness`, () => {
+describe(`chat title readiness`, () => {
   const ready = { linksReady: true, issueCount: 1, issuesReady: true, messagesReady: true }
 
   it(`waits for the links, the linked issues and the messages`, () => {

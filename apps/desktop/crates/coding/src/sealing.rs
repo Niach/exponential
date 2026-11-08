@@ -317,13 +317,13 @@ pub trait SealService: Send + Sync {
     fn install_id(&self) -> Option<String>;
     /// This install's X25519 public key (`PushKeypair::derive(identity)`),
     /// for wrapping a NEW root's key to itself ([`seal_new_root`]): the
-    /// device MCP gateway seals an agent's new-thread start with it. `None`
-    /// = new threads go out plaintext.
+    /// device MCP gateway seals an agent's new-session start with it. `None`
+    /// = new sessions go out plaintext.
     fn install_public(&self) -> Option<[u8; 32]> {
         None
     }
     /// #EXP-1483: the installs (`(install_id, x25519_public)`) of
-    /// `target_device` (the `devices.device_id` a new thread will run on),
+    /// `target_device` (the `devices.device_id` a new session will run on),
     /// wrapped into a NEW root's key at creation so its pickup opens the
     /// brief at once. Empty = none known (they wait for `pending`).
     fn new_root_readers(&self, _target_device: &str) -> Vec<(String, String)> {
@@ -627,7 +627,7 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     }
     // #FEED-188: a tree nobody keyed takes its key from its first writer, as
     // on web and the phones. Waiting for its device cannot work for an idle
-    // thread older than sealing: only a claim keys it there, and this send is
+    // chat older than sealing: only a claim keys it there, and this send is
     // what would wake it. The other readers get theirs through `pending`.
     match service.ensure_key(root_id) {
         Err(SealError::NotReader) => {}

@@ -4507,7 +4507,8 @@
       "lite": true,
       "children": "none",
       "slots": [
-        "attachment"
+        "attachment",
+        "avatar"
       ],
       "props": {
         "text": {
@@ -4532,8 +4533,19 @@
         "author": {
           "type": "string",
           "bindable": true
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
+        },
+        "href": {
+          "type": "url",
+          "bindable": true
         }
-      }
+      },
+      "events": [
+        "press"
+      ]
     },
     "TreeGuides": {
       "kind": "native",

@@ -5,7 +5,7 @@ import type { ComponentType } from "react"
 import type { Device } from "@/db/schema"
 import { deviceCollection } from "@/lib/collections"
 
-// EXP-1318: a thread row's trailing DEVICE glyph ×4 — the root's
+// EXP-1318: a chat row's trailing DEVICE glyph ×4 — the root's
 // `device_id` (the LOGICAL device id) resolved against the synced devices (only the ones this viewer
 // may see sync), drawn exactly as the Devices page draws it
 // (`getDeviceIcon`: the owner's pick, else the kind default). Unknown or

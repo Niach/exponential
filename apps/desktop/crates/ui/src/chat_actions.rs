@@ -1,8 +1,8 @@
-//! Thread 58cb32df (#EXP-1373, `fixtures/chats.json` `menuCases` +
+//! Session 58cb32df (#EXP-1373, `fixtures/chats.json` `menuCases` +
 //! `agentMenuCases`): the chat's and the agent's menus on the IDE, the twin
-//! of web `components/thread/chat-menu.tsx`. ONE set of entries behind every
+//! of web `components/chat/chat-menu.tsx`. ONE set of entries behind every
 //! way in: a chat row's right-click (the Chats page, the rail's Active rows,
-//! through THE [`crate::controls::PointerContextMenuExt`]) and the thread
+//! through THE [`crate::controls::PointerContextMenuExt`]) and the chat
 //! header's `…`; the agent row's right-click and the agent chat header's `…`.
 //!
 //!   Delete           `sessions.delete` (the server ends what is live first)
@@ -18,7 +18,7 @@
 use gpui::{App, SharedString, Window};
 use gpui_component::menu::PopupMenu;
 
-use domain::chats::{agent_menu_entries, thread_menu_entries, AgentMenuEntry, ThreadMenuEntry, CHATS};
+use domain::chats::{agent_menu_entries, chat_menu_entries, AgentMenuEntry, ChatMenuEntry, CHATS};
 use domain::rows::SessionRow;
 
 use crate::icons::registry;
@@ -46,14 +46,14 @@ pub(crate) fn can_delete(row: &SessionRow, cx: &App) -> bool {
     starter || row.team_id.as_deref().is_some_and(|team_id| crate::settings::is_owner(cx, team_id))
 }
 
-/// The chat menu's entries for `root_id` (`threadMenuEntries`); none for a
+/// The chat menu's entries for `root_id` (`chatMenuEntries`); none for a
 /// row that is not a chat root or one the viewer cannot steer, and no delete
 /// entries for a viewer who is neither its starter nor a team owner.
-pub(crate) fn chat_entries(root_id: &str, cx: &App) -> Vec<ThreadMenuEntry> {
+pub(crate) fn chat_entries(root_id: &str, cx: &App) -> Vec<ChatMenuEntry> {
     let Some(root) = crate::session_data::session(root_id, cx).filter(is_chat_root) else {
         return Vec::new();
     };
-    thread_menu_entries(root.status.as_deref().unwrap_or_default(), can_steer(&root, cx), can_delete(&root, cx))
+    chat_menu_entries(root.status.as_deref().unwrap_or_default(), can_steer(&root, cx), can_delete(&root, cx))
 }
 
 /// Append the chat's entries to `menu` (a row's context menu, the header
@@ -70,11 +70,11 @@ pub(crate) fn chat_menu_items(mut menu: PopupMenu, root_id: &str, separator: boo
 }
 
 /// THE chat menu's rows for `entries` (the styleguide's specimen too).
-pub(crate) fn chat_entry_items(mut menu: PopupMenu, root_id: &str, entries: &[ThreadMenuEntry], _cx: &App) -> PopupMenu {
+pub(crate) fn chat_entry_items(mut menu: PopupMenu, root_id: &str, entries: &[ChatMenuEntry], _cx: &App) -> PopupMenu {
     for entry in entries.iter().copied() {
         let root_id = root_id.to_string();
         menu = match entry {
-            ThreadMenuEntry::Delete => menu.item(
+            ChatMenuEntry::Delete => menu.item(
                 crate::controls::danger_pointer_menu_item(registry::UI_DELETE, entry.label(), move |window, cx| {
                     confirm_delete(&root_id, window, cx)
                 }),
@@ -263,7 +263,7 @@ fn spawn_selection(action: domain::chats::ChatSelectionAction, ids: Vec<String>,
 /// `sessions.setRead` / `setArchived` take up to 200 ids a call.
 const SELECTION_CHUNK: usize = 200;
 
-/// The deleted chat's screens close: the root's thread and every session of
+/// The deleted chat's screens close: the root's chat and every session of
 /// its tree (a child's own tab would sit on rows that no longer exist) lose
 /// their tabs, and a window still on one lands on the Chats page. The tree
 /// is read from the store's `root_id`s (the rows may not have synced away
@@ -284,7 +284,7 @@ fn close_chat_screens(root_id: &str, cx: &mut App) {
     ids.insert(0, root_id.to_string());
     let screens: Vec<Screen> = ids
         .into_iter()
-        .flat_map(|session_id| [Screen::Thread { session_id: session_id.clone() }, Screen::Session { session_id }])
+        .flat_map(|session_id| [Screen::Chat { session_id: session_id.clone() }, Screen::Session { session_id }])
         .collect();
     for handle in cx.windows() {
         let screens = screens.clone();
@@ -298,7 +298,7 @@ fn close_chat_screens(root_id: &str, cx: &mut App) {
             }
             let nav = crate::navigation::nav_for_window(window, cx);
             if crate::navigation::resolved_screen(&nav, cx).is_some_and(|current| screens.contains(&current)) {
-                crate::navigation::navigate(window, cx, Screen::Threads);
+                crate::navigation::navigate(window, cx, Screen::Chats);
             }
         });
     }
@@ -431,7 +431,7 @@ mod tests {
     /// The entries' words and icons are the fixture's.
     #[test]
     fn the_entries_read_the_fixture_copy() {
-        assert_eq!(ThreadMenuEntry::Delete.label(), "Delete");
+        assert_eq!(ChatMenuEntry::Delete.label(), "Delete");
         assert_eq!(AgentMenuEntry::NewConversation.label(), "New conversation");
         for entry in [AgentMenuEntry::Compact, AgentMenuEntry::NewConversation, AgentMenuEntry::Settings] {
             assert!(registry::concept_by_name(entry.icon()).is_some(), "{entry:?}");

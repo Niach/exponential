@@ -427,7 +427,7 @@ fn file_chip(
 }
 
 /// Wave D: a steered message's FILE line (`[<name>](/api/attachments/<id>)`)
-/// as the comment thread's file chip — type glyph (from the name's
+/// as the comment card's file chip — type glyph (from the name's
 /// extension, the Files section's concept) + filename — opening the
 /// attachment exactly like [`file_chip`]. The message carries no size, so
 /// the size column is dropped rather than printing `0 B`.

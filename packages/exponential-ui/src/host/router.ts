@@ -80,7 +80,7 @@ export class HostRouter {
   private mintNext = 1
   private packages = new Map<string, AppPackage>()
   private extensions: AvailableExtension[] | undefined
-  /** §14: the 0.9 bridge's id maps, threaded across the stream. */
+  /** §14: the 0.9 bridge's id maps, carried across the stream. */
   private upgradeState = emptyUpgrade09State()
 
   constructor(options: HostRouterOptions = {}) {

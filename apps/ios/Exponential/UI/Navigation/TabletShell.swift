@@ -13,14 +13,14 @@ enum SidebarItem: Hashable {
     case agentChannel(String)
     case app(String)
     case board(String)
-    case thread(String)
+    case chat(String)
 
     /// The phone root this entry stands for (the navigator's deep links land
     /// on a `MainTab`; the sidebar follows them).
     var tab: MainTab {
         switch self {
         case .agent: .agent
-        case .needsYou, .chats, .agentChannel, .thread: .threads
+        case .needsYou, .chats, .agentChannel, .chat: .chats
         case .devices, .settings: .team
         case .drafts, .board: .issues
         case .apps, .app: .apps
@@ -32,7 +32,7 @@ enum SidebarItem: Hashable {
         switch tab {
         case .agent: self = .agent
         case .issues: self = board.map { .board($0.boardId) } ?? .agent
-        case .threads: self = .chats
+        case .chats: self = .chats
         case .apps: self = .apps
         case .team: self = .settings
         }
@@ -42,7 +42,7 @@ enum SidebarItem: Hashable {
     var placeholderIcon: String {
         switch self {
         case .needsYou: AppIcons.navNeedsYou
-        case .chats: AppIcons.navThreads
+        case .chats: AppIcons.navChats
         case .drafts: AppIcons.navDrafts
         case .apps: AppIcons.navApps
         case .settings: AppIcons.navSettings
@@ -295,7 +295,7 @@ struct TabletSidebar: View {
                 glyph(AppIcons.navNeedsYou, color: DesignTokens.Semantic.yellow)
             }
         }
-        row(.chats, title: Chats.Copy.Headers.chats) { glyph(AppIcons.navThreads) }
+        row(.chats, title: Chats.Copy.Headers.chats) { glyph(AppIcons.navChats) }
         row(.devices, title: Chats.Copy.Headers.devices) { glyph(AppIcons.navDevices) }
         if draftCount > 0 || selection == .drafts {
             row(.drafts, title: "Drafts", count: draftCount) { glyph(AppIcons.navDrafts) }
@@ -334,17 +334,17 @@ struct TabletSidebar: View {
         }
     }
 
-    /// The desktop rail's Active band (`SessionTree.railThreads`).
-    private var activeRows: [ThreadsListRow] {
-        SessionTree.railThreads(lists.teamGroups(teamState.activeTeamId)) { lists.words[$0.rootId] }
+    /// The desktop rail's Active band (`SessionTree.railChats`).
+    private var activeRows: [ChatsListRow] {
+        SessionTree.railChats(lists.teamGroups(teamState.activeTeamId)) { lists.words[$0.rootId] }
             .filter { $0.depth == 0 }
     }
 
     private var activeSessionRows: [AnyView] {
-        activeRows.map { thread in
-            let lead: Chats.ChatLead = thread.needsYou ? .needsYou : thread.busy ? .working : .waiting
-            return AnyView(row(.thread(thread.rootId), title: thread.title, bold: thread.unread) {
-                ChatLeadMark(lead: lead, cli: lists.clis[thread.sessionId], size: 18)
+        activeRows.map { chat in
+            let lead: Chats.ChatLead = chat.needsYou ? .needsYou : chat.busy ? .working : .waiting
+            return AnyView(row(.chat(chat.rootId), title: chat.title, bold: chat.unread) {
+                ChatLeadMark(lead: lead, cli: lists.clis[chat.sessionId], size: 18)
             })
         }
     }
@@ -413,7 +413,7 @@ struct TabletSidebar: View {
     private func testId(_ item: SidebarItem) -> String {
         switch item {
         case .agent: "tab-agent"
-        case .chats: "tab-threads"
+        case .chats: "tab-chats"
         case .apps: "tab-apps"
         case let .board(id) where id == currentBoardId: "tab-board"
         case let .board(id): "sidebar-board-\(id)"
@@ -423,7 +423,7 @@ struct TabletSidebar: View {
         case .settings: "tab-team"
         case let .agentChannel(id): "sidebar-agent-\(id)"
         case let .app(id): "sidebar-app-\(id)"
-        case let .thread(id): "sidebar-thread-\(id)"
+        case let .chat(id): "sidebar-chat-\(id)"
         }
     }
 

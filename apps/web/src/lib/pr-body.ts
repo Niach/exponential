@@ -2,8 +2,8 @@ import { SESSION_RESULT_FILES_MAX } from "@exp/db-schema/domain"
 
 import type { GuideEntry } from "@exp/db-schema/domain"
 
-// EXP-1154/1291: every PR body of a thread = a TEXT projection of the
-// thread's ONE Guide (root `sessions.guide`). GitHub cannot render our
+// EXP-1154/1291: every PR body of a chat = a TEXT projection of the
+// chat's ONE Guide (root `sessions.guide`). GitHub cannot render our
 // pictures (attachment reads are member-only), so the body carries the
 // Guide's words and file lists and closes with one link to the Guide, where
 // the screenshots live. A topic tagged with a `prUrl` belongs to that PR; a
@@ -15,7 +15,7 @@ import type { GuideEntry } from "@exp/db-schema/domain"
 // its JSON string; text sections only (a topic with a non-blank text), the
 // FIRST text per topic, first-seen order, `files` cleaned the same way the
 // readers clean them. `sessionIds` (EXP-1284, still fixture-locked) narrows
-// to one session's entries; the thread-wide body never passes it.
+// to one session's entries; the chat-wide body never passes it.
 
 /** The `pr_open` / `pr_update` body limit. */
 export const PR_BODY_MAX = 60_000
@@ -194,7 +194,7 @@ export function renderPrBody(
 }
 
 /**
- * EXP-1291: the body of one PR of a thread, off the thread's Guide. `prUrl`
+ * EXP-1291: the body of one PR of a chat, off the chat's Guide. `prUrl`
  * = the PR it is for (null = a PR not opened yet: untagged topics only;
  * absent = every topic); `guideUrl` = the footer link. Null without any text
  * section (the caller keeps its fallback).
@@ -212,7 +212,7 @@ export function prBodyFromGuide(
 // A PR body = a short SERVER summary (the PR title, ≤3 bullets: the linked
 // issues first, then the commit subjects) + the session's pictures grouped by the
 // platform word their label starts with + the `Not run` line + the link to
-// the thread. No LLM; pure + fixture-locked (pr-body.json `pictureCases`).
+// the chat. No LLM; pure + fixture-locked (pr-body.json `pictureCases`).
 // GitHub cannot load our member-only pictures, so each is a link.
 
 export const PR_BODY_PICTURES_LINK_LABEL = `Results in Exponential`

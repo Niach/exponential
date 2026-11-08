@@ -80,13 +80,13 @@ final class TreeKeyHolderTests: XCTestCase {
         XCTAssertEqual(keys.mineCalls.value, [["root-9"]])
     }
 
-    func testNewThreadSealWrapsForThisInstallAndAdopts() async throws {
+    func testNewChatSealWrapsForThisInstallAndAdopts() async throws {
         let crypto = try crypto()
         let identity = Data(repeating: 3, count: 32)
         let mine = try crypto.installKey(identity: identity)
         let ring = SealedKeyRing(persistence: .memory)
         let holder = make(FakeKeys(), ring: ring, identity: identity, crypto: crypto)
-        let (seal, key) = try await holder.newThreadSeal(accountId: "a", teamId: "t", deviceIds: [], shared: false)
+        let (seal, key) = try await holder.newChatSeal(accountId: "a", teamId: "t", deviceIds: [], shared: false)
         XCTAssertEqual(seal.installId, "install-me")
         XCTAssertEqual(seal.epoch, 1)
         XCTAssertEqual(seal.publicKey, key.publicKey)
@@ -140,7 +140,7 @@ final class TreeKeyHolderTests: XCTestCase {
     func testSealedSendInputEncodesSealAndMentionsBesideTheForm() throws {
         let input = SealedSendInput(
             input: .message(sessionId: "s", text: "exp-sealed:v1:1:x"),
-            seal: NewThreadSeal(installId: "i", publicKey: "p", epoch: 1, wraps: [TreeKeyWrap(installId: "i", wrapped: "w")]),
+            seal: NewChatSeal(installId: "i", publicKey: "p", epoch: 1, wraps: [TreeKeyWrap(installId: "i", wrapped: "w")]),
             mentionUserIds: ["u1"]
         )
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? NSDictionary

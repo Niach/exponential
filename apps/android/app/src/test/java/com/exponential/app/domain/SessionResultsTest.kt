@@ -212,10 +212,10 @@ class SessionResultsTest {
         }
     }
 
-    // EXP-1175: the Run face's thread — the fixture's `thread` block, x4.
+    // EXP-1175: the Run face's result stream — the fixture's `stream` block, x4.
     @Test
-    fun `every fixture thread case keeps publish order and lifts the summary`() {
-        val cases = sessionResultsFixture()["thread"]!!.jsonObject["cases"]!!.jsonArray
+    fun `every fixture stream case keeps publish order and lifts the summary`() {
+        val cases = sessionResultsFixture()["stream"]!!.jsonObject["cases"]!!.jsonArray
         assertTrue(cases.isNotEmpty())
         for (element in cases) {
             val case = element.jsonObject
@@ -227,11 +227,11 @@ class SessionResultsTest {
                     else -> value.toString()
                 }
             }
-            val thread = sessionThread(raw)
-            val actual = thread.items.map { item ->
+            val stream = sessionResultStream(raw)
+            val actual = stream.items.map { item ->
                 when (item) {
-                    is ThreadItem.Text -> listOf("text", item.topic, item.text)
-                    is ThreadItem.Picture -> listOf("picture", item.entry.attachmentId)
+                    is StreamItem.Text -> listOf("text", item.topic, item.text)
+                    is StreamItem.Picture -> listOf("picture", item.entry.attachmentId)
                 }
             }
             val expected = case["expected"]!!.jsonObject
@@ -243,7 +243,7 @@ class SessionResultsTest {
                 }
             }
             assertEquals(name, expectedItems, actual)
-            assertEquals(name, expected["reply"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content, thread.reply)
+            assertEquals(name, expected["reply"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content, stream.reply)
         }
     }
 
@@ -471,9 +471,9 @@ class SessionResultsTest {
             val turns = sessionTurns(raw, feed)
             val expected = case["expected"]!!.jsonObject
             assertEquals(name, expected["perTurn"]!!.jsonPrimitive.boolean, turns.perTurn)
-            fun item(item: ThreadItem): List<String> = when (item) {
-                is ThreadItem.Text -> listOf("text", item.topic, item.text)
-                is ThreadItem.Picture -> listOf("picture", item.entry.attachmentId)
+            fun item(item: StreamItem): List<String> = when (item) {
+                is StreamItem.Text -> listOf("text", item.topic, item.text)
+                is StreamItem.Picture -> listOf("picture", item.entry.attachmentId)
             }
             val want = expected["turns"]!!.jsonArray.map { turnElement ->
                 val turn = turnElement.jsonObject

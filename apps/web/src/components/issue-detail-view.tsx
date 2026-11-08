@@ -72,7 +72,7 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
-import { IssueThreadsRow } from "@/components/thread/issue-threads-row"
+import { IssueChatsRow } from "@/components/chat/issue-chats-row"
 import { failedAction } from "@/lib/action-error"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
@@ -88,9 +88,9 @@ interface IssueDetailViewProps {
    *  (`lib/detail-origin.ts`) — the phone header's back button returns THERE
    *  (the inbox, the board) instead of always to the board. */
   origin?: string
-  /** EXP-1316: the thread's issue tab — the issue BODY without its own
+  /** EXP-1316: the chat's issue tab — the issue BODY without its own
    *  chrome: no work header bar (Start, pin, PR graph badge, `…`), no phone
-   *  header, no Threads row; the phone bar keeps properties + Comment. */
+   *  header, no Chats row; the phone bar keeps properties + Comment. */
   embedded?: boolean
   /** Embedded on a phone under a host's overlay header band: the scroller
    *  pads its top by the band's height. */
@@ -578,9 +578,9 @@ export function IssueDetailView({
   ) : null
 
   const titleField = <IssueTitleField issue={issue} readOnly={readOnly} />
-  // EXP-1284/1293: the issue NAMES its threads (one chip each, opening it).
-  const threadsRow = embedded ? null : (
-    <IssueThreadsRow
+  // EXP-1284/1293: the issue NAMES its chats (one chip each, opening it).
+  const chatsRow = embedded ? null : (
+    <IssueChatsRow
       issueId={issue.id}
       teamId={teamId}
       teamSlug={teamSlug}
@@ -705,13 +705,13 @@ export function IssueDetailView({
           {/* The title first, then the tray, as on the natives and the New
               issue page. */}
           {propsTray}
-          {threadsRow}
+          {chatsRow}
           {editor}
           {filesSection}
           {relationsSection}
           {widgetCard}
           {timeline}
-          {/* EXP-1316: embedded under a thread the scroller lives inside the
+          {/* EXP-1316: embedded under a chat the scroller lives inside the
               host's screen; an explicit spacer (the bar's clearance) keeps
               the last rows clear of the floating Comment bar there too. */}
           {embedded && (
@@ -811,7 +811,7 @@ export function IssueDetailView({
                 {parentLine}
                 {titleField}
               </div>
-              {threadsRow}
+              {chatsRow}
             </div>
             {embedded ? (
               // No bar above it: the tray stays a plain row (a sticky one

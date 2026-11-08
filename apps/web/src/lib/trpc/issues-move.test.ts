@@ -300,7 +300,7 @@ describe(`issues.move`, () => {
       issueLabels,
       issueRelations,
       notifications,
-      // EXP-1291: the issue's thread and PR links carry the board mirrors.
+      // EXP-1291: the issue's chat and PR links carry the board mirrors.
       sessionIssues,
       pullRequestIssues,
     ]) {

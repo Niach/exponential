@@ -204,9 +204,9 @@ public enum FeedbackStates {
 
         /// EXP-1391: `errors.mergeRefusal`. A refused merge is the
         /// failed-action toast with Retry; the server also posts it into the
-        /// thread. No client reads the tRPC code.
+        /// chat. No client reads the tRPC code.
         public enum MergeRefusal {
-            public static let handoff = "Sent to the thread."
+            public static let handoff = "Sent to the chat."
         }
 
         /// Where a failure renders, by who started the work (the fixture's

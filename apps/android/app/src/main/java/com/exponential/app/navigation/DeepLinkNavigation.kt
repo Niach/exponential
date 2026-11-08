@@ -113,25 +113,25 @@ fun issueRoute(issueId: String, commentId: String? = null): String =
 /**
  * #EXP-1456: the route a session opens on (fixtures/inbox-route.json
  * `sessionCases`, the S-3 rule) — an inbox row's and a push's session tap.
- * My own agent conversation root = the agent's channel (the thread screen IS
+ * My own agent conversation root = the agent's channel (the chat screen IS
  * an agent root's channel, where the waiting question or plan docks); a
- * thread root = the thread; a thread's child and anything else = the session
- * view (Android has no in-thread child route, so a child opens on its own
+ * chat root = the chat; a chat's child and anything else = the session
+ * view (Android has no in-chat child route, so a child opens on its own
  * screen). [target] null = not synced: the session route's not-found state.
  */
 fun sessionTargetRoute(sessionId: String, target: InboxRoute.SessionTarget?): String =
     when (target) {
         // The conversation root IS the session (sessionTarget only says
-        // `agent` for a root), and the thread screen is its channel.
-        is InboxRoute.SessionTarget.Agent -> Routes.thread(sessionId)
-        is InboxRoute.SessionTarget.Thread ->
-            target.sessionId?.let(Routes::session) ?: Routes.thread(target.threadId)
+        // `agent` for a root), and the chat screen is its channel.
+        is InboxRoute.SessionTarget.Agent -> Routes.chat(sessionId)
+        is InboxRoute.SessionTarget.Chat ->
+            target.sessionId?.let(Routes::session) ?: Routes.chat(target.chatId)
         is InboxRoute.SessionTarget.Session -> Routes.session(target.sessionId)
         null -> Routes.session(sessionId)
     }
 
 /** results-tab.json: what `?tab=` lands on the Results tab. */
-private val LEGACY_RESULTS_TABS = setOf(Routes.THREAD_TAB_RESULTS, "stories", Routes.THREAD_TAB_GUIDE)
+private val LEGACY_RESULTS_TABS = setOf(Routes.CHAT_TAB_RESULTS, "stories", Routes.CHAT_TAB_GUIDE)
 
 /**
  * #EXP-1674: the native screen of an in-app link (app-link.json `routes`).
@@ -147,21 +147,21 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
                 !destination.isRoot -> Routes.session(destination.id)
                 // results-tab.json: an older `?view=guide` or `?tab=stories`
                 // lands on the Results tab.
-                destination.sessionPath && query("view") == Routes.THREAD_TAB_GUIDE ->
-                    Routes.thread(destination.id, Routes.THREAD_TAB_RESULTS)
+                destination.sessionPath && query("view") == Routes.CHAT_TAB_GUIDE ->
+                    Routes.chat(destination.id, Routes.CHAT_TAB_RESULTS)
                 destination.sessionPath && query("tab") in LEGACY_RESULTS_TABS ->
-                    Routes.thread(destination.id, Routes.THREAD_TAB_RESULTS)
-                else -> Routes.thread(destination.id)
+                    Routes.chat(destination.id, Routes.CHAT_TAB_RESULTS)
+                else -> Routes.chat(destination.id)
             },
         )
-        is LinkDestination.Plan -> navigateDeepLink(Routes.threadPlan(destination.sessionId, destination.messageId))
+        is LinkDestination.Plan -> navigateDeepLink(Routes.chatPlan(destination.sessionId, destination.messageId))
         is LinkDestination.Board -> navigateDeepLink("board/${destination.id}")
-        LinkDestination.Threads -> selectTab(MainTabs.THREADS, tabSwitch, restore = false)
+        LinkDestination.Chats -> selectTab(MainTabs.CHATS, tabSwitch, restore = false)
         is LinkDestination.AgentDm -> navigateDeepLink(Routes.agentDm(destination.agentId))
         LinkDestination.AgentHome -> selectTab(MainTabs.AGENT, tabSwitch, restore = false)
         // A page pushed over the Chats tab, not a tab root.
         LinkDestination.Inbox -> {
-            selectTab(MainTabs.THREADS, tabSwitch, restore = false)
+            selectTab(MainTabs.CHATS, tabSwitch, restore = false)
             navigate(MainTabs.INBOX) { launchSingleTop = true }
         }
         LinkDestination.Devices -> navigateDeepLink(Routes.teamSettings(SettingsNav.DEVICES))

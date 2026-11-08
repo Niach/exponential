@@ -11,8 +11,8 @@ import SwiftUI
 /// menu under it (S-3: no options line, the "+" holds the runner). EXP-1316
 /// (composer-home.json `phone`): the column is pinned to the BOTTOM (above
 /// the tab bar, riding the keyboard), the dawn standing on the card; Getting
-/// started (no board yet) sits above the dawn; no Running list — the Threads
-/// tab lists every thread.
+/// started (no board yet) sits above the dawn; no Running list — the Chats
+/// tab lists every chat.
 ///
 /// Two shapes: the Home ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -20,7 +20,7 @@ import SwiftUI
 /// PUSHED detail (no tab bar, native back) from every play button with a
 /// preselection (`AgentComposerSeed`): the issue's Start, the bulk bar, an
 /// action's Run, a machine's play glyph. A send is ONE `sessions.send` in
-/// the ACTIVE team; the page opens the new thread at once.
+/// the ACTIVE team; the page opens the new chat at once.
 struct AgentPageView: View {
     let seed: AgentComposerSeed
     /// The Home tab root: the floating tab bar sits over it, so the scroller
@@ -174,7 +174,7 @@ struct AgentPageView: View {
         .accessibilityIdentifier("agent-page")
         .onAppear {
             visible = true
-            // A thread a send started while the page was off-screen opens on
+            // A chat a send started while the page was off-screen opens on
             // the way back; pushed a beat later so it never races the pop.
             if let rootId = composer?.landedRootId {
                 composer?.landedRootId = nil
@@ -252,7 +252,7 @@ struct AgentPageView: View {
         .onChange(of: composer?.device?.deviceId) { _, _ in
             composer?.reconcileDevice()
         }
-        // `sessions.send` answered with the new root: open its thread ONCE.
+        // `sessions.send` answered with the new root: open its chat ONCE.
         // Off screen it waits for the page to come back (`onAppear`).
         .onChange(of: composer?.landedRootId) { _, rootId in
             if let rootId, visible {
@@ -310,9 +310,9 @@ struct AgentPageView: View {
         }
     }
 
-    /// A started thread opens on its Conversation.
+    /// A started chat opens on its Conversation.
     private func open(_ rootId: String) {
-        pushRoute(.thread(accountId: accountId, threadId: rootId))
+        pushRoute(.chat(accountId: accountId, chatId: rootId))
     }
 
     /// NEW-3: the caller's DM with an agent.

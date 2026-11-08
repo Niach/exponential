@@ -64,13 +64,13 @@ fun ScriptCardView(
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     val script = source?.takeIf { it.isNotBlank() }
-    val style = threadCardTextStyle()
-    val muted = threadCardMuted()
+    val style = chatCardTextStyle()
+    val muted = chatCardMuted()
     val turn by animateFloatAsState(if (open) 90f else 0f, Motion.fast(), label = "script-card-disclosure")
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .threadCard()
+            .chatCard()
             .testTag(ScriptCardSpec.TEST_ID_CARD),
     ) {
         Row(
@@ -85,14 +85,14 @@ fun ScriptCardView(
                 ExpIcons.toolScript,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
-                tint = if (failed) ThreadCardRose else muted,
+                tint = if (failed) ChatCardRose else muted,
             )
             // The title ellipsizes before the meta ever does: "· 59 calls ·
             // 3.0 s" always reads whole.
             LeadText(
                 card.title,
                 style = style.copy(fontWeight = FontWeight.Medium),
-                color = if (failed) ThreadCardRose else MaterialTheme.colorScheme.onSurface,
+                color = if (failed) ChatCardRose else MaterialTheme.colorScheme.onSurface,
             ) {
                 if (running) InlineSpinner(size = 12.dp)
                 card.meta?.let { meta ->
@@ -167,7 +167,7 @@ fun ScriptCardView(
                             Text(
                                 tail,
                                 style = style.copy(fontFeatureSettings = "tnum"),
-                                color = if (group.failed != null) ThreadCardRose else muted,
+                                color = if (group.failed != null) ChatCardRose else muted,
                                 maxLines = 1,
                             )
                         }

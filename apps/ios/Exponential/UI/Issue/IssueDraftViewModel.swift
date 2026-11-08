@@ -87,14 +87,14 @@ final class IssueDraftViewModel {
     let draftId: String
     private(set) var boardId: String
     let parentId: String?
-    /// EXP-1284: the thread the issue is filed INTO (the thread's "New issue
-    /// in this thread", `issues.create({sessionId})`); nil = none. The route
+    /// EXP-1284: the chat the issue is filed INTO (the chat's "New issue
+    /// in this chat", `issues.create({sessionId})`); nil = none. The route
     /// seeds it; a draft reopened from Drafts restores it off its row
     /// (`issue_drafts.session_id`), and every upsert carries it.
-    private(set) var threadId: String?
-    /// The thread (its title and state, `IssueThreadLink`), the page's
-    /// `In <thread>` line; nil while unresolved or with no thread.
-    private(set) var thread: IssueThreadLink?
+    private(set) var chatId: String?
+    /// The chat (its title and state, `IssueChatLink`), the page's
+    /// `In <chat>` line; nil while unresolved or with no chat.
+    private(set) var chat: IssueChatLink?
     /// The route's pre-picked status row (nil = the team's Backlog builtin).
     private let initialStatusId: String?
 
@@ -213,12 +213,12 @@ final class IssueDraftViewModel {
     /// published when it is back, so its exit never pops the wrong screen.
     @ObservationIgnored private var deferredConsumed: Consumed?
 
-    init(draftId: String, boardId: String, statusId: String?, parentId: String?, threadId: String? = nil) {
+    init(draftId: String, boardId: String, statusId: String?, parentId: String?, chatId: String? = nil) {
         self.draftId = draftId
         self.boardId = boardId
         self.initialStatusId = statusId
         self.parentId = parentId
-        self.threadId = threadId
+        self.chatId = chatId
     }
 
     deinit {
@@ -317,7 +317,7 @@ final class IssueDraftViewModel {
                 ? Array(labelIds)
                 : Array(labelIds.filter { id in labels.contains { $0.id == id } }),
             dueDate: dueDate,
-            sessionId: threadId,
+            sessionId: chatId,
             assigneeAgentId: assigneeAgentId
         )
     }
@@ -360,8 +360,8 @@ final class IssueDraftViewModel {
                 assigneeAgentId = row.assigneeAgentId
                 labelIds = Set(row.labelIds)
                 dueDate = row.dueDate
-                // EXP-1284: the route's thread wins; else the row's.
-                if threadId == nil { threadId = row.sessionId }
+                // EXP-1284: the route's chat wins; else the row's.
+                if chatId == nil { chatId = row.sessionId }
                 seededStatusId = row.statusId
                 if let files = try? await deps.issueDraftsApi.listAttachments(
                     accountId: accountId, id: draftId
@@ -391,10 +391,10 @@ final class IssueDraftViewModel {
             }) ?? nil
         }
 
-        // EXP-1284: name the thread the issue files into.
-        if let threadId {
-            thread = (try? await pool.read { db in
-                try IssueThreadLink.load(db: db, rootId: threadId)
+        // EXP-1284: name the chat the issue files into.
+        if let chatId {
+            chat = (try? await pool.read { db in
+                try IssueChatLink.load(db: db, rootId: chatId)
             }) ?? nil
         }
 
@@ -943,7 +943,7 @@ final class IssueDraftViewModel {
             // row inside the create's transaction.
             draftId: rowExists && !defersUploads ? draftId : nil,
             parentId: parentId,
-            sessionId: threadId,
+            sessionId: chatId,
             assigneeAgentId: assigneeAgentId
         )
 

@@ -91,8 +91,8 @@
   "noFeed": [
     { "name": "an ended row", "ended": true, "busy": false, "needsInput": false, "state": "offline" },
     { "name": "a running turn", "ended": false, "busy": true, "needsInput": false, "state": "starting" },
-    { "name": "an idle thread", "ended": false, "busy": false, "needsInput": false, "state": "idle" },
-    { "name": "an idle thread waiting on its open question", "ended": false, "busy": false, "needsInput": true, "state": "idle" },
+    { "name": "an idle chat", "ended": false, "busy": false, "needsInput": false, "state": "idle" },
+    { "name": "an idle chat waiting on its open question", "ended": false, "busy": false, "needsInput": true, "state": "idle" },
     { "name": "#EXP-1703: an idle row on an offline device", "ended": false, "busy": false, "needsInput": true, "deviceOffline": true, "state": "away" },
     { "name": "#EXP-1703: a busy row on an offline device", "ended": false, "busy": true, "needsInput": false, "deviceOffline": true, "state": "away" },
     { "name": "#EXP-1703: an ended row keeps its own copy", "ended": true, "busy": false, "needsInput": false, "deviceOffline": true, "state": "offline" },

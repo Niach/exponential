@@ -188,9 +188,9 @@ struct DraftTarget {
     draft_id: String,
     board_id: String,
     team_id: String,
-    /// EXP-1284: the thread the issue files into ("New issue in this
-    /// thread"), stored on the draft row so a reopen keeps it.
-    thread_id: Option<String>,
+    /// EXP-1284: the chat the issue files into ("New issue in this
+    /// chat"), stored on the draft row so a reopen keeps it.
+    chat_id: Option<String>,
 }
 
 /// A `set_draft` whose board has not synced yet (a cold start straight onto
@@ -305,7 +305,7 @@ fn build_snapshot(
         assignee_agent_id: props.assignee_agent_id.clone(),
         label_ids: props.selected_label_ids.clone(),
         due_date: props.due_date,
-        thread_id: target.thread_id.clone(),
+        chat_id: target.chat_id.clone(),
     }
 }
 
@@ -525,12 +525,12 @@ impl IssueDraftView {
         self.pending = None;
         let seed = row.as_ref().map(|row| crate::drafts::seed_from_row(row, cx));
         let team_id = board.team_id.clone();
-        // EXP-1284: the stored thread (a reopened draft), else the thread
+        // EXP-1284: the stored chat (a reopened draft), else the chat
         // that opened this fresh draft.
-        let thread_id = row
+        let chat_id = row
             .as_ref()
             .and_then(|row| row.session_id.clone())
-            .or_else(|| crate::thread_screen::draft_thread(&draft_id, cx));
+            .or_else(|| crate::session_chat::draft_chat(&draft_id, cx));
 
         self.title.update(cx, |title, cx| {
             title.set_value(
@@ -623,7 +623,7 @@ impl IssueDraftView {
                 draft_id,
                 board_id: board.id.clone(),
                 team_id,
-                thread_id,
+                chat_id,
             },
             description,
             props,
@@ -996,8 +996,8 @@ impl IssueDraftView {
             api::issues::IssuesCreateInput::new(target.board_id.clone(), capture.title.clone());
         capture.props.read(cx).apply_to_create(&mut input);
         input.draft_id = row_exists.then(|| target.draft_id.clone());
-        // EXP-1284: "New issue in this thread" files straight into it.
-        input.session_id = target.thread_id.clone();
+        // EXP-1284: "New issue in this chat" files straight into it.
+        input.session_id = target.chat_id.clone();
         let markdown = capture.description.read(cx).markdown(cx);
         let stripped_description = strip_draft_images(&markdown);
         if !stripped_description.is_empty() {
@@ -1102,12 +1102,12 @@ impl IssueDraftView {
                         navigation(window, cx);
                     }
                 }
-                // EXP-1284: a thread's new issue lands back on the THREAD,
+                // EXP-1284: a chat's new issue lands back on the CHAT,
                 // the new issue's child selected (web/Android parity).
-                true if capture.target.thread_id.is_some() => {
-                    let thread_id = capture.target.thread_id.clone().unwrap_or_default();
-                    crate::thread_screen::request_thread_child(&thread_id, &issue_id, cx);
-                    crate::navigation::navigate_replace(window, cx, Screen::Thread { session_id: thread_id });
+                true if capture.target.chat_id.is_some() => {
+                    let chat_id = capture.target.chat_id.clone().unwrap_or_default();
+                    crate::session_chat::request_chat_child(&chat_id, &issue_id, cx);
+                    crate::navigation::navigate_replace(window, cx, Screen::Chat { session_id: chat_id });
                 }
                 true => {
                     crate::navigation::set_active_board(
@@ -1499,9 +1499,9 @@ impl IssueDraftView {
                 });
             chips.extend(IssueDraft::board_chip("draft", &board, on_pick, cx));
         }
-        // EXP-1284: the thread this issue files into, "In <thread>".
-        if let Some(thread_id) = parts.target.thread_id.as_deref() {
-            chips.push(crate::thread_screen::draft_thread_chip(thread_id, cx));
+        // EXP-1284: the chat this issue files into, "In <chat>".
+        if let Some(chat_id) = parts.target.chat_id.as_deref() {
+            chips.push(crate::session_chat::draft_chat_chip(chat_id, cx));
         }
         crate::work_header::property_tray(chips, Vec::new())
     }

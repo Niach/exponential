@@ -1,12 +1,12 @@
 import { useMemo, type ReactNode } from "react"
-import fixture from "@exp/domain-contract/fixtures/session-thread.json"
+import fixture from "@exp/domain-contract/fixtures/session-chat.json"
 import { PLAN_CARD_COPY, PLAN_CARD_GEOMETRY } from "@exp/domain-contract/plan-card"
-import { buildSessionThread } from "@exp/domain-contract/session-tree"
-import { ThreadConversation } from "./session-thread-view"
+import { buildSessionChat } from "@exp/domain-contract/session-tree"
+import { ChatConversation } from "./session-chat-view"
 
 // EXP-1280: THE rich plan / question card specimen (fixtures/plan-card.json
-// ×4): session-thread.json's case "EXP-1280: a rich plan card…" through the
-// REAL row model and `ThreadConversation`: the pending plan (a picture in
+// ×4): session-chat.json's case "EXP-1280: a rich plan card…" through the
+// REAL row model and `ChatConversation`: the pending plan (a picture in
 // the body, the inline surface, a picture-tile question + a multiple one,
 // NEW-6: stepped, so it shows "Question 1 of 2" and Next),
 // the answered multi-pick question (closed) and the approved plan with its
@@ -15,7 +15,7 @@ import { ThreadConversation } from "./session-thread-view"
 // wears its header `Open plan` (plan-page.json WAYS IN), as in the chat.
 
 const RICH_CASE = `EXP-1280: a rich plan card`
-/** #EXP-1561: session-thread.json's dismissed question + plan. */
+/** #EXP-1561: session-chat.json's dismissed question + plan. */
 const DISMISSED_CASE = `#EXP-1561: a dismissed question`
 
 /** Stand-in pictures = THE palette ×4 (iOS/Android/desktop specimens draw the
@@ -92,17 +92,17 @@ function Case({ label, children }: { label: string; children: ReactNode }) {
 export function PlanCardSpecimen() {
   const rows = useMemo(() => {
     const found = fixture.cases.find((c) => c.name.startsWith(RICH_CASE))
-    return found ? buildSessionThread(found.input as never).rows : []
+    return found ? buildSessionChat(found.input as never).rows : []
   }, [])
   const row = (id: string) => rows.filter((r) => r.id === id)
   const dismissed = useMemo(() => {
     const found = fixture.cases.find((c) => c.name.startsWith(DISMISSED_CASE))
-    return found ? buildSessionThread(found.input as never).rows : []
+    return found ? buildSessionChat(found.input as never).rows : []
   }, [])
   return (
     <div data-testid="plan-card-specimen" className="flex max-w-2xl flex-col gap-6 text-sm">
       <Case label={PLAN_CARD_COPY.specimen.pending}>
-        <ThreadConversation
+        <ChatConversation
           rows={row(`n1`)}
           renderText={text}
           attachmentSrc={planCardStandIn}
@@ -113,14 +113,14 @@ export function PlanCardSpecimen() {
         />
       </Case>
       <Case label={PLAN_CARD_COPY.specimen.answered}>
-        <ThreadConversation rows={row(`n2`)} renderText={text} attachmentSrc={planCardStandIn} />
+        <ChatConversation rows={row(`n2`)} renderText={text} attachmentSrc={planCardStandIn} />
       </Case>
       <Case label={PLAN_CARD_COPY.specimen.approved}>
-        <ThreadConversation rows={row(`n3`)} renderText={text} attachmentSrc={planCardStandIn} onOpenPlan={noop} />
+        <ChatConversation rows={row(`n3`)} renderText={text} attachmentSrc={planCardStandIn} onOpenPlan={noop} />
       </Case>
       {/* #EXP-1561 (waiting-cards.json): a dismissed question and plan. */}
       <Case label={PLAN_CARD_COPY.specimen.dismissed}>
-        <ThreadConversation rows={dismissed} renderText={text} attachmentSrc={planCardStandIn} />
+        <ChatConversation rows={dismissed} renderText={text} attachmentSrc={planCardStandIn} />
       </Case>
     </div>
   )

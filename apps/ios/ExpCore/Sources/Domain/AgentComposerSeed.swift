@@ -8,7 +8,7 @@ import Foundation
 /// Hashable so it can ride an `AppRoute` case: two pushes with different
 /// seeds are two different destinations.
 public struct AgentComposerSeed: Hashable, Sendable {
-    /// Pre-checked issue ids (the new thread's `issueIds`).
+    /// Pre-checked issue ids (the new chat's `issueIds`).
     public var issueIds: [String]
     /// A preselected team prompt (NEW-2). Wins over `issueIds` when both arrive (the
     /// web rule).

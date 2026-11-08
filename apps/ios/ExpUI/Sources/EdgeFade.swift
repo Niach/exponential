@@ -19,7 +19,7 @@ public struct EdgeScrim: View {
     let color: Color
     /// EXP-1256 (EXP-1259 D15): the surface's OWN ground — the page colour,
     /// opaque and unblurred: no scrim tint, no material over what scrolls
-    /// under it. The run thread's edges wear it (web/desktop: the content
+    /// under it. The run chat's edges wear it (web/desktop: the content
     /// card's ground inside its inner radius; a phone's card is the page).
     let ground: Bool
 

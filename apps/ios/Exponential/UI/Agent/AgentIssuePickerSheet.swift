@@ -15,7 +15,7 @@ import SwiftUI
 /// the search input on top, the picker's own rows (`IDENT Title` behind the
 /// status glyph) under it, ranked by the shared engine at its DEFAULT limit.
 /// Once something is picked the footer carries `Implement N issues`, which
-/// only closes the menu: the picks already are the thread's subject.
+/// only closes the menu: the picks already are the chat's subject.
 struct AgentIssuePickerPage: View {
     let model: AgentComposerModel
     /// Closes the whole "+" menu.

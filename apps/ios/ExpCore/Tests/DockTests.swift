@@ -147,13 +147,13 @@ final class DockTests: XCTestCase {
         }
     }
 
-    /// #EXP-1545 `threadDockQueue`: the candidates in, the WHOLE pick out.
-    func testThreadQueueCases() throws {
-        let all = try list("threadQueueCases")
+    /// #EXP-1545 `chatDockQueue`: the candidates in, the WHOLE pick out.
+    func testChatQueueCases() throws {
+        let all = try list("chatQueueCases")
         XCTAssertFalse(all.isEmpty)
         for c in all {
             let candidates = try XCTUnwrap(c["candidates"] as? [[String: Any]]).map { r in
-                Dock.ThreadQueueCandidate(
+                Dock.ChatQueueCandidate(
                     sessionId: try XCTUnwrap(r["sessionId"] as? String),
                     name: try XCTUnwrap(r["name"] as? String),
                     root: try XCTUnwrap(r["root"] as? Bool),
@@ -163,55 +163,55 @@ final class DockTests: XCTestCase {
                 )
             }
             let expected = (c["expected"] as? [String: Any]).map { e in
-                Dock.ThreadDockQueue(sessionId: e["sessionId"] as? String ?? "", sessionName: e["sessionName"] as? String)
+                Dock.ChatDockQueue(sessionId: e["sessionId"] as? String ?? "", sessionName: e["sessionName"] as? String)
             }
-            XCTAssertEqual(Dock.threadDockQueue(candidates), expected, c["name"] as? String ?? "")
+            XCTAssertEqual(Dock.chatDockQueue(candidates), expected, c["name"] as? String ?? "")
         }
     }
 
     /// #EXP-1623: ONE Live child's stream at a time, in the pick's order.
-    func testThreadQueueProbeAttachesOneChildInPickOrder() {
-        typealias P = Dock.ThreadQueueProbe
+    func testChatQueueProbeAttachesOneChildInPickOrder() {
+        typealias P = Dock.ChatQueueProbe
         let older = P(sessionId: "a", activeAt: 100, state: .unknown)
         let newer = P(sessionId: "b", activeAt: 200, state: .unknown)
         let quiet = P(sessionId: "c", activeAt: nil, state: .unknown)
         // The root's own open Queue wins: no child stream at all.
-        XCTAssertNil(Dock.threadQueueProbe(rootOpen: true, children: [older, newer]))
+        XCTAssertNil(Dock.chatQueueProbe(rootOpen: true, children: [older, newer]))
         // The most recently active child is read first.
-        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [older, quiet, newer]), "b")
+        XCTAssertEqual(Dock.chatQueueProbe(rootOpen: false, children: [older, quiet, newer]), "b")
         // Read closed: the next one in line.
         let newerClosed = P(sessionId: "b", activeAt: 200, state: .closed)
-        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [older, quiet, newerClosed]), "a")
+        XCTAssertEqual(Dock.chatQueueProbe(rootOpen: false, children: [older, quiet, newerClosed]), "a")
         // An open one is the pick and stays the one stream.
         let olderOpen = P(sessionId: "a", activeAt: 100, state: .open)
-        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [olderOpen, quiet, newerClosed]), "a")
+        XCTAssertEqual(Dock.chatQueueProbe(rootOpen: false, children: [olderOpen, quiet, newerClosed]), "a")
         // No activity = oldest; ties by id ascending.
         let tie = P(sessionId: "a2", activeAt: 200, state: .unknown)
-        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [tie, newer]), "a2")
+        XCTAssertEqual(Dock.chatQueueProbe(rootOpen: false, children: [tie, newer]), "a2")
         // Every child known closed: none.
-        XCTAssertNil(Dock.threadQueueProbe(rootOpen: false, children: [
+        XCTAssertNil(Dock.chatQueueProbe(rootOpen: false, children: [
             P(sessionId: "a", activeAt: 1, state: .closed), P(sessionId: "b", activeAt: nil, state: .closed),
         ]))
-        XCTAssertNil(Dock.threadQueueProbe(rootOpen: false, children: []))
+        XCTAssertNil(Dock.chatQueueProbe(rootOpen: false, children: []))
     }
 
     /// #EXP-1678: the probe and the child state, replayed from dock.json.
-    func testThreadQueueProbeCases() throws {
+    func testChatQueueProbeCases() throws {
         let f = try fixture()
         XCTAssertEqual(f["probeDeadlineMs"] as? Int, Dock.probeDeadlineMs)
         XCTAssertEqual(f["closedQueueTtlMs"] as? Int, Dock.closedQueueTtlMs)
-        let cases = try list("threadQueueProbeCases")
+        let cases = try list("chatQueueProbeCases")
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
             let children = (c["children"] as? [[String: Any]] ?? []).map { raw in
-                Dock.ThreadQueueProbe(
+                Dock.ChatQueueProbe(
                     sessionId: raw["sessionId"] as? String ?? "",
                     activeAt: (raw["activeAt"] as? NSNumber)?.doubleValue,
                     state: raw["state"] as? String == "open" ? .open : raw["state"] as? String == "closed" ? .closed : .unknown
                 )
             }
             XCTAssertEqual(
-                Dock.threadQueueProbe(rootOpen: c["rootOpen"] as? Bool ?? false, children: children),
+                Dock.chatQueueProbe(rootOpen: c["rootOpen"] as? Bool ?? false, children: children),
                 c["expected"] as? String, c["name"] as? String ?? ""
             )
         }
@@ -225,7 +225,7 @@ final class DockTests: XCTestCase {
                     attachedMs: (raw["attachedMs"] as? NSNumber)?.intValue ?? 0
                 )
             }
-            let got = Dock.threadQueueChildState(open: c["open"] as? Bool ?? false, remembered: c["remembered"] as? Bool ?? false, stream: stream)
+            let got = Dock.chatQueueChildState(open: c["open"] as? Bool ?? false, remembered: c["remembered"] as? Bool ?? false, stream: stream)
             let want: Dock.ChildQueueState = c["state"] as? String == "open" ? .open : c["state"] as? String == "closed" ? .closed : .unknown
             XCTAssertEqual(got, want, c["name"] as? String ?? "")
         }

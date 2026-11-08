@@ -25,7 +25,7 @@ export function GET() {
     <title>Exponential blog</title>
     <link>${SITE_ORIGIN}/blog/</link>
     <atom:link href="${SITE_ORIGIN}/blog/rss.xml" rel="self" type="application/rss+xml" />
-    <description>What we build and why: humans and agents in one thread, and the generative UI the apps are made of.</description>
+    <description>What we build and why: humans and agents in one session, and the generative UI the apps are made of.</description>
     <language>en</language>
     <lastBuildDate>${rfc822(POSTS[0]!.date)}</lastBuildDate>
 ${items.join(`\n`)}

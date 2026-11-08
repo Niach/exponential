@@ -12,7 +12,7 @@
 //!
 //! ## The one entry point (§7.1)
 //!
-//! EXP-1292 (Threads v2): every session is a `sessions` row; a `queued` one
+//! EXP-1292: every session is a `sessions` row; a `queued` one
 //! naming this device is picked up off the shape ([`pickup`]), claimed, and
 //! run through the SAME sequence:
 //!

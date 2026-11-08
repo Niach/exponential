@@ -71,9 +71,9 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     var pillMuted: Bool { publishedVersion == 0 }
 
     /// The glyph (the board icon set; an unknown name falls back to the
-    /// generic puzzle).
+    /// Apps glyph, `nav-apps`, ×4).
     var glyph: String {
-        BoardTypeDisplay.iconName(for: icon) ?? "puzzle"
+        BoardTypeDisplay.iconName(for: icon) ?? AppIcons.navApps
     }
 }
 
@@ -301,10 +301,10 @@ final class AppEditorModel {
     /// #FEED-204: an ended root's next send, elsewhere; #EXP-1729: or with
     /// the Account / Model picked here (the send carries them); nil = a
     /// plain message.
-    var deviceAppMove: ThreadComposerDraft.AppMove? {
+    var deviceAppMove: ChatComposerDraft.AppMove? {
         guard let deviceId, root?.status == DomainContract.sessionStatusEnded, deviceMove || picked else { return nil }
         let picks = sendPicks
-        return ThreadComposerDraft.AppMove(
+        return ChatComposerDraft.AppMove(
             appId: boundAppId, deviceId: deviceId, cli: picks.cli, account: picks.account, model: picks.model
         )
     }

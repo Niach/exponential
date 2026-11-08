@@ -3,8 +3,8 @@ import { ExponentialUiTwin, PlanCardSpecimen } from "@exp/ui"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1280: THE rich plan / question card (fixture `plan-card.json` ×4):
-// `PlanCardSpecimen`, session-thread.json's rich case through the REAL
-// `ThreadConversation` (the app's `?dev=plan-card` capture renders the same
+// `PlanCardSpecimen`, session-chat.json's rich case through the REAL
+// `ChatConversation` (the app's `?dev=plan-card` capture renders the same
 // board).
 
 export const entry: StyleguideEntry = {
@@ -18,7 +18,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `PlanRail`,
       file: `packages/ui/src/plan-card.tsx`,
-      note: `cards: session-thread-view.tsx; session view (tool-posted cards): agent-session.tsx`,
+      note: `cards: session-chat-view.tsx; session view (tool-posted cards): agent-session.tsx`,
     },
     desktop: {
       state: `ok`,
@@ -29,13 +29,13 @@ export const entry: StyleguideEntry = {
     ios: {
       state: `ok`,
       symbol: `PlanCardQuestionBlock`,
-      file: `apps/ios/Exponential/UI/Thread/PlanCardForm.swift`,
+      file: `apps/ios/Exponential/UI/Chat/PlanCardForm.swift`,
       note: `model: ExpCore PlanCard.swift`,
     },
     android: {
       state: `ok`,
       symbol: `PlanAskCard`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/PlanCardView.kt`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/chat/PlanCardView.kt`,
       note: `model: domain/PlanCard.kt`,
     },
   },

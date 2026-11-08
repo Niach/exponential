@@ -16,7 +16,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // agent/MCP-driven mutations emit events too. team_id is also
 // trigger-denormalized from issue→board; we pass the known value to satisfy
 // the NOT NULL insert. board_id is resolved via a subselect from the issue
-// (also trigger-denormalized) so callers don't need to thread it through.
+// (also trigger-denormalized) so callers don't need to chat it through.
 export async function recordIssueEvent(
   tx: Tx,
   args: {

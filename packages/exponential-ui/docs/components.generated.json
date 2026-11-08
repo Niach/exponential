@@ -7433,12 +7433,15 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-message-bubble",
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "children": "none",
       "slots": [
-        "attachment"
+        "attachment",
+        "avatar"
       ],
-      "events": [],
+      "events": [
+        "press"
+      ],
       "basic": [],
       "props": [
         {
@@ -7481,12 +7484,31 @@
           "bindable": true,
           "responsive": false,
           "description": "Caption above, in only."
+        },
+        {
+          "name": "pressable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A press target firing `press` (`on.press` or `href` imply it)."
+        },
+        {
+          "name": "href",
+          "type": "url",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The URL a press opens; implies `pressable`."
         }
       ],
       "accessibility": {
         "role": "group",
-        "notes": "group labelled by `author`, else `time`; the delivery icon is labelled `sending`/`sent`/`read`",
-        "keys": []
+        "notes": "group labelled by `author`, else `time` (a button when pressable: `on.press` or `href`); the avatar slot is the author's node; the delivery icon is labelled `sending`/`sent`/`read`",
+        "keys": [
+          "Enter, Space: press (pressable only)"
+        ]
       },
       "example": {
         "id": "example",

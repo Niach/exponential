@@ -2,10 +2,10 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-1291 Threads v2: the session tree's view models, locked ×4 (TS
+// EXP-1291: the session tree's view models, locked ×4 (TS
 // `session-tree.test.ts`, desktop `domain::session_tree`, Android
 // `SessionTreeTest`) against the contract fixtures session-card.json,
-// session-thread.json and threads-list.json. Every case compares the WHOLE
+// session-chat.json and chat-list.json. Every case compares the WHOLE
 // expected object: the Swift result is rendered back into the reference's
 // JSON shape and compared as a JSON value.
 final class SessionTreeTests: XCTestCase {
@@ -81,8 +81,8 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    private func listRow(_ row: [String: Any]) throws -> ThreadsListRow {
-        ThreadsListRow(
+    private func listRow(_ row: [String: Any]) throws -> ChatsListRow {
+        ChatsListRow(
             sessionId: try XCTUnwrap(string(row["sessionId"])),
             teamId: try XCTUnwrap(string(row["teamId"])),
             depth: (row["depth"] as? Int) ?? 0,
@@ -179,7 +179,7 @@ final class SessionTreeTests: XCTestCase {
         ] as [String: Any]
     }
 
-    private func json(_ tab: ThreadTab) -> [String: Any] {
+    private func json(_ tab: ChatTab) -> [String: Any] {
         switch tab {
         case .conversation: ["kind": "conversation"]
         case let .issue(issueId, identifier, nested):
@@ -207,7 +207,7 @@ final class SessionTreeTests: XCTestCase {
         return ["root": surface.root.any, "data": surface.data?.any ?? NSNull()] as [String: Any]
     }
 
-    private func questionJSON(_ row: ThreadQuestionRow) -> [String: Any] {
+    private func questionJSON(_ row: ChatQuestionRow) -> [String: Any] {
         var object: [String: Any] = [
             "type": "question", "id": row.id, "sessionId": row.sessionId, "question": row.question,
             "options": row.options.map(json), "custom": row.custom, "multi": row.multi,
@@ -219,7 +219,7 @@ final class SessionTreeTests: XCTestCase {
         return object
     }
 
-    private func json(_ row: ThreadRow) -> [String: Any] {
+    private func json(_ row: SessionChatRow) -> [String: Any] {
         switch row {
         case let .message(id, author, authorId, body, queued, authorSessionId, xref):
             ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued, "authorSessionId": json(authorSessionId), "xref": json(xref)]
@@ -273,7 +273,7 @@ final class SessionTreeTests: XCTestCase {
         return ["kind": xref.kind.rawValue, "sessionId": xref.sessionId, "name": xref.name, "agentId": json(xref.agentId)] as [String: Any]
     }
 
-    private func json(_ view: SessionThreadView) -> [String: Any] {
+    private func json(_ view: SessionChatView) -> [String: Any] {
         [
             "rootId": view.rootId,
             "title": view.title,
@@ -291,7 +291,7 @@ final class SessionTreeTests: XCTestCase {
         ]
     }
 
-    private func json(_ group: ThreadsListGroup) -> [String: Any] {
+    private func json(_ group: ChatsListGroup) -> [String: Any] {
         [
             "key": group.key.rawValue,
             "title": group.title,
@@ -445,34 +445,34 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(SessionTree.formatElapsed(ms: 3_780_000), "1h 03m")
     }
 
-    // MARK: - session-thread.json
+    // MARK: - session-chat.json
 
-    func testThreadCopyMatchesTheFixture() throws {
-        let fixture = try fixture("session-thread.json")
+    func testChatCopyMatchesTheFixture() throws {
+        let fixture = try fixture("session-chat.json")
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
-        XCTAssertEqual(copy["untitled"] as? String, SessionTree.ThreadCopy.untitled)
-        XCTAssertEqual(copy["placeholder"] as? String, SessionTree.ThreadCopy.placeholder)
-        XCTAssertEqual(copy["conversation"] as? String, SessionTree.ThreadCopy.conversation)
-        XCTAssertEqual(copy["guide"] as? String, SessionTree.ThreadCopy.guide)
+        XCTAssertEqual(copy["untitled"] as? String, SessionTree.ChatCopy.untitled)
+        XCTAssertEqual(copy["placeholder"] as? String, SessionTree.ChatCopy.placeholder)
+        XCTAssertEqual(copy["conversation"] as? String, SessionTree.ChatCopy.conversation)
+        XCTAssertEqual(copy["guide"] as? String, SessionTree.ChatCopy.guide)
         XCTAssertNil(fixture["titles"])
-        XCTAssertEqual(copy["events"] as? [String: String], SessionTree.ThreadCopy.events)
+        XCTAssertEqual(copy["events"] as? [String: String], SessionTree.ChatCopy.events)
         XCTAssertNil(fixture["titleMax"])
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
-        XCTAssertEqual(testIds["tabs"], SessionTree.ThreadCopy.tabsTestId)
-        XCTAssertEqual(testIds["group"], SessionTree.ThreadCopy.groupTestId)
-        XCTAssertEqual(copy["stripGroup"] as? String, SessionTree.ThreadCopy.stripGroup)
+        XCTAssertEqual(testIds["tabs"], SessionTree.ChatCopy.tabsTestId)
+        XCTAssertEqual(testIds["group"], SessionTree.ChatCopy.groupTestId)
+        XCTAssertEqual(copy["stripGroup"] as? String, SessionTree.ChatCopy.stripGroup)
         XCTAssertEqual(
-            (fixture["stripGroupMaxWidth"] as? NSNumber)?.doubleValue, SessionTree.ThreadCopy.stripGroupMaxWidth
+            (fixture["stripGroupMaxWidth"] as? NSNumber)?.doubleValue, SessionTree.ChatCopy.stripGroupMaxWidth
         )
-        XCTAssertEqual(testIds["conversation"], SessionTree.ThreadCopy.conversationTestId)
-        XCTAssertEqual(testIds["composer"], SessionTree.ThreadCopy.composerTestId)
-        XCTAssertEqual(copy["stack"] as? String, SessionTree.ThreadCopy.stack)
-        XCTAssertEqual(testIds["guideStack"], SessionTree.ThreadCopy.guideStackTestId)
-        XCTAssertEqual(testIds["guideMerge"], SessionTree.ThreadCopy.guideMergeTestId)
-        XCTAssertEqual(testIds["guideMenu"], SessionTree.ThreadCopy.guideMenuTestId)
-        XCTAssertEqual(copy["report"] as? String, SessionTree.ThreadCopy.report)
-        XCTAssertEqual(copy["xref"] as? [String: String], SessionTree.ThreadCopy.xref)
-        XCTAssertEqual(testIds["xref"], SessionTree.ThreadCopy.xrefTestId)
+        XCTAssertEqual(testIds["conversation"], SessionTree.ChatCopy.conversationTestId)
+        XCTAssertEqual(testIds["composer"], SessionTree.ChatCopy.composerTestId)
+        XCTAssertEqual(copy["stack"] as? String, SessionTree.ChatCopy.stack)
+        XCTAssertEqual(testIds["guideStack"], SessionTree.ChatCopy.guideStackTestId)
+        XCTAssertEqual(testIds["guideMerge"], SessionTree.ChatCopy.guideMergeTestId)
+        XCTAssertEqual(testIds["guideMenu"], SessionTree.ChatCopy.guideMenuTestId)
+        XCTAssertEqual(copy["report"] as? String, SessionTree.ChatCopy.report)
+        XCTAssertEqual(copy["xref"] as? [String: String], SessionTree.ChatCopy.xref)
+        XCTAssertEqual(testIds["xref"], SessionTree.ChatCopy.xrefTestId)
         typealias S = SessionTree.SuggestionsCopy
         XCTAssertEqual(copy["suggestions"] as? [String: String], [
             "one": S.one, "many": S.many, "started": S.started, "startAll": S.startAll,
@@ -484,7 +484,7 @@ final class SessionTreeTests: XCTestCase {
 
     /// EXP-1306: `guidePullRequestCases` — the expected PR id, or none.
     func testGuidePullRequestReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-thread.json"), "guidePullRequestCases") {
+        for testCase in try cases(try fixture("session-chat.json"), "guidePullRequestCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let rows = try XCTUnwrap(testCase["pullRequests"] as? [[String: Any]]).map { row in
                 PullRequestEntity(
@@ -500,7 +500,7 @@ final class SessionTreeTests: XCTestCase {
 
     /// EXP-1211: `repliesCases` — the quick replies above the composer.
     func testComposerRepliesReplaysEveryCase() throws {
-        let fixture = try fixture("session-thread.json")
+        let fixture = try fixture("session-chat.json")
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
         XCTAssertEqual(copy["replies"] as? [String: String], [
             "label": SessionTree.RepliesCopy.label, "dismiss": SessionTree.RepliesCopy.dismiss,
@@ -528,11 +528,11 @@ final class SessionTreeTests: XCTestCase {
     }
 
     /// EXP-1211: a replies card is never a Conversation row.
-    func testRepliesCardIsNeverAThreadRow() throws {
+    func testRepliesCardIsNeverAChatRow() throws {
         let root = TreeSession(
             id: "r1", teamId: "team", parentId: nil, rootId: "r1", userId: "u1",
             status: "idle", busy: false, needsInput: false, blocked: nil, shared: true,
-            title: "Thread", guide: nil, startedAt: nil, endedAt: nil,
+            title: "Chat", guide: nil, startedAt: nil, endedAt: nil,
             createdAt: "2026-10-17T10:00:00.000Z", updatedAt: "2026-10-17T10:00:00.000Z"
         )
         let card = TreeMessageCard(kind: "replies", items: [TreeSuggestionItem(id: "a", title: "", text: "Open the PR")])
@@ -540,29 +540,29 @@ final class SessionTreeTests: XCTestCase {
             id: "m1", sessionId: "r1", authorKind: "agent", authorId: nil, body: "",
             card: card, answeredAt: nil, consumedAt: nil, createdAt: "2026-10-17T10:00:01.000Z", authorSessionId: nil
         )
-        let view = SessionTree.buildSessionThread(
+        let view = SessionTree.buildSessionChat(
             root: root, sessions: [root], sessionIssues: [], issues: [], messages: [message], pullRequests: [], now: Date()
         )
         XCTAssertEqual(view.rows, [])
     }
 
     /// #EXP-1433: `stripModeCases` — chips (one issue, no session) or ONE group.
-    func testThreadStripModeReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-thread.json"), "stripModeCases") {
+    func testChatStripModeReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-chat.json"), "stripModeCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            let mode = SessionTree.threadStripMode(
+            let mode = SessionTree.chatStripMode(
                 issues: try XCTUnwrap(input["issues"] as? Int), sessions: try XCTUnwrap(input["sessions"] as? Int)
             )
             assertJSON(["mode": mode.mode.rawValue, "count": mode.count] as [String: Any], testCase["expected"], name)
         }
     }
 
-    func testBuildSessionThreadReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-thread.json")) {
+    func testBuildSessionChatReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-chat.json")) {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            let view = SessionTree.buildSessionThread(
+            let view = SessionTree.buildSessionChat(
                 root: try session(input["root"]),
                 sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
                 sessionIssues: try sessionIssues(input["sessionIssues"]),
@@ -576,23 +576,23 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    // MARK: - threads-list.json
+    // MARK: - chat-list.json
 
-    func testThreadsListCopyMatchesTheFixture() throws {
-        let fixture = try fixture("threads-list.json")
+    func testChatsListCopyMatchesTheFixture() throws {
+        let fixture = try fixture("chat-list.json")
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
         XCTAssertEqual(copy["title"] as? String, SessionTree.ListCopy.title)
         XCTAssertEqual(copy["agents"] as? String, SessionTree.ListCopy.agents)
         XCTAssertEqual(copy["empty"] as? String, SessionTree.ListCopy.empty)
         XCTAssertEqual(copy["rail"] as? String, SessionTree.ListCopy.rail)
         let words = try XCTUnwrap(copy["words"] as? [String: String])
-        XCTAssertEqual(Set(words.keys), Set(ThreadRowWord.allCases.filter { $0.text != nil }.map(\.rawValue)))
-        for word in ThreadRowWord.allCases {
+        XCTAssertEqual(Set(words.keys), Set(ChatRowWord.allCases.filter { $0.text != nil }.map(\.rawValue)))
+        for word in ChatRowWord.allCases {
             XCTAssertEqual(words[word.rawValue], word.text, word.rawValue)
         }
         let groups = try XCTUnwrap(copy["groups"] as? [String: String])
-        XCTAssertEqual(Set(groups.keys), Set(ThreadsListGroup.Key.allCases.map(\.rawValue)))
-        for key in ThreadsListGroup.Key.allCases {
+        XCTAssertEqual(Set(groups.keys), Set(ChatsListGroup.Key.allCases.map(\.rawValue)))
+        for key in ChatsListGroup.Key.allCases {
             XCTAssertEqual(groups[key.rawValue], key.title, key.rawValue)
         }
         let defaults = try XCTUnwrap(fixture["agentDefaults"] as? [String: String])
@@ -604,11 +604,11 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(testIds["agentRow"], SessionTree.ListCopy.agentRowTestId)
     }
 
-    func testPartitionThreadsReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json")) {
+    func testPartitionChatsReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json")) {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            let groups = SessionTree.partitionThreads(
+            let groups = SessionTree.partitionChats(
                 sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
                 sessionIssues: try sessionIssues(input["sessionIssues"]),
                 issues: try issues(input["issues"]),
@@ -623,7 +623,7 @@ final class SessionTreeTests: XCTestCase {
 
     /// NEW-1: `recent` + (S-3) `recentChildMinutes` match the fixture.
     func testListRulesMatchTheFixture() throws {
-        let fixture = try fixture("threads-list.json")
+        let fixture = try fixture("chat-list.json")
         let recent = try XCTUnwrap(fixture["recent"] as? [String: Any])
         XCTAssertEqual(recent["hours"] as? Double, SessionTree.ListRules.recentHours)
         XCTAssertEqual(recent["max"] as? Int, SessionTree.ListRules.recentMax)
@@ -635,10 +635,10 @@ final class SessionTreeTests: XCTestCase {
 
     /// NEW-1: `recentCases` — expected = the Recent group's ROOT ids in order.
     func testRecentWindowReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "recentCases") {
+        for testCase in try cases(try fixture("chat-list.json"), "recentCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            let groups = SessionTree.partitionThreads(
+            let groups = SessionTree.partitionChats(
                 sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
                 sessionIssues: try sessionIssues(input["sessionIssues"]),
                 issues: try issues(input["issues"]),
@@ -654,7 +654,7 @@ final class SessionTreeTests: XCTestCase {
 
     /// NEW-1: `treeStateCases`.
     func testTreeStateReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "treeStateCases") {
+        for testCase in try cases(try fixture("chat-list.json"), "treeStateCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             let state = SessionTree.treeState(
@@ -666,23 +666,23 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    /// EXP-1323: `unreadCases` — the Threads nav dot.
-    func testThreadsUnreadReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "unreadCases") {
+    /// EXP-1323: `unreadCases` — the Chats nav dot.
+    func testChatsUnreadReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "unreadCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let groups = try XCTUnwrap(testCase["groups"] as? [[String: Any]]).map { group in
-                ThreadsListGroup(
-                    key: try XCTUnwrap(ThreadsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
+                ChatsListGroup(
+                    key: try XCTUnwrap(ChatsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
                     title: try XCTUnwrap(string(group["title"])),
                     rows: try XCTUnwrap(group["rows"] as? [[String: Any]]).map(listRow)
                 )
             }
-            XCTAssertEqual(SessionTree.threadsUnread(groups), try XCTUnwrap(testCase["expected"] as? Bool), name)
+            XCTAssertEqual(SessionTree.chatsUnread(groups), try XCTUnwrap(testCase["expected"] as? Bool), name)
         }
     }
 
     func testListAgentsReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "agentCases") {
+        for testCase in try cases(try fixture("chat-list.json"), "agentCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             let definitions = try XCTUnwrap(input["agents"] as? [[String: Any]]).map { row in
@@ -707,26 +707,26 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    // S-3: an agent conversation paints bubbles on THE thread screen.
-    func testThreadChatModeReplaysEveryCase() throws {
-        let modes = try cases(try fixture("session-thread.json"), "chatModeCases")
+    // S-3: an agent conversation paints bubbles on THE chat screen.
+    func testChatModeReplaysEveryCase() throws {
+        let modes = try cases(try fixture("session-chat.json"), "chatModeCases")
         XCTAssertFalse(modes.isEmpty)
         for testCase in modes {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let root = try XCTUnwrap(testCase["root"] as? [String: Any])
             XCTAssertEqual(
-                SessionTree.threadChatMode(agentId: string(root["agentId"])).rawValue,
+                SessionTree.chatMode(agentId: string(root["agentId"])).rawValue,
                 testCase["expected"] as? String,
                 name
             )
         }
     }
 
-    func testThreadRowMarkStateReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "markCases") {
+    func testChatRowMarkStateReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "markCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Bool])
-            let state = SessionTree.threadRowMarkState(
+            let state = SessionTree.chatRowMarkState(
                 needsYou: try XCTUnwrap(input["needsYou"]),
                 busy: try XCTUnwrap(input["busy"])
             )
@@ -745,12 +745,12 @@ final class SessionTreeTests: XCTestCase {
     }
 
     /// EXP-1318: `wordCases` — the trailing word key, or none.
-    func testThreadRowWordReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "wordCases") {
+    func testChatRowWordReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "wordCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             let states = try XCTUnwrap(input["pullRequests"] as? [[String: Any]]).compactMap { $0["state"] as? String }
-            let word = SessionTree.threadRowWord(
+            let word = SessionTree.chatRowWord(
                 prStates: states,
                 busy: try XCTUnwrap(input["busy"] as? Bool),
                 needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
@@ -764,7 +764,7 @@ final class SessionTreeTests: XCTestCase {
     /// #EXP-1703: `offlineCases` — a tree on a person only because its
     /// device stayed away.
     func testTreeOfflineReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "offlineCases") {
+        for testCase in try cases(try fixture("chat-list.json"), "offlineCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let tree = try XCTUnwrap(testCase["tree"] as? [Any]).map(session)
             XCTAssertEqual(SessionTree.treeOffline(tree), try XCTUnwrap(testCase["expected"] as? Bool), name)
@@ -772,22 +772,22 @@ final class SessionTreeTests: XCTestCase {
     }
 
     /// Release train 2026-10-23 (NEW-41): `leadCases`, the row lead's PR glyph.
-    func testThreadRowLeadPrReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "leadCases") {
+    func testChatRowLeadPrReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "leadCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let states = try XCTUnwrap(testCase["prStates"] as? [String])
-            let lead = SessionTree.threadRowLeadPr(prStates: states)
+            let lead = SessionTree.chatRowLeadPr(prStates: states)
             XCTAssertEqual(lead?.rawValue, string(testCase["expected"]), name)
         }
     }
 
     /// EXP-1318: `stackCases`.
-    func testThreadInStackReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "stackCases") {
+    func testChatInStackReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "stackCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             XCTAssertEqual(
-                SessionTree.threadInStack(
+                SessionTree.chatInStack(
                     try stackPrs(input["pullRequests"]),
                     teamPrs: try stackPrs(input["teamPrs"])
                 ),
@@ -798,20 +798,20 @@ final class SessionTreeTests: XCTestCase {
     }
 
     /// EXP-1318: `railCases` — the Active band's session ids in order.
-    func testRailThreadsReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("threads-list.json"), "railCases") {
+    func testRailChatsReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "railCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             let groups = try XCTUnwrap(input["groups"] as? [[String: Any]]).map { group in
-                ThreadsListGroup(
-                    key: try XCTUnwrap(ThreadsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
+                ChatsListGroup(
+                    key: try XCTUnwrap(ChatsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
                     title: try XCTUnwrap(string(group["title"])),
                     rows: try XCTUnwrap(group["rows"] as? [[String: Any]]).map(listRow)
                 )
             }
             let words = try XCTUnwrap(input["words"] as? [String: Any])
-            let rows = SessionTree.railThreads(groups) { row in
-                string(words[row.sessionId]).flatMap(ThreadRowWord.init(rawValue:))
+            let rows = SessionTree.railChats(groups) { row in
+                string(words[row.sessionId]).flatMap(ChatRowWord.init(rawValue:))
             }
             XCTAssertEqual(rows.map(\.sessionId), try XCTUnwrap(testCase["expected"] as? [String]), name)
         }
@@ -870,7 +870,7 @@ final class SessionTreeTests: XCTestCase {
         )
     }
 
-    // MARK: - EXP-1309: the Threads row's quiet word (web `threadRowWord`)
+    // MARK: - EXP-1309: the Chats row's quiet word (web `chatRowWord`)
 
     private func pr(_ id: String, _ state: String, base: String? = nil, root: String = "r") -> PullRequestEntity {
         PullRequestEntity(
@@ -881,28 +881,28 @@ final class SessionTreeTests: XCTestCase {
         )
     }
 
-    func testThreadRowWordFollowsTheWebRule() {
+    func testChatRowWordFollowsTheWebRule() {
         let open = DomainContract.prStateOpen
         let merged = DomainContract.prStateMerged
         // Nothing to say.
-        XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [], teamPrs: []))
+        XCTAssertNil(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [], teamPrs: []))
         // Waiting on a person with no PR.
-        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [], teamPrs: []), .question)
+        XCTAssertEqual(SessionTree.chatRowWord(busy: false, needsYou: true, prs: [], teamPrs: []), .question)
         // An open PR, nothing working: ready to merge; working: no word.
         let lone = pr("a", open)
-        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [lone], teamPrs: [lone]), .readyToMerge)
-        XCTAssertNil(SessionTree.threadRowWord(busy: true, needsYou: false, prs: [lone], teamPrs: [lone]))
-        // A stack edge (either side, across threads) wins, busy or not.
+        XCTAssertEqual(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [lone], teamPrs: [lone]), .readyToMerge)
+        XCTAssertNil(SessionTree.chatRowWord(busy: true, needsYou: false, prs: [lone], teamPrs: [lone]))
+        // A stack edge (either side, across chats) wins, busy or not.
         let upper = pr("b", open, base: "a", root: "other")
-        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [lone], teamPrs: [lone, upper]), .stack)
-        XCTAssertEqual(SessionTree.threadRowWord(busy: true, needsYou: false, prs: [upper], teamPrs: [lone, upper]), .stack)
+        XCTAssertEqual(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [lone], teamPrs: [lone, upper]), .stack)
+        XCTAssertEqual(SessionTree.chatRowWord(busy: true, needsYou: false, prs: [upper], teamPrs: [lone, upper]), .stack)
         // A merged base breaks the stack.
         let mergedBase = pr("a", merged)
-        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [upper], teamPrs: [mergedBase, upper]), .readyToMerge)
+        XCTAssertEqual(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [upper], teamPrs: [mergedBase, upper]), .readyToMerge)
         // Merged beats the question; a closed PR says nothing.
-        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
-        XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
-        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "device offline", "question", "needs input"])
+        XCTAssertEqual(SessionTree.chatRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
+        XCTAssertNil(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
+        XCTAssertEqual(ChatRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "device offline", "question", "needs input"])
     }
 
     // MARK: - sealed-content.json `placeholder.rowCases` (EXP-1459)
@@ -913,7 +913,7 @@ final class SessionTreeTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("packages/domain-contract/fixtures/sealed-content.json"))) as? [String: Any])
         let placeholder = try XCTUnwrap(sealed["placeholder"] as? [String: Any])
-        let base = try XCTUnwrap(try cases(try fixture("session-thread.json")).first?["input"] as? [String: Any])
+        let base = try XCTUnwrap(try cases(try fixture("session-chat.json")).first?["input"] as? [String: Any])
         let root = try session(base["root"])
         for testCase in try XCTUnwrap(placeholder["rowCases"] as? [[String: Any]]) {
             let name = try XCTUnwrap(testCase["name"] as? String)
@@ -926,7 +926,7 @@ final class SessionTreeTests: XCTestCase {
                 answeredAt: nil, consumedAt: "2026-10-13T10:00:00.000Z", createdAt: "2026-10-13T10:05:00.000Z",
                 sealStatus: reason == .noKey ? .noKey : .refused
             )
-            let view = SessionTree.buildSessionThread(
+            let view = SessionTree.buildSessionChat(
                 root: root,
                 sessions: try XCTUnwrap(base["sessions"] as? [Any]).map(session),
                 sessionIssues: try sessionIssues(base["sessionIssues"]),

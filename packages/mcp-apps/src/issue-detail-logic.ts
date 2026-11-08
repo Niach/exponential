@@ -1,5 +1,5 @@
 // EXP-1183 — the pure half of the issue face (issue-detail-view.tsx): which
-// machines "Start coding" may offer, the comment thread's order, and the
+// machines "Start coding" may offer, the comment replies' order, and the
 // small formatting the view repeats. Kept out of the component so the rules
 // are unit-tested (issue-detail-logic.test.ts).
 
@@ -73,16 +73,16 @@ export function startArgs(
   }
 }
 
-export interface ThreadComment {
+export interface NestedComment {
   id: string
   parentId: string | null
   createdAt: string
 }
 
-/** Comments thread ONE level (CLAUDE.md): roots oldest first, each followed
+/** Comments nest ONE level (CLAUDE.md): roots oldest first, each followed
  *  by its replies oldest first. A reply whose root is outside the fetched
  *  window stands as a root. The tool returns newest first. */
-export function threadComments<T extends ThreadComment>(
+export function nestComments<T extends NestedComment>(
   comments: readonly T[]
 ): { comment: T; reply: boolean }[] {
   const sorted = [...comments].sort(

@@ -51,10 +51,10 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  ThreadConversation,
+  ChatConversation,
   toast,
   useIsMobile,
-  userMessageCaption,
+  userMessageTime,
   type DevicePickerDevice,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
@@ -66,13 +66,13 @@ import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
 import { requestDeviceMove } from "@/components/session-device-move"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
-import { CHAT_HEADER_TONE_CLASS } from "@/components/thread/chat-header"
+import { CHAT_HEADER_TONE_CLASS } from "@/components/chat/chat-header"
 import { useEditorRunner } from "@/components/apps/editor-runner"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { renderChatText } from "@/components/chat/chat-markdown"
 import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
@@ -94,7 +94,7 @@ import { cn } from "@/lib/utils"
 //
 // VAPP-177 (`editorTabs`): on md+ the header (glyph + name + the version
 // pill) ends in the Preview | Versions | Settings segmented control and the
-// body = two panes, the chat (the member's editor session: THE thread
+// body = two panes, the chat (the member's editor session: THE chat
 // conversation rows + THE session composer, no header strip) beside the
 // selected tab. Phones: Chat | Preview under the header, one pane, and the
 // header's `…` menu: Versions and Settings open THE SAME bodies as a bottom
@@ -502,7 +502,7 @@ export function AppEditor({
 
   const openSession = (session: SessionRow) =>
     void (session.parentId === null
-      ? navigate({ to: `/t/$teamSlug/threads/$threadId`, params: { teamSlug, threadId: session.id } })
+      ? navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } })
       : navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } }))
 
   const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
@@ -553,16 +553,17 @@ export function AppEditor({
   }
   const channel =
     root && messages.length > 0 ? (
-      <ThreadConversation
+      <ChatConversation
         rows={channelRows}
-        renderText={renderThreadText}
+        renderText={renderChatText}
         attachmentSrc={attachmentSrc}
-        messageCaption={(row) =>
-          userMessageCaption({
-            name: row.authorId ? users.find((user) => user.id === row.authorId)?.name : null,
-            at: messageAt(row.id),
-          })
-        }
+        chat={{ sessionId: root.id, title: app.name, agentId: null }}
+        member={(id) => (users as User[]).find((user) => user.id === id) ?? null}
+        viewerId={me ?? null}
+        messageTime={(row) => {
+          const at = messageAt(row.id)
+          return at ? userMessageTime(at) : null
+        }}
         onOpenSession={(sessionId) => {
           const target = teamSessions.find((row) => row.id === sessionId)
           if (target) openSession(target)

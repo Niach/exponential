@@ -66,8 +66,8 @@ pub fn inbox_row_target(
 pub enum SessionTarget {
     /// The viewer's OWN agent conversation root: the agent's page (its channel).
     Agent { agent_id: String },
-    /// A thread root (`session_id` None) or a thread's child, inside the thread.
-    Thread { thread_id: String, session_id: Option<String> },
+    /// A chat root (`session_id` None) or a chat's child, inside the chat.
+    Chat { chat_id: String, session_id: Option<String> },
     /// Anything else under an agent (a teammate's conversation, a child of a
     /// conversation): the session on its own screen.
     Session { session_id: String },
@@ -97,8 +97,8 @@ pub fn session_target(
             }
         };
     }
-    SessionTarget::Thread {
-        thread_id: root_id.to_string(),
+    SessionTarget::Chat {
+        chat_id: root_id.to_string(),
         session_id: (!is_root).then(|| id.to_string()),
     }
 }
@@ -133,8 +133,8 @@ mod tests {
         let s = |key: &str| value[key].as_str().unwrap().to_string();
         match value["kind"].as_str().unwrap() {
             "agent" => SessionTarget::Agent { agent_id: s("agentId") },
-            "thread" => SessionTarget::Thread {
-                thread_id: s("threadId"),
+            "chat" => SessionTarget::Chat {
+                chat_id: s("chatId"),
                 session_id: value["sessionId"].as_str().map(str::to_string),
             },
             "session" => SessionTarget::Session { session_id: s("sessionId") },

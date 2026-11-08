@@ -26,7 +26,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-1211 ×4: the quick replies directly above THE session composer
- * (session-thread.json `copy.replies`): one small action [GlassPill] per
+ * (session-chat.json `copy.replies`): one small action [GlassPill] per
  * reply (single line, ellipsized), scrolling sideways on a phone, and a
  * trailing ghost dismiss (`ui-close`). A tap sends that reply as the next
  * message; [pending] disables the row while a call is in flight.
@@ -70,7 +70,7 @@ internal fun ComposerRepliesRow(
         IconButton(
             onClick = onDismiss,
             enabled = !pending,
-            modifier = Modifier.size(28.dp).testTag("thread-replies-dismiss"),
+            modifier = Modifier.size(28.dp).testTag("chat-replies-dismiss"),
         ) {
             Icon(
                 imageVector = ExpIcons.uiClose,

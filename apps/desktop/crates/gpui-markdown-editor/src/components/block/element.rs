@@ -252,7 +252,7 @@ fn build_text_runs(
                     run_color = reference_text_color;
                 }
             } else {
-                // Exponential thread e4a04d22: web `.mention-pill` text.
+                // Exponential session e4a04d22: web `.mention-pill` text.
                 run_color = mention_text_color;
             }
         }
@@ -1567,7 +1567,7 @@ impl Element for BlockTextElement {
                 };
                 let is_issue = span.kind == crate::host::ReferenceKind::IssueRef;
                 let radius = if is_issue { issue_radius } else { mention_radius };
-                // Exponential thread e4a04d22: the mention pill's own chrome
+                // Exponential session e4a04d22: the mention pill's own chrome
                 // (web `.mention-pill`: opaque accent + border hairline).
                 let (fill_color, border_color) = if is_issue {
                     (reference_color, reference_border)

@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 // EXP-698 r5 — the activity feed's ONE row shape, ported from iOS
-// `TimelineRow` (CommentThreadView.swift) and mirrored by the IDE's
+// `TimelineRow` (the iOS comment rows) and mirrored by the IDE's
 // `timeline_row`: a 28px gutter carrying the row's marker (a comment avatar, an
 // event glyph, a 6px dot) with a 1px rail at the card stroke running above and
 // below it, and the row's own content beside it.

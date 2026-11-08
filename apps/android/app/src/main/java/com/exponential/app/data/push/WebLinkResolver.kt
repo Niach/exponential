@@ -20,12 +20,12 @@ import kotlinx.coroutines.flow.first
 sealed interface LinkDestination {
     data class Issue(val id: String) : LinkDestination
 
-    /** A synced session: a root opens its thread (Guide on a `/sessions/` link's
+    /** A synced session: a root opens its chat (Guide on a `/sessions/` link's
      *  `?view=guide`), a child its session view. */
     data class Conversation(val id: String, val isRoot: Boolean, val sessionPath: Boolean) : LinkDestination
     data class Plan(val sessionId: String, val messageId: String) : LinkDestination
     data class Board(val id: String) : LinkDestination
-    data object Threads : LinkDestination
+    data object Chats : LinkDestination
     data class AgentDm(val agentId: String) : LinkDestination
     data object AgentHome : LinkDestination
     data object Inbox : LinkDestination
@@ -131,13 +131,12 @@ class WebLinkResolver @Inject constructor(
         is AppLink.IssueRef -> db.issueDao().findIdByTeamRef(link.teamSlug, link.identifier)?.let { LinkDestination.Issue(it) }
         is AppLink.Board -> db.boardDao().observeBySlug(teamId, link.boardSlug).first()?.let { LinkDestination.Board(it.id) }
         is AppLink.Session -> conversation(db, link.teamSlug, link.sessionId, sessionPath = true)
-        is AppLink.Thread -> conversation(db, link.teamSlug, link.threadId, sessionPath = false)
         // #EXP-1662: a plan is a tab of its session's root.
         is AppLink.Plan -> db.sessionDao().findIdByTeamRef(link.teamSlug, link.sessionId)?.let { id ->
             val root = db.sessionDao().getById(id)?.rootId?.takeIf { it.isNotEmpty() } ?: id
             LinkDestination.Plan(root, link.messageId)
         }
-        is AppLink.Threads -> LinkDestination.Threads
+        is AppLink.Chats -> LinkDestination.Chats
         is AppLink.Agent -> db.agentDefinitionDao().observeById(link.agentId).first()
             ?.takeIf { it.teamId == teamId }
             ?.let { LinkDestination.AgentDm(it.id) }
@@ -176,8 +175,8 @@ class WebLinkResolver @Inject constructor(
     /**
      * #EXP-1456 (fixtures/inbox-route.json `sessionCases`, the S-3 rule):
      * where the synced session [sessionId] opens for the signed-in viewer —
-     * the agent's channel for my own agent conversation root, the thread for
-     * a thread's root or child, else the session itself. A child resolves
+     * the agent's channel for my own agent conversation root, the chat for
+     * a chat's root or child, else the session itself. A child resolves
      * its agent + owner through its root. Null when the row is not synced
      * (yet): the caller opens the session route's not-found state.
      */
@@ -194,14 +193,14 @@ class WebLinkResolver @Inject constructor(
         )
     }
 
-    /** #EXP-1662 (plan-page.json WAYS IN): the thread whose plan tab holds
+    /** #EXP-1662 (plan-page.json WAYS IN): the chat whose plan tab holds
      *  the plans of [sessionId] (its root); null = not synced (yet). */
-    suspend fun planThread(sessionId: String): String? = activeDb(null) { db ->
+    suspend fun planChat(sessionId: String): String? = activeDb(null) { db ->
         db.sessionDao().getById(sessionId)?.let { session -> session.rootId.takeIf { it.isNotEmpty() } ?: session.id }
     }
 
     /** #EXP-1493 (plan-page.json WAYS IN): the session's own waiting plan
-     *  message ([PlanPage.planPageFor]) an inbox row / push opens its thread's
+     *  message ([PlanPage.planPageFor]) an inbox row / push opens its chat's
      *  plan tab on; null = none (the session's own route). */
     suspend fun planPageTarget(sessionId: String): String? = activeDb(null) { db ->
         val messages = db.messageDao().observeBySession(sessionId).first().mapNotNull { row ->
@@ -219,7 +218,7 @@ class WebLinkResolver @Inject constructor(
     }
 
     /**
-     * Thread 58cb32df (chats.json): a notification / deep link that names
+     * Session 58cb32df (chats.json): a notification / deep link that names
      * another team SWITCHES first, then opens the target. The team of the
      * synced issue / session [id] on the ACTIVE account (an issue's = its
      * board's); null when the row is not synced (yet).

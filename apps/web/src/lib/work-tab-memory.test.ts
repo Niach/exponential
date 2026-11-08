@@ -20,9 +20,9 @@ const issueTab = (issueId: string): WorkTab => ({
   issueId,
   from: null,
 })
-const threadTab = (threadId: string): WorkTab => ({
-  kind: `thread`,
-  threadId,
+const chatTab = (chatId: string): WorkTab => ({
+  kind: `chat`,
+  chatId,
   from: null,
 })
 const sessionTab = (sessionId: string): WorkTab => ({
@@ -77,7 +77,7 @@ describe(`tab memory slots`, () => {
 describe(`tabMemoryOwners`, () => {
   it(`names an issue tab's issue and a session tab's row`, () => {
     expect(tabMemoryOwners(issueTab(`i1`))).toEqual([issueMemoryOwner(`i1`)])
-    expect(tabMemoryOwners(threadTab(`t1`))).toEqual([sessionMemoryOwner(`t1`)])
+    expect(tabMemoryOwners(chatTab(`t1`))).toEqual([sessionMemoryOwner(`t1`)])
     expect(tabMemoryOwners(sessionTab(`s1`))).toEqual([`session:s1`])
     expect(tabMemoryOwners({ kind: `new`, from: null })).toEqual([])
   })
@@ -90,7 +90,7 @@ describe(`forgetClosedTabs`, () => {
     writeTabMemory(`session:t1`, `scroll`, 40)
 
     forgetClosedTabs(
-      [issueTab(`i1`), issueTab(`i2`), threadTab(`t1`)],
+      [issueTab(`i1`), issueTab(`i2`), chatTab(`t1`)],
       [issueTab(`i1`)]
     )
 
@@ -102,7 +102,7 @@ describe(`forgetClosedTabs`, () => {
   it(`keeps an owner a surviving tab still names`, () => {
     writeTabMemory(`session:t1`, `scroll`, 40)
 
-    forgetClosedTabs([threadTab(`t1`), issueTab(`i1`)], [threadTab(`t1`)])
+    forgetClosedTabs([chatTab(`t1`), issueTab(`i1`)], [chatTab(`t1`)])
 
     expect(readTabMemory(`session:t1`, `scroll`)).toBe(40)
   })

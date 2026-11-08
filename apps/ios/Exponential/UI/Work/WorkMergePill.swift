@@ -13,7 +13,7 @@ import SwiftUI
 /// THE stack confirm, and Merge QUEUES it through `pullRequests.merge` (the
 /// train lands it). Every refusal toasts the server's words with Retry.
 /// `.capsule` / `.circle` = the phone's bottom Merge capsule, the same
-/// status; `.toolbar` = the thread header's action slot, left of `…`.
+/// status; `.toolbar` = the chat header's action slot, left of `…`.
 struct WorkMergePill: View {
     let pullRequest: PullRequestEntity
     /// The issues the PR links (`pull_request_issues`): the confirm names a
@@ -180,7 +180,7 @@ struct WorkMergePill: View {
 }
 
 /// #EXP-1710: THE status pill's paint (the header's md `GlassPill`), over a
-/// `MergeTrain.StatusPill`: the thread header and the styleguide specimen.
+/// `MergeTrain.StatusPill`: the chat header and the styleguide specimen.
 struct MergeStatusPill: View {
     let view: MergeTrain.StatusPill
     var merging = false
@@ -244,7 +244,7 @@ struct WorkMergeState: Equatable {
 }
 
 /// #EXP-1710 (merge-train.json MENU / NEEDS YOU): the train's person
-/// actions, shared by the thread's `…` and the Needs you stuck row. Merge
+/// actions, shared by the chat's `…` and the Needs you stuck row. Merge
 /// now = `pullRequests.mergeNow` (owners, after THE `merge-now-pr` alert);
 /// Hold / Resume auto-merge and Retry = `pullRequests.hold`. A failure = a
 /// toast; the state flips land over the shapes.
@@ -369,7 +369,7 @@ struct MergeNowTarget: Identifiable, Equatable {
     let stack: Bool
     var id: String { pullRequestId }
 
-    /// THE one rule (the thread `…` and the Needs you stuck row): `titleStack`
+    /// THE one rule (the chat `…` and the Needs you stuck row): `titleStack`
     /// while the PR sits in an open stack among `pool`.
     init(_ pullRequest: PullRequestEntity, pool: [PullRequestEntity]) {
         self.init(

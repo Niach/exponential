@@ -21,7 +21,7 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.theme.AppBackground
 
-// Thread e4a04d22: the Android twin of the styleguide entry `mention-pill`
+// Session e4a04d22: the Android twin of the styleguide entry `mention-pill`
 // (shot `sg_mention-pill`). EXP-1553: the web entry's island line for line
 // on the bare page — "Ready for review, @Ada Lovelace" (a known `@email` =
 // the member's pill) and "cc @x@y.com" (an unknown address stays plain

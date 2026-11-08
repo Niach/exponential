@@ -45,8 +45,8 @@ final class AppLinkTests: XCTestCase {
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String),
                 messageId: try XCTUnwrap(raw["messageId"] as? String)
             )
-        case "threads":
-            return .threads(teamSlug: try XCTUnwrap(raw["teamSlug"] as? String))
+        case "chats":
+            return .chats(teamSlug: try XCTUnwrap(raw["teamSlug"] as? String))
         case "agent":
             return .agent(
                 teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
@@ -72,11 +72,6 @@ final class AppLinkTests: XCTestCase {
             return .session(
                 teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String)
-            )
-        case "thread":
-            return .thread(
-                teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
-                threadId: try XCTUnwrap(raw["threadId"] as? String)
             )
         case "appScreen":
             return .appScreen(

@@ -34,7 +34,7 @@ class SessionEntityDecodeTest {
     /** NEW-2: `agent_id` = the agent whose conversation the root is; the kind
      *  derives from it ([com.exponential.app.domain.SessionKind.sessionKindOf]). */
     @Test
-    fun `agent_id decodes and drives isAgent, absent = a thread`() {
+    fun `agent_id decodes and drives isAgent, absent = a chat`() {
         val conversation = json.decodeFromString(
             SessionEntity.serializer(),
             """{"id":"s-1","root_id":"s-1","kind":"agent","agent_id":"ag-1"}""",

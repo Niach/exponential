@@ -6,7 +6,7 @@ import {
   type GuideEntry,
 } from "@exp/db-schema/domain"
 
-// EXP-1291: the pure list algebra of a thread's ONE Guide (the root's
+// EXP-1291: the pure list algebra of a chat's ONE Guide (the root's
 // `sessions.guide`), ported from the EXP-879/933/1154/1251 results writes.
 // `lib/sessions/guide.ts` runs it inside its `FOR UPDATE` transaction; kept
 // apart so the ordering rules (replace in place, append at the end, delete a

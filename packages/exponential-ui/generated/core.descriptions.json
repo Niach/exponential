@@ -2662,9 +2662,15 @@
         },
         "author": {
           "description": "Caption above, in only."
+        },
+        "pressable": {
+          "description": "A press target firing `press` (`on.press` or `href` imply it)."
+        },
+        "href": {
+          "description": "The URL a press opens; implies `pressable`."
         }
       },
-      "description": "A chat message bubble, in (left) or out (right).",
+      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
       "example": {
         "text": "Is the printer fixed?",
         "side": "out",

@@ -207,7 +207,7 @@ public enum PlanCard {
     /// A plan needs a decision; approving needs every question answered; a
     /// single-choice question takes one answer; without `custom` every
     /// answer must be an option's label.
-    public static func answerIssue(questions: [ThreadPlanQuestion], input: AnswerInput) -> AnswerIssue? {
+    public static func answerIssue(questions: [ChatPlanQuestion], input: AnswerInput) -> AnswerIssue? {
         guard input.decision == "approved" || input.decision == "rejected" else { return .decision }
         let answers = input.planAnswers ?? [:]
         for id in answers.keys.sorted() where !questions.contains(where: { $0.id == id }) {
@@ -324,7 +324,7 @@ public struct PlanCardPicture: Equatable, Sendable {
 }
 
 /// EXP-1280: one choice question of a plan card in the row form.
-public struct ThreadPlanQuestion: Equatable, Sendable, Identifiable {
+public struct ChatPlanQuestion: Equatable, Sendable, Identifiable {
     public let id: String
     public let prompt: String
     public let multi: Bool
@@ -343,7 +343,7 @@ public struct ThreadPlanQuestion: Equatable, Sendable, Identifiable {
     /// A plan card's `questions`: a question without a string id/prompt, or
     /// an option without a string label, drops; an option's picture = its
     /// `picture` label resolved through `pictures`.
-    public static func list(_ raw: Any?, pictures: [PlanCardPicture]) -> [ThreadPlanQuestion] {
+    public static func list(_ raw: Any?, pictures: [PlanCardPicture]) -> [ChatPlanQuestion] {
         guard let entries = raw as? [Any] else { return [] }
         return entries.compactMap { entry in
             guard let object = entry as? [String: Any],
@@ -359,7 +359,7 @@ public struct ThreadPlanQuestion: Equatable, Sendable, Identifiable {
                     attachmentId: PlanCard.pictureFor(pictures, label: option["picture"] as? String)
                 )
             }
-            return ThreadPlanQuestion(
+            return ChatPlanQuestion(
                 id: id,
                 prompt: prompt,
                 multi: CardJSON.isTrue(object["multi"]),

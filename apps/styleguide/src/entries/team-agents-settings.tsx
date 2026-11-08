@@ -19,7 +19,7 @@ import {
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1293 Threads v2 — Team settings → Agents, ONE agent's page
+// EXP-1293 — Team settings → Agents, ONE agent's page
 // (fixtures/agent-settings.json ×4). Managed exactly like a board: the
 // board page's layout, the fixture's `fields` top to bottom — identity (icon
 // picker + colour + name in ONE row), Device, Account, Schedule (a row per
@@ -123,7 +123,7 @@ export const entry: StyleguideEntry = {
         <GlassGroup>
           <Textarea
             aria-label="Instructions"
-            value="Look after the boards: merge duplicates, add labels and priorities, start a thread for anything that needs code."
+            value="Look after the boards: merge duplicates, add labels and priorities, start a chat for anything that needs code."
             onChange={noop}
             placeholder={COPY.instructionsPlaceholder}
             rows={4}

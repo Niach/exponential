@@ -1,7 +1,7 @@
 //! EXP-746 — the session rows; EXP-1248 — ONE row; EXP-1294 — no captions;
 //! EXP-1323 — nested children (tree guides) and a bold unread title.
 //!
-//! The rail's Running section draws a live thread through [`run_row`] (web
+//! The rail's Running section draws a live chat through [`run_row`] (web
 //! `@exp/ui` SessionRow, fixture `list-item.json` small): the agent's mark,
 //! mono identifier · title, nothing else — no caption, no device glyph, no
 //! buttons. The mark carries the session state: it animates while the agent
@@ -106,7 +106,7 @@ pub(crate) struct RunRowSpec {
     pub(crate) title: SharedString,
     pub(crate) active: bool,
     pub(crate) on_open: RunRowAction,
-    /// EXP-1318: after the title (a thread row's device icon).
+    /// EXP-1318: after the title (a chat row's device icon).
     pub(crate) trailing: Option<gpui::AnyElement>,
     /// EXP-1323: a nested child session's indent + connector (TreeGuides,
     /// 14px/level, the 3px corner tee); default = a root.

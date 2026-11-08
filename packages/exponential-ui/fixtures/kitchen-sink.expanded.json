@@ -5818,7 +5818,9 @@
               {
                 "id": "bubble_out",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "bubble_out.bubble",
@@ -5929,8 +5931,10 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "flexDirection": "column",
-                  "alignItems": "flex-end",
+                  "flexDirection": "row",
+                  "alignItems": "flex-start",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.sm",
                   "width": "100%",
                   "minWidth": 0
                 },
@@ -5950,7 +5954,9 @@
               {
                 "id": "bubble_in",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "bubble_in.bubble",
@@ -6051,8 +6057,10 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "flexDirection": "column",
+                  "flexDirection": "row",
                   "alignItems": "flex-start",
+                  "justifyContent": "flex-start",
+                  "gap": "$spacing.sm",
                   "width": "100%",
                   "minWidth": 0
                 },

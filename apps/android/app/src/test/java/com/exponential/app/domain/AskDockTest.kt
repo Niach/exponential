@@ -88,25 +88,25 @@ class AskDockTest {
         }
     }
 
-    private fun threadRow(json: JsonObject): SessionTree.ThreadRow = when (json.str("type")) {
-        "plan" -> SessionTree.ThreadRow.Plan(
+    private fun chatRow(json: JsonObject): SessionTree.SessionChatRow = when (json.str("type")) {
+        "plan" -> SessionTree.SessionChatRow.Plan(
             id = json.str("id")!!,
             sessionId = json.str("sessionId")!!,
             plan = json.str("plan")!!,
             decision = json.str("decision"),
             fresh = json.getValue("fresh").jsonPrimitive.boolean,
         )
-        "question" -> SessionTree.ThreadRow.Question(
+        "question" -> SessionTree.SessionChatRow.Question(
             id = json.str("id")!!,
             sessionId = json.str("sessionId")!!,
             question = json.str("question")!!,
-            options = (json["options"] as? JsonArray)?.map { SessionTree.ThreadRow.QuestionChoice(it.jsonPrimitive.content, null) }
+            options = (json["options"] as? JsonArray)?.map { SessionTree.SessionChatRow.QuestionChoice(it.jsonPrimitive.content, null) }
                 ?: emptyList(),
             custom = json.getValue("custom").jsonPrimitive.boolean,
             answer = json.str("answer"),
             answered = json.getValue("answered").jsonPrimitive.boolean,
         )
-        else -> SessionTree.ThreadRow.MessageRow(
+        else -> SessionTree.SessionChatRow.MessageRow(
             id = json.str("id")!!,
             author = "user",
             authorId = null,
@@ -116,12 +116,12 @@ class AskDockTest {
     }
 
     @Test
-    fun `thread cases`() {
-        val cases = array("threadCases")
+    fun `chat cases`() {
+        val cases = array("chatCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val names = case.getValue("sessionNames").jsonObject
-            val actual = AskDock.threadPendingAsks(case.getValue("rows").jsonArray.map { threadRow(it.jsonObject) }) { id ->
+            val actual = AskDock.chatPendingAsks(case.getValue("rows").jsonArray.map { chatRow(it.jsonObject) }) { id ->
                 names.str(id)
             }
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map { pendingJson(it) }))
@@ -136,7 +136,7 @@ class AskDockTest {
             val tabs = case.getValue("tabs").jsonArray.mapNotNull { tab ->
                 val json = tab.jsonObject
                 if (json.str("kind") != "session") return@mapNotNull null
-                SessionTree.ThreadTab.SessionTab(
+                SessionTree.ChatTab.SessionTab(
                     sessionId = json.str("sessionId")!!,
                     name = json.str("name")!!,
                     markState = SessionTree.SessionState.Done,
@@ -146,7 +146,7 @@ class AskDockTest {
                     },
                 )
             }
-            val name = AskDock.threadSessionNames(tabs)
+            val name = AskDock.chatSessionNames(tabs)
             for ((id, expected) in case.getValue("lookups").jsonObject) {
                 assertEquals("${case.str("name")}: $id", (expected as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content, name(id))
             }

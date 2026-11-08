@@ -162,7 +162,7 @@ fun Modifier.pressScale(pressed: Boolean): Modifier {
 }
 
 /** A motion token by its fixture NAME (`fast` | `standard` | `slow`), in ms
- *  (thread 58cb32df: `chats.json` `surfaceCard.enter` names its tokens). */
+ *  (session 58cb32df: `chats.json` `surfaceCard.enter` names its tokens). */
 fun motionDurationMs(name: String): Int = when (name) {
     "fast" -> DesignTokens.Motion.Duration.Fast
     "slow" -> DesignTokens.Motion.Duration.Slow
@@ -181,7 +181,7 @@ fun motionEasing(name: String): Easing = when (name) {
 const val BUBBLE_RISE_PX = 6f
 
 /**
- * Thread 58cb32df (chats.json TRANSCRIPT): a NEW bubble that arrives while the
+ * Session 58cb32df (chats.json TRANSCRIPT): a NEW bubble that arrives while the
  * chat is open rises in once — opacity + [BUBBLE_RISE_PX] at `standard` /
  * `decelerate`; reduce motion = the opacity alone. [animate] false (history,
  * a reopen, a scroll back) draws it in place.
