@@ -350,9 +350,9 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
     }
 
     /** Poll (pumping frames, never requiring idleness) until [matcher] matches a node. */
-    fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
+    fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long, useUnmergedTree: Boolean = false) {
         pollUntil(timeoutMillis, "no node matching ${matcher.description}") {
-            composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(matcher, useUnmergedTree).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
