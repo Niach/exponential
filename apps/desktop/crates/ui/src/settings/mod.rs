@@ -65,7 +65,7 @@ mod members;
 mod archived_boards;
 mod change_email_dialog;
 mod sign_in_methods;
-mod notifications_prefs;
+pub(crate) mod notifications_prefs;
 // NEW-67: Settings → Personal → Voice (`fixtures/voice.json`).
 pub(crate) mod voice_prefs;
 // NEW-6: Settings → Prompts (the list + one prompt's page).
@@ -780,7 +780,7 @@ impl SettingsView {
         let local_repos = cx.new(LocalReposPane::new);
         let sessions = cx.new(SessionsPane::new);
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
-        let notifications = cx.new(NotificationsPrefsPane::new);
+        let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
         let voice = cx.new(VoicePrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
         let about = cx.new(|_| AboutPane::new());
