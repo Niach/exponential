@@ -4413,7 +4413,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-table",
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "children": "none",
       "slots": [
         "*"
@@ -4518,6 +4518,15 @@
           "responsive": false,
           "default": false,
           "description": "Pins the header while rows scroll."
+        },
+        {
+          "name": "totals",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Totals."
         }
       ],
       "accessibility": {
@@ -8340,7 +8349,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-record-table",
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -8364,11 +8373,37 @@
         },
         {
           "name": "columns",
-          "type": "[string]",
+          "type": "[]",
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The fields shown, in order; default every schema field."
+          "description": "Fields/columns."
+        },
+        {
+          "name": "search",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Search."
+        },
+        {
+          "name": "filter",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Enum filter."
+        },
+        {
+          "name": "totals",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Totals."
         },
         {
           "name": "add",
@@ -8501,6 +8536,38 @@
           "type": "[option]",
           "required": false,
           "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "searchValue",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "filterValue",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "filterLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "filterOptions",
+          "type": "[option]",
+          "required": false,
+          "bindable": false,
           "responsive": false,
           "description": "Filled by the host."
         }
