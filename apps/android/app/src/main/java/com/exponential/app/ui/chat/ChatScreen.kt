@@ -316,6 +316,8 @@ fun ChatScreen(
     val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
         com.exponential.app.ui.components.agentMenuItems(
             com.exponential.app.domain.Chats.agentMenuEntries(busy = rootRow?.busy == true, isOwner = isOwner)
+                // chats.json `agentMenu` locks Settings; it opens exactly what
+                // THE gear opens (#EXP-1732: the agent's settings page).
                 .filter { it != com.exponential.app.domain.Chats.AgentMenuEntry.Settings || onOpenAgentSettings != null },
         ) { entry ->
             when (entry) {
@@ -387,14 +389,18 @@ fun ChatScreen(
 
     // #EXP-1732 (session-screen.json): the Issues / Sessions tabs' rows and
     // THE screen (kind, tabs + counts, the active tab, the opened item).
-    val mainSessionId = if (agent != null) null else view?.mainSessionId
+    // Sessions = EVERY session under the root, off the raw tree (never the
+    // view's visible subset); Issues = the view's tree of issues (an agent's
+    // view carries none: its linked issues).
     val isAgentChat = agent != null
-    val items = remember(view?.tabs, mainSessionId, isAgentChat, tree, issues) {
-        if (isAgentChat) {
-            sessionScreenTreeItems(viewModel.rootId, tree.map(SessionTree::session), issues.map { it.id to it.identifier })
+    val items = remember(view?.tabs, isAgentChat, tree, issues) {
+        val sessions = sessionScreenTreeItems(viewModel.rootId, tree.map(SessionTree::session), emptyList()).sessions
+        val treeIssues = if (isAgentChat) {
+            issues.map { SessionScreenIssue(it.id, it.identifier, 0) }
         } else {
-            sessionScreenItems(view?.tabs.orEmpty(), mainSessionId)
+            sessionScreenItems(view?.tabs.orEmpty(), null).issues
         }
+        SessionScreenItems(treeIssues, sessions)
     }
     val resultsCount = remember(tree, messages, viewModel.rootId) { chatResultsCount(viewModel.rootId, tree, messages) }
     val kind = SessionScreen.kind(
@@ -836,8 +842,7 @@ internal fun clockTime(wire: String): String? {
  * disc, the title over the subtitle, the Merge pill, THE gear, `…`) with
  * [SessionScreenTabs] under it, the body scrolling UNDER the band: Chat = the
  * conversation (the blur's source) with THE floating reply box over its tail
- * ([composer], in a [FloatingBarEdge]); a single-session chat's Chat IS the
- * root's session page (NEW-46); Issues / Sessions = THE rows; Results =
+ * ([composer], in a [FloatingBarEdge]), always; Issues / Sessions = THE rows; Results =
  * [resultsPage]. `item` = a pushed page over the tab: `‹` + the item's name
  * over the opened issue / session / plan (system Back pops it).
  */
@@ -914,10 +919,8 @@ fun ChatContent(
     /** #EXP-1736: the viewer (their bubbles sit right). */
     viewerId: String? = null,
 ) {
-    // An agent channel is the conversation. NEW-6 (N-1) / NEW-46: a chat
-    // with ONE session (the root alone) IS that session: its Chat tab is the
-    // root's session page.
-    val mainSessionId = if (agent != null) null else view?.mainSessionId
+    // #EXP-1732: the Chat tab is ALWAYS the transcript (NEW-46's single-
+    // session page is gone).
     // EXP-1343 / #EXP-1732: a session under this root opens IN PLACE (the
     // pushed item); any other (another root's card) keeps its own route.
     val openSessionHere: (String) -> Boolean = { id ->
@@ -1040,9 +1043,7 @@ fun ChatContent(
             com.exponential.app.ui.session.LocalCardHighlight provides cardScroll?.id,
         ) {
             when (screen.active) {
-                SessionScreen.Tab.Chat -> if (mainSessionId != null) {
-                    key(mainSessionId) { PageViewModelStore { sessionPage(mainSessionId, padding) } }
-                } else {
+                SessionScreen.Tab.Chat -> run {
                     var bandHeightPx by remember { mutableIntStateOf(0) }
                     val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
                     Box(

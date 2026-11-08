@@ -235,12 +235,12 @@ fun AppEditorScreen(
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
         AppEditorChat(rootId) { chat ->
             val tree = rememberAppEditorTree(chat)
-            val items = remember(tree.view, tree.sessions, root?.agentId, rootId) {
-                val agentRoot = !root?.agentId.isNullOrEmpty()
-                when {
-                    rootId == null -> com.exponential.app.ui.chat.SessionScreenItems.Empty
-                    agentRoot -> com.exponential.app.ui.chat.sessionScreenTreeItems(rootId, tree.sessions.map(SessionTree::session), emptyList())
-                    else -> com.exponential.app.ui.chat.sessionScreenItems(tree.view?.tabs.orEmpty(), tree.view?.mainSessionId)
+            // Sessions = EVERY session under the root, off the raw tree.
+            val items = remember(tree.sessions, rootId) {
+                if (rootId == null) {
+                    com.exponential.app.ui.chat.SessionScreenItems.Empty
+                } else {
+                    com.exponential.app.ui.chat.sessionScreenTreeItems(rootId, tree.sessions.map(SessionTree::session), emptyList())
                 }
             }
             val resultsCount = remember(tree.sessions, tree.messages, rootId) {
