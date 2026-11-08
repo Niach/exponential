@@ -1,0 +1,27 @@
+name: gradle-dist
+description: >-
+  Keeps the Gradle wrapper's download working when github.com's release
+  downloads fail (services.gradle.org redirects there): probes every committed
+  wrapper's distributionUrl and, when it does not answer, points that checkout's
+  wrapper at a mirror of the same zip. The committed distributionSha256Sum
+  still verifies whatever the wrapper downloads.
+inputs:
+  mirror:
+    description: The mirror's base URL; the wrapper's file name is appended.
+    default: https://mirrors.cloud.tencent.com/gradle
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MIRROR: ${{ inputs.mirror }}
+      run: |
+        set -euo pipefail
+        git ls-files -z '*gradle/wrapper/gradle-wrapper.properties' | while IFS= read -r -d '' props; do
+          url="$(sed -n 's/^distributionUrl=//p' "$props" | sed 's/\\:/:/g')"
+          if curl -fsSL -r 0-0 -o /dev/null --retry 2 --max-time 60 "$url"; then
+            continue
+          fi
+          echo "::warning::$url failed; $props downloads from $MIRROR"
+          sed -i "s|^distributionUrl=.*|distributionUrl=${MIRROR/:/\\\\:}/${url##*/}|" "$props"
+        done
