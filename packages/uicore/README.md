@@ -11,6 +11,7 @@ the IDE's shell, eDE's documents and the goldens agree.
 |---|---|
 | `shell.json` | `reduce(state, event) -> state`: the desktop/team switcher, windows + the MRU, workspaces, Mint's taskbar popups (one popup at a time), the start menu, the chat toggle, Alt-Tab; the selectors `taskbarButtons`, `taskbarPress`, `taskbarScroll` (Mint's grouped window list: click, scroll, pinned-but-not-running), `workspaceBadges`, `altTabOrder`, `startMenuApps` (Mint's categories + the ranked search), `startMenuCategories`; #EDE-65 `chats` (`chatRows`: the icon rail's chats, eDE's sidebar for good) |
 | `ide-sidebar.json` | #EXP-1725: what the IDE's sidebar shows, a pure projection of the host's state (the nav's rows and when they hide, what lights, who gets the gears); `sidebar.json` binds it under `/shell/ide` |
+| `chat.json` | #EDE-65 lane I: THE agent chat document both hosts draw (`docs/chat.json`): the home face (agent row + composer) and a conversation's rows, bubbles or transcript, with the composer's state, a pure projection of what the host resolved |
 | `shell-layout.json` | the numbers the documents use (rail 56, taskbar 48, panel margin 10 + radius 12, row 28, section label 24, taskbar button 40, applet 32, start menu 760×620, previews tile 184×110), read by `src/layout.ts` |
 
 `parity.md` is the inventory: every region of the IDE's shell against its eDE

@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu, start-menu.json anchored here), the chat button (chat.json) and the new-issue button right of it (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, the bell (notification-center.json) and the clock.",
+  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu, start-menu.json anchored here), the chat button (chat.json) and the new-issue button right of it (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on the person across the signed-in accounts' teams, /needsYou/count as its badge; it opens needs-you.json), the bell (notification-center.json: the desktop's notifications and the accounts' unread inbox merged) and the clock.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -713,6 +713,61 @@
             }
           },
           {
+            "id": "needs_you",
+            "component": "Button",
+            "props": {
+              "icon": "nav-needs-you",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Needs you"
+            },
+            "visible": {
+              "@call": "not",
+              "args": {
+                "value": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "/needsYou/count"
+                    },
+                    "b": 0
+                  }
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "needs_you"
+                }
+              }
+            }
+          },
+          {
+            "id": "needs_you_count",
+            "component": "Badge",
+            "props": {
+              "text": {
+                "@path": "/needsYou/count"
+              },
+              "variant": "default"
+            },
+            "visible": {
+              "@call": "not",
+              "args": {
+                "value": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "/needsYou/count"
+                    },
+                    "b": 0
+                  }
+                }
+              }
+            }
+          },
+          {
             "id": "bell",
             "component": "Button",
             "props": {
@@ -804,6 +859,9 @@
       "taskbar": {
         "buttons": []
       }
+    },
+    "needsYou": {
+      "count": 0
     }
   }
 }

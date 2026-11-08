@@ -252,7 +252,7 @@ mod tests {
             let ran = ran.clone();
             Arc::new(move |c: &str| ran.lock().unwrap().push(c.to_string())) as Arc<dyn Fn(&str) + Send + Sync>
         };
-        let apps = Arc::new(vec![apps::App { id: "org.gnome.Calculator.desktop".into(), name: "Calculator".into(), comment: String::new(), exec: "gnome-calculator".into(), icon: None, keywords: String::new(), categories: vec![] }]);
+        let apps = Arc::new(vec![apps::App { id: "org.gnome.Calculator.desktop".into(), name: "Calculator".into(), comment: String::new(), exec: "gnome-calculator".into(), exec_url: None, icon: None, keywords: String::new(), categories: vec![] }]);
         let launch = Launch { apps, run };
         assert_eq!(launch.call("app", &json!({"app": "org.gnome.Calculator"})).unwrap()["structuredContent"], json!({"launched": true}));
         assert_eq!(launch.call("app", &json!({"app": "org.gnome.Calculator.desktop"})).unwrap()["structuredContent"], json!({"launched": true}));

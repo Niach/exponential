@@ -13,7 +13,8 @@
     ".": "./src/index.ts",
     "./shell": "./src/shell.ts",
     "./layout": "./src/layout.ts",
-    "./fixtures/*": "./fixtures/*"
+    "./fixtures/*": "./fixtures/*",
+    "./chat": "./src/chat.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

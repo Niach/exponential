@@ -7,6 +7,7 @@ import {
   reduce,
   startMenuApps,
   startMenuCategories,
+  startMenuIssues,
   taskbarButtons,
   taskbarPress,
   taskbarScroll,
@@ -16,6 +17,7 @@ import {
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
+  type StartMenuIssue,
 } from "./shell"
 
 const given = (state: unknown): ShellState => hydrate(state as Partial<ShellState>)
@@ -65,6 +67,10 @@ describe(`shell.json selectors`, () => {
   for (const c of fixture.selectors.startMenuCategories) {
     const args = (c as { args?: { apps?: StartMenuApp[]; favourites?: string[] } }).args ?? {}
     test(c.name, () => expect(startMenuCategories(args.apps ?? apps, args.favourites ?? favourites)).toEqual(c.expected))
+  }
+  for (const c of fixture.selectors.startMenuIssues) {
+    const args = (c as { args?: { issues?: StartMenuIssue[] } }).args ?? {}
+    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected))
   }
 })
 

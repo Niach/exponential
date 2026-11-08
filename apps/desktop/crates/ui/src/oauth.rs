@@ -182,8 +182,8 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             open_team_deep_link(team_id, cx);
             continue;
         }
-        if let Some(session_id) = parse_session_deep_link(&url) {
-            open_session_deep_link(session_id, cx);
+        if let Some(link) = parse_session_deep_link(&url) {
+            open_session_deep_link(link, cx);
             continue;
         }
         if let Some(team_id) = parse_new_issue_deep_link(&url) {
@@ -216,12 +216,53 @@ pub(crate) fn parse_team_deep_link(url: &str) -> Option<String> {
     (!id.is_empty()).then(|| id.to_string())
 }
 
-/// #EDE-65 `exponential://session/<id>` → `Some(id)`: a chat of eDE's rail.
-pub(crate) fn parse_session_deep_link(url: &str) -> Option<String> {
+/// #EDE-65 `exponential://session/<id>[?opens=plan|card|results|chat&message=<id>]`:
+/// eDE's tray opens an inbox row's session or a Needs you row's card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionDeepLink {
+    pub session_id: String,
+    pub opens: Option<String>,
+    pub message_id: Option<String>,
+}
+
+pub(crate) fn parse_session_deep_link(url: &str) -> Option<SessionDeepLink> {
     let prefix = format!("{}://session/", api::login::OAUTH_CALLBACK_SCHEME);
-    let rest = url.strip_prefix(prefix.as_str())?;
-    let id = rest.split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
-    (!id.is_empty()).then(|| id.to_string())
+    let rest = url.strip_prefix(prefix.as_str())?.split('#').next().unwrap_or_default();
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let session_id = path.trim_end_matches('/');
+    if session_id.is_empty() {
+        return None;
+    }
+    let param = |key: &str| {
+        query.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('=')).filter(|v| !v.is_empty()).map(str::to_string)
+    };
+    Some(SessionDeepLink { session_id: session_id.to_string(), opens: param("opens"), message_id: param("message") })
+}
+
+/// Opens the session like its inbox row does, or (a Needs you row) on its
+/// plan, its card or its Results like the Needs you page's press; a session
+/// this app has not synced is ignored like an unknown issue link.
+fn open_session_deep_link(link: SessionDeepLink, cx: &mut App) {
+    let root_id = Store::global(cx).collections().sessions.read(cx).get(&link.session_id).map(|row| row.root_id_or_self().to_string());
+    let Some(root_id) = root_id else {
+        log::info!("[ui] open-urls: session deep link {} matches no synced session — ignored", link.session_id);
+        return;
+    };
+    let Some(window) = crate::navigation::active_or_primary_window(cx) else { return };
+    let _ = window.update(cx, |_, window, cx| {
+        match (link.opens.as_deref(), link.message_id.as_deref()) {
+            (Some("plan"), Some(message_id)) => return crate::plan_page::open(&link.session_id, message_id, window, cx),
+            (Some("card"), Some(message_id)) => crate::thread_screen::request_thread_card(&root_id, message_id, cx),
+            (Some("results"), _) => crate::thread_screen::request_thread_results(&root_id, cx),
+            _ => {
+                let screen = crate::plan_page::screen_for_session(&link.session_id, cx);
+                crate::plan_page::prime_session(&link.session_id, cx);
+                return crate::navigation::navigate(window, cx, screen);
+            }
+        }
+        let screen = crate::navigation::session_screen_for(&root_id, cx);
+        crate::navigation::navigate(window, cx, screen);
+    });
 }
 
 /// #EDE-65 `exponential://new-issue[/<team id>]` → `Some(team)`: eDE's
@@ -234,24 +275,6 @@ pub(crate) fn parse_new_issue_deep_link(url: &str) -> Option<Option<String>> {
     }
     let team = rest.trim_start_matches('/').split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
     Some((!team.is_empty()).then(|| team.to_string()))
-}
-
-/// The session's chat on its team; a session this app has not synced is
-/// ignored like an unknown issue link.
-fn open_session_deep_link(session_id: String, cx: &mut App) {
-    let team = Store::global(cx).collections().sessions.read(cx).get(&session_id).map(|s| s.team_id.clone());
-    let Some(team) = team else {
-        log::info!("[ui] open-urls: session deep link {session_id} matches no synced session — ignored");
-        return;
-    };
-    if let Some(window) = crate::navigation::active_or_primary_window(cx) {
-        let _ = window.update(cx, |_, window, cx| {
-            if let Some(team) = team {
-                crate::navigation::switch_team(window, cx, team);
-            }
-            crate::navigation::open_session_link(&session_id, window, cx);
-        });
-    }
 }
 
 /// A new issue on the team's board (the window's active one), as the
@@ -525,22 +548,30 @@ mod tests {
         assert_eq!(parse_issue_deep_link(url), None);
     }
 
-    /// #EDE-65: eDE's rail opens a chat with `exponential://session/<id>`
-    /// and its new-issue button sends `exponential://new-issue[/<team>]`.
+    /// #EDE-65: eDE's tray sends `exponential://session/<id>`, a Needs you
+    /// row with the card it lands on.
     #[test]
-    fn the_rails_hand_off_links_parse() {
-        assert_eq!(parse_session_deep_link("exponential://session/s1").as_deref(), Some("s1"));
-        assert_eq!(parse_session_deep_link("exponential://session/s1/?x=1").as_deref(), Some("s1"));
+    fn session_deep_link_parses_the_session_and_its_card() {
+        let plain = parse_session_deep_link("exponential://session/s1").unwrap();
+        assert_eq!(plain, SessionDeepLink { session_id: "s1".into(), opens: None, message_id: None });
+        let card = parse_session_deep_link("exponential://session/s1/?opens=card&message=m1").unwrap();
+        assert_eq!(card, SessionDeepLink { session_id: "s1".into(), opens: Some("card".into()), message_id: Some("m1".into()) });
         assert_eq!(parse_session_deep_link("exponential://session/"), None);
+        assert_eq!(parse_session_deep_link("exponential://team/t1"), None);
+        assert!(api::login::parse_oauth_callback("exponential://session/s1?opens=card&message=m1").is_none());
+        assert_eq!(parse_team_deep_link("exponential://session/s1"), None);
+    }
+
+    /// #EDE-65: eDE's new-issue button sends `exponential://new-issue[/<team>]`.
+    #[test]
+    fn the_new_issue_link_parses() {
         assert_eq!(parse_new_issue_deep_link("exponential://new-issue"), Some(None));
         assert_eq!(parse_new_issue_deep_link("exponential://new-issue/t1"), Some(Some("t1".into())));
         assert_eq!(parse_new_issue_deep_link("exponential://new-issues"), None);
         assert_eq!(parse_new_issue_deep_link("exponential://team/t1"), None);
-        for url in ["exponential://session/s1", "exponential://new-issue/t1"] {
-            assert!(api::login::parse_oauth_callback(url).is_none(), "{url}");
-            assert_eq!(parse_team_deep_link(url), None);
-            assert_eq!(parse_issue_deep_link(url), None);
-        }
+        assert!(api::login::parse_oauth_callback("exponential://new-issue/t1").is_none());
+        assert_eq!(parse_team_deep_link("exponential://new-issue/t1"), None);
+        assert_eq!(parse_issue_deep_link("exponential://new-issue/t1"), None);
     }
 
     #[test]
