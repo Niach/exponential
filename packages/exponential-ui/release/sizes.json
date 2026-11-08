@@ -7,7 +7,7 @@
       "entries": {
         "@exponential_app/eui/index": {
           "bytes": 696018,
-          "gzip": 190431,
+          "gzip": 190434,
           "parts": {
             "index.js": 100731,
             "chunks/index-bg70sphr.js": 150578,
@@ -54,7 +54,7 @@
         },
         "@exponential_app/eui/schema": {
           "bytes": 271337,
-          "gzip": 64450,
+          "gzip": 64451,
           "parts": {
             "entries/schema.js": 44375,
             "chunks/index-bg70sphr.js": 150578,
@@ -91,7 +91,7 @@
         },
         "@exponential_app/eui/web": {
           "bytes": 184725,
-          "gzip": 56829,
+          "gzip": 56826,
           "parts": {
             "web/index.js": 125399,
             "chunks/index-04yw3re8.js": 38107,
