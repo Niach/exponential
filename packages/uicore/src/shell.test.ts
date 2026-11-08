@@ -13,7 +13,7 @@ import {
   taskbarScroll,
   workspaceBadges,
   switcherSections,
-  type ChatInput,
+  type RailChatInput,
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
@@ -58,7 +58,7 @@ describe(`shell.json selectors`, () => {
   for (const c of fixture.selectors.taskbarPress) test(c.name, () => expect(taskbarPress(given(c.state), c.args.app)).toEqual(c.expected as ReturnType<typeof taskbarPress>))
   for (const c of fixture.selectors.taskbarScroll) test(c.name, () => expect(taskbarScroll(given(c.state), c.args.app, c.args.direction as `up` | `down`)).toEqual(c.expected as ReturnType<typeof taskbarScroll>))
   for (const c of fixture.selectors.workspaceBadges) test(c.name, () => expect(workspaceBadges(given(c.state))).toEqual(c.expected))
-  for (const c of fixture.selectors.switcherSections) test(c.name, () => expect(switcherSections(given(c.state as never))).toEqual(c.expected))
+  for (const c of fixture.selectors.switcherSections) test(c.name, () => expect(switcherSections(given(c.state as never))).toEqual(c.expected as ReturnType<typeof switcherSections>))
   for (const c of fixture.selectors.altTabOrder) test(c.name, () => expect(altTabOrder(given(c.state))).toEqual(c.expected))
   for (const c of fixture.selectors.startMenuApps) {
     const args = (c as { args?: { apps?: StartMenuApp[]; favourites?: string[] } }).args ?? {}
@@ -70,12 +70,12 @@ describe(`shell.json selectors`, () => {
   }
   for (const c of fixture.selectors.startMenuIssues) {
     const args = (c as { args?: { issues?: StartMenuIssue[] } }).args ?? {}
-    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected))
+    test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected as ReturnType<typeof startMenuIssues>))
   }
 })
 
 describe(`shell.json chats (#EDE-65)`, () => {
-  for (const c of fixture.chats) test(c.name, () => expect(chatRows(c.chats as ChatInput[])).toEqual(c.expected as ReturnType<typeof chatRows>))
+  for (const c of fixture.chats) test(c.name, () => expect(chatRows(c.chats as RailChatInput[])).toEqual(c.expected as ReturnType<typeof chatRows>))
 
   test(`the state has no rail and no folded sections`, () => {
     expect(Object.keys(fixture.initial)).not.toContain(`rail`)
