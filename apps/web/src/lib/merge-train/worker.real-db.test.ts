@@ -409,24 +409,26 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(b)).state).toBe(`merged`)
   })
 
-  it(`the third bounce holds the PR (Needs you), never another conflict`, async () => {
+  it(`a new push resets the bounces: an agent rebasing against a busy master is never held for it (#EXP-1711)`, async () => {
     const w = await world()
     const a = await w.pr(401)
     await w.idle()
     fake.judge = () => ({ conflicts: [401] })
-    for (let bounce = 1; bounce <= 3; bounce++) {
+    for (let bounce = 1; bounce <= 4; bounce++) {
+      if (bounce > 1) fake.prs.get(401)!.headSha = `head-401-${bounce}`
       await pass(w.repoId, 2)
-      fake.prs.get(401)!.headSha = `head-401-${bounce}`
+      expect(await prRow(a)).toMatchObject({ mergeState: `conflict`, mergeAttempts: 1 })
     }
-    const row = await prRow(a)
-    expect([row.mergeState, row.mergeHold, row.mergeAttempts]).toEqual([`held`, `bounces`, 3])
+    expect(fake.dispatches).toHaveLength(4)
     expect((await lines(w.children[401]!)).map((l) => (l.card as { mergeOutcome?: string }).mergeOutcome)).toEqual([
       `conflict`,
       `conflict`,
-      `held`,
+      `conflict`,
+      `conflict`,
     ])
+    // No push: the bounce stays (an abandoned PR is held by the 24 h clock).
     await pass(w.repoId, 2)
-    expect(fake.dispatches).toHaveLength(3)
+    expect(fake.dispatches).toHaveLength(4)
   })
 
   it(`a moved base recomposes; a stack lands as one unit, bottom first`, async () => {
