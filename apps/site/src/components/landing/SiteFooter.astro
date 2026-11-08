@@ -1,44 +1,36 @@
 ---
-/* The site footer of the landing pages, product pages and the blog: the
-   links the header has no room for, the SDK and the legal pages. */
-import { LIBRARIES } from "../../lib/libraries.ts"
+/* The site footer of every page: the logo and the social marks, one column
+   per group of landing/nav.ts, then the legal bar. */
+import { Icon } from "@astrojs/starlight/components"
+import { FOOTER } from "./nav.ts"
 import { LINKS } from "./links.ts"
-
-const GROUPS = [
-  [
-    { label: `Pricing`, href: `/pricing/` },
-    { label: `Download`, href: `/download/` },
-    { label: `Exponential Desktop`, href: `/desktop/` },
-    { label: `Docs`, href: `/docs/` },
-    { label: `Blog`, href: `/blog/` },
-    { label: `Self-host`, href: `/docs/get-started/self-host/` },
-  ],
-  [...LIBRARIES.map((lib) => ({ label: lib.name, href: lib.product })), { label: `Apps`, href: `/sdk/apps/` }],
-  [
-    { label: `GitHub`, href: LINKS.github.repo },
-    { label: `Contact`, href: `/contact/` },
-    { label: `Privacy`, href: `/privacy/` },
-    { label: `Terms`, href: `/terms/` },
-    { label: `Imprint`, href: `/imprint/` },
-  ],
-]
 ---
 
 <footer class="exp-site-footer not-content">
-  <nav aria-label="Footer">
-    {
-      GROUPS.map((links) => (
-        <ul>
-          {links.map((link) => (
-            <li>
-              <a href={link.href}>{link.label}</a>
-            </li>
-          ))}
-        </ul>
-      ))
-    }
-  </nav>
-  <p>
-    © 2026 Exponential · <a href={LINKS.github.license}>Apache-2.0</a>
-  </p>
+  <div class="exp-site-footer-top">
+    <div class="exp-site-footer-brand">
+      <a class="exp-site-footer-logo" href="/"><img src="/logo-light.svg" alt="" width="24" height="24" />Exponential</a>
+      <a class="exp-site-footer-social" href={LINKS.github.repo} aria-label="GitHub"><Icon name="github" size="1.25rem" /></a>
+    </div>
+    <nav aria-label="Footer">
+      {
+        FOOTER.map((group) => (
+          <div>
+            <h2>{group.title}</h2>
+            <ul>
+              {group.items.map((link) => (
+                <li>
+                  <a href={link.href}>{link.label}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </nav>
+  </div>
+  <div class="exp-site-footer-legal">
+    <p>© 2026 Exponential · <a href={LINKS.github.license}>Apache-2.0</a></p>
+    <p><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></p>
+  </div>
 </footer>

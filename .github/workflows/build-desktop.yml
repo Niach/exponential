@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - run: bun run --filter @exp/domain-contract generate
       - run: bun run --filter @exp/design-tokens generate
