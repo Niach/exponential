@@ -140,7 +140,7 @@ object PlanCard {
 
     /** The card an answer is checked against. */
     sealed interface Card {
-        data class Plan(val questions: List<SessionTree.ThreadRow.PlanQuestion>) : Card
+        data class Plan(val questions: List<SessionTree.SessionChatRow.PlanQuestion>) : Card
         data class Question(val options: List<String>, val multi: Boolean, val custom: Boolean) : Card
     }
 
@@ -212,7 +212,7 @@ object PlanCard {
     fun optionRows(attachmentIds: kotlin.collections.List<String?>): OptionRows =
         if (attachmentIds.any { !it.isNullOrEmpty() }) OptionRows.Tiles else OptionRows.List
 
-    fun optionRows(options: Iterable<SessionTree.ThreadRow.QuestionChoice>): OptionRows =
+    fun optionRows(options: Iterable<SessionTree.SessionChatRow.QuestionChoice>): OptionRows =
         optionRows(options.map { it.attachmentId })
 
     /** The question card's compat `answer` string for a list of picks. */

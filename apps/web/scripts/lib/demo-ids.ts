@@ -25,10 +25,10 @@ import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_AGENT_ID,
   DEMO_DEVICE_ID,
-  DEMO_DIFF_THREAD_ID,
-  DEMO_GUIDE_THREAD_ID,
+  DEMO_DIFF_CHAT_ID,
+  DEMO_GUIDE_CHAT_ID,
   DEMO_SESSION_ID,
-  DEMO_THREAD_ID,
+  DEMO_CHAT_ID,
   DEMO_WIDGET_ISSUE_ID,
   EMPTY_BOARD_SLUG,
   TEAM_SLUG,
@@ -84,22 +84,22 @@ export interface DemoIds {
    * `EXP_DEV_SCREEN` can name them. Each is a presence check: absent = the
    * view skips rather than photographing a fallback screen.
    *
-   *   sessionId        DEMO_SESSION_ID: the cold-start thread's child session
+   *   sessionId        DEMO_SESSION_ID: the cold-start chat's child session
    *                    ("Profile the launch path"), the raw session view the
    *                    relay stub feeds (`session`, `steering`).
    *   steeredSessionId the same id under its pre-EXP-1293 name, which the
    *                    desktop lane's `$steeredSession` still reads.
-   *   threadId         DEMO_THREAD_ID: "Reduce cold start below 800 ms".
-   *   guideThreadId    DEMO_GUIDE_THREAD_ID: APP-15's thread with a Guide.
-   *   diffThreadId     DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top,
+   *   chatId         DEMO_CHAT_ID: "Reduce cold start below 800 ms".
+   *   guideChatId    DEMO_GUIDE_CHAT_ID: APP-15's chat with a Guide.
+   *   diffChatId     DEMO_DIFF_CHAT_ID: APP-14's chat (the stack top,
    *                    a real diff, the Results tab's history).
    *   agentId          DEMO_AGENT_ID: the Triage agent.
    */
   sessionId?: string
   steeredSessionId?: string
-  threadId?: string
-  guideThreadId?: string
-  diffThreadId?: string
+  chatId?: string
+  guideChatId?: string
+  diffChatId?: string
   agentId?: string
 }
 
@@ -150,7 +150,7 @@ export async function resolveDemoIds(): Promise<DemoIds> {
   }
 
   // The widget-filed issue behind the reporter page: its id is PINNED by the
-  // seed, so this is a presence check (an older seed planted helpdesk threads
+  // seed, so this is a presence check (an older seed planted helpdesk conversations
   // instead — reported as absent so the view skips rather than photographing
   // the "conversation moved" card under its name).
   const [widgetIssue] = await db
@@ -193,7 +193,7 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(
       and(
         eq(sessions.teamId, team.id),
-        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID, DEMO_DIFF_THREAD_ID])
+        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_CHAT_ID, DEMO_GUIDE_CHAT_ID, DEMO_DIFF_CHAT_ID])
       )
     )
   // NEW-2: the demo agent is an `agents` row.
@@ -223,9 +223,9 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     deviceId: device?.id,
     sessionId: ifPresent(DEMO_SESSION_ID),
     steeredSessionId: ifPresent(DEMO_SESSION_ID),
-    threadId: ifPresent(DEMO_THREAD_ID),
-    guideThreadId: ifPresent(DEMO_GUIDE_THREAD_ID),
-    diffThreadId: ifPresent(DEMO_DIFF_THREAD_ID),
+    chatId: ifPresent(DEMO_CHAT_ID),
+    guideChatId: ifPresent(DEMO_GUIDE_CHAT_ID),
+    diffChatId: ifPresent(DEMO_DIFF_CHAT_ID),
     agentId: ifPresent(DEMO_AGENT_ID),
   }
 }

@@ -1,7 +1,7 @@
 package com.exponential.app.domain
 
 /**
- * EXP-1291 Threads v2: Team settings → Agents — the Android mirror of
+ * EXP-1291: Team settings → Agents — the Android mirror of
  * `packages/domain-contract/src/agent-settings.ts` (desktop
  * `domain::agent_settings`, iOS `AgentSettings.swift`). Pure and byte-locked
  * by `fixtures/agent-settings.json` (`summaryCases`, `validationCases`),

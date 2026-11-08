@@ -27,7 +27,7 @@
 //! - the end sequence, in EXACTLY this order (D14, EXP-283): drop the
 //!   [`KillFeed`](crate::KillFeed) (which unwatches) →
 //!   `publisher.shutdown(Some(outcome))` → flush the outbox (the last turn's
-//!   reply lands BEFORE the row ends) → the row's last status: a thread
+//!   reply lands BEFORE the row ends) → the row's last status: a chat
 //!   session `coding::end_session(&trpc, &sid)` (observer-based, so the
 //!   CLI's `registry::end_outcome_resolves` still applies), an agent root
 //!   or a [`SUSPEND_OUTCOME`] exit `report{status: idle, busy: false}`
@@ -360,7 +360,7 @@ impl Attached {
         // EXP-1252: a RELEASED run writes nothing to the row (it names
         // another device now, or is about to).
         let released = outcome == RELEASED_OUTCOME;
-        // 5. The row's last status. A thread session ends, through the
+        // 5. The row's last status. A chat session ends, through the
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
         //    message or trigger firing wakes the SAME row).
@@ -577,7 +577,7 @@ pub(crate) fn suspend_cuts_turn(outcome: Option<&str>, busy_at_shutdown: bool) -
     busy_at_shutdown && outcome == Some(SUSPEND_OUTCOME)
 }
 
-/// Does this exit END the row? A thread session's does, unless the host
+/// Does this exit END the row? A chat session's does, unless the host
 /// only suspended it; a PERSISTENT session's (`domain::session_kind`, an
 /// agent root) never does.
 fn ends_row(persistent: bool, outcome: &str) -> bool {
@@ -1502,10 +1502,10 @@ mod tests {
         assert!(!crate::stop_save::stopped_by_person(RELEASED_OUTCOME));
     }
 
-    /// EXP-1292: only a thread session's real exit ends its row; an agent
+    /// EXP-1292: only a chat session's real exit ends its row; an agent
     /// root and a suspended (account-switched) session idle it.
     #[test]
-    fn only_a_threads_real_exit_ends_its_row() {
+    fn only_a_chats_real_exit_ends_its_row() {
         assert!(ends_row(false, "ended"));
         assert!(ends_row(false, "killed"));
         assert!(!ends_row(false, SUSPEND_OUTCOME));

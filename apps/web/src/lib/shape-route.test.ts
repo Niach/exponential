@@ -808,7 +808,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `assignee_agent_id`,
       `label_ids`,
       `due_date`,
-      // EXP-1291: the thread a "New issue in this thread" draft files into.
+      // EXP-1291: the chat a "New issue in this chat" draft files into.
       `session_id`,
       `created_at`,
       `updated_at`,

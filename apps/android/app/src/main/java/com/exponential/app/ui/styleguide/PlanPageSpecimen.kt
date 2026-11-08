@@ -26,14 +26,14 @@ import com.exponential.app.ui.plan.PlanPageContent
 import com.exponential.app.ui.plan.PlanPageState
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.thread.PLAN_TAB_KEY
-import com.exponential.app.ui.thread.ThreadTabStrip
+import com.exponential.app.ui.chat.PLAN_TAB_KEY
+import com.exponential.app.ui.chat.ChatTabStrip
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 // #EXP-1493 → #EXP-1662 THE styleguide specimen ×4 (`plan-page`, plan-page.json
-// `specimen`): this card, waiting, drawn phone (the thread's title + strip, the
+// `specimen`): this card, waiting, drawn phone (the chat's title + strip, the
 // document from its top, the questions floating at the foot; pictures = the
 // committed samples, EXP-1654 `SpecimenSamples`). Web
 // `PlanPageSpecimen`, iOS ChatSpecimens `plan-page`, desktop plan_page.rs.
@@ -59,10 +59,10 @@ internal fun planPageSpecimenState(card: JsonObject = PlanPageSpecimenCard): Pla
         createdAt = "2027-01-15T08:00:00.000Z",
         authorSessionId = "apps",
     )
-    return PlanPageState(row = SessionTree.askRow(message) as SessionTree.ThreadRow.Plan, card = card)
+    return PlanPageState(row = SessionTree.askRow(message) as SessionTree.SessionChatRow.Plan, card = card)
 }
 
-/** `plan-page`: THE plan tab, phone, over the specimen card: the thread's title
+/** `plan-page`: THE plan tab, phone, over the specimen card: the chat's title
  *  and strip (Conversation · Plan with its dot · Results), the body under them. */
 @Composable
 fun PlanPageSpecimenScreen() {
@@ -78,8 +78,8 @@ fun PlanPageSpecimenScreen() {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
                 )
-                ThreadTabStrip(
-                    tabs = listOf(SessionTree.ThreadTab.Conversation, SessionTree.ThreadTab.Plan, SessionTree.ThreadTab.Results),
+                ChatTabStrip(
+                    tabs = listOf(SessionTree.ChatTab.Conversation, SessionTree.ChatTab.Plan, SessionTree.ChatTab.Results),
                     selectedKey = PLAN_TAB_KEY,
                     onSelect = {},
                     onAdd = null,

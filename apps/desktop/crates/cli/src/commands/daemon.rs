@@ -611,7 +611,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // ([`coding::finish_session_worktree`]): removed, its unpushed work
         // parked on `origin/exp/leftover-<id8>` and named in the session's
         // conversation. The git + push run on a side thread, never the loop.
-        // EXP-764: a finished repo-LESS thread has no worktree to judge — it
+        // EXP-764: a finished repo-LESS chat has no worktree to judge — it
         // is purged whole: scratch dir, claude trust entries, run record and
         // steer journal. A team agent's is kept (EXP-1292: it only idles).
         {
@@ -1503,7 +1503,7 @@ fn sweep_scratch_dirs_now(ctx: &Ctx) {
 /// EXP-229 parity, EXP-1292 semantics: the sessions a previous process of
 /// this install left behind are never `ended` — the SAME row resumes from
 /// its run record (a crash, a suspend whose idle report failed; a team agent
-/// always idles). Only a thread whose final `ended` report never resolved
+/// always idles). Only a chat whose final `ended` report never resolved
 /// (its run record says so) gets that END again.
 ///
 /// NEW-5: with `reclaim` (the daemon syncs its shapes) the rest is returned
@@ -3988,7 +3988,7 @@ mod tests {
         assert_eq!(pending, Some(second));
     }
 
-    fn thread_record(cwd: &Path, session_id: &str) -> coding::run_registry::RunRecord {
+    fn chat_record(cwd: &Path, session_id: &str) -> coding::run_registry::RunRecord {
         coding::run_registry::RunRecord {
             session_id: session_id.to_string(),
             account_id: "acct-1".to_string(),
@@ -4029,7 +4029,7 @@ mod tests {
         let cwd = dir.join("worktree");
         std::fs::create_dir_all(&cwd).expect("temp worktree");
         let with_account = |session_id: &str, account: Option<&str>| {
-            let mut record = thread_record(&cwd, session_id);
+            let mut record = chat_record(&cwd, session_id);
             record.set_account(account);
             record
         };
@@ -4101,7 +4101,7 @@ mod tests {
         assert_eq!(pending, vec!["s-person", "s-reported"]);
     }
 
-    /// The branch and label follow the thread's link order — `sort_order`
+    /// The branch and label follow the chat's link order — `sort_order`
     /// as a number, never as text; other roots' links never leak in.
     #[test]
     fn a_roots_issues_come_in_link_order() {

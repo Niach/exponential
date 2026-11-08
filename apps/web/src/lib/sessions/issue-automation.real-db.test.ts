@@ -20,11 +20,11 @@ import { probeRealDb } from "@/test/real-db"
 
 // EXP-1334/NEW-1: the status automation against the REAL migrated Postgres
 // — a WORKER (a session with a repository) taking an issue starts it, a PR
-// closes its session's share of the thread, a stacked PR's issues wait for
+// closes its session's share of the chat, a stacked PR's issues wait for
 // the stack's bottom to land, a parent issue waits for its linked
 // sub-issues, and the session side of issue-lifecycle.json (taken /
 // unlinked, no settle-back). The world's board carries the repository, so
-// its threads are workers. Each case builds a fresh team; the suite deletes
+// its chats are workers. Each case builds a fresh team; the suite deletes
 // every team (and user) it made (cascade).
 
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
@@ -85,7 +85,7 @@ async function world() {
     .insert(repositories)
     .values({ teamId, fullName, defaultBranch: `main` })
     .returning({ id: repositories.id })
-  // The board's repository makes a thread on its issues a WORKER.
+  // The board's repository makes a chat on its issues a WORKER.
   const [board] = await db
     .insert(boards)
     .values({ teamId, name: `Core`, slug: `core-${id8()}`, prefix: `AU`, repositoryId: repo!.id })
@@ -113,7 +113,7 @@ async function world() {
         .leftJoin(issueStatuses, eq(issueStatuses.id, issues.statusId))
         .where(eq(issues.id, issueId))
     )[0]!
-  const thread = async (issueIds: string[], text = `go`) =>
+  const worker = async (issueIds: string[], text = `go`) =>
     (await sendSession({ userId: owner, input: { teamId, deviceId, issueIds, text } })).sessionId
   let prNumber = 0
   const openPr = async (opts: { rootId: string; sessionId?: string; head: string; base?: string; issueIds: string[] }) => {
@@ -138,7 +138,7 @@ async function world() {
   /** A root with no repository (no issues named at the start): no worker. */
   const chat = async (text = `chat`) =>
     (await sendSession({ userId: owner, input: { teamId, deviceId, text } })).sessionId
-  return { owner, teamId, deviceId, repoId: repo!.id, issue, parentOf, status, thread, chat, openPr }
+  return { owner, teamId, deviceId, repoId: repo!.id, issue, parentOf, status, worker, chat, openPr }
 }
 
 afterAll(async () => {
@@ -159,8 +159,8 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const idle = await w.issue(`Chatted about`)
     await db.update(issues).set({ status: `in_review` }).where(eq(issues.id, reviewing.id))
 
-    // The quiet start link takes it: the thread is a worker (the board's repo).
-    const rootId = await w.thread([fresh.id])
+    // The quiet start link takes it: the chat is a worker (the board's repo).
+    const rootId = await w.worker([fresh.id])
     expect((await db.select().from(sessions).where(eq(sessions.id, rootId)))[0]!.repositoryId).toBe(w.repoId)
     expect(await w.status(fresh.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
     const [event] = await db
@@ -192,7 +192,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
   it(`a worker filing an issue holds it without taking it; a later link or a person's message takes it`, async () => {
     const w = await world()
     const named = await w.issue(`Named in the brief`)
-    const rootId = await w.thread([named.id])
+    const rootId = await w.worker([named.id])
     expect(await w.status(named.id)).toMatchObject({ status: `in_progress` })
     // The worker FILES an issue (issues create with its session): the row
     // lands on it, nothing moves (issue-lifecycle.json `filed`: the N-10
@@ -227,28 +227,28 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(await w.status(reviewed.id)).toMatchObject({ status: `in_review` })
   })
 
-  it(`NEW-48: the PR the issue's holder opened ranks as assigned, the thread-level PR does not`, async () => {
+  it(`NEW-48: the PR the issue's holder opened ranks as assigned, the chat-level PR does not`, async () => {
     const w = await world()
     const named = await w.issue(`Held by the child`)
     const other = await w.issue(`The root's`)
-    const rootId = await w.thread([named.id, other.id])
+    const rootId = await w.worker([named.id, other.id])
     const child = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: `take it` } })).sessionId
     await db.transaction((tx) =>
       forwardIssues(tx, { sessionId: child, issueIds: [named.id], source: `user`, addedBy: w.owner, addedBySessionId: null })
     )
     const own = await w.openPr({ rootId, sessionId: child, head: `exp/child`, issueIds: [named.id] })
-    const thread = await w.openPr({ rootId, head: `exp/root`, issueIds: [named.id, other.id] })
+    const chat = await w.openPr({ rootId, head: `exp/root`, issueIds: [named.id, other.id] })
     const ranked = await livePullRequestsForIssue(named.id)
     expect(ranked.find((c) => c.pr.id === own.id)).toMatchObject({ assigned: true, linkedIssues: 1 })
-    expect(ranked.find((c) => c.pr.id === thread.id)).toMatchObject({ assigned: false, linkedIssues: 2 })
+    expect(ranked.find((c) => c.pr.id === chat.id)).toMatchObject({ assigned: false, linkedIssues: 2 })
   })
 
-  it(`a PR closes its session's share of the thread`, async () => {
+  it(`a PR closes its session's share of the chat`, async () => {
     const w = await world()
     const named = await w.issue(`Named in the brief`)
     const other = await w.issue(`Another child's`)
     const followUp = await w.issue(`Filed by the grandchild`)
-    const rootId = await w.thread([named.id, other.id])
+    const rootId = await w.worker([named.id, other.id])
     const a = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: `Fix #${named.identifier}` } }))
       .sessionId
     const a1 = (await sendSession({ userId: w.owner, input: { parentId: a, text: `follow up` } })).sessionId
@@ -261,7 +261,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     // a's share = its subtree's rows + what its start names.
     expect((await prDefaultIssueIds(db, { rootId, sessionId: a })).sort()).toEqual([named.id, followUp.id].sort())
     // EXP-1706: the root's own PR takes its rows nobody else holds, never
-    // the whole thread (the grandchild's row stays with the grandchild).
+    // the whole chat (the grandchild's row stays with the grandchild).
     expect((await prDefaultIssueIds(db, { rootId, sessionId: rootId })).sort()).toEqual(
       [named.id, other.id].sort()
     )
@@ -270,8 +270,8 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
   it(`#EXP-1402: a continuation's PR links what its ended predecessor was briefed on`, async () => {
     const w = await world()
     const named = await w.issue(`Named in the predecessor's brief`)
-    const other = await w.issue(`The thread's other`)
-    const rootId = await w.thread([named.id, other.id])
+    const other = await w.issue(`The chat's other`)
+    const rootId = await w.worker([named.id, other.id])
     const a = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: `implement #${named.identifier}` } }))
       .sessionId
     await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, a))
@@ -286,7 +286,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const w = await world()
     const bottomIssue = await w.issue(`Bottom`)
     const topIssue = await w.issue(`Top`)
-    const rootId = await w.thread([bottomIssue.id, topIssue.id])
+    const rootId = await w.worker([bottomIssue.id, topIssue.id])
     const bottom = await w.openPr({ rootId, head: `exp/bottom`, issueIds: [bottomIssue.id] })
     const top = await w.openPr({ rootId, head: `exp/top`, base: `exp/bottom`, issueIds: [topIssue.id] })
     expect(top.basePullRequestId).toBe(bottom.id)
@@ -311,7 +311,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const w = await world()
     const bottomIssue = await w.issue(`Bottom`)
     const topIssue = await w.issue(`Top`)
-    const rootId = await w.thread([bottomIssue.id, topIssue.id])
+    const rootId = await w.worker([bottomIssue.id, topIssue.id])
     const bottom = await w.openPr({ rootId, head: `exp/bottom`, issueIds: [bottomIssue.id] })
     const top = await w.openPr({ rootId, head: `exp/top`, base: `exp/bottom`, issueIds: [topIssue.id] })
     expect(top.basePullRequestId).toBe(bottom.id)
@@ -331,7 +331,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const bottomIssue = await w.issue(`Bottom`)
     const midIssue = await w.issue(`Mid`)
     const topIssue = await w.issue(`Top`)
-    const rootId = await w.thread([bottomIssue.id, midIssue.id, topIssue.id])
+    const rootId = await w.worker([bottomIssue.id, midIssue.id, topIssue.id])
     const bottom = await w.openPr({ rootId, head: `exp/bottom`, issueIds: [bottomIssue.id] })
     const mid = await w.openPr({ rootId, head: `exp/mid`, base: `exp/bottom`, issueIds: [midIssue.id] })
     const top = await w.openPr({ rootId, head: `exp/top`, base: `exp/mid`, issueIds: [topIssue.id] })
@@ -357,7 +357,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
       .select({ id: issueEvents.id })
       .from(issueEvents)
       .where(and(eq(issueEvents.issueId, midIssue.id), eq(issueEvents.type, `status_changed`)))
-    // started (the thread link), opened (its PR), merged (the correction).
+    // started (the chat link), opened (its PR), merged (the correction).
     expect(moves).toHaveLength(3)
   })
 
@@ -368,7 +368,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const stray = await w.issue(`Unlinked child`)
     await w.parentOf(parent.id, child.id)
     await w.parentOf(parent.id, stray.id)
-    const rootId = await w.thread([parent.id, child.id])
+    const rootId = await w.worker([parent.id, child.id])
     expect(await w.status(child.id)).toMatchObject({ status: `in_progress` })
 
     // The parent's PR opens while its sub-issues are not in review.
@@ -396,7 +396,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const w = await world()
     const kept = await w.issue(`Kept`)
     const dropped = await w.issue(`Dropped`)
-    const rootId = await w.thread([kept.id, dropped.id])
+    const rootId = await w.worker([kept.id, dropped.id])
     const pr = await w.openPr({ rootId, head: `exp/two`, issueIds: [kept.id, dropped.id] })
     // `pr unlink` (unlinkPullRequestIssue) flips the row, never deletes it.
     await db
@@ -419,7 +419,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
   it(`naming a reference in issueIds makes it closing again (EXP-1706)`, async () => {
     const w = await world()
     const issue = await w.issue(`Revived`)
-    const rootId = await w.thread([issue.id])
+    const rootId = await w.worker([issue.id])
     const pr = await w.openPr({ rootId, head: `exp/revive`, issueIds: [issue.id] })
     await db.update(pullRequestIssues).set({ closes: false }).where(eq(pullRequestIssues.pullRequestId, pr.id))
     await recordPullRequestOpened({
@@ -446,7 +446,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const parent = await w.issue(`Parent`)
     const child = await w.issue(`Child`)
     await w.parentOf(parent.id, child.id)
-    const rootId = await w.thread([parent.id, child.id])
+    const rootId = await w.worker([parent.id, child.id])
     const pr = await w.openPr({ rootId, head: `exp/both`, issueIds: [parent.id, child.id] })
     expect(await w.status(parent.id)).toMatchObject({ status: `in_review` })
     expect(await w.status(child.id)).toMatchObject({ status: `in_review` })
@@ -473,7 +473,7 @@ describe.skipIf(!ready.ok)(`NEW-1 issue lifecycle`, () => {
     endSession({ userId: w.owner, sessionId, summary: `done` })
   const reviewing = async (w: Awaited<ReturnType<typeof world>>) => {
     const issue = await w.issue(`Follow-up target`)
-    const rootId = await w.thread([issue.id])
+    const rootId = await w.worker([issue.id])
     const pr = await w.openPr({ rootId, head: `exp/${issue.identifier}`, issueIds: [issue.id] })
     expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
     return { issue, rootId, pr }
@@ -506,7 +506,7 @@ describe.skipIf(!ready.ok)(`NEW-1 issue lifecycle`, () => {
   it(`a person's message into the worker holding it retakes it; a session's message does not`, async () => {
     const w = await world()
     const { issue, rootId } = await reviewing(w)
-    const other = await w.chat(`a sibling thread`)
+    const other = await w.chat(`a sibling chat`)
     // Another session's message (its MCP key) is bus input: nothing moves.
     await sendSession({
       userId: w.owner,
@@ -554,7 +554,7 @@ describe.skipIf(!ready.ok)(`NEW-1 issue lifecycle`, () => {
   it(`unlinking from the last live worker with no live PR sends it back to backlog`, async () => {
     const w = await world()
     const issue = await w.issue(`Dropped`)
-    const rootId = await w.thread([issue.id])
+    const rootId = await w.worker([issue.id])
     const a = await child(w, rootId, { issueIds: [issue.id] })
     expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
     const unlink = (sessionId: string) =>
@@ -569,7 +569,7 @@ describe.skipIf(!ready.ok)(`NEW-1 issue lifecycle`, () => {
 
     // With a live PR it stays: in progress (retaken after the PR opened).
     const kept = await w.issue(`Kept`)
-    const keptRoot = await w.thread([kept.id])
+    const keptRoot = await w.worker([kept.id])
     await w.openPr({ rootId: keptRoot, head: `exp/${kept.identifier}`, issueIds: [kept.id] })
     await sendSession({ userId: w.owner, input: { sessionId: keptRoot, text: `fix the review` } })
     expect(await w.status(kept.id)).toMatchObject({ status: `in_progress` })
@@ -578,7 +578,7 @@ describe.skipIf(!ready.ok)(`NEW-1 issue lifecycle`, () => {
 
     // An ended worker no longer counts as holding it.
     const last = await w.issue(`Last`)
-    const lastRoot = await w.thread([last.id])
+    const lastRoot = await w.worker([last.id])
     const lastChild = await child(w, lastRoot, { issueIds: [last.id] })
     await end(w, lastChild)
     await db.transaction((tx) => unlinkIssue(tx, { sessionId: lastRoot, issueId: last.id, removedBy: w.owner }))

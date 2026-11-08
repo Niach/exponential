@@ -344,11 +344,16 @@ import com.exponential.app.ui.components.DockAutoOpen
 import com.exponential.app.ui.components.DockCards
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetScope
-import com.exponential.app.ui.thread.PlanAskCard
-import com.exponential.app.ui.thread.SurfaceCard
-import com.exponential.app.ui.thread.ThreadAnswer
-import com.exponential.app.ui.thread.ThreadAskCard
-import com.exponential.app.ui.thread.ThreadPlanDecision
+import com.exponential.app.ui.chat.PlanAskCard
+import com.exponential.app.domain.TranscriptGrouping
+import com.exponential.app.ui.chat.MessageBubble
+import com.exponential.app.ui.chat.SenderAvatar
+import com.exponential.app.ui.chat.TranscriptBubbleRow
+import com.exponential.app.ui.chat.authorLine
+import com.exponential.app.ui.chat.SurfaceCard
+import com.exponential.app.ui.chat.ChatAnswer
+import com.exponential.app.ui.chat.ChatAskCard
+import com.exponential.app.ui.chat.ChatPlanDecision
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -451,7 +456,7 @@ fun RunFace(
      *  `sessions_guide` card's `Open Guide` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
     /** S-3: the feed's `Started by` / `Reported to` link pushes that session
-     *  ([root] = open it as its thread); null = no origin line. */
+     *  ([root] = open it as its chat); null = no origin line. */
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
@@ -469,8 +474,8 @@ fun RunFace(
 /**
  * EXP-1291: the RAW SESSION VIEW (`session/{sessionId}`) — ONE session's live
  * transcript, streamed from the device over eNet (VAPP-43), opened from its card
- * in the thread. Header ([SessionHeaderBar]): back · a back row named after
- * the THREAD (→ [onOpenThread], its root) over the session's own name with
+ * in the chat. Header ([SessionHeaderBar]): back · a back row named after
+ * the CHAT (→ [onOpenChat], its root) over the session's own name with
  * its state mark · Stop while it is live and the viewer may stop it (shared
  * or own). No face toggle, no Show work, no device caption. The bottom is THE
  * session composer: a message = `sessions.send({sessionId})` — it resumes an
@@ -481,8 +486,8 @@ fun AgentSessionScreen(
     sessionId: String,
     onBack: () -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    /** The session's thread (its ROOT), `thread/{rootId}`. */
-    onOpenThread: (rootSessionId: String) -> Unit,
+    /** The session's chat (its ROOT), `chat/{rootId}`. */
+    onOpenChat: (rootSessionId: String) -> Unit,
     /** S-3: an inter-session link to a non-root session (its view, pushed). */
     onOpenSession: (sessionId: String) -> Unit = {},
 ) {
@@ -498,12 +503,12 @@ fun AgentSessionScreen(
         containerColor = Color.Transparent,
         topBar = {
             SessionHeaderBar(
-                threadTitle = header?.threadTitle,
+                chatTitle = header?.chatTitle,
                 sessionName = header?.sessionName ?: row?.title?.takeIf { it.isNotBlank() } ?: "",
                 agent = row?.cli,
                 state = row?.let { SessionTree.sessionState(SessionTree.session(it)) },
                 onBack = onBack,
-                onOpenThread = rootId?.let { id -> { onOpenThread(id) } },
+                onOpenChat = rootId?.let { id -> { onOpenChat(id) } },
             )
         },
     ) { padding ->
@@ -514,19 +519,19 @@ fun AgentSessionScreen(
             padding = padding,
             onOpenIssue = onOpenIssue,
             trailingBarSlot = null,
-            onOpenOrigin = { id, root -> if (root) onOpenThread(id) else onOpenSession(id) },
+            onOpenOrigin = { id, root -> if (root) onOpenChat(id) else onOpenSession(id) },
         )
         }
     }
 }
 
 /**
- * EXP-1343: a session chip's page in its THREAD — the raw session view's body
+ * EXP-1343: a session chip's page in its CHAT — the raw session view's body
  * ([RunFace]: the session's raw work + THE session composer) without its own
- * [SessionHeaderBar]: the thread's ONE header (the strip) stays on top.
- * The view model lives in the page's own store (the thread pager's
+ * [SessionHeaderBar]: the chat's ONE header (the strip) stays on top.
+ * The view model lives in the page's own store (the chat pager's
  * `PageViewModelStore`), so only the shown page holds the live session.
- * [onOpenIssue] = the THREAD's handler (EXP-1347: a linked issue opens its tab).
+ * [onOpenIssue] = the CHAT's handler (EXP-1347: a linked issue opens its tab).
  */
 @Composable
 fun SessionPage(
@@ -551,30 +556,30 @@ fun SessionPage(
 /**
  * EXP-1291: the raw session view's header, stateless. The shared [com.exponential.app.ui.work.WorkTopBar]
  * (back · title; S-3: no Stop) whose title is two lines: the back row naming the
- * thread (`session-open-thread`, muted, a chevron) over the session's name
+ * chat (`session-open-chat`, muted, a chevron) over the session's name
  * with its [AgentRunMark] (the ×4 state on the agent's mark).
  */
 @Composable
 fun SessionHeaderBar(
-    threadTitle: String?,
+    chatTitle: String?,
     sessionName: String,
     agent: String?,
     state: SessionTree.SessionState?,
     onBack: () -> Unit,
-    /** Null hides the back row (no thread resolved yet). */
-    onOpenThread: (() -> Unit)?,
+    /** Null hides the back row (no chat resolved yet). */
+    onOpenChat: (() -> Unit)?,
 ) {
     com.exponential.app.ui.work.WorkTopBar(
         title = sessionName,
         titleContent = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (onOpenThread != null && !threadTitle.isNullOrBlank()) {
+                if (onOpenChat != null && !chatTitle.isNullOrBlank()) {
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onOpenThread)
+                            .clickable(onClick = onOpenChat)
                             .padding(horizontal = 4.dp, vertical = 1.dp)
-                            .testTag("session-open-thread"),
+                            .testTag("session-open-chat"),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -585,7 +590,7 @@ fun SessionHeaderBar(
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
                         Text(
-                            threadTitle,
+                            chatTitle,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             maxLines = 1,
@@ -641,8 +646,10 @@ private fun RunFaceContent(
     val session by viewModel.session.collectAsStateWithLifecycle()
     // S-3: who started this session, the feed's first line.
     val origin by viewModel.origin.collectAsStateWithLifecycle()
-    // #VAPP-229: "via <app>" under the origin (null = no line).
+    // #VAPP-229: "via <app>" over the transcript (null = no line).
     val viaAppCaption by viewModel.viaAppCaption.collectAsStateWithLifecycle()
+    // #EXP-1736: this session's own name (its agent's bubbles wear it).
+    val sessionHeader by viewModel.header.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     // Whether the socket is actually up (EXP-621). The banners read the
     // PHASE — a silent redial must not flicker them — but the composer
@@ -687,6 +694,24 @@ private fun RunFaceContent(
     // EXP-920: the transcript's entity-preview sheets read the run's team
     // rows off the account DB (the viewer id scopes notifications).
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    // #EXP-1736 (transcript-grouping.json): the raw feed's senders.
+    val feedSenders = remember(session?.id, session?.title, session?.agentId, sessionHeader?.sessionName, origin, onOpenOrigin) {
+        session?.let { row ->
+            val link = origin
+            FeedSenders(
+                chat = TranscriptGrouping.Chat(
+                    sessionId = row.id,
+                    title = sessionHeader?.sessionName ?: row.title.orEmpty(),
+                    agentId = row.agentId?.takeIf { it.isNotEmpty() },
+                    originSessionId = null,
+                ),
+                origin = link?.xref,
+                onOpen = onOpenOrigin?.let { open ->
+                    { id: String -> open(id, link?.takeIf { it.xref.sessionId == id }?.root ?: false) }
+                },
+            )
+        }
+    }
     val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
         EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
     }
@@ -748,7 +773,7 @@ private fun RunFaceContent(
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
     // EXP-1323: opening a session view reads it (bold rows + the nav dot);
-    // news landing while it is open is read too, like the thread screen.
+    // news landing while it is open is read too, like the chat screen.
     val newestAgentMessage by viewModel.newestAgentMessageAt.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel.codingSessionId, newestAgentMessage) { viewModel.markRead() }
     // EXP-888: a sweep end is not an end — the composer stays live.
@@ -867,7 +892,7 @@ private fun RunFaceContent(
             (!everRendered && phase == AgentPhase.Live && latestDiff == null)
         )
     // Every answer is one semantic `answer` frame keyed by the card's wire
-    // id (EXP-249) — shared by the transcript and the thread (EXP-1175).
+    // id (EXP-249) — shared by the transcript and the chat (EXP-1175).
     val onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit = { question, keys, text ->
         // The picked labels (a typed free-text reply
         // wins over its row's "Type something"
@@ -892,7 +917,7 @@ private fun RunFaceContent(
     }
     // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
     // relay ask: THE rich card answers it through `sessions.answer`.
-    val answerToolCard: ThreadAnswer = { messageId, a, settled ->
+    val answerToolCard: ChatAnswer = { messageId, a, settled ->
         viewModel.answerCard(
             AnswerInput(
                 messageId = messageId,
@@ -904,7 +929,7 @@ private fun RunFaceContent(
             settled,
         )
     }
-    val decideToolPlan: ThreadPlanDecision = { messageId, d, settled ->
+    val decideToolPlan: ChatPlanDecision = { messageId, d, settled ->
         viewModel.answerCard(
             AnswerInput(
                 messageId = messageId,
@@ -1122,20 +1147,14 @@ private fun RunFaceContent(
                     // band's height clears the head.
                     bottomInset = bandClearance,
                     topInset = topInset,
+                    // #EXP-1736 (transcript-grouping.json): who sent each
+                    // row; the origin's prompt is that session's bubble.
+                    senders = feedSenders,
                     header = {
-                        val link = origin
                         val via = viaAppCaption
                         Column {
-                            if (onOpenOrigin != null && link != null) {
-                                com.exponential.app.ui.components.SessionXref(
-                                    link.xref,
-                                    onOpen = { id -> onOpenOrigin(id, link.root) },
-                                    // Web's `pt-3 pb-1`.
-                                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 4.dp),
-                                )
-                            }
                             // #VAPP-229 (via-app.json): one muted small line
-                            // under the origin; the thread header stays
+                            // over the transcript; the chat header stays
                             // caption-free.
                             if (via != null) {
                                 Text(
@@ -1154,7 +1173,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = { row ->
                         when (row) {
-                            is SessionTree.ThreadRow.Surface -> SurfaceCard(
+                            is SessionTree.SessionChatRow.Surface -> SurfaceCard(
                                 row = row,
                                 animate = false,
                                 onReply = { text -> viewModel.sendCommand(text) },
@@ -1162,7 +1181,7 @@ private fun RunFaceContent(
                             else -> androidx.compose.runtime.CompositionLocalProvider(
                                 LocalCardDismiss provides dismissToolCard,
                             ) {
-                                ThreadAskCard(row, answerToolCard, decideToolPlan)
+                                ChatAskCard(row, answerToolCard, decideToolPlan)
                             }
                         }
                     },
@@ -1176,14 +1195,14 @@ private fun RunFaceContent(
             bottomInset = bottomInset,
             // An expanded composer card is its own surface.
             visible = !composerExpanded,
-            // EXP-1256: the thread's bottom edge in the page's own ground.
+            // EXP-1256: the chat's bottom edge in the page's own ground.
             ground = true,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(bottom = bottomInset),
         ) {
-        // THE session composer (shared with the thread + the agent channel);
+        // THE session composer (shared with the chat + the agent channel);
         // the face hands it its banners and the strips around the menus.
         SessionComposer(
             viewModel = viewModel,
@@ -1198,7 +1217,7 @@ private fun RunFaceContent(
         }
     }
 
-    // ── The Usage overlay — THE sheet, shared with the thread's composer ring.
+    // ── The Usage overlay — THE sheet, shared with the chat's composer ring.
     SessionUsageSheet(
         viewModel = viewModel,
         open = usageSheetOpen,
@@ -1210,7 +1229,7 @@ private fun RunFaceContent(
  * THE Usage sheet (EXP-688/EXP-909) behind a session composer's ring and the
  * rate-limit wall's "Switch account": the run's account, its windows, the
  * context window and the other logins to switch to. The session view and the
- * thread / agent channel (the ROOT's view model) open the same one.
+ * chat / agent channel (the ROOT's view model) open the same one.
  */
 @Composable
 internal fun SessionUsageSheet(
@@ -1585,7 +1604,13 @@ private val TranscriptMaxWidth = DesignTokens.Transcript.MaxWidth.dp
  */
 @Composable
 private fun TranscriptRow(gap: TranscriptGap, content: @Composable () -> Unit) {
-    ReadingColumn(modifier = Modifier.padding(top = gap.dp), content = content)
+    TranscriptRow(gap.dp, content)
+}
+
+/** [TranscriptRow] with the gap in dp (#EXP-1736: two bubbles' group gap). */
+@Composable
+private fun TranscriptRow(gap: Dp, content: @Composable () -> Unit) {
+    ReadingColumn(modifier = Modifier.padding(top = gap), content = content)
 }
 
 /**
@@ -1681,7 +1706,9 @@ private fun ActivityFeed(
     docked: AgentFeedRow? = null,
     /** EXP-1398: the session's own cards, where each draws ([renderCard]). */
     sessionCards: SessionCardSlots = SessionCardSlots.None,
-    renderCard: @Composable (SessionTree.ThreadRow) -> Unit = {},
+    renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
+    /** #EXP-1736: who sent each row (null = no grouping: every row full). */
+    senders: FeedSenders? = null,
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1710,6 +1737,18 @@ private fun ActivityFeed(
     val rows = remember(feed, windowStart, workflowIds, docked) {
         splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
             .filterNot { docked != null && isSameAskRow(it, docked) }
+    }
+    // #EXP-1736 (transcript-grouping.json): the main stream's senders and
+    // groups; the EXP-787 ladder keeps the gaps except between two bubbles.
+    // ONE origin rule (data first): the feed's first prompt is the origin's
+    // while the window holds the feed's start (nothing earlier on the device).
+    val fromStart = windowStart == 0 && !onCanLoadEarlier()
+    val feedLayouts = remember(rows, sessionCards, senders, agent, fromStart, workflowIds) {
+        if (senders == null) {
+            emptyMap()
+        } else {
+            feedTranscriptLayout(rows, sessionCards, senders, agent, fromStart = fromStart, workflowIds = workflowIds)
+        }
     }
     // Cards whose tool row this window does not hold (see the tail items).
     val orphanWorkflows = remember(rows, workflows) {
@@ -1742,7 +1781,7 @@ private fun ActivityFeed(
     val answered = remember(answerStates) {
         answerStates.filterValues { it.locksCard() }.keys
     }
-    // EXP-1175: the card inputs, shared with the thread's pending cards.
+    // EXP-1175: the card inputs, shared with the chat's pending cards.
     // EXP-1521: one instance per input change, so the card rows can skip.
     val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp) {
         AnswerCards(
@@ -1885,17 +1924,32 @@ private fun ActivityFeed(
                     // edits fold into ONE edited-files card, exactly as they
                     // do in the main transcript.
                     val laneRows = projectLaneRows(focused.items, workflowIds)
+                    // #EXP-1736: the same grouping as the main stream, the
+                    // subagent as the chat's own sender.
+                    val laneLayouts = laneTranscriptLayout(laneRows, focused)
                     itemsIndexed(
                         laneRows,
                         key = { _, laneRow -> laneRow.id },
                         contentType = { _, laneRow -> laneRow.contentType },
                     ) { index, laneRow ->
+                        val laneLayout = laneLayouts[laneRow.id]
+                        val layout = laneLayout?.layout
                         // The same ladder as the main feed, over the rows a
-                        // subagent's conversation is made of.
+                        // subagent's conversation is made of; two bubbles in
+                        // a row take the group's gaps.
                         TranscriptRow(
-                            transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass),
+                            if (laneLayout?.groupGap == true) {
+                                layout?.gap?.dp ?: 0.dp
+                            } else {
+                                transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass).dp
+                            },
                         ) {
-                            LaneRow(laneRow, liveItemId = liveRowId, live = live)
+                            TranscriptBubbleRow(
+                                layout = layout?.copy(gap = 0),
+                                avatar = { layout?.sender?.let { SenderAvatar(it) } },
+                            ) {
+                                LaneRow(laneRow, liveItemId = liveRowId, live = live, author = layout.authorLine())
+                            }
                         }
                     }
                 }
@@ -1929,10 +1983,20 @@ private fun ActivityFeed(
             // EXP-1521: a contentType per row kind, so a scrolled-off slot is
             // reused by a row of the same shape instead of rebuilt.
             itemsIndexed(rows, key = { _, row -> row.id }, contentType = { _, row -> row.contentType }) { index, row ->
+                val feedLayout = feedLayouts[row.id]
+                val layout = feedLayout?.layout
                 Column {
                 TranscriptRow(
-                    transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass),
+                    if (feedLayout?.groupGap == true) {
+                        layout?.gap?.dp ?: 0.dp
+                    } else {
+                        transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass).dp
+                    },
                 ) {
+                    TranscriptBubbleRow(
+                        layout = layout?.copy(gap = 0),
+                        avatar = { layout?.sender?.let { SenderAvatar(it) } },
+                    ) {
                     when (row) {
                         is AgentFeedRow.ToolRun -> ToolGroupRow(
                             items = row.items,
@@ -1962,7 +2026,22 @@ private fun ActivityFeed(
                         is AgentFeedRow.QuestionStepper -> AnswerCardRow(row, cards)
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             // #VAPP-258: the live tail is the reply being written.
-                            is AgentFeedItem.Narration -> NarrationBubble(item.text, streaming = working && index == rows.lastIndex)
+                            is AgentFeedItem.Narration -> if (item.text.isNotBlank()) {
+                                MessageBubble(
+                                    own = false,
+                                    time = null,
+                                    author = layout.authorLine(),
+                                    testTag = "session-agent-narration",
+                                ) {
+                                    MarkdownView(
+                                        item.text,
+                                        softBreaksAsNewlines = true,
+                                        streaming = working && index == rows.lastIndex,
+                                    )
+                                }
+                            } else {
+                                Unit
+                            }
                             is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
                             // EXP-850 (S3): the `Workflow` call renders as its
                             // card — name, phases, agents, summary — and never
@@ -1995,17 +2074,32 @@ private fun ActivityFeed(
                             // a workflow's own duplicates render under its card.
                             is AgentFeedItem.DuplicateAgent -> DuplicateAgentRow(item)
                             is AgentFeedItem.UserMessage -> {
-                                // Thread 58cb32df (chats.json): a person's
+                                // Session 58cb32df (chats.json): a person's
                                 // `/new` or `/compact` line is the centred
                                 // divider pill, never a bubble.
                                 val divider = Chats.commandDivider(item.text)
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
                                     SlashCommands.commandFor(item.text, agent)
+                                val time = item.at?.let(::feedClock)
                                 when {
-                                    divider != null -> TranscriptDivider(divider, item.at?.let(::feedClock))
+                                    divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
-                                    else -> UserMessageBubble(item.text)
+                                    layout?.side == TranscriptGrouping.Side.Other -> {
+                                        // #EXP-1736: a parent's / child's message
+                                        // = that session's bubble (its body).
+                                        val link = layout?.sender?.link
+                                        val open = senders?.onOpen
+                                        val cross = TranscriptGrouping.crossSessionInput(item.text)
+                                            ?.takeIf { it.sessionId == link }
+                                        MessageBubble(
+                                            own = false,
+                                            time = time,
+                                            author = layout.authorLine(),
+                                            onClick = if (link != null && open != null) ({ open(link) }) else null,
+                                        ) { UserMessageBody(cross?.body ?: item.text) }
+                                    }
+                                    else -> MessageBubble(own = true, time = time) { UserMessageBody(item.text) }
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2037,6 +2131,7 @@ private fun ActivityFeed(
                             )
                             is AgentFeedItem.Question -> AnswerCardRow(row, cards)
                         }
+                    }
                     }
                 }
                 // EXP-1398: the session cards the row's calls posted.
@@ -2070,7 +2165,13 @@ private fun ActivityFeed(
                         transcriptGap(rows.lastOrNull()?.rowClass, AgentRowClass.Tool),
                     ) {
                         val turn = turnCaption()
+                        // #EXP-1736: the agent's work sits in its bubble column.
                         WorkingIndicatorRow(
+                            modifier = if (senders != null) {
+                                Modifier.padding(start = (TranscriptGrouping.Layout.AVATAR + TranscriptGrouping.Layout.AVATAR_GAP).dp)
+                            } else {
+                                Modifier
+                            },
                             startedAt = turn.startedAt,
                             tokens = turn.tokens,
                             writing = turn.writing,
@@ -2106,7 +2207,7 @@ private fun ActivityFeed(
         // (`HeaderEdgeChrome`), over every face alike. EXP-1175: the list
         // starts below the status row (and the tabs), so its own head dissolves.
         run {
-            // EXP-1256: the thread's edge in the page's own ground, no tint.
+            // EXP-1256: the chat's edge in the page's own ground, no tint.
             EdgeFade(
                 FadeEdge.Top,
                 modifier = Modifier
@@ -2120,17 +2221,185 @@ private fun ActivityFeed(
     }
 }
 
+/** #EXP-1736 (transcript-grouping.json): who the raw feed's senders are:
+ *  this session (its title, its agent), who started it (the S-3 origin, from
+ *  the synced rows) and how a cross-session bubble opens its session (null =
+ *  inert). */
+internal data class FeedSenders(
+    val chat: TranscriptGrouping.Chat,
+    val origin: SessionTree.SessionXref?,
+    val onOpen: ((sessionId: String) -> Unit)?,
+)
+
+/** A main-stream row's layout; [groupGap] = it and the row above it are
+ *  both bubbles (the group's gaps replace the EXP-787 ladder there). */
+internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val groupGap: Boolean)
+
+/** The raw feed's viewer: every typed prompt there is the viewer's own
+ *  turn (web `FEED_VIEWER`). */
+internal const val FEED_VIEWER = "feed-viewer"
+
+/**
+ * #EXP-1736: the raw feed's rows as transcript items: narration = the
+ * agent's message, a prompt = the viewer's own unless it parses as another
+ * session's input ([TranscriptGrouping.crossSessionInput]: that session's
+ * message; with [fromStart] the first one is the origin's: the fixture's
+ * ONE origin rule over [FeedSenders.origin]), thoughts / tool calls /
+ * edits / subagent lines = the agent's trace, every other row and every
+ * session card = full.
+ */
+internal fun feedTranscriptLayout(
+    rows: List<AgentFeedRow>,
+    cards: SessionCardSlots,
+    senders: FeedSenders,
+    agent: String?,
+    /** The rows begin at the feed's very first item (nothing earlier to load). */
+    fromStart: Boolean,
+    /** EXP-850 (S3): a `Workflow` call draws as its card (a full row). */
+    workflowIds: Set<String> = emptySet(),
+): Map<Long, FeedRowLayout> {
+    val sessions = LinkedHashMap<String, TranscriptGrouping.SessionRef>()
+    senders.origin?.let { sessions[it.sessionId] = TranscriptGrouping.SessionRef(it.sessionId, it.name, it.agentId) }
+    val items = ArrayList<TranscriptGrouping.Item>()
+    val bubbleIds = HashSet<String>()
+    cards.head.forEach { items += TranscriptGrouping.Item("card:${it.id}", TranscriptGrouping.ItemKind.Full) }
+    for (row in rows) {
+        val id = "row:${row.id}"
+        val item = when (row) {
+            is AgentFeedRow.ToolRun, is AgentFeedRow.Edits, is AgentFeedRow.ExpRun, is AgentFeedRow.SubagentRun ->
+                TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+            is AgentFeedRow.QuestionStepper -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+            is AgentFeedRow.Single -> when (val feedItem = row.item) {
+                is AgentFeedItem.Narration -> if (feedItem.text.isNotBlank()) {
+                    bubbleIds += id
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "agent")
+                } else {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                }
+                is AgentFeedItem.UserMessage -> if (
+                    Chats.commandDivider(feedItem.text) != null || SlashCommands.commandFor(feedItem.text, agent) != null
+                ) {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                } else {
+                    bubbleIds += id
+                    val cross = TranscriptGrouping.crossSessionInput(feedItem.text)
+                    if (cross != null) {
+                        sessions.getOrPut(cross.sessionId) {
+                            TranscriptGrouping.SessionRef(cross.sessionId, cross.name, null)
+                        }
+                    }
+                    TranscriptGrouping.Item(
+                        id,
+                        TranscriptGrouping.ItemKind.Message,
+                        authorKind = "user",
+                        authorId = FEED_VIEWER,
+                        authorSessionId = cross?.sessionId,
+                    )
+                }
+                is AgentFeedItem.Tool -> TranscriptGrouping.Item(
+                    id,
+                    if (feedItem.callId?.let { it in workflowIds } == true) TranscriptGrouping.ItemKind.Full else TranscriptGrouping.ItemKind.Trace,
+                )
+                is AgentFeedItem.Thought -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                is AgentFeedItem.Subagent -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+            }
+        }
+        items += item
+        cards.after(row).forEach { items += TranscriptGrouping.Item("card:${row.id}:${it.id}", TranscriptGrouping.ItemKind.Full) }
+    }
+    val layouts = TranscriptGrouping.transcriptLayout(
+        TranscriptGrouping.Input(
+            viewerId = FEED_VIEWER,
+            chat = senders.chat.copy(originSessionId = senders.origin?.sessionId, fromStart = fromStart),
+            sessions = sessions.values.toList(),
+            items = items,
+        ),
+    )
+    val out = HashMap<Long, FeedRowLayout>(rows.size)
+    var prev: String? = null
+    val byRow = rows.associateBy { "row:${it.id}" }
+    for (layout in layouts) {
+        val row = byRow[layout.id]
+        if (row != null) {
+            out[row.id] = FeedRowLayout(layout, groupGap = layout.id in bubbleIds && prev != null && prev in bubbleIds)
+        }
+        prev = layout.id
+    }
+    return out
+}
+
+/**
+ * #EXP-1736: a subagent's own tab as transcript items, the subagent as the
+ * chat's own sender (its label, the session avatar): its prose = its
+ * bubbles, the turns addressed to it = the viewer's own, its calls and
+ * thoughts its trace, anything else full. No origin: the tab is no
+ * conversation another session started.
+ */
+internal fun laneTranscriptLayout(
+    rows: List<AgentFeedRow>,
+    run: AgentFeedRow.SubagentRun,
+): Map<Long, FeedRowLayout> {
+    val bubbleIds = HashSet<String>()
+    val items = rows.map { row ->
+        val id = "row:${row.id}"
+        when (row) {
+            is AgentFeedRow.Edits, is AgentFeedRow.ExpRun, is AgentFeedRow.ToolRun ->
+                TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+            is AgentFeedRow.Single -> when (val feedItem = row.item) {
+                is AgentFeedItem.Narration -> if (feedItem.text.isNotBlank()) {
+                    bubbleIds += id
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "agent")
+                } else {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                }
+                is AgentFeedItem.UserMessage -> {
+                    bubbleIds += id
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "user", authorId = FEED_VIEWER)
+                }
+                is AgentFeedItem.Tool, is AgentFeedItem.Thought ->
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+            }
+            else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+        }
+    }
+    val layouts = TranscriptGrouping.transcriptLayout(
+        TranscriptGrouping.Input(
+            viewerId = FEED_VIEWER,
+            chat = TranscriptGrouping.Chat(
+                sessionId = "subagent:${run.subagentId}",
+                title = run.label,
+                agentId = null,
+                originSessionId = null,
+            ),
+            items = items,
+        ),
+    )
+    val out = HashMap<Long, FeedRowLayout>(rows.size)
+    var prev: String? = null
+    val byRow = rows.associateBy { "row:${it.id}" }
+    for (layout in layouts) {
+        val row = byRow[layout.id]
+        if (row != null) {
+            out[row.id] = FeedRowLayout(layout, groupGap = layout.id in bubbleIds && prev != null && prev in bubbleIds)
+        }
+        prev = layout.id
+    }
+    return out
+}
+
 /** EXP-1398: where the session's own cards draw in its transcript
  *  ([AskDock.anchorSessionCards]) and the rows they draw as. */
 internal class SessionCardSlots(
     private val anchors: AskDock.Anchors,
-    private val rows: Map<String, SessionTree.ThreadRow>,
+    private val rows: Map<String, SessionTree.SessionChatRow>,
 ) {
     /** The cards with no call in the feed, at the transcript's head. */
-    val head: List<SessionTree.ThreadRow> get() = anchors.unanchored.mapNotNull(rows::get)
+    val head: List<SessionTree.SessionChatRow> get() = anchors.unanchored.mapNotNull(rows::get)
 
     /** The cards a feed row's calls posted, oldest first. */
-    fun after(row: AgentFeedRow): List<SessionTree.ThreadRow> {
+    fun after(row: AgentFeedRow): List<SessionTree.SessionChatRow> {
         if (anchors.after.isEmpty()) return emptyList()
         val ids = when (row) {
             is AgentFeedRow.Single -> listOf(row.item.id)
@@ -2149,7 +2418,7 @@ internal class SessionCardSlots(
 
 /** One session card in the transcript, the block gap above it. */
 @Composable
-private fun SessionCardRow(row: SessionTree.ThreadRow, render: @Composable (SessionTree.ThreadRow) -> Unit) {
+private fun SessionCardRow(row: SessionTree.SessionChatRow, render: @Composable (SessionTree.SessionChatRow) -> Unit) {
     TranscriptRow(TranscriptGap.Block) {
         Box(Modifier.testTag("session-tool-card")) { render(row) }
     }
@@ -2157,7 +2426,7 @@ private fun SessionCardRow(row: SessionTree.ThreadRow, render: @Composable (Sess
 
 /**
  * EXP-1175: everything a plan/question card needs, held once so the
- * transcript and the thread draw the SAME cards from the same inputs.
+ * transcript and the chat draw the SAME cards from the same inputs.
  */
 private class AnswerCards(
     /** Lock keys of the steps whose answer is out (sent or acknowledged). */
@@ -2310,38 +2579,30 @@ private fun AgentTabChip(
     )
 }
 
-// Assistant prose — a small glyph + plain full-width selectable text. EXP-274
-// dropped the glass speech bubble: agent output is the feed's bulk, and the
-// bubble insets cost real width on a phone.
+// #EXP-1736: a subagent's prose in its own tab = THE message bubble on the
+// incoming side, under the subagent's avatar + name ([laneTranscriptLayout]),
+// like the main stream's prose.
 @Composable
 private fun NarrationBubble(
     text: String,
+    /** The bubble's name line (the group's first bubble only). */
+    author: String? = null,
     /** Inside a subagent group, where the surrounding rows keep their own
      *  compact rhythm — the feed's rows get theirs from the gap ladder
      *  (EXP-787), so a top-level bubble carries no outer padding. */
     nested: Boolean = false,
-    /** #VAPP-258: the reply still being written (`streaming: true`). */
-    streaming: Boolean = false,
 ) {
     // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
-    // EXP-1676: the run view's row on every form factor (web `NarrationBubble`).
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier)
-            .testTag("session-agent-narration"),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    MessageBubble(
+        own = false,
+        time = null,
+        author = author,
+        modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
+        testTag = "session-agent-narration",
     ) {
-        Icon(
-            ExpIcons.codingAssistant,
-            contentDescription = null,
-            modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        MarkdownView(text, softBreaksAsNewlines = true, streaming = streaming, modifier = Modifier.weight(1f))
+        MarkdownView(text, softBreaksAsNewlines = true)
     }
 }
 
@@ -2368,6 +2629,7 @@ private fun feedClock(at: Long): String =
  */
 @Composable
 private fun WorkingIndicatorRow(
+    modifier: Modifier = Modifier,
     startedAt: Long? = null,
     tokens: Long? = null,
     writing: WorkingWriting? = null,
@@ -2387,7 +2649,7 @@ private fun WorkingIndicatorRow(
         }
     }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2487,7 +2749,7 @@ internal fun rememberSessionTaskQueue(
  * the list with the remove glyphs) and the status banners (the lost
  * connection, the usage wall + Switch account,
  * compacting, the rate-limit window, starting) in the host's words. The
- * session view and the thread (its ROOT's view model) share it.
+ * session view and the chat (its ROOT's view model) share it.
  */
 @Stable
 internal class SessionDock(
@@ -2724,7 +2986,7 @@ internal fun SessionDockCards(
 }
 
 /**
- * EXP-1323: a thread's live tail — THE Queue (EXP-1324: the same block as the
+ * EXP-1323: a chat's live tail — THE Queue (EXP-1324: the same block as the
  * session view's transcript bottom) and its working status line (mid-turn,
  * nothing parked), both off [activity] = that session's relay state. Nothing
  * shows while neither has anything to say.
@@ -2742,7 +3004,7 @@ internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity
     )
     // N-12: THE Queue moved into THE Dock; the tail keeps the Working row.
     Column(
-        modifier = Modifier.fillMaxWidth().testTag("thread-live-tail"),
+        modifier = Modifier.fillMaxWidth().testTag("chat-live-tail"),
     ) {
         if (working) {
             WorkingIndicatorRow(
@@ -2990,61 +3252,53 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // hides them.
 @Composable
 private fun UserMessageBubble(text: String, nested: Boolean = false) {
-    var expanded by remember { mutableStateOf(false) }
+    // #EXP-1736: THE message bubble, the viewer's side; EXP-787: inside a
+    // subagent group the turn keeps the group's own rhythm.
+    MessageBubble(
+        own = true,
+        time = null,
+        modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
+    ) { UserMessageBody(text) }
+}
+
+/** A human turn's body inside its bubble: the prose (folded when long, its
+ *  `[Image #N]` markers as pills), the images, the file tiles. */
+@Composable
+private fun UserMessageBody(text: String) {
+    var expanded by remember(text) { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
     // Wave D: file lines peel off too — rendered as file tiles below.
     val hasFiles = parsed.files.isNotEmpty()
     val prose = if (hasImages || hasFiles) parsed.text else text
     val folds = remember(prose) { clampable(prose) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // EXP-787: the gap above a turn is the ladder's, except inside a
-            // subagent group, which keeps its own rhythm.
-            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
-        horizontalArrangement = Arrangement.End,
+    Column(
+        modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
     ) {
-        // EXP-1676: the transcript's person bubble ×4 (web `UserMessageBubble`
-        // variant transcript): right, max 70% of the column, no time.
-        Spacer(Modifier.fillMaxWidth(0.3f))
-        val bubbleShape = RoundedCornerShape(12.dp)
-        Column(
-            modifier = Modifier
-                .clip(bubbleShape)
-                .background(GlassTokens.RowFillActive, bubbleShape)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, bubbleShape)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Column(
-                modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
-            ) {
-                when {
-                    // Markers are only meaningful against embeds that exist —
-                    // an `[Image #2]` typed into an image-less message is
-                    // prose, and rendering it as a pill would promise a
-                    // preview there is nothing to preview.
-                    hasImages && parsed.markers.isNotEmpty() ->
-                        MarkerProse(parsed.text, count = parsed.attachmentIds.size)
-                    prose.isNotEmpty() ->
-                        MarkdownView(prose, softBreaksAsNewlines = true)
-                }
-            }
-            if (folds) {
-                ShowMoreToggle(expanded) { expanded = !expanded }
-            }
-            if (hasImages) {
-                MarkdownView(
-                    parsed.attachmentIds.joinToString("\n") {
-                        "![image](/api/attachments/$it)"
-                    },
-                    softBreaksAsNewlines = true,
-                )
-            }
-            if (hasFiles) {
-                SteerFileRows(parsed.files)
-            }
+        when {
+            // Markers are only meaningful against embeds that exist —
+            // an `[Image #2]` typed into an image-less message is
+            // prose, and rendering it as a pill would promise a
+            // preview there is nothing to preview.
+            hasImages && parsed.markers.isNotEmpty() ->
+                MarkerProse(parsed.text, count = parsed.attachmentIds.size)
+            prose.isNotEmpty() ->
+                MarkdownView(prose, softBreaksAsNewlines = true)
         }
+    }
+    if (folds) {
+        ShowMoreToggle(expanded) { expanded = !expanded }
+    }
+    if (hasImages) {
+        MarkdownView(
+            parsed.attachmentIds.joinToString("\n") {
+                "![image](/api/attachments/$it)"
+            },
+            softBreaksAsNewlines = true,
+        )
+    }
+    if (hasFiles) {
+        SteerFileRows(parsed.files)
     }
 }
 
@@ -3429,7 +3683,7 @@ private fun AnsweredAskCard(
 /** N-12: an AskCard drawn inside THE Dock's sheet: no glass, no header. */
 internal val LocalAskCardPlain = androidx.compose.runtime.staticCompositionLocalOf { false }
 
-/** #EXP-1464 (thread-row-action.json): the trailing slot of an [AskCard]'s
+/** #EXP-1464 (chat-row-action.json): the trailing slot of an [AskCard]'s
  *  label line (an expanded session row's `Open chat`); null = none. */
 internal val LocalAskCardTrailing = androidx.compose.runtime.compositionLocalOf<(@Composable () -> Unit)?> { null }
 
@@ -4214,11 +4468,18 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
  * never reach here.
  */
 @Composable
-private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, live: Boolean, nested: Boolean = false) {
+private fun LaneRow(
+    row: AgentFeedRow,
+    liveItemId: Long?,
+    live: Boolean,
+    nested: Boolean = false,
+    /** #EXP-1736: the bubble's name line ([laneTranscriptLayout]). */
+    author: String? = null,
+) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
-        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author)
         else -> Unit
     }
 }
@@ -4228,10 +4489,10 @@ private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, live: Boolean, nested:
 // renders nothing rather than breaking the feed. `live` = the RUN still
 // lives: an ended session's open reasoning never shimmers (main-site rule).
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false) {
+private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
-        is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
+        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, nested = nested)
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
@@ -4477,7 +4738,7 @@ private fun ExpToolPicture(attachmentId: String?) {
 /**
  * One published picture as the transcript's inline tile (EXP-1172) — fitted to
  * the width at the inline height, opening the full preview. Shared by a
- * settled `sessions_show` row and the thread's pictures (EXP-1175).
+ * settled `sessions_show` row and the chat's pictures (EXP-1175).
  */
 @Composable
 private fun InlineResultPicture(entry: SessionResultEntry, modifier: Modifier = Modifier) {
@@ -4745,8 +5006,8 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 // ── Steering input ───────────────────────────────────────────────────────────
 
 /**
- * THE session composer ×4 (dispatcher roots, thread 2eb4b1a1): one box for the
- * session view, the THREAD (fed by its ROOT session's view model, so the
+ * THE session composer ×4 (dispatcher roots, session 2eb4b1a1): one box for the
+ * session view, the CHAT (fed by its ROOT session's view model, so the
  * message rides `sessions.send({sessionId: root})`) and the agent channel —
  * the queue strip, the `/` menu (steerCommands ∪ agent commands) and the
  * `@`/`#`/`:` autocomplete above the card, and the card's footer: `+`, the
@@ -4766,7 +5027,7 @@ internal fun SessionComposer(
     placeholder: String = STEER_COMPOSER_PLACEHOLDER,
     capsuleTestTag: String = "steer-composer-capsule",
     onOpenUsage: (() -> Unit)? = null,
-    /** The queue strip above the card. The thread + agent channel pass false:
+    /** The queue strip above the card. The chat + agent channel pass false:
      *  their Conversation already renders queued rows with the Remove X
      *  (EXP-1317). */
     showQueue: Boolean = true,
@@ -5472,7 +5733,7 @@ internal fun SteerComposer(
     trailing: (@Composable () -> Unit)?,
     /** EXP-1191: the collapsed bar's Merge circle, right of the capsule. */
     merge: (@Composable () -> Unit)? = null,
-    /** The host's copy (the thread's `Reply…`, an agent channel's). */
+    /** The host's copy (the chat's `Reply…`, an agent channel's). */
     placeholder: String = STEER_COMPOSER_PLACEHOLDER,
     capsuleTestTag: String = "steer-composer-capsule",
 ) {
@@ -5481,7 +5742,7 @@ internal fun SteerComposer(
     // to come back (EXP-621), and the placeholder says so.
     val shownPlaceholder = if (live) placeholder else "$placeholder (reconnecting…)"
     // EXP-1316: the fold / expand / collapse-on-blur machinery is THE
-    // [FloatingComposer] the thread wears too; this keeps the steer card.
+    // [FloatingComposer] the chat wears too; this keeps the steer card.
     // EXP-893: the folded composer IS the Work screen's bar — the placeholder
     // capsule that opens the card, the host's circle on the right.
     FloatingComposer(

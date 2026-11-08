@@ -16,8 +16,8 @@ import type { StyleguideEntry } from "./types.ts"
 // its text, ONE `Changes · N files · +A −D ›` row (the files it names, by
 // path or rename source) and its tiles; the file no topic names lands in the
 // unnumbered `Other changes` band and `Show complete diff` closes the page.
-// EXP-1306: a thread's Guide speaks for ONE pull request (`guidePullRequest`,
-// session-thread.json ×4): in an open stack the `Stack` band + THE StackRail
+// EXP-1306: a chat's Guide speaks for ONE pull request (`guidePullRequest`,
+// session-chat.json ×4): in an open stack the `Stack` band + THE StackRail
 // lead it (that PR = the current wash), and THE white bottom Merge capsule
 // closes it (`Merge stack` on an open-stack member). No PR rows.
 
@@ -91,12 +91,12 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1154`,
   title: `Guide`,
-  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A thread's Guide speaks for ONE pull request (\`guidePullRequest\`: the newest open, else the newest merged; fixture \`session-thread.json\` ×4): when it sits in a linear open stack the \`Stack\` band + THE StackRail lead the Guide (top first, that PR = the current wash, down to its base branch; a row opens that PR's thread, a hovered row offers Merge through here), and THE white bottom Merge capsule closes the tab while it is open (\`Merge stack\` on an open-stack member). No pull-request rows: Close PR lives in the thread header's \`…\` (merge-train \`mergeMenuEntries\`, EXP-1307; no GitHub entry, only the agent opens PRs, EXP-1338). Its files (\`pullRequests.files\`) feed the Changes rows. The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). The Guide is the ROOT's (\`sessions.guide\`).`,
+  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A chat's Guide speaks for ONE pull request (\`guidePullRequest\`: the newest open, else the newest merged; fixture \`session-chat.json\` ×4): when it sits in a linear open stack the \`Stack\` band + THE StackRail lead the Guide (top first, that PR = the current wash, down to its base branch; a row opens that PR's chat, a hovered row offers Merge through here), and THE white bottom Merge capsule closes the tab while it is open (\`Merge stack\` on an open-stack member). No pull-request rows: Close PR lives in the chat header's \`…\` (merge-train \`mergeMenuEntries\`, EXP-1307; no GitHub entry, only the agent opens PRs, EXP-1338). Its files (\`pullRequests.files\`) feed the Changes rows. The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). The Guide is the ROOT's (\`sessions.guide\`).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadGuide: Stack card + GuideBody over SessionResultsView, ThreadGuideMerge, ThreadGuideMenu`,
-      file: `apps/web/src/components/thread/thread-guide.tsx`,
+      symbol: `ChatGuide: Stack card + GuideBody over SessionResultsView, ChatGuideMerge, ChatGuideMenu`,
+      file: `apps/web/src/components/chat/chat-guide.tsx`,
       note: `section page + guideSectionPage: guide-section-diff.tsx; merge: session-merge-button.tsx`,
     },
     desktop: {

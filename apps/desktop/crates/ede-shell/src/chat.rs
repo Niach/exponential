@@ -1,6 +1,6 @@
 //! The agent chat (#EDE-65 lane I): one conversation as the shared chat
 //! document draws it (`apps/ede/ui/chat.json`, the model
-//! `uicore_model::chat`). The domain builds the thread (session-thread.json:
+//! `uicore_model::chat`). The domain builds the chat (session-chat.json:
 //! the rows, their order, the cards' facts); this resolves the words the
 //! other fixtures own (a divider's label, a plan's status, the locked
 //! pill) and the clock, so the model only decides how the chat is drawn.
@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use domain::rows::MessageRow;
-use domain::session_tree::SessionThreadRow;
+use domain::session_tree::SessionChatRow;
 use uicore_model::chat::{ChatOption, ChatRowInput};
 
 /// `HH:MM` (local) of a wire timestamp; empty when unparseable.
@@ -19,16 +19,16 @@ pub fn clock(at: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-/// The domain's thread rows as the chat model's; `messages` = the rows'
+/// The domain's chat rows as the chat model's; `messages` = the rows'
 /// messages by id (their time), `name` = a person's display name.
-pub fn rows(rows: &[SessionThreadRow], messages: &HashMap<&str, &MessageRow>, name: impl Fn(Option<&str>) -> Option<String>) -> Vec<ChatRowInput> {
+pub fn rows(rows: &[SessionChatRow], messages: &HashMap<&str, &MessageRow>, name: impl Fn(Option<&str>) -> Option<String>) -> Vec<ChatRowInput> {
     rows.iter().filter_map(|row| chat_row(row, messages, &name)).collect()
 }
 
-fn chat_row(row: &SessionThreadRow, messages: &HashMap<&str, &MessageRow>, name: &impl Fn(Option<&str>) -> Option<String>) -> Option<ChatRowInput> {
+fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &impl Fn(Option<&str>) -> Option<String>) -> Option<ChatRowInput> {
     let at = |id: &str| clock(messages.get(id).and_then(|m| m.created_at.as_deref()));
     Some(match row {
-        SessionThreadRow::Message { id, author, author_id, body, queued, .. } => ChatRowInput::Message {
+        SessionChatRow::Message { id, author, author_id, body, queued, .. } => ChatRowInput::Message {
             id: id.clone(),
             author: author.clone(),
             body: body.clone(),
@@ -36,20 +36,20 @@ fn chat_row(row: &SessionThreadRow, messages: &HashMap<&str, &MessageRow>, name:
             time: at(id),
             queued: *queued,
         },
-        SessionThreadRow::Session { id, card } => ChatRowInput::Card {
+        SessionChatRow::Session { id, card } => ChatRowInput::Card {
             id: id.clone(),
             icon: card.icon.clone(),
             title: card.name.clone(),
             text: card.kind_word.clone(),
             target: Some(card.session_id.clone()),
         },
-        SessionThreadRow::Report { id, session_id, text, .. } => {
+        SessionChatRow::Report { id, session_id, text, .. } => {
             ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()) }
         }
-        SessionThreadRow::Suggestions { id, session_id, header, .. } => {
+        SessionChatRow::Suggestions { id, session_id, header, .. } => {
             ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()) }
         }
-        SessionThreadRow::Question { id, question, options, custom, multi, answer, answers, answered, dismissed, .. } => ChatRowInput::Question {
+        SessionChatRow::Question { id, question, options, custom, multi, answer, answers, answered, dismissed, .. } => ChatRowInput::Question {
             id: id.clone(),
             question: question.clone(),
             options: options.iter().map(|o| ChatOption { label: o.label.clone(), description: o.description.clone() }).collect(),
@@ -58,8 +58,8 @@ fn chat_row(row: &SessionThreadRow, messages: &HashMap<&str, &MessageRow>, name:
             waiting: !*answered && *dismissed != Some(true),
             answer: answers.as_ref().filter(|a| !a.is_empty()).map(|a| a.join(", ")).or_else(|| answer.clone()),
         },
-        // The plan row (thread_screen `plan_row`): the plan's label, its status word.
-        SessionThreadRow::Plan { id, session_id, plan, decision, fresh, .. } => ChatRowInput::Card {
+        // The plan row (session_chat `plan_row`): the plan's label, its status word.
+        SessionChatRow::Plan { id, session_id, plan, decision, fresh, .. } => ChatRowInput::Card {
             id: id.clone(),
             icon: if decision.as_deref() == Some("approved") { "ui-check" } else { "coding-plan" }.into(),
             title: domain::plan_page::plan_row_label(plan),
@@ -69,25 +69,25 @@ fn chat_row(row: &SessionThreadRow, messages: &HashMap<&str, &MessageRow>, name:
             },
             target: Some(session_id.clone()),
         },
-        SessionThreadRow::Subagent { id, title, status } => ChatRowInput::Line {
+        SessionChatRow::Subagent { id, title, status } => ChatRowInput::Line {
             id: id.clone(),
             icon: "coding-subagent".into(),
             text: [title.as_str(), status.as_str()].into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(" · "),
         },
-        SessionThreadRow::Picture { id, attachment_id, caption, .. } => {
+        SessionChatRow::Picture { id, attachment_id, caption, .. } => {
             ChatRowInput::Picture { id: id.clone(), attachment_id: attachment_id.clone(), caption: caption.clone() }
         }
-        SessionThreadRow::Event { id, text, .. } => ChatRowInput::Line { id: id.clone(), icon: "ui-info".into(), text: text.clone() },
-        SessionThreadRow::Divider { id, kind, at } => {
+        SessionChatRow::Event { id, text, .. } => ChatRowInput::Line { id: id.clone(), icon: "ui-info".into(), text: text.clone() },
+        SessionChatRow::Divider { id, kind, at } => {
             let time = clock(Some(at));
             let label = if time.is_empty() { kind.label().to_string() } else { format!("{} · {time}", kind.label()) };
             ChatRowInput::Pill { id: id.clone(), icon: kind.icon().into(), label }
         }
-        SessionThreadRow::Locked { id, reason, .. } => {
+        SessionChatRow::Locked { id, reason, .. } => {
             let placeholder = &*domain::sealed::PLACEHOLDER;
             ChatRowInput::Pill { id: id.clone(), icon: placeholder.icon.clone(), label: placeholder.text(*reason).to_string() }
         }
-        SessionThreadRow::Surface { id, session_id, title, .. } => ChatRowInput::Card {
+        SessionChatRow::Surface { id, session_id, title, .. } => ChatRowInput::Card {
             id: id.clone(),
             icon: "ui-widget".into(),
             title: title.clone().unwrap_or_else(|| domain::plan_card::PLAN_CARD.copy.surface.clone()),
@@ -273,7 +273,7 @@ mod tests {
     fn a_person_s_message_carries_their_name_and_the_time() {
         let m = message("m1", "2026-11-08T09:14:00.000Z");
         let messages = HashMap::from([("m1", &m)]);
-        let row = SessionThreadRow::Message { id: "m1".into(), author: "user".into(), author_id: Some("u1".into()), body: "hi".into(), queued: false, author_session_id: None, xref: None };
+        let row = SessionChatRow::Message { id: "m1".into(), author: "user".into(), author_id: Some("u1".into()), body: "hi".into(), queued: false, author_session_id: None, xref: None };
         let out = rows(&[row], &messages, |id| (id == Some("u1")).then(|| "Dana".to_string()));
         let ChatRowInput::Message { name, time, .. } = &out[0] else { panic!("{out:?}") };
         assert_eq!(name.as_deref(), Some("Dana"));
@@ -283,8 +283,8 @@ mod tests {
 
     #[test]
     fn an_agent_has_no_name_and_a_divider_reads_its_label_and_time() {
-        let agent = SessionThreadRow::Message { id: "m2".into(), author: "agent".into(), author_id: None, body: "done".into(), queued: false, author_session_id: None, xref: None };
-        let divider = SessionThreadRow::Divider { id: "d1".into(), kind: DividerKind::Compact, at: "bad".into() };
+        let agent = SessionChatRow::Message { id: "m2".into(), author: "agent".into(), author_id: None, body: "done".into(), queued: false, author_session_id: None, xref: None };
+        let divider = SessionChatRow::Divider { id: "d1".into(), kind: DividerKind::Compact, at: "bad".into() };
         let out = rows(&[agent, divider], &HashMap::new(), |_| Some("never".into()));
         assert!(matches!(&out[0], ChatRowInput::Message { name: None, .. }));
         assert_eq!(out[1], ChatRowInput::Pill { id: "d1".into(), icon: DividerKind::Compact.icon().into(), label: DividerKind::Compact.label().into() });
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn a_question_waits_until_answered_or_dismissed_and_names_its_picks() {
-        let q = |answered: bool, dismissed: Option<bool>, answers: Option<Vec<String>>| SessionThreadRow::Question {
+        let q = |answered: bool, dismissed: Option<bool>, answers: Option<Vec<String>>| SessionChatRow::Question {
             id: "q".into(),
             session_id: "s".into(),
             question: "Ship?".into(),
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn a_waiting_plan_needs_you_and_opens_its_session() {
-        let plan = SessionThreadRow::Plan {
+        let plan = SessionChatRow::Plan {
             id: "p".into(),
             session_id: "s".into(),
             plan: "# Lazy-load the editor\n\nsteps".into(),

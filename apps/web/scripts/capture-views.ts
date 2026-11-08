@@ -52,10 +52,10 @@ import {
   DEMO_APP_SLUG,
   DEMO_OPS_SHARE_TOKEN,
   DEMO_APP_ID,
-  DEMO_DIFF_THREAD_ID,
-  DEMO_GUIDE_THREAD_ID,
+  DEMO_DIFF_CHAT_ID,
+  DEMO_GUIDE_CHAT_ID,
   DEMO_SESSION_ID,
-  DEMO_THREAD_ID,
+  DEMO_CHAT_ID,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
   STARTER_EMAIL,
@@ -144,15 +144,15 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     .replaceAll(`$teamSlug`, ctx.demo.teamSlug)
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
     // EXP-740: a session is its own route, and the seed pins the id
-    // (EXP-1293: the cold-start thread's child session).
+    // (EXP-1293: the cold-start chat's child session).
     .replaceAll(`$sessionId`, DEMO_SESSION_ID)
-    // EXP-1293: a thread is a root session, an agent too; pinned the same
-    // way. `$guideThreadId`/`$diffThreadId` before `$threadId`: none is a
+    // EXP-1293: a chat is a root session, an agent too; pinned the same
+    // way. `$guideChatId`/`$diffChatId` before `$chatId`: none is a
     // prefix of another, but keep the longer names first like the rest of
     // this chain.
-    .replaceAll(`$guideThreadId`, DEMO_GUIDE_THREAD_ID)
-    .replaceAll(`$diffThreadId`, DEMO_DIFF_THREAD_ID)
-    .replaceAll(`$threadId`, DEMO_THREAD_ID)
+    .replaceAll(`$guideChatId`, DEMO_GUIDE_CHAT_ID)
+    .replaceAll(`$diffChatId`, DEMO_DIFF_CHAT_ID)
+    .replaceAll(`$chatId`, DEMO_CHAT_ID)
     .replaceAll(`$agentId`, DEMO_AGENT_ID)
     .replaceAll(`$skillId`, DEMO_SKILL_ID)
     .replaceAll(`$appSlug`, DEMO_APP_SLUG)
@@ -323,7 +323,7 @@ async function captureView(
   db: DbPlaceholders
 ): Promise<void> {
   // EXP-1284: every view starts with an empty work-tab strip — the tabs the
-  // previous views opened (issues, sessions, threads) live in this window's
+  // previous views opened (issues, sessions, chats) live in this window's
   // sessionStorage and would otherwise pile up in every later shot.
   await clearWorkTabs(page)
   await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, db)}`)

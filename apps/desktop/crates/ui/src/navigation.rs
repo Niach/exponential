@@ -88,18 +88,18 @@ pub enum Screen {
     },
     /// HOME (EXP-1294, was the Chat/Agent page): the composer column — one
     /// centred prompt box over its launch pickers. Tab-less full-page mode
-    /// like Devices; a send lands on the new thread ([`Screen::Thread`]).
+    /// like Devices; a send lands on the new chat ([`Screen::Chat`]).
     Home,
-    /// EXP-1294: the Threads page — the active team's threads in the bands
-    /// Needs you / Running / Recent (`domain::session_tree::partition_threads`).
+    /// EXP-1294: the Chats page — the active team's chats in the bands
+    /// Needs you / Running / Recent (`domain::session_tree::partition_chats`).
     /// Tab-less full-page mode like Devices.
-    Threads,
+    Chats,
     /// VAPP-242 (apps.json THE RUN VIEW): one app RUNNING full screen
     /// ([`crate::app_screen::AppScreenView::run`], web `apps/$appSlug`): the
     /// PUBLISHED package through the preview's host, no header of its own.
     /// A sidebar app row, an `appScreen` link (dev `run:<slug>`). `app` = the
     /// `apps` row id or a slug of the active team. Tab-less full-page mode
-    /// like Threads (EXP-1650's Apps page is gone).
+    /// like Chats (EXP-1650's Apps page is gone).
     AppRun { app: String },
     /// VAPP-110: one app's EDITOR ([`crate::app_screen`], web
     /// `app-editor/$appSlug`): the member's editor session beside the live preview.
@@ -107,13 +107,13 @@ pub enum Screen {
     /// `app:<slug>`).
     /// Tab-less full-page mode: leaving it ENDS the live editor session.
     App { app: String },
-    /// EXP-1294: one thread — a ROOT `sessions` row of kind `thread`
-    /// ([`crate::thread_screen`]). A detail tab; the sessions of its tree open
+    /// EXP-1294: one chat — a ROOT `sessions` row of kind `thread` (the wire kind)
+    /// ([`crate::session_chat`]). A detail tab; the sessions of its tree open
     /// INSIDE that tab ([`Screen::Session`]), never beside it.
-    Thread { session_id: String },
+    Chat { session_id: String },
     /// EXP-1294: one session of a tree (the raw transcript,
     /// [`crate::session_screen`]), opened from its card. It shares its ROOT's
-    /// tab: the tab rebinds to it and Back returns to the thread.
+    /// tab: the tab rebinds to it and Back returns to the chat.
     Session { session_id: String },
     /// EXP-1294 / NEW-6: one agent's page ([`crate::agent_screen`]): the id
     /// is the `agents` row (a legacy conversation session id still resolves,
@@ -166,7 +166,7 @@ impl Screen {
 
     /// EXP-769: whether the screen's tab lives in the BOTTOM bar rather than
     /// the top strip. EXP-870: terminals only — a session lives in its
-    /// thread's top tab, and the bottom bar is this machine's processes.
+    /// chat's top tab, and the bottom bar is this machine's processes.
     pub(crate) fn is_dock_tab(&self) -> bool {
         matches!(self, Screen::Terminal { .. })
     }
@@ -175,8 +175,8 @@ impl Screen {
     /// gets a tab chip. Settings is a tab-less full-screen mode (leave via
     /// the settings nav's back button, or by clicking any open tab); Source
     /// Control's diff and the file viewer are TOOL-DEFAULT center content,
-    /// never tabs; Home, Threads and Devices are tab-less pages.
-    /// EXP-1294: a thread, a session of its tree (sharing the thread's tab)
+    /// never tabs; Home, Chats and Devices are tab-less pages.
+    /// EXP-1294: a chat, a session of its tree (sharing the chat's tab)
     /// and an agent's channel are detail tabs. EXP-769: so is a PTY terminal
     /// (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
     pub(crate) fn is_detail(&self) -> bool {
@@ -184,7 +184,7 @@ impl Screen {
             self,
             Screen::IssueDetail { .. }
                 | Screen::Session { .. }
-                | Screen::Thread { .. }
+                | Screen::Chat { .. }
                 | Screen::Agent { .. }
                 | Screen::Terminal { .. }
         )
@@ -235,8 +235,8 @@ pub(crate) enum PendingOrigin {
 /// web's `BACK_STACK_CAP`.
 const SESSION_LINKS_CAP: usize = 10;
 
-/// EXP-1294: the screen a `sessions` row opens as — a thread root its
-/// thread, an agent root its channel, any other session (and a row that has
+/// EXP-1294: the screen a `sessions` row opens as — a chat root its
+/// chat, an agent root its channel, any other session (and a row that has
 /// not synced yet) its session view, which shares its root's tab.
 pub(crate) fn session_screen_for(session_id: &str, cx: &App) -> Screen {
     let viewer = crate::queries::active_account(cx).map(|account| account.user_id);
@@ -250,7 +250,7 @@ pub(crate) fn session_screen_for(session_id: &str, cx: &App) -> Screen {
 /// The pure core of [`session_screen_for`]: #EXP-1456 / S-3
 /// [`domain::inbox_route::session_target`] (inbox-route.json) read off the
 /// row and its ROOT (`agent_id` + `user_id` are the root's). Only the
-/// viewer's OWN agent conversation opens the agent's page; a thread child
+/// viewer's OWN agent conversation opens the agent's page; a chat child
 /// opens as its session view (which shares its root's tab); a row (or
 /// root) that has not synced opens the session route's not-found state.
 pub(crate) fn session_screen_with(
@@ -278,13 +278,11 @@ pub(crate) fn session_screen_with(
         viewer_id,
     ) {
         SessionTarget::Agent { agent_id } => Screen::Agent { agent_id },
-        SessionTarget::Thread {
-            thread_id,
+        SessionTarget::Chat {
+            chat_id,
             session_id: None,
-        } => Screen::Thread {
-            session_id: thread_id,
-        },
-        SessionTarget::Thread {
+        } => Screen::Chat { session_id: chat_id },
+        SessionTarget::Chat {
             session_id: Some(session_id),
             ..
         }
@@ -294,18 +292,18 @@ pub(crate) fn session_screen_with(
 
 /// #FEED-191: a session link (a card's or an xref's open, S-3): opens
 /// `session_id` as its screen, pushed on the history, and the screen it opens
-/// wears the Back to this one. A session of the thread on show opens in place
+/// wears the Back to this one. A session of the chat on show opens in place
 /// and wears none: its strip returns.
 pub(crate) fn open_session_link(session_id: &str, window: &Window, cx: &mut App) {
     let screen = session_screen_for(session_id, cx);
-    let here_thread = |here: &Screen, cx: &App| match here {
-        Screen::Thread { session_id } | Screen::Session { session_id } => crate::screens::in_place_root(session_id, cx),
+    let here_chat = |here: &Screen, cx: &App| match here {
+        Screen::Chat { session_id } | Screen::Session { session_id } => crate::screens::in_place_root(session_id, cx),
         _ => None,
     };
     if let Some(nav) = nav_for_window_readonly(window, cx) {
         let here = nav.read(cx).screen.clone();
-        let target_thread = crate::screens::in_place_root(session_id, cx);
-        if let Some(here) = here.filter(|here| target_thread.is_none() || here_thread(here, cx) != target_thread) {
+        let target_chat = crate::screens::in_place_root(session_id, cx);
+        if let Some(here) = here.filter(|here| target_chat.is_none() || here_chat(here, cx) != target_chat) {
             let to = screen.clone();
             nav.update(cx, |nav, _| nav.note_session_link(here, to));
         }
@@ -354,9 +352,9 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
         Screen::Session { session_id } => session_tab_title(session_id, cx),
-        // EXP-1294: the thread's title (the fixture's `untitled` while the
+        // EXP-1294: the chat's title (the fixture's `untitled` while the
         // root syncs).
-        Screen::Thread { session_id } => thread_tab_title(session_id, cx),
+        Screen::Chat { session_id } => chat_tab_title(session_id, cx),
         // EXP-1294: the agent's name.
         Screen::Agent { agent_id } => agent_tab_title(agent_id, cx),
         // EXP-769: the manager's live tab title (OSC-updated), looked up
@@ -380,7 +378,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         // EXP-1170: the draft page names itself by the contract's header.
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
         Screen::Home => "Home".into(),
-        Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
+        Screen::Chats => domain::session_tree::CHATS_LIST.copy.title.clone().into(),
         Screen::AppRun { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiKitchenSink => "genUI".into(),
         Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
@@ -400,24 +398,24 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
     }
 }
 
-/// EXP-1294: a thread tab's label — `domain::session_title` (EXP-1341)
+/// EXP-1294: a chat tab's label — `domain::session_title` (EXP-1341)
 /// over the synced root (`ui::session_data`), the fixture's `untitled` while
 /// the root syncs. A tab is chrome, so it never renders a transient string.
-fn thread_tab_title(root_id: &str, cx: &App) -> gpui::SharedString {
+fn chat_tab_title(root_id: &str, cx: &App) -> gpui::SharedString {
     Store::try_global(cx)
         .and_then(|_| crate::session_data::session_title_of(root_id, cx))
-        .unwrap_or_else(|| domain::session_tree::THREAD.copy.untitled.clone())
+        .unwrap_or_else(|| domain::session_tree::SESSION_CHAT.copy.untitled.clone())
         .into()
 }
 
-/// EXP-1294: a session's label. A session of a thread shares its ROOT's tab
-/// (the work tab is a thread row, threads-list.json), so it reads the
-/// THREAD's title like web's thread tab (EXP-1676: never the child's own);
-/// any other session (no thread root) its own title (EXP-1341,
+/// EXP-1294: a session's label. A session of a chat shares its ROOT's tab
+/// (the work tab is a chat row, chat-list.json), so it reads the
+/// CHAT's title like web's chat tab (EXP-1676: never the child's own);
+/// any other session (no chat root) its own title (EXP-1341,
 /// `domain::session_title`), the fixture's `untitled` while the row syncs.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
     let titled = crate::screens::in_place_root(session_id, cx).unwrap_or_else(|| session_id.to_string());
-    thread_tab_title(&titled, cx)
+    chat_tab_title(&titled, cx)
 }
 
 /// EXP-1294: an agent page's label — the `agents` row's name, `Agent` while
@@ -440,7 +438,7 @@ fn agent_tab_title(agent_id: &str, cx: &App) -> gpui::SharedString {
 /// ([`take_pending_chat_seed`]); every field is optional.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChatSeed {
-    /// Issues to link to the new thread.
+    /// Issues to link to the new chat.
     pub(crate) issue_ids: Vec<String>,
     /// The machine to preselect in the Device pick (the `?device=` deep
     /// link — EXP-909 retired the machines row's ▶).
@@ -814,8 +812,8 @@ impl Navigation {
 /// `actions` | `action:<uuid>` (SLOP-2: one action's page) | `usage` |
 /// `board-issues` | `inbox` | `inbox-my-issues` | `files` | `source-control`
 /// (EXP-851 — the list screens the rail's tool windows became) | `home` |
-/// `threads` | `apps` (EXP-1650) | `issue:<uuid>` | `thread:<uuid>` / `session:<uuid>` /
-/// `agent:<uuid>` (EXP-1294: one `sessions` row — a thread root, any session
+/// `chats` | `apps` (EXP-1650) | `issue:<uuid>` | `chat:<uuid>` / `session:<uuid>` /
+/// `agent:<uuid>` (EXP-1294: one `sessions` row — a chat root, any session
 /// of a tree, an agent root) | `styleguide:<entry id>` (EXP-1259: one IDE
 /// styleguide entry, full-window) (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
@@ -837,8 +835,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // dev value lands there.
         "usage" => Some(Screen::Devices),
         "home" => Some(Screen::Home),
-        // EXP-1294: the Threads page.
-        "threads" => Some(Screen::Threads),
+        // EXP-1294: the Chats page.
+        "chats" => Some(Screen::Chats),
         // EXP-851: the four list screens the rail's tool windows became. A
         // board takes the window's ACTIVE board (the empty `board_id`
         // sentinel, resolved at render time) so `EXP_DEV_BOARD_ID` still
@@ -868,8 +866,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 });
             }
             // EXP-1294: the three `sessions` rows a tab can show.
-            if let Some(id) = spec.strip_prefix("thread:") {
-                return Some(Screen::Thread {
+            if let Some(id) = spec.strip_prefix("chat:") {
+                return Some(Screen::Chat {
                     session_id: id.to_string(),
                 });
             }
@@ -2175,10 +2173,10 @@ mod tests {
         assert_eq!(parse_dev_screen("actions"), None);
         assert_eq!(parse_dev_screen("automations"), None);
         assert_eq!(parse_dev_screen("action:act-1"), None);
-        // EXP-1294: Home and the Threads page; Reviews and the old `chat`
+        // EXP-1294: Home and the Chats page; Reviews and the old `chat`
         // spellings are gone with their screens.
         assert_eq!(parse_dev_screen("home"), Some(Screen::Home));
-        assert_eq!(parse_dev_screen("threads"), Some(Screen::Threads));
+        assert_eq!(parse_dev_screen("chats"), Some(Screen::Chats));
         // VAPP-242: the Apps page is gone.
         assert_eq!(parse_dev_screen("apps"), None);
         assert_eq!(parse_dev_screen("reviews"), None);
@@ -2232,13 +2230,13 @@ mod tests {
         assert_eq!(dev_tool_screen("nonsense"), None);
     }
 
-    /// EXP-1294: the Threads page is a full page that lends NO list — the
-    /// thread it opens shows full width, Back returns through history.
+    /// EXP-1294: the Chats page is a full page that lends NO list — the
+    /// chat it opens shows full width, Back returns through history.
     /// Neither a tab nor undockable (an ISSUE is both).
     #[test]
-    fn threads_lends_no_list() {
-        assert!(!Screen::Threads.is_detail());
-        assert!(!Screen::Threads.undockable());
+    fn chats_lends_no_list() {
+        assert!(!Screen::Chats.is_detail());
+        assert!(!Screen::Chats.undockable());
         // VAPP-242: so is an app's run view.
         let run = Screen::AppRun { app: "a".into() };
         assert!(!run.is_detail());
@@ -2252,7 +2250,7 @@ mod tests {
 
     /// #EXP-1456 (inbox-route.json `sessionCases`): the viewer's own agent
     /// conversation opens the agent's page, a teammate's and a child under
-    /// it their session, a thread root the thread, a thread child (and an
+    /// it their session, a chat root the chat, a chat child (and an
     /// unsynced row) the session view.
     #[test]
     fn session_screen_follows_the_inbox_route_rule() {
@@ -2267,8 +2265,8 @@ mod tests {
             row("s-assistant", "s-assistant", Some("a-assistant"), "u-me"),
             row("s-agent-child", "s-assistant", None, "u-me"),
             row("s-theirs", "s-theirs", Some("a-scout"), "u-jonas"),
-            row("s-thread", "s-thread", None, "u-jonas"),
-            row("s-child", "s-thread", None, "u-me"),
+            row("s-chat", "s-chat", None, "u-jonas"),
+            row("s-child", "s-chat", None, "u-me"),
         ];
         let open = |id: &str| {
             session_screen_with(id, |id| rows.iter().find(|row| row.id == id).cloned(), Some("u-me"))
@@ -2277,7 +2275,7 @@ mod tests {
         assert_eq!(open("s-assistant"), Screen::Agent { agent_id: "a-assistant".to_string() });
         assert_eq!(open("s-agent-child"), session("s-agent-child"));
         assert_eq!(open("s-theirs"), session("s-theirs"));
-        assert_eq!(open("s-thread"), Screen::Thread { session_id: "s-thread".to_string() });
+        assert_eq!(open("s-chat"), Screen::Chat { session_id: "s-chat".to_string() });
         assert_eq!(open("s-child"), session("s-child"));
         assert_eq!(open("s-missing"), session("s-missing"));
     }
@@ -2287,36 +2285,36 @@ mod tests {
     /// forward too; the same screens reached another way wear none.
     #[test]
     fn a_session_link_gives_its_screen_the_back() {
-        let chat = Screen::Agent { agent_id: "a1".into() };
-        let thread = Screen::Thread { session_id: "t1".into() };
-        let other = Screen::Thread { session_id: "t2".into() };
+        let agent = Screen::Agent { agent_id: "a1".into() };
+        let chat = Screen::Chat { session_id: "t1".into() };
+        let other = Screen::Chat { session_id: "t2".into() };
         let mut nav = Navigation::new();
-        nav.screen = Some(chat.clone());
+        nav.screen = Some(agent.clone());
         assert_eq!(nav.session_back(), None);
         // The rail: history, but no Back.
         nav.advance(other.clone(), PendingOrigin::Rail, None);
         assert_eq!(nav.session_back(), None);
         nav.step_back();
         // The card's open.
-        nav.note_session_link(chat.clone(), thread.clone());
-        nav.advance(thread.clone(), PendingOrigin::Derive, None);
-        assert_eq!(nav.session_back(), Some(&chat));
-        // Popped: the chat has none; forward again: back on.
+        nav.note_session_link(agent.clone(), chat.clone());
+        nav.advance(chat.clone(), PendingOrigin::Derive, None);
+        assert_eq!(nav.session_back(), Some(&agent));
+        // Popped: the agent has none; forward again: back on.
         nav.step_back();
         assert_eq!(nav.session_back(), None);
         nav.step_forward();
-        assert_eq!(nav.session_back(), Some(&chat));
+        assert_eq!(nav.session_back(), Some(&agent));
         // A chain pops link by link.
-        nav.note_session_link(thread.clone(), other.clone());
+        nav.note_session_link(chat.clone(), other.clone());
         nav.advance(other.clone(), PendingOrigin::Derive, None);
-        assert_eq!(nav.session_back(), Some(&thread));
-        nav.step_back();
         assert_eq!(nav.session_back(), Some(&chat));
+        nav.step_back();
+        assert_eq!(nav.session_back(), Some(&agent));
         // The cap keeps the newest; a repeat refreshes, never doubles.
         for ix in 0..SESSION_LINKS_CAP * 2 {
-            nav.note_session_link(chat.clone(), Screen::Thread { session_id: format!("x{ix}") });
+            nav.note_session_link(agent.clone(), Screen::Chat { session_id: format!("x{ix}") });
         }
-        nav.note_session_link(chat.clone(), Screen::Thread { session_id: format!("x{}", SESSION_LINKS_CAP * 2 - 1) });
+        nav.note_session_link(agent.clone(), Screen::Chat { session_id: format!("x{}", SESSION_LINKS_CAP * 2 - 1) });
         assert_eq!(nav.session_links.len(), SESSION_LINKS_CAP);
     }
 
@@ -2342,18 +2340,18 @@ mod tests {
         );
     }
 
-    /// EXP-1294: the capture lane's `thread:<uuid>` and `agent:<uuid>`
-    /// drives open that root's tab; neither a thread nor an agent's channel
+    /// EXP-1294: the capture lane's `chat:<uuid>` and `agent:<uuid>`
+    /// drives open that root's tab; neither a chat nor an agent's channel
     /// carries a list (full width, whatever opened them).
     #[test]
-    fn dev_screen_parses_a_thread_and_an_agent_id() {
-        let thread = Screen::Thread {
+    fn dev_screen_parses_a_chat_and_an_agent_id() {
+        let chat = Screen::Chat {
             session_id: "5d7a".into(),
         };
-        assert_eq!(parse_dev_screen("thread:5d7a"), Some(thread.clone()));
-        assert_eq!(parse_dev_screen("thread"), None);
-        assert!(thread.is_detail());
-        assert!(!thread.undockable());
+        assert_eq!(parse_dev_screen("chat:5d7a"), Some(chat.clone()));
+        assert_eq!(parse_dev_screen("chat"), None);
+        assert!(chat.is_detail());
+        assert!(!chat.undockable());
         let agent = Screen::Agent {
             agent_id: "a1".into(),
         };
@@ -2571,19 +2569,19 @@ mod tests {
     fn forward_stack_is_browser_shaped() {
         let mut nav = Navigation::new();
         nav.screen = Some(Screen::Devices);
-        nav.back_stack.push(Screen::Threads);
+        nav.back_stack.push(Screen::Chats);
         assert!(nav.can_go_back());
         assert!(!nav.can_go_forward());
         // go_back's bookkeeping
-        assert_eq!(nav.step_back(), Some(Screen::Threads));
-        assert_eq!(nav.screen, Some(Screen::Threads));
+        assert_eq!(nav.step_back(), Some(Screen::Chats));
+        assert_eq!(nav.screen, Some(Screen::Chats));
         assert_eq!(nav.forward_stack, vec![Screen::Devices]);
         assert!(nav.can_go_forward());
         // go_forward's bookkeeping
         assert_eq!(nav.step_forward(), Some(Screen::Devices));
-        assert_eq!(nav.back_stack, vec![Screen::Threads]);
+        assert_eq!(nav.back_stack, vec![Screen::Chats]);
         assert!(!nav.can_go_forward());
-        assert_eq!(nav.step_back(), Some(Screen::Threads));
+        assert_eq!(nav.step_back(), Some(Screen::Chats));
         // a real navigation (navigate_inner's bookkeeping)
         nav.back_stack.push(nav.screen.take().unwrap());
         nav.screen = Some(Screen::Drafts);
@@ -2598,14 +2596,14 @@ mod tests {
     fn purge_history_covers_both_stacks() {
         let diff = Screen::IssueDetail { issue_id: "i1".into() };
         let mut nav = Navigation::new();
-        nav.screen = Some(Screen::Threads);
+        nav.screen = Some(Screen::Chats);
         nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Drafts];
         nav.forward_stack = vec![diff.clone(), Screen::Settings, diff.clone()];
         assert!(nav.purge_history(|screen| *screen == diff));
         assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Drafts]);
         assert_eq!(nav.forward_stack, vec![Screen::Settings]);
         // the current screen is not history
-        assert_eq!(nav.screen, Some(Screen::Threads));
+        assert_eq!(nav.screen, Some(Screen::Chats));
         // idempotent: a second purge changes nothing
         assert!(!nav.purge_history(|screen| *screen == diff));
     }
@@ -2621,15 +2619,15 @@ mod tests {
         let terminal = Screen::Session { session_id: "s1".into() };
         let mut nav = Navigation::new();
         nav.screen = Some(terminal.clone());
-        nav.back_stack = vec![Screen::Threads];
+        nav.back_stack = vec![Screen::Chats];
         // the user went back from the terminal …
-        assert_eq!(nav.step_back(), Some(Screen::Threads));
+        assert_eq!(nav.step_back(), Some(Screen::Chats));
         assert_eq!(nav.forward_stack, vec![terminal.clone()]);
         // … then closed it (close_tab's purge)
         assert!(nav.purge_history(|screen| *screen == terminal));
         assert!(!nav.can_go_forward());
         assert_eq!(nav.step_forward(), None);
-        assert_eq!(nav.screen, Some(Screen::Threads));
+        assert_eq!(nav.screen, Some(Screen::Chats));
     }
 
     /// EXP-771: which screens a navigation checks the undock registry for.
@@ -2645,7 +2643,7 @@ mod tests {
         assert!(!reveals_undocked_window(&Screen::Session {
             session_id: "s1".into()
         }));
-        assert!(!reveals_undocked_window(&Screen::Threads));
+        assert!(!reveals_undocked_window(&Screen::Chats));
         assert!(!reveals_undocked_window(&Screen::Settings));
     }
 
@@ -2658,7 +2656,7 @@ mod tests {
             assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
-            assert_eq!(screen_title(&Screen::Threads, cx), "Chats");
+            assert_eq!(screen_title(&Screen::Chats, cx), "Chats");
             assert_eq!(screen_title(&Screen::Home, cx), "Home");
         });
     }

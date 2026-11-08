@@ -52,16 +52,13 @@ object WebLinks {
         /** EXP-825: `/t/{team}/agent` — the Agent page (the composer). */
         data class Agent(val teamSlug: String) : Parsed
 
-        /** EXP-1288: `/t/{team}/threads/{id}` — a thread (EXP-1284). */
-        data class ThreadRef(val teamSlug: String, val threadId: String) : Parsed
-
         /** EXP-1291: `/t/{team}/sessions/{id}` — the PR body footer's link; a
-         *  root opens its thread, a child its session view. */
+         *  root opens its chat, a child its session view. */
         data class SessionRef(val teamSlug: String, val sessionId: String) : Parsed
     }
 
     /**
-     * Inverse of [issueUrl] and [agentUrl] plus the invite and thread routes.
+     * Inverse of [issueUrl] and [agentUrl] plus the invite and session routes.
      * Only the invite is read off an App Link today: every in-app route opens
      * through [classifyAppLink] (#EXP-1674). Takes the already-decoded path
      * (Uri.getPath) rather than a Uri so it stays JVM-unit-testable; empty
@@ -85,10 +82,6 @@ object WebLinks {
             // is not resolvable to an account without the issue index the
             // issue link has.
             parts.size == 3 && parts[0] == "t" && parts[2] == "agent" -> Parsed.Agent(parts[1])
-            // EXP-1288: a thread, the same shape in-app prose links carry
-            // ([AppLink.Thread]); resolved against the link host's account.
-            parts.size == 4 && parts[0] == "t" && parts[2] == "threads" ->
-                Parsed.ThreadRef(parts[1], parts[3])
             parts.size == 4 && parts[0] == "t" && parts[2] == "sessions" ->
                 Parsed.SessionRef(parts[1], parts[3])
             else -> null

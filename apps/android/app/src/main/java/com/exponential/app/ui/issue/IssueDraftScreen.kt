@@ -102,9 +102,9 @@ fun IssueDraftScreen(
     onBack: () -> Unit,
     /** Filed: land on it (`openCreatedIssue`, so Back returns to the origin). */
     onCreated: (String) -> Unit,
-    /** EXP-1284 (T11): a thread draft's issue lands on its THREAD with the
+    /** EXP-1284 (T11): a chat draft's issue lands on its CHAT with the
      *  new issue's tab selected; null = [onCreated]. */
-    onCreatedInThread: ((issueId: String, threadId: String) -> Unit)? = null,
+    onCreatedInChat: ((issueId: String, chatId: String) -> Unit)? = null,
     shareMode: Boolean = false,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
@@ -240,10 +240,10 @@ fun IssueDraftScreen(
         if (sharePrefill != null) onSharePrefillConsumed()
         val held = afterCreate
         afterCreate = null
-        val threadId = viewModel.state.value.threadId
+        val chatId = viewModel.state.value.chatId
         when {
             held != null -> held()
-            threadId != null && onCreatedInThread != null -> onCreatedInThread(id, threadId)
+            chatId != null && onCreatedInChat != null -> onCreatedInChat(id, chatId)
             else -> onCreated(id)
         }
     }

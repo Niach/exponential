@@ -34,9 +34,9 @@ data class UpsertIssueDraftInput(
         kotlinx.serialization.json.JsonNull, val labelIds: List<String> = emptyList(),
     /** `YYYY-MM-DD`, or omitted for no due date. */
     @SerialName("dueDate") val dueDate: String? = null,
-    /** EXP-1291: the thread root session the issue files into (wire
-     *  `sessionId`); omitted = none (a draft never leaves its thread). */
-    @SerialName("sessionId") val threadId: String? = null,
+    /** EXP-1291: the chat root session the issue files into (wire
+     *  `sessionId`); omitted = none (a draft never leaves its chat). */
+    @SerialName("sessionId") val chatId: String? = null,
 )
 
 @Serializable

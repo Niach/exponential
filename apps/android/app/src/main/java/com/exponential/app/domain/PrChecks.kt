@@ -4,7 +4,7 @@ import com.exponential.app.data.db.PullRequestCheckEntity
 
 /**
  * #EXP-1611 (pr-checks.json CHECKS LIST, the UI ×4): CI on the
- * thread's PR, read from the synced `pull_request_checks` rows and
+ * chat's PR, read from the synced `pull_request_checks` rows and
  * `pull_requests.checks_state`; no client calls GitHub. Mirrors the TS
  * reference `packages/domain-contract/src/pr-checks.ts` (bottom section);
  * `PrChecksTest` replays the fixture's UI cases.

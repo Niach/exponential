@@ -2,7 +2,7 @@
 // variable, deliberately NOT a cookie and NOT local/sessionStorage: nothing
 // is persisted on the device, so no EU consent banner is ever needed. The
 // params ride URLs instead (the marketing site forwards them onto app links;
-// the auth flow threads them through the OAuth callbackURL and the
+// the auth flow chats them through the OAuth callbackURL and the
 // post-signup redirect), and each full page load re-captures them here.
 
 export type FirstTouch = {
@@ -78,7 +78,7 @@ export function hasFirstTouchParams(): boolean {
   )
 }
 
-// Thread the captured ref/utm params onto an app-internal URL (the OAuth
+// Chat the captured ref/utm params onto an app-internal URL (the OAuth
 // callbackURL or the post-signup redirect) so they survive the full-page
 // navigations of the auth flow and the next load re-captures them.
 export function withFirstTouchParams(url: string): string {

@@ -1,7 +1,7 @@
 //! #EXP-1561 / #EXP-1562 (`fixtures/waiting-cards.json` ×4; web
 //! `ask-card.tsx` `AskDismissButton` / `AskDismissedCard`,
-//! `session-thread-view.tsx` `ThreadWaitingChips`): a WAITING question or
-//! plan card's ×, the DISMISSED card's one quiet line, the thread strip's
+//! `session-chat-view.tsx` `ChatWaitingChips`): a WAITING question or
+//! plan card's ×, the DISMISSED card's one quiet line, the chat strip's
 //! waiting chips and the ring a chip leaves on the card it scrolled to.
 //! Desktop is always the wide `chips` layout.
 
@@ -118,7 +118,7 @@ pub(crate) fn ringed<E: gpui::Styled>(card: E, id: &str, cx: &App) -> E {
 /// dismisses at once (no confirm) through THE answer path.
 pub(crate) fn dismiss_button(message_id: &str, cx: &App) -> AnyElement {
     let message = message_id.to_string();
-    dismiss_button_with(message_id, move |_, cx| crate::thread_screen::dismiss_card(message.clone(), cx), cx)
+    dismiss_button_with(message_id, move |_, cx| crate::session_chat::dismiss_card(message.clone(), cx), cx)
 }
 
 /// [`dismiss_button`] with its own press (the session view's engine ask,
@@ -197,7 +197,7 @@ pub(crate) fn kind_icon(kind: AskDockKind, cx: &App) -> Icon {
 /// What a chip's press does: the card's id.
 pub(crate) type OnWaitingPick = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// The thread strip's WAITING chips (`waitingChips`, `chips` layout): THE
+/// The chat strip's WAITING chips (`waitingChips`, `chips` layout): THE
 /// StripChip per card in Conversation order — the tinted kind glyph, the
 /// clipped label, the full title as its tooltip — side by side in a row that
 /// shrinks (labels truncating) ahead of the issue / group zone. `None` when
@@ -224,7 +224,7 @@ pub(crate) fn strip_chips(prefix: &str, cards: &[WaitingCardInput], on_pick: OnW
             .unwrap_or_else(|| chip.label.clone());
         let id = chip.id.clone();
         let on_pick = on_pick.clone();
-        let mut element = crate::thread_screen::strip_chip(
+        let mut element = crate::session_chat::strip_chip(
             SharedString::from(format!("{}-{}", WAITING_CARDS.test_ids.chip, chip.id)),
             false,
             cx,
@@ -239,11 +239,11 @@ pub(crate) fn strip_chips(prefix: &str, cards: &[WaitingCardInput], on_pick: OnW
     Some(row.into_any_element())
 }
 
-/// The conversation's WAITING cards for the chips: a thread's
-/// `thread_pending_asks` over its rows (Conversation order). #EXP-1662: only
+/// The conversation's WAITING cards for the chips: a chat's
+/// `chat_pending_asks` over its rows (Conversation order). #EXP-1662: only
 /// the questions; a waiting plan's chip is the strip's plan tab.
-pub(crate) fn thread_waiting_cards(rows: &[domain::session_tree::SessionThreadRow]) -> Vec<WaitingCardInput> {
-    domain::ask_dock::thread_pending_asks(rows, |_| None)
+pub(crate) fn chat_waiting_cards(rows: &[domain::session_tree::SessionChatRow]) -> Vec<WaitingCardInput> {
+    domain::ask_dock::chat_pending_asks(rows, |_| None)
         .into_iter()
         .filter(|ask| ask.kind != AskDockKind::Plan)
         .map(|ask| WaitingCardInput { id: ask.id, kind: ask.kind, text: ask.text })
@@ -258,9 +258,9 @@ mod tests {
     /// chips keep the questions.
     #[test]
     fn the_chips_keep_only_the_questions() {
-        use domain::session_tree::SessionThreadRow;
+        use domain::session_tree::SessionChatRow;
         let rows = [
-            SessionThreadRow::Plan {
+            SessionChatRow::Plan {
                 id: "p".into(),
                 session_id: "s".into(),
                 plan: "# Plan: one".into(),
@@ -272,7 +272,7 @@ mod tests {
                 feedback: None,
                 surface_data: None,
             },
-            SessionThreadRow::Question {
+            SessionChatRow::Question {
                 id: "q".into(),
                 session_id: "s".into(),
                 question: "Which?".into(),
@@ -287,7 +287,7 @@ mod tests {
                 dismissed: None,
             },
         ];
-        let ids: Vec<String> = thread_waiting_cards(&rows).into_iter().map(|card| card.id).collect();
+        let ids: Vec<String> = chat_waiting_cards(&rows).into_iter().map(|card| card.id).collect();
         assert_eq!(ids, ["q"]);
     }
 

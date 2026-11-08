@@ -3,7 +3,7 @@
 //! `comment-rows/format.ts` and the composer form at the bottom of
 //! `issue-timeline.tsx`).
 //!
-//! The thread itself (merging comments with `issue_events`, ordering,
+//! The timeline itself (merging comments with `issue_events`, ordering,
 //! submit/edit/delete state) lives in [`crate::timeline::IssueTimeline`] —
 //! mirroring the web file split where `issue-timeline.tsx` owns state and
 //! `comment-rows/` owns row presentation. This module renders one comment row
@@ -172,10 +172,10 @@ pub(crate) struct ReplyComposerProps<'a> {
     pub emoji_open: bool,
 }
 
-/// Everything one comment row needs from the thread's state.
+/// Everything one comment row needs from the timeline's state.
 pub(crate) struct CommentRowProps<'a> {
     pub card: CommentCardProps<'a>,
-    /// EXP-741: this card's replies in thread order (`thread_comments`).
+    /// EXP-741: this card's replies in reply order (`nest_comments`).
     pub replies: Vec<CommentCardProps<'a>>,
     /// EXP-741: `Some` while the reply composer is open under this card.
     pub reply: Option<ReplyComposerProps<'a>>,
@@ -502,7 +502,7 @@ fn comment_card_content(
 
 /// Web `RegularCommentRow`: avatar · (name · relative time · [`…` menu]) over
 /// the rendered GFM body, or the edit textarea + Save/Cancel when editing.
-/// EXP-741: the card is the THREAD — its replies sit indented under the body
+/// EXP-741: the card is the CHAT — its replies sit indented under the body
 /// behind one hairline, each with a 20px avatar, and the "Leave a reply…" row
 /// closes every top-level card (the reply composer opens in its place).
 pub(crate) fn comment_row(
@@ -525,7 +525,7 @@ pub(crate) fn comment_row(
     // `.w_full()` is load-bearing on the bubble and the composer below:
     // without an explicit width the flex sizes to content, so a long
     // unwrappable comment line blows the row past the column (clipped text)
-    // while an empty thread leaves the composer tiny (EXP-67).
+    // while an empty timeline leaves the composer tiny (EXP-67).
     //
     // EXP-698 round 5: the comment is a CARD on the timeline rail — the
     // mobile shape (`RegularCommentRow`), now shared by web and the IDE.
@@ -538,7 +538,7 @@ pub(crate) fn comment_row(
 
     // EXP-741: the replies block + the reply row, behind one hairline.
     let stroke = theme::tokens::glass::STROKE_CARD.to_hsla();
-    let mut thread = v_flex()
+    let mut replies_block = v_flex()
         .w_full()
         .min_w_0()
         .mt_3()
@@ -548,7 +548,7 @@ pub(crate) fn comment_row(
     for reply in &props.replies {
         let reply_name = card_author_name(reply);
         let reply_avatar = card_avatar(reply, &reply_name, gpui_component::Size::Size(px(20.)), cx);
-        thread = thread.child(
+        replies_block = replies_block.child(
             h_flex()
                 .w_full()
                 .min_w_0()
@@ -567,7 +567,7 @@ pub(crate) fn comment_row(
                 )),
         );
     }
-    thread = thread.child(match props.reply.as_ref() {
+    replies_block = replies_block.child(match props.reply.as_ref() {
         // SLOP-4: replies are team-only — no "Reply to reporter" pill here.
         Some(reply) => composer_card(
             PendingScope::Reply,
@@ -611,7 +611,7 @@ pub(crate) fn comment_row(
         .pt_2p5()
         .pb_3()
         .child(content)
-        .child(thread);
+        .child(replies_block);
     // `pt_1` matches the row's `marker_top`, keeping the bubble's header level
     // with the avatar; `pb_2` is the gap to the next row and rides the
     // CONTENT, never a margin — the row's own height is what the gutter
@@ -726,7 +726,7 @@ fn reporter_toggle_pill(
         .into_any_element()
 }
 
-/// The ONE composer card, for the thread's bottom composer AND the reply
+/// The ONE composer card, for the timeline's bottom composer AND the reply
 /// composer under a top-level card (EXP-741). `scope` picks the element-id
 /// namespace, which pending list the tools feed and which submit the send
 /// button fires; the reply scope adds a Cancel beside the send.
@@ -863,12 +863,12 @@ fn emoji_button(
 use gpui::prelude::FluentBuilder as _;
 
 // ---------------------------------------------------------------------------
-// EXP-1241 (EXP-1259 D14): the comment an agent posted, in the run thread
+// EXP-1241 (EXP-1259 D14): the comment an agent posted, in the run chat
 // ---------------------------------------------------------------------------
 
-/// The thread's comment card clamps its body to this many lines (the body
+/// The chat's comment card clamps its body to this many lines (the body
 /// rung's 22px line), then offers Show more.
-pub(crate) const THREAD_COMMENT_LINES: usize = 3;
+pub(crate) const CHAT_COMMENT_LINES: usize = 3;
 /// #EXP-1553: the folded body's fade: opaque to this fraction of the clamp
 /// height, clear at 100 % (web `comment-call-card.tsx`, Android
 /// `CommentCallCard.CLAMP_FADE_FROM`, iOS). gpui has no mask, so the bottom
@@ -880,8 +880,8 @@ const COMMENT_FOCUS_FADE: std::time::Duration = std::time::Duration::from_millis
 /// went elsewhere before the issue loaded).
 const COMMENT_FOCUS_TTL: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// What one comment card in the run thread draws.
-pub(crate) struct ThreadCommentProps {
+/// What one comment card in the run chat draws.
+pub(crate) struct ChatCommentProps {
     pub id: SharedString,
     /// The run agent's mark, in front of the author.
     pub mark: gpui::AnyElement,
@@ -893,7 +893,7 @@ pub(crate) struct ThreadCommentProps {
     /// Scopes the body's `@email`/`#IDENT` pills.
     pub team_id: Option<String>,
     /// EXP-1309: also chip BARE `FB-8` tokens — set when the card carries a
-    /// THREAD text (an agent channel's message, web `ThreadMarkdown`), never
+    /// CHAT text (an agent channel's message, web `ChatMarkdown`), never
     /// for a stored comment (the `#IDENT` contract).
     pub bare_refs: bool,
     pub expanded: bool,
@@ -901,14 +901,14 @@ pub(crate) struct ThreadCommentProps {
     /// Opens the issue scrolled to this comment.
     pub on_open: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
     /// The host's image cache for the body's `![](/api/attachments/…)`
-    /// pictures; `None` = they read "Image unavailable" (the thread
+    /// pictures; `None` = they read "Image unavailable" (the chat
     /// screen's `.images(...)` fix, 1a32b8a1a2, for the agent channel).
     pub images: Option<gpui::Entity<crate::markdown::ImageCache>>,
 }
 
-/// The meta line a synced comment wears in the thread card
+/// The meta line a synced comment wears in the chat card
 /// (`via MCP · relative time · edited`).
-pub(crate) fn thread_comment_meta(comment: &Comment, via_app_name: Option<&str>, now_epoch: i64) -> String {
+pub(crate) fn chat_comment_meta(comment: &Comment, via_app_name: Option<&str>, now_epoch: i64) -> String {
     // #EXP-1553: web `agent-comment-card.tsx` order ×4: "via MCP · 20
     // minutes ago" (the caption first), then `edited`.
     let time = relative_time(comment.created_at.as_deref().unwrap_or(""), now_epoch);
@@ -922,11 +922,11 @@ pub(crate) fn thread_comment_meta(comment: &Comment, via_app_name: Option<&str>,
 }
 
 /// The author name a synced comment wears (the timeline's rule).
-pub(crate) fn thread_comment_author(comment: &Comment, author: Option<&User>) -> String {
+pub(crate) fn chat_comment_author(comment: &Comment, author: Option<&User>) -> String {
     comment_author_name(comment, author, domain::reporter_reply::FORMER_MEMBER_NAME)
 }
 
-/// The folded body's height: [`THREAD_COMMENT_LINES`] lines at `line`,
+/// The folded body's height: [`CHAT_COMMENT_LINES`] lines at `line`,
 /// plus the chat markdown's paragraph gap (0.5 × `rem`) for EVERY paragraph
 /// break that falls inside those lines (web's `max-h-[4.5em]` holds them
 /// too). Walks the leading paragraphs, each counted as ONE line: the
@@ -934,8 +934,8 @@ pub(crate) fn thread_comment_author(comment: &Comment, author: Option<&User>) ->
 /// Space`, and wrapping is not measured here). A paragraph that really wraps
 /// may count a later gap the fold never reaches: the fold then errs taller
 /// and shows a little more, faded, never cutting line 3's glyphs.
-pub(crate) fn thread_comment_clamp_height(body: &str, line: f32, rem: f32) -> f32 {
-    let budget = THREAD_COMMENT_LINES;
+pub(crate) fn chat_comment_clamp_height(body: &str, line: f32, rem: f32) -> f32 {
+    let budget = CHAT_COMMENT_LINES;
     let paragraphs = body.trim().split("\n\n").filter(|paragraph| !paragraph.trim().is_empty()).count();
     // One line each: a break follows each of the first `budget - 1`
     // paragraphs that has a successor.
@@ -943,18 +943,18 @@ pub(crate) fn thread_comment_clamp_height(body: &str, line: f32, rem: f32) -> f3
     line * budget as f32 + gaps as f32 * 0.5 * rem
 }
 
-/// Whether a body runs past the card's [`THREAD_COMMENT_LINES`] clamp.
-pub(crate) fn thread_comment_clamps(body: &str) -> bool {
-    body.trim().lines().count() > THREAD_COMMENT_LINES || body.trim().chars().count() > 240
+/// Whether a body runs past the card's [`CHAT_COMMENT_LINES`] clamp.
+pub(crate) fn chat_comment_clamps(body: &str) -> bool {
+    body.trim().lines().count() > CHAT_COMMENT_LINES || body.trim().chars().count() > 240
 }
 
 /// EXP-1241 — the real comment an `exponential_comments_create` call
 /// posted, in the comment row's style: the author row (the agent's mark, the
 /// name, the muted meta), the markdown body clamped to three lines with Show
 /// more. The whole card opens the issue scrolled to the comment.
-pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> gpui::AnyElement {
+pub(crate) fn chat_comment_card(props: ChatCommentProps, cx: &gpui::App) -> gpui::AnyElement {
     let muted = cx.theme().muted_foreground;
-    let clamps = thread_comment_clamps(&props.body);
+    let clamps = chat_comment_clamps(&props.body);
     let mut view = MarkdownView::new(SharedString::from(format!("{}-body", props.id)), props.body.clone())
         .chat(true)
         .selectable(true)
@@ -977,7 +977,7 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
     // (`MarkdownView` `.chat`: `gap_2` = 0.5 rem) sits between paragraphs,
     // so a body with a paragraph break adds it: line 3's glyphs stay inside
     // the clamp and only their lower part fades (the shot cut them).
-    let clamp_h = thread_comment_clamp_height(&props.body, line, f32::from(cx.theme().font_size));
+    let clamp_h = chat_comment_clamp_height(&props.body, line, f32::from(cx.theme().font_size));
     let body = div()
         .relative()
         .w_full()
@@ -1071,7 +1071,7 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
     card.into_any_element()
 }
 
-/// EXP-1241: a pending "open the issue AT this comment" — set by the thread's
+/// EXP-1241: a pending "open the issue AT this comment" — set by the chat's
 /// comment card, consumed by the issue's timeline, which scrolls the comment
 /// into view once and tints it briefly.
 #[derive(Clone, Debug)]
@@ -1261,17 +1261,17 @@ mod tests {
         let mcp = comment("mcp", "team", Some("u-1"));
         assert_eq!(comment_caption(&mcp, None).as_deref(), Some("via MCP"));
         // #EXP-1553: the fold holds 3 lines plus one paragraph gap.
-        assert_eq!(thread_comment_clamp_height("a\n\nb", 22., 14.), 73.);
-        assert_eq!(thread_comment_clamp_height("one paragraph", 22., 14.), 66.);
+        assert_eq!(chat_comment_clamp_height("a\n\nb", 22., 14.), 73.);
+        assert_eq!(chat_comment_clamp_height("one paragraph", 22., 14.), 66.);
         // Two breaks inside the first three lines: 3 lines + 2 gaps; a
         // break past line 3 adds nothing.
-        assert_eq!(thread_comment_clamp_height("a\n\nb\n\nc\n\nd", 22., 14.), 80.);
-        assert_eq!(thread_comment_clamp_height("a\n\nb\n\nc\n\nd\n\ne", 22., 14.), 80.);
+        assert_eq!(chat_comment_clamp_height("a\n\nb\n\nc\n\nd", 22., 14.), 80.);
+        assert_eq!(chat_comment_clamp_height("a\n\nb\n\nc\n\nd\n\ne", 22., 14.), 80.);
         // Soft breaks join (one rendered line), so their paragraph's break
         // still falls inside the fold.
-        assert_eq!(thread_comment_clamp_height("a\nb\nc\n\nd", 22., 14.), 73.);
-        // #EXP-1553: the thread card's byline leads with the caption (web).
-        let meta = thread_comment_meta(&mcp, None, 0);
+        assert_eq!(chat_comment_clamp_height("a\nb\nc\n\nd", 22., 14.), 73.);
+        // #EXP-1553: the chat card's byline leads with the caption (web).
+        let meta = chat_comment_meta(&mcp, None, 0);
         assert!(meta.starts_with("via MCP"), "{meta}");
         let mcp_out = comment("mcp", "reporter", Some("u-1"));
         assert_eq!(comment_caption(&mcp_out, None).as_deref(), Some("to reporter · via MCP"));

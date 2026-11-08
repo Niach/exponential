@@ -184,7 +184,7 @@ impl AgentsIndexPane {
             .iter()
             .find(|item| item.value == current)
             .map(|item| item.label.to_string())
-            .unwrap_or_else(|| crate::thread_screen::member_name(Some(current.as_str()), cx));
+            .unwrap_or_else(|| crate::session_chat::member_name(Some(current.as_str()), cx));
         use gpui_component::button::ButtonVariants as _;
         let trigger = gpui_component::button::Button::new(SharedString::from(LEAD.test_ids.row.clone()))
             .accessibility_label(LEAD.copy.label.clone())
@@ -357,7 +357,7 @@ impl AgentsIndexPane {
             let emitter = event_emitter_label(
                 &event,
                 |session_id| crate::session_data::session_title_of(session_id, cx),
-                |user_id| crate::thread_screen::member_name(Some(user_id), cx),
+                |user_id| crate::session_chat::member_name(Some(user_id), cx),
             );
             let at = event
                 .created_at

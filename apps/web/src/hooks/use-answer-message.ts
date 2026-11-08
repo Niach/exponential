@@ -5,19 +5,19 @@ import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
 import {
-  buildSessionThread,
+  buildSessionChat,
   toTreeMessages,
   toTreeSession,
   type MessageRow,
   type SessionRow,
-  type ThreadRow,
+  type SessionChatRow,
 } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
-// The card answer paths every conversation shares (the thread screen, its
+// The card answer paths every conversation shares (the chat screen, its
 // Dock, an app editor's chat): `sessions.answer`, `sessions.unqueue`, and a
-// conversation root's rows (`buildSessionThread`) for a host that draws
-// them without the whole thread model.
+// conversation root's rows (`buildSessionChat`) for a host that draws
+// them without the whole chat model.
 
 /** A card's answer (`sessions.answer`): a question's text + its picked
  *  labels, or a plan's decision + note + EXP-1280 answers by question id;
@@ -80,7 +80,7 @@ export function useUnqueueMessage(): (messageId: string) => Promise<void> {
   }, [])
 }
 
-/** A conversation's rows: `buildSessionThread` over the conversation root
+/** A conversation's rows: `buildSessionChat` over the conversation root
  *  (EXP-1334: no root card)
  *  and its `tabs` (#EXP-1407: the Dock's asking-session names). */
 export function useConversationRows({
@@ -91,7 +91,7 @@ export function useConversationRows({
   conversation: SessionRow | null
   messages: readonly MessageRow[]
   teamSessions: readonly SessionRow[]
-}): { rows: readonly ThreadRow[]; tabs: ReturnType<typeof buildSessionThread>[`tabs`] } {
+}): { rows: readonly SessionChatRow[]; tabs: ReturnType<typeof buildSessionChat>[`tabs`] } {
   // #EXP-1380 (chats.json PERF): the clock only drives the session cards'
   // elapsed time, so it ticks only while a card's session is live.
   const liveCard = useMemo(() => {
@@ -111,7 +111,7 @@ export function useConversationRows({
   const view = useMemo(
     () =>
       conversation
-        ? buildSessionThread({
+        ? buildSessionChat({
             root: toTreeSession(conversation),
             sessions: teamSessions.map(toTreeSession),
             sessionIssues: [],

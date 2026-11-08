@@ -366,7 +366,7 @@ export const deviceWorktreeCollection = createCollection(
   })
 )
 
-// ── EXP-1291 Threads v2: the session tree ──────────────────────────────────
+// ── EXP-1291: the session tree ──────────────────────────────────
 // Visibility = `shared OR mine` inside member teams (the shapes filter; the
 // server-only columns never stream).
 export const sessionCollection = createCollection(
@@ -409,7 +409,7 @@ export const messageCollection = createCollection(
   })
 )
 
-// EXP-1323: the caller's read marks (`sessions.markRead`), the Threads
+// EXP-1323: the caller's read marks (`sessions.markRead`), the Chats
 // list's bold rows. Static per user like `pins`; a row renders only beside a
 // synced session.
 export const sessionReadsCollection = createCollection(

@@ -2,7 +2,7 @@ import { CHATS_COPY, CHATS_SHELL, CHATS_TEST_IDS } from "@exp/domain-contract/ch
 import { Pill } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
-// Thread 58cb32df (chats.json `shell.boardChips`, ×3 with iOS and Android):
+// Chat 58cb32df (chats.json `shell.boardChips`, ×3 with iOS and Android):
 // the phone board's chips under its header — All issues · My issues N ·
 // Drafts N as select Pills; Drafts only while the viewer has drafts, a
 // count after My issues and Drafts. My issues and Drafts moved here from the

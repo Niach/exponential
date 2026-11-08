@@ -127,10 +127,9 @@ describe(`Chart`, () => {
         const seen: unknown[] = []
         await page.keyboard.press(`Tab`)
         seen.push(await focused(page))
-        for (const [i, k] of [`ArrowRight`, `ArrowRight`, `ArrowLeft`, `ArrowLeft`, `ArrowLeft`, `End`, `Home`, `Escape`, `ArrowLeft`].entries()) {
+        for (const k of [`ArrowRight`, `ArrowRight`, `ArrowLeft`, `ArrowLeft`, `ArrowLeft`, `End`, `Home`, `Escape`, `ArrowLeft`]) {
           await page.keyboard.press(k)
-          // The first activation mounts the band and tooltip: a loaded runner needs longer than 30 ms.
-          await settle(page, i === 0 ? 250 : 30)
+          await settle(page, 30)
           seen.push(await dom(page, `c`))
         }
         await page.keyboard.press(`Tab`)

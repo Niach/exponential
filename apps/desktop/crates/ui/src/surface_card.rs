@@ -1,4 +1,4 @@
-//! Thread 58cb32df (#EXP-1373, `fixtures/chats.json`): the transcript's two
+//! Session 58cb32df (#EXP-1373, `fixtures/chats.json`): the transcript's two
 //! new rows on the IDE (the twins of web `packages/ui` surface-card +
 //! transcript-divider, iOS / Android the same):
 //!
@@ -38,7 +38,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use crate::controls::WebText as _;
 
 use domain::chats::{DividerKind, CHATS};
-use domain::session_tree::{CardSurface, SessionThreadRow};
+use domain::session_tree::{CardSurface, SessionChatRow};
 
 use crate::icons::registry;
 
@@ -57,7 +57,7 @@ pub(crate) fn divider_label(kind: DividerKind, time: &str) -> String {
 
 /// THE divider pill, centred in the column.
 pub(crate) fn divider_row(id: &str, kind: DividerKind, at: &str, cx: &App) -> AnyElement {
-    divider_pill(id, kind, &crate::thread_screen::clock(Some(at)), cx)
+    divider_pill(id, kind, &crate::session_chat::clock(Some(at)), cx)
 }
 
 /// [`divider_row`] with the time already formatted (the styleguide's).
@@ -178,11 +178,11 @@ impl gpui::Global for SurfaceCards {}
 /// A transcript host calls this whenever its rows change: the FIRST call for
 /// `screen` with rows records what is already there (history never animates); a
 /// surface row that appears later is a live arrival and plays ENTER once.
-pub(crate) fn sync_rows(screen: EntityId, rows: &[SessionThreadRow], cx: &mut App) {
+pub(crate) fn sync_rows(screen: EntityId, rows: &[SessionChatRow], cx: &mut App) {
     let ids: Vec<&str> = rows
         .iter()
         .filter_map(|row| match row {
-            SessionThreadRow::Surface { id, .. } => Some(id.as_str()),
+            SessionChatRow::Surface { id, .. } => Some(id.as_str()),
             _ => None,
         })
         .collect();
@@ -409,12 +409,12 @@ pub(crate) fn surface_frame(
 // ---------------------------------------------------------------------------
 
 /// A session card row's kind (`None` for any other row).
-fn card_kind(row: &SessionThreadRow) -> Option<domain::ask_dock::SessionCardKind> {
+fn card_kind(row: &SessionChatRow) -> Option<domain::ask_dock::SessionCardKind> {
     use domain::ask_dock::SessionCardKind;
     match row {
-        SessionThreadRow::Plan { .. } => Some(SessionCardKind::Plan),
-        SessionThreadRow::Question { .. } => Some(SessionCardKind::Question),
-        SessionThreadRow::Surface { .. } => Some(SessionCardKind::Surface),
+        SessionChatRow::Plan { .. } => Some(SessionCardKind::Plan),
+        SessionChatRow::Question { .. } => Some(SessionCardKind::Question),
+        SessionChatRow::Surface { .. } => Some(SessionCardKind::Surface),
         _ => None,
     }
 }
@@ -428,7 +428,7 @@ fn card_kind(row: &SessionThreadRow) -> Option<domain::ask_dock::SessionCardKind
 /// (feed item id, display row). Returns card INDICES into `cards`.
 pub(crate) fn anchor_cards(
     calls: &[(u64, &str)],
-    cards: &[SessionThreadRow],
+    cards: &[SessionChatRow],
 ) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
     let (indices, kinds): (Vec<usize>, Vec<_>) =
         cards.iter().enumerate().filter_map(|(index, card)| card_kind(card).map(|kind| (index, kind))).unzip();
@@ -441,8 +441,8 @@ pub(crate) fn anchor_cards(
 mod tests {
     use super::*;
 
-    fn surface(id: &str) -> SessionThreadRow {
-        SessionThreadRow::Surface {
+    fn surface(id: &str) -> SessionChatRow {
+        SessionChatRow::Surface {
             id: id.into(),
             session_id: "s".into(),
             title: None,
@@ -450,8 +450,8 @@ mod tests {
         }
     }
 
-    fn plan(id: &str) -> SessionThreadRow {
-        SessionThreadRow::Plan {
+    fn plan(id: &str) -> SessionChatRow {
+        SessionChatRow::Plan {
             id: id.into(),
             session_id: "s".into(),
             plan: "p".into(),

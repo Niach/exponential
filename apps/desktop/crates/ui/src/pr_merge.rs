@@ -12,7 +12,7 @@
 //! `pullRequests.close`). Keys share one namespace: the pull request id for
 //! a merge, [`close_pr_key`] (`close:<id>`) for a close. A refusal is the
 //! error toast (no recovery run); EXP-1391: the server also posts a refused
-//! merge into the thread's root session, which takes it over.
+//! merge into the chat's root session, which takes it over.
 
 use std::collections::HashSet;
 use std::sync::Arc;

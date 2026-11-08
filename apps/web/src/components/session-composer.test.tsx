@@ -651,7 +651,7 @@ describe(`SessionComposer quick replies (EXP-1211)`, () => {
     ]
     mocks.sendReply.mockResolvedValue({ sessionId: `s1`, txid: 1 })
     renderComposer()
-    const pills = screen.getAllByTestId(`thread-reply`)
+    const pills = screen.getAllByTestId(`chat-reply`)
     expect(pills.map((pill) => pill.textContent)).toEqual([`Raise the version numbers`])
     fireEvent.click(pills[0]!)
     await waitFor(() =>
@@ -671,6 +671,6 @@ describe(`SessionComposer quick replies (EXP-1211)`, () => {
     unmount()
     mocks.messages = []
     renderComposer()
-    expect(screen.queryByTestId(`thread-replies`)).toBeNull()
+    expect(screen.queryByTestId(`chat-replies`)).toBeNull()
   })
 })

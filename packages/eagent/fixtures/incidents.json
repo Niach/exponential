@@ -1,8 +1,8 @@
 {
-  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded thread (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh thread with no context instead of reaching the asker. Rule: a thread whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED (#EXP-1675, owner 2026-11-05, reversing the old 'silent while its host is away'): a host going offline mid-turn is a silent `device_offline` (resume) for its first offlineMinutes; past them, while the device is still away, the run is on a person (needsInput) and its parent hears ONE line (copy.offline, waking, never repeated). A device back before that starts the resume clock instead: a run it does not continue within resumeMinutes reaches a person the same way, and a run already told about is never said again. The device listing the run, or its report, clears the flag and Needs you (no line). (4) #FEED-178: threads started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists. (5) #FEED-173/#FEED-174: `sessions_send {wakeOn}` with no target and no text started an empty untitled root that ran; `wakeOn` alone is `send.watch` on the CALLER, and a start with neither a target nor work (text or issues) is refused (copy.startNeedsWork). (6) #FEED-172 again (85ee1eff, crowded): the asker may be a CHILD of the crowded thread; `awaitsCaller` reads the whole target tree, so the reply lands on the thread and nothing forks. (7) #FEED-158: a private run's report reaches a starter that may not see it as the neutral line: its BODY carries the lead, the read hint and the session id; the card's summary stays the bare lead (the line clients draw), so a device feeding the report to an agent reads the body when it extends the summary (crates/coding pickup `input_text`). The zero-length system row before a run's own report is its `session_ended` card (a card row: empty body by design, drawn from the card ×4). (8) #FEED-185: after a host reboot an agent's sessions_send into its own SEALED tree went out in clear (its daemon wired it to /api/mcp before its key holder ran, #FEED-184) and was refused. Rule: a keyed tree (its root's sealEpoch) takes no plaintext text from any writer, the tree's own agent included: the hub never reads a sealed tree, so the writer's device seals it (its MCP gateway) or the send fails; sealed text lands, a keyless tree still takes plaintext; an end's plaintext summary into a keyed tree is refused the same way (an end without one still ends), and a SEALED start keys its new tree (sealEpoch 1, as the server's createTreeKeyInTx), so plaintext into it is refused too.",
+  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded root session (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh session with no context instead of reaching the asker. Rule: a root session whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED (#EXP-1675, owner 2026-11-05, reversing the old 'silent while its host is away'): a host going offline mid-turn is a silent `device_offline` (resume) for its first offlineMinutes; past them, while the device is still away, the run is on a person (needsInput) and its parent hears ONE line (copy.offline, waking, never repeated). A device back before that starts the resume clock instead: a run it does not continue within resumeMinutes reaches a person the same way, and a run already told about is never said again. The device listing the run, or its report, clears the flag and Needs you (no line). (4) #FEED-178: root sessions started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists. (5) #FEED-173/#FEED-174: `sessions_send {wakeOn}` with no target and no text started an empty untitled root that ran; `wakeOn` alone is `send.watch` on the CALLER, and a start with neither a target nor work (text or issues) is refused (copy.startNeedsWork). (6) #FEED-172 again (85ee1eff, crowded): the asker may be a CHILD of the crowded root session; `awaitsCaller` reads the whole target tree, so the reply lands on the root session and nothing forks. (7) #FEED-158: a private run's report reaches a starter that may not see it as the neutral line: its BODY carries the lead, the read hint and the session id; the card's summary stays the bare lead (the line clients draw), so a device feeding the report to an agent reads the body when it extends the summary (crates/coding pickup `input_text`). The zero-length system row before a run's own report is its `session_ended` card (a card row: empty body by design, drawn from the card ×4). (8) #FEED-185: after a host reboot an agent's sessions_send into its own SEALED tree went out in clear (its daemon wired it to /api/mcp before its key holder ran, #FEED-184) and was refused. Rule: a keyed tree (its root's sealEpoch) takes no plaintext text from any writer, the tree's own agent included: the hub never reads a sealed tree, so the writer's device seals it (its MCP gateway) or the send fails; sealed text lands, a keyless tree still takes plaintext; an end's plaintext summary into a keyed tree is refused the same way (an end without one still ends), and a SEALED start keys its new tree (sealEpoch 1, as the server's createTreeKeyInTx), so plaintext into it is refused too.",
   "cases": [
     {
-      "name": "#FEED-172: the team agent's reply to a crowded thread that asked it reaches the thread",
+      "name": "#FEED-172: the team agent's reply to a crowded root session that asked it reaches the root session",
       "given": {
         "sessions": [
           {
@@ -167,7 +167,7 @@
           "result": {
             "sessionId": "x2",
             "messageId": "m3",
-            "warning": "Started a fresh thread instead of reusing da1: it already has 8 sub-sessions. You watch the new one."
+            "warning": "Started a fresh session instead of reusing da1: it already has 8 sub-sessions. You watch the new one."
           }
         }
       ],
@@ -888,7 +888,7 @@
       }
     },
     {
-      "name": "#FEED-173/#FEED-174: {wakeOn} alone watches from the caller; a start with no target and nothing to do is refused, never an empty thread",
+      "name": "#FEED-173/#FEED-174: {wakeOn} alone watches from the caller; a start with no target and nothing to do is refused, never an empty root session",
       "given": {
         "sessions": [
           {
@@ -919,7 +919,7 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session",
+            "message": "Name the session to message (sessionId, agentId, appId or parentId), or give the new session a text or issues; wakeOn alone watches from your own session",
             "retryable": false
           }
         },
@@ -936,7 +936,7 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session",
+            "message": "Name the session to message (sessionId, agentId, appId or parentId), or give the new session a text or issues; wakeOn alone watches from your own session",
             "retryable": false
           }
         },
@@ -1011,7 +1011,7 @@
       }
     },
     {
-      "name": "#FEED-172 (85ee1eff): a crowded thread whose CHILD asked the caller gets the reply in place, never a fresh thread",
+      "name": "#FEED-172 (85ee1eff): a crowded root session whose CHILD asked the caller gets the reply in place, never a fresh session",
       "given": {
         "sessions": [
           {

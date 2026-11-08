@@ -23,7 +23,7 @@
 //! steering frames are logged. Every endpoint is let in: the stub has no
 //! registry to check against.
 //!
-//! EXP-1558: the demo machine runs MORE than the scripted session (the thread
+//! EXP-1558: the demo machine runs MORE than the scripted session (the chat
 //! root, its other children, the app editor's session). Each is listed under
 //! `stored: [{sessionId, journal, ended}]` and answered like a real device's
 //! STORED REPLAY (steer-enet.json): its journal and `activity_synced`, then

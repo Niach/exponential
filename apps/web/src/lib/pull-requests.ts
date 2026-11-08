@@ -76,12 +76,12 @@ import {
 
 export type { PullRequest } from "@/db/schema"
 
-// EXP-1291: THE pull-request API. A thread (root session) has n PRs (a tree,
+// EXP-1291: THE pull-request API. A chat (root session) has n PRs (a tree,
 // a stack or independent ones), each a `pull_requests` row closing the
-// issues in `pull_request_issues`; every PR body is the thread's ONE Guide
+// issues in `pull_request_issues`; every PR body is the chat's ONE Guide
 // (`prBodyFromGuide`, re-rendered by `syncPullRequestBodies`). MCP's pr_*
 // tools and the `pullRequests` tRPC router both call these; the state writes
-// (automation, issue events, the thread's event cards, notifications) live in
+// (automation, issue events, the chat's event cards, notifications) live in
 // `lib/integrations/pr-sync.ts`, shared with the webhook and the poller.
 // Merging never ends a session.
 
@@ -111,7 +111,7 @@ async function repoToken(repo: Repo): Promise<string> {
   return token
 }
 
-/** EXP-1315 → S-3: a thread's PR that changes UI needs a labelled
+/** EXP-1315 → S-3: a chat's PR that changes UI needs a labelled
  *  picture per touched platform, or `notRun` naming it. A failed compare
  *  never blocks the PR: it is logged and the guard skipped. */
 async function assertUiPictures(args: {
@@ -158,8 +158,8 @@ async function isSameLogicalSession(rootId: string, callerId: string, openerId: 
   return logicalSessionIds(callerId, tree).includes(openerId)
 }
 
-/** The footer link of every PR body: the thread (root session). */
-async function threadUrlFor(teamId: string, rootId: string): Promise<string | null> {
+/** The footer link of every PR body: the chat (root session). */
+async function chatUrlForTeam(teamId: string, rootId: string): Promise<string | null> {
   const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
   return team ? chatUrlFor(team.slug, rootId) : null
 }
@@ -246,7 +246,7 @@ async function createOrAdoptOnGithub(opts: {
 /**
  * Open a PR (the MCP `pr_open`). The caller session (X-Exp-Session-Id)
  * gives the defaults: its repository and branch, and its share of its
- * thread's issues when `issueIds` is omitted (EXP-1334, `prDefaultIssueIds`).
+ * chat's issues when `issueIds` is omitted (EXP-1334, `prDefaultIssueIds`).
  * EXP-1706 (issue-lifecycle.json `links`): the head branch's ident, the
  * title prefix's idents and the body's closing lines always link too.
  * An omitted `base` = the nearest live PR below `head` (native stacks), else
@@ -309,7 +309,7 @@ export async function openPullRequest(args: {
   if (!head) fail(`BAD_REQUEST`, `Pass 'head': the branch you pushed`)
 
   // One repo, one team: an explicit issue elsewhere is refused, the
-  // thread's defaults are narrowed to this PR's repository.
+  // chat's defaults are narrowed to this PR's repository.
   const belongs = (issue: IssueForPr) =>
     issue.teamId === repo.teamId &&
     (issue.boardRepositoryId === null || issue.boardRepositoryId === repo.id)
@@ -351,7 +351,7 @@ export async function openPullRequest(args: {
   // S-3: `notRun` lives on the PR row (`pull_requests.not_run`), so every
   // later body render and the next pr_open keep it.
   const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || existing?.notRun || null
-  const threadUrl = root ? await threadUrlFor(repo.teamId, root.id) : null
+  const chatUrl = root ? await chatUrlForTeam(repo.teamId, root.id) : null
   // S-3: the PR's pictures = the opener's (its logical session and
   // subtree); the body = a server summary + those pictures.
   const pictures = root
@@ -368,7 +368,7 @@ export async function openPullRequest(args: {
       commits: await compareCommitMessages({ repo: repo.fullName, base, head: head!, token }),
       pictures,
       notRun,
-      resultsUrl: threadUrl,
+      resultsUrl: chatUrl,
     })
   const keepNotRun = async (pullRequestId: string) => {
     if (args.notRun === undefined) return
@@ -398,10 +398,10 @@ export async function openPullRequest(args: {
     })
 
   if (existing) {
-    // #NEW-20: a PR's body comes from its own thread: another thread's
+    // #NEW-20: a PR's body comes from its own chat: another chat's
     // session may update it, but its pictures never replace that body.
-    const ownThread = root && (!existing.rootSessionId || existing.rootSessionId === root.id)
-    const body = args.body ?? (ownThread ? await pictureBody(existing.base) : undefined)
+    const ownChat = root && (!existing.rootSessionId || existing.rootSessionId === root.id)
+    const body = args.body ?? (ownChat ? await pictureBody(existing.base) : undefined)
     await patchPullDescription({
       repoFullName: repo.fullName,
       prNumber: existing.number,
@@ -474,7 +474,7 @@ export async function openPullRequest(args: {
 }
 
 /**
- * FEED-111: the issue's PR among its live linked ones. A thread-level PR
+ * FEED-111: the issue's PR among its live linked ones. A chat-level PR
  * links every root issue, so newest-first is wrong: the PR the issue's
  * assigned session opened wins, else the one linking the fewest issues; a
  * tie refuses rather than guess (a merge must never land the wrong PR).
@@ -654,7 +654,7 @@ export async function retargetPullRequestTx(args: {
 }
 
 /** Rewrite a live PR's title/body on GitHub, or flip its draft state. A
- *  thread PR's body follows the Guide again on the next Guide write. */
+ *  chat PR's body follows the Guide again on the next Guide write. */
 export async function updatePullRequest(args: {
   userId: string
   pullRequestId: string
@@ -768,11 +768,11 @@ export async function pullRequestFiles(args: {
   }
 }
 
-// One chain per thread: overlapping picture uploads PATCH in call order, and
+// One chain per chat: overlapping picture uploads PATCH in call order, and
 // each link re-reads the committed cards, so the last PATCH carries it.
 const bodySyncChains = new Map<string, Promise<void>>()
 
-/** S-3: re-render every LIVE PR body of a thread from its cards (each
+/** S-3: re-render every LIVE PR body of a chat from its cards (each
  *  PR: its title, linked issues and commits, its opener's pictures,
  *  its notRun). Best effort: never throws. */
 export function syncPullRequestBodies(rootId: string): Promise<void> {
@@ -791,7 +791,7 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
     if (!root) return
     const prs = await livePullRequestsOfRoot(rootId)
     if (prs.length === 0) return
-    const threadUrl = await threadUrlFor(root.teamId, root.id)
+    const chatUrl = await chatUrlForTeam(root.teamId, root.id)
     const tokens = new Map<string, Promise<string | null>>()
     for (const pr of prs) {
       try {
@@ -814,7 +814,7 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
             repositoryId: pr.repositoryId,
           }),
           notRun: pr.notRun,
-          resultsUrl: threadUrl,
+          resultsUrl: chatUrl,
         })
         const body = await withAbsoluteLinks(root.teamId, pictureBody)
         await patchPullDescription({ repoFullName, prNumber: pr.number, token, fields: { body } })
@@ -823,11 +823,11 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn(`[pull-requests] body sync of thread ${rootId} failed`, err)
+    console.warn(`[pull-requests] body sync of chat ${rootId} failed`, err)
   }
 }
 
-/** Test seam: threads with a body sync in flight. */
+/** Test seam: chats with a body sync in flight. */
 export function pendingPullRequestBodySyncs(): number {
   return bodySyncChains.size
 }

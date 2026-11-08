@@ -64,7 +64,7 @@ object SessionDeviceMove {
     fun visible(kind: String?): Boolean = hiddenReason(kind) == null
 
     /** A shared session is steerable by every member, any other only by its
-     *  starter (Threads v2; web `canSteerSession`). */
+     *  starter (EXP-1291; web `canSteerSession`). */
     fun canSteer(shared: Boolean, starterId: String, currentUserId: String?): Boolean =
         shared || (!currentUserId.isNullOrEmpty() && starterId == currentUserId)
 

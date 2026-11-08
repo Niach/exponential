@@ -11,7 +11,7 @@ so `px_2` = 7 px and `gap_1` = 3.5 px) against eDE's numbers
 - `close`: a known small difference, named in the note.
 - `gap`: something genUI or eDE does not have yet, named in the note.
 
-Masterplan decisions (thread d6b83b10, approved 2026-11-06) this table
+Masterplan decisions (session d6b83b10, approved 2026-11-06) this table
 reflects: eDE has no top panel and no top tab band; its taskbar is Mint's
 grouped window list at the bottom (icon-only, pinning, grouping, hover
 previews) with the applets and the clock at the right end; the sidebar nav is
@@ -42,14 +42,14 @@ Colour tokens both sides read from `packages/design-tokens` (`glass`):
 | 7 | Header: new issue | the new button | Button (icon, primary) | 32, only with a board | 32, only with a board | same | |
 | 8 | Nav: Agent (`ACTION_CHAT`, the Home screen) | none; the chat button bottom-left (`chat.toggle`) opens the assistant | Button (icon) | row 28 | `taskbarButtonSize` 40 next to the start button | close | dropped from the nav by decision; the chat button replaces it |
 | 9 | Nav: Needs you (`NAV_NEEDS_YOU`) | Needs you | Row (`icon`, `title`, `meta`), Badge (count) | `flat_row_compact` 28, `px_2` 7, `gap_2` 7, `text_sm`, radius 10, count badge; hidden at 0 | `sidebarRowHeight` 28, same badge, hidden at 0 | same | |
-| 10 | Nav: Chats (`NAV_THREADS`, `threads-list.json` copy.title) | Chats | Row, Badge (dot amber/green/primary) | 28, status or unread dot | 28, same dots | same | |
+| 10 | Nav: Chats (`NAV_CHATS`, `chat-list.json` copy.title) | Chats | Row, Badge (dot amber/green/primary) | 28, status or unread dot | 28, same dots | same | |
 | 11 | Nav: Devices (`NAV_DEVICES`) | none; the devices live in the Exponential app window | Row | 28 | — | close | dropped from the nav by decision (nav = Needs you + Chats) |
 | 12 | Nav: Drafts (`NAV_DRAFTS`) | none; drafts live in the Exponential app window | Row, Badge | 28, hidden at 0 | — | close | dropped from the nav by decision |
 | 13 | Section: Pinned (`rail_section_label`, unpin on hover) | Pinned (`sidebar.pinnedOpen`) | Section (`collapsible`, `title`), Row (`icon`, `title`), Button (unpin, hover) | label 24 (`text_xs` medium, foreground 0.5, `pl_1p5` `pr_1`), rows 28, section gap 8, never folds | `sectionLabelHeight` 24, rows 28, gap 8, folds | close | eDE folds the section |
 | 14 | Section: Agents (+ New agent) | none in the sidebar; the Exponential app window | Section, Row, Button (`+`) | 24 + 28 | — | close | by decision the desktop sidebar holds Pinned, Workspaces, Sessions; agents are the app's |
 | 15 | Section: Apps (+ New app / Import) | none in the sidebar; the start menu's Exponential group (`startMenuApps`, category `exponential`) | Section, Row, Menu | 24 + 28 | start-menu rows | close | by decision the apps are start-menu entries |
 | 16 | Section: Boards (+ New board, settings gear on hover) | none in the sidebar; the Exponential app window | Section, Row, Button | 24 + 28 | — | close | by decision |
-| 17 | Section: Active (`threads-list.json` copy.rail, hidden while empty) | Sessions (`sidebar.sessionsOpen`) | Section (`collapsible`), Row (`icon`, `title`, `subtitle`) | label 24, rows 28, row gap 3.5 (`RUNNING_ROW_GAP` = 0.25 rem), hidden while empty | 24, 28, row gap 4, hidden while empty, folds | close | the row gap rounds 3.5 → 4; eDE folds |
+| 17 | Section: Active (`chat-list.json` copy.rail, hidden while empty) | Sessions (`sidebar.sessionsOpen`) | Section (`collapsible`), Row (`icon`, `title`, `subtitle`) | label 24, rows 28, row gap 3.5 (`RUNNING_ROW_GAP` = 0.25 rem), hidden while empty | 24, 28, row gap 4, hidden while empty, folds | close | the row gap rounds 3.5 → 4; eDE folds |
 | 18 | What's new card (`render_whats_new_card`) | the same card at the sidebar's bottom | Row (`surface` card, `icon`, `title`), Button (close) | rounded 12, `STROKE_CARD`, `FILL_CARD`, `p_3` 10.5, `FILL_ACTIVE` hover, 80 px clearance | radius 12, same tokens, padding 10, clearance 80 | same | `p_3` is 10.5 at rem 14, drawn as 10 |
 | 19 | Footer: account row (small avatar + first name; menu What's new, About, Sign out) | the user row | Button (ghost), Avatar (small), Text, Menu (`hostedPopups`) | h 36, `px_1p5` 5, menu opens upward | 36, 5, upward | same | |
 | 20 | Footer: computer menu (Terminal, Files, Source Control + badge) | the computer menu: Terminal launches the terminal, Files launches Nemo | Button (ghost, icon), Menu, Badge | ghost small, opens upward | same | close | Source Control is not a desktop item; Files = Nemo by decision |

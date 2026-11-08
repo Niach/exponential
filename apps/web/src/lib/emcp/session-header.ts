@@ -5,7 +5,7 @@
 // `-c mcp_servers.exponential.http_headers`), so every request the agent makes
 // carries the id of the `sessions` row (EXP-1291) it runs as. That is what
 // lets `exponential_sessions_end` close out the right session, the Guide land
-// on the right thread and `exponential_pr_open` name the opening session.
+// on the right chat and `exponential_pr_open` name the opening session.
 //
 // The id is not a secret and grants nothing on its own: ownership is enforced
 // per tool against the resolved MCP user, never at request-parse time. A

@@ -3,7 +3,7 @@ import ExpUI
 import SwiftUI
 
 /// EXP-1295: the issue route — the issue page alone (`IssueFaceView`: pills,
-/// description, sub-issues, the Threads row, files, activity) under the
+/// description, sub-issues, the Chats row, files, activity) under the
 /// detail chrome. The Issue|Session|Guide faces, the Stop pill, the merge
 /// capsule and the PR graph badge are gone; the bottom bar's ONE Start circle
 /// opens the composer with this issue picked, and the composer's send starts
@@ -391,7 +391,7 @@ struct IssueScreen: View {
 
     /// EXP-825: Start is NAVIGATION — the composer with this issue picked;
     /// its send (`sessions.send` new root, issueIds = [this]) starts the
-    /// session and opens the new thread. The issue's team rides along: opened
+    /// session and opens the new chat. The issue's team rides along: opened
     /// from the Inbox or Search it may not be the ACTIVE team, and the
     /// composer's pools are team-scoped.
     private func openComposer() {

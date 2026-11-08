@@ -6,7 +6,7 @@
     "treeMaxSessions": 10
   },
   "reuse": {
-    "$comment": "S-3: an AGENT's message (the caller's tree has an acting agent: its root's agentId, else startedByAgentId) to another tree's ROOT thread reuses it only while: the thread waits on an answer (needsInput) or on the caller (#FEED-172, `awaitsCaller`), else it ended < maxEndedHours ago (or is live), its last turn (else activity, else its last write) is < maxIdleHours old and it has < maxChildren sub-sessions (every child row ever, ended ones too). A refused reuse never fails: a fresh root starts on the same device with the same message, watched by the caller, and the result carries `warning`.",
+    "$comment": "S-3: an AGENT's message (the caller's tree has an acting agent: its root's agentId, else startedByAgentId) to another tree's ROOT session reuses it only while: the root session waits on an answer (needsInput) or on the caller (#FEED-172, `awaitsCaller`), else it ended < maxEndedHours ago (or is live), its last turn (else activity, else its last write) is < maxIdleHours old and it has < maxChildren sub-sessions (every child row ever, ended ones too). A refused reuse never fails: a fresh root starts on the same device with the same message, watched by the caller, and the result carries `warning`.",
     "maxEndedHours": 2,
     "maxIdleHours": 24,
     "maxChildren": 8
@@ -80,11 +80,11 @@
     "reuseEnded": "it ended more than {hours} h ago",
     "reuseIdle": "its last turn is more than {hours} h old",
     "reuseCrowded": "it already has {children} sub-sessions",
-    "freshThread": "Started a fresh thread instead of reusing {id}: {reason}. You watch the new one.",
+    "freshSession": "Started a fresh session instead of reusing {id}: {reason}. You watch the new one.",
     "tooDeep": "Sub-sessions nest at most {max} deep",
     "tooMany": "A chat runs at most {max} sessions at once",
     "endedNeedsMessage": "This session has ended: send a message to continue it",
-    "startNeedsWork": "Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session",
+    "startNeedsWork": "Name the session to message (sessionId, agentId, appId or parentId), or give the new session a text or issues; wakeOn alone watches from your own session",
     "endedNothingToAnswer": "This session has ended: nothing to answer",
     "otherDevice": "This session runs on another device",
     "claimEnded": "This session has ended",

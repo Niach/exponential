@@ -650,7 +650,7 @@ mod tests {
         let names: Vec<&str> = steer::commands::catalog_for(agent).iter().map(|c| c.name).collect();
         assert_eq!(names, vec!["compact", "new", "model", "effort"]);
         assert_eq!(parse_slash_line("/compact", agent), Some(("compact".to_string(), String::new())));
-        // Thread 58cb32df: `/new` = a fresh conversation in the same session.
+        // Chat 58cb32df: `/new` = a fresh conversation in the same session.
         assert_eq!(parse_slash_line("/new", agent), Some(("new".to_string(), String::new())));
         assert_eq!(
             parse_slash_line("/model opus", agent),

@@ -29,14 +29,14 @@ import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 
-// EXP-1154/EXP-1248 (web `session-merge-button.tsx`): the thread header's
+// EXP-1154/EXP-1248 (web `session-merge-button.tsx`): the chat header's
 // merge control: [MergeStatusPill] (#EXP-1710, merge-train.json STATUS PILL)
 // and, for its `Needs approval`, ONE [ChangesMergeControl] the confirm runs
 // (the plain confirm, or the ONE stack confirm while the PR sits in an open
 // stack).
 
 /** What Needs approval merges — the PR. Always Merge: a refused merge
- *  toasts from the host (EXP-1391: the server hands it to the thread). */
+ *  toasts from the host (EXP-1391: the server hands it to the chat). */
 data class ChangesMergeControl(
     /** `Merge PR`, or `Merge stack` while [stackConfirm] is non-null. */
     val label: String,
@@ -55,7 +55,7 @@ data class ChangesMergeControl(
 )
 
 /**
- * #EXP-1710 (merge-train.json STATUS PILL, web `MergeStatusPill`): the thread
+ * #EXP-1710 (merge-train.json STATUS PILL, web `MergeStatusPill`): the chat
  * header's merge pill is a STATUS — THE Pill md, mode action, never primary
  * but for `Needs approval` (the ONLY action, approval mode). The glyph by its
  * icons.json concept (`spinner` = THE Spinner); tone `red` tints only the
@@ -135,7 +135,7 @@ internal fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Uni
 
 /**
  * #EXP-1710 (merge-train.json STATUS PILL `Needs approval`, needs-you.json
- * #EXP-1710): THE pill's approve, shared by the thread header pill and a
+ * #EXP-1710): THE pill's approve, shared by the chat header pill and a
  * Needs you `approval` ready row. [newest] = the PR; while it sits in an
  * open stack of [stackPool] the ONE stack confirm asks and Merge lands
  * through the stack's top, else the plain confirm (`merge-issue-pr` /
@@ -187,7 +187,7 @@ internal fun NeedsApprovalConfirm(
 
 /**
  * #EXP-1710 (merge-train.json `mergeNowPrompt`): THE Merge now confirm, the
- * thread `…` menu's and a Needs you stuck row's: Merge destructive, Cancel
+ * chat `…` menu's and a Needs you stuck row's: Merge destructive, Cancel
  * focused, `titleStack` while [pr] sits in an open stack of [stackPool]
  * (Merge now lands the whole stack). Merge = [onMerge].
  */

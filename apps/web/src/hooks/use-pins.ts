@@ -114,7 +114,7 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
   const pins = useTeamPins(teamId)
   const boards = useTeamBoards(teamId)
   // EXP-1293: a pinned SESSION resolves to nothing — the old coding-session
-  // rows are gone, and a thread lives in the Threads list and Running.
+  // rows are gone, and a chat lives in the Chats list and Running.
   const issueIds = useMemo(
     () =>
       [...new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))].sort(),

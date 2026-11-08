@@ -98,7 +98,7 @@
                  /.well-known/assetlinks.json with this build's signing cert (env
                  ANDROID_APP_LINK_FINGERPRINTS on the web app — Play App Signing
                  key for store installs). Only the shapes the app can render
-                 are claimed (issue detail, sessions, the Agent page, threads, app screens +
+                 are claimed (issue detail, sessions, the Agent page, chats, app screens +
                  invites; never boards or settings: public board visitors and web-only
                  pages stay on the web, #EXP-1674); AppNavHost applies the one open rule. -->
             <intent-filter android:autoVerify="true">
@@ -113,7 +113,7 @@
                 <data android:pathPattern="/t/.*/boards/.*/issues/.*" />
                 <data android:pathPattern="/t/.*/issues/.*" />
                 <data android:pathPattern="/t/.*/agent" />
-                <data android:pathPattern="/t/.*/threads/.*" />
+                <data android:pathPattern="/t/.*/chats" />
                 <data android:pathPattern="/t/.*/sessions/.*" />
                 <!-- VAPP-218: an app screen (`/t/{team}/apps/{app}/{screen}`). -->
                 <data android:pathPattern="/t/.*/apps/.*/.*" />

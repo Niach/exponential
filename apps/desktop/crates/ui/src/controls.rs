@@ -180,7 +180,7 @@ pub(crate) fn tail_reached(offset_y: f32, max_y: f32) -> bool {
 }
 
 /// EXP-1316 (1n) — the session feed's tail follow for a plain scroller (the
-/// thread conversation, the agent channel): the steer viewer's
+/// chat conversation, the agent channel): the steer viewer's
 /// `FollowMode::Tail` rule over a [`gpui::ScrollHandle`]. It opens on the
 /// newest row and stays pinned while rows land AND while they grow (rows
 /// arrive async from the shapes, cards and pictures measure later: any
@@ -592,7 +592,7 @@ pub(crate) fn pointer_menu_item(
         .on_click(move |_, window, cx| on_select(window, cx))
 }
 
-/// [`pointer_menu_item`]'s DESTRUCTIVE twin (thread 58cb32df: a chat's
+/// [`pointer_menu_item`]'s DESTRUCTIVE twin (session 58cb32df: a chat's
 /// Stop and delete / Delete): the same row geometry (icon size, gap,
 /// inset) as its neighbours, glyph and label in the danger tint.
 pub(crate) fn danger_pointer_menu_item(

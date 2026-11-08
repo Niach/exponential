@@ -2,7 +2,7 @@ import {
   commentCaption,
   startArgs,
   startTargets,
-  threadComments,
+  nestComments,
 } from "./issue-detail-logic"
 
 describe(`startTargets`, () => {
@@ -46,7 +46,7 @@ describe(`startArgs`, () => {
   })
 })
 
-describe(`threadComments`, () => {
+describe(`nestComments`, () => {
   it(`orders roots oldest first with their replies under them`, () => {
     const rows = [
       { id: `r2`, parentId: `a`, createdAt: `2026-01-04T00:00:00Z` },
@@ -55,7 +55,7 @@ describe(`threadComments`, () => {
       { id: `a`, parentId: null, createdAt: `2026-01-01T00:00:00Z` },
       { id: `orphan`, parentId: `gone`, createdAt: `2026-01-05T00:00:00Z` },
     ]
-    expect(threadComments(rows).map(({ comment, reply }) => `${comment.id}${reply ? `*` : ``}`)).toEqual([
+    expect(nestComments(rows).map(({ comment, reply }) => `${comment.id}${reply ? `*` : ``}`)).toEqual([
       `a`,
       `r1*`,
       `r2*`,

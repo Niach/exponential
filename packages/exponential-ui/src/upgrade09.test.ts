@@ -114,7 +114,7 @@ describe(`determinism`, () => {
     expect(r).toEqual({ package: { id: `a`, formatVersion: 6 }, status: `valid`, author: { name: `A`, key: `ed25519:k` } })
   })
 
-  test(`upgradeComponents09 threads its own copy of the state`, () => {
+  test(`upgradeComponents09 carries its own copy of the state`, () => {
     const state = emptyUpgrade09State()
     const r = upgradeComponents09([{ id: `a-b`, component: `Text`, text: { path: `/x` } }], undefined, state, `s`)
     expect(r.components).toEqual([{ id: `a_b`, component: `Text`, text: { "@path": `/x` } }])

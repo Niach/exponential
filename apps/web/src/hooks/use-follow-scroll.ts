@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { CHATS_TRANSCRIPT } from "@exp/domain-contract/chats"
 
 // EXP-1316 (1n): THE bottom-anchored feed's scroll, ×web — the session view's
-// transcript and a thread's Conversation (a thread is basically a session):
+// transcript and a chat's Conversation (a chat is basically a session):
 // it opens at the newest row, stays pinned there while rows land unless the
 // reader scrolled up, and `jumpToBottom` (THE `JumpToBottomButton`) returns.
 // EXP-440: rows finish laying out AFTER the pin effect (deferred markdown,

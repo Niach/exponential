@@ -262,7 +262,7 @@ class SteerConnection internal constructor(
     val connected: StateFlow<Boolean> = _connected
 
     /** #EXP-1678: a join replay has landed in [activity] (at least once):
-     *  the thread's child probe reads a Queue only once it is there. */
+     *  the chat's child probe reads a Queue only once it is there. */
     private val _replayed = MutableStateFlow(false)
     val replayed: StateFlow<Boolean> = _replayed
 
@@ -1564,7 +1564,7 @@ class SteerConnection internal constructor(
      * (web `noteStopped`, iOS `restoreQueueToDraft`).
      *
      * Needs no socket: EVERY Stop takes the queue back — [interrupt] over the
-     * feed, and the `sessions.stop` paths (the thread header's Stop, the
+     * feed, and the `sessions.stop` paths (the chat header's Stop, the
      * composer's Stop while disconnected) that never send a frame.
      * Returns whether anything was handed back, so a failed stop can put the
      * draft back the way it was.

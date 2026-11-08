@@ -1,5 +1,5 @@
 //! #EXP-1730 (one-tree model): a message lives on a SESSION, its own
-//! `messages.session_id`; a session's thread is the messages carrying that
+//! `messages.session_id`; a session's chat is the messages carrying that
 //! session. Nothing keys through `conversations` (the desktop, the CLI
 //! daemon and eDE no longer sync it).
 //!

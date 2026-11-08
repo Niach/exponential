@@ -36,7 +36,7 @@ export interface EntityRefRouteContext {
   /** A synced session's ROOT id (itself for a root); null = not synced. */
   sessionRootId: (id: string) => string | null
   /** NEW-2: the agent whose CONVERSATION a synced session root is (a root
-   *  with `agentId`); null for a thread, a child or an unsynced row. */
+   *  with `agentId`); null for a chat, a child or an unsynced row. */
   sessionAgentId: (id: string) => string | null
   /** Web-mobile (the phone shell, chats.json `shell`): a status or a team
    *  opens the Team tab, like iOS and Android (Statuses is no phone page,
@@ -104,7 +104,7 @@ export function entityRefRoute(
       return { to: `/t/$teamSlug/settings/agents`, params: { teamSlug } }
     case `session`: {
       // EXP-1293 / NEW-2: an agent's conversation root opens the agent's
-      // page; a thread root IS a thread (its page); a sub-session opens raw.
+      // page; a chat root IS a chat (its page); a sub-session opens raw.
       const agentId = ctx.sessionAgentId(ref.id)
       if (agentId) {
         return {
@@ -114,8 +114,8 @@ export function entityRefRoute(
       }
       return ctx.sessionRootId(ref.id) === ref.id
         ? {
-            to: `/t/$teamSlug/threads/$threadId`,
-            params: { teamSlug, threadId: ref.id },
+            to: `/t/$teamSlug/sessions/$sessionId`,
+            params: { teamSlug, sessionId: ref.id },
           }
         : {
             to: `/t/$teamSlug/sessions/$sessionId`,

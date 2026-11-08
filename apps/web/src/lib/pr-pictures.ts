@@ -13,7 +13,7 @@ import { inSessions, messageSessionId } from "@/lib/sessions/messages"
 import { isSealedCard } from "@/lib/sessions/sealed"
 
 // The I/O half of a PR body (`prBodyFromPictures`, lib/pr-body.ts): the
-// opener's pictures, the PR's commits and the thread link.
+// opener's pictures, the PR's commits and the chat link.
 
 export interface PrPicture {
   label: string
@@ -73,7 +73,7 @@ export function prPictureSessionIds(
 /** The resolved pictures of the cards of a PR's sessions
  *  (`prPictureSessionIds`), oldest first; sealed cards count through their
  *  clear part (`prPicturesOfCard`). `pullRequestId` = the PR rendered
- *  (every OTHER PR of the thread claims its opener's lineage); `head` = its
+ *  (every OTHER PR of the chat claims its opener's lineage); `head` = its
  *  branch: a PR with no opener resolves through it (`headSession`: the
  *  session credited with its latest push in `repositoryId`, else the one
  *  lineage on it, #EXP-1540). */
@@ -171,7 +171,7 @@ export async function linkedIssuesOfPullRequest(
     .orderBy(asc(pullRequestIssues.createdAt))
 }
 
-/** The footer link of every PR body: the thread (root session). */
+/** The footer link of every PR body: the chat (root session). */
 export function chatUrlFor(teamSlug: string, rootId: string): string {
   return `${appBaseUrl()}${buildSessionDeepLinkPath(teamSlug, rootId)}`
 }

@@ -219,10 +219,10 @@ export function IssueRefProvider({
   )
 }
 
-/** EXP-1347 (session-thread.json): chip navigation = the INNERMOST outlet.
- *  Inside a thread, a pill (#IDENT, an issue chip, a card chip) whose issue
- *  is one of `issueIds` (that thread's issue tabs, nested ones included)
- *  selects that tab (`onOpen`) and never leaves the thread; any other issue
+/** EXP-1347 (session-chat.json): chip navigation = the INNERMOST outlet.
+ *  Inside a chat, a pill (#IDENT, an issue chip, a card chip) whose issue
+ *  is one of `issueIds` (that chat's issue tabs, nested ones included)
+ *  selects that tab (`onOpen`) and never leaves the chat; any other issue
  *  defers to the enclosing provider (the full issue page). */
 export function IssueRefOutlet({
   issueIds,

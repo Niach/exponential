@@ -19,14 +19,14 @@ import XCTest
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_composer-menu · sg_chat-issues ·
-///   sg_machine-settings · sg_settings-agents · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
+///   sg_machine-settings · sg_settings-agents · sg_settings-team-agent · sg_settings-assistant · sg_chats ·
 ///   sg_session-row · sg_pr-row ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
 ///   sg_invite-accept · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
-///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
+///   sg_script-card · sg_comment-call-card · sg_chat-screen · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header · sg_chat-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
@@ -44,35 +44,35 @@ import XCTest
 ///   sg_team-avatar · sg_device-attention ·
 ///   sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions
 ///
-/// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
+/// EXP-1295 (Chats v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
 /// and retired `sg_chat-action`, `sg_action-runs`, `sg_action-create`,
 /// `sg_run-changes` and `sg_trigger-editor`. EXP-1309 then moved every
-/// Threads v2 shot off its hand-written specimen onto the LIVE app over the
+/// shot off its hand-written specimen onto the LIVE app over the
 /// seed web/desktop photograph, so they cannot drift from it again:
 ///   * `sg_agent-home` = the dawn home the app lands on (`agent-page`)
-///     (`sg_session-row` is a specimen since thread 20b7fdc2: the island's
+///     (`sg_session-row` is a specimen since session 20b7fdc2: the island's
 ///     rows, `walkSpecimens`; it used to photograph the Chats tab);
-///   * `sg_threads` = the Threads tab (Agents band, Needs you · Running ·
+///   * `sg_chats` = the Chats tab (Agents band, Needs you · Running ·
 ///     Recent, each row's quiet word off its pull requests);
 ///     `sg_agent-channel` = the Triage agent's channel off its Agents row;
-///     `sg_thread` = the cold-start thread (DEMO_THREAD_ID); `sg_session` =
-///     its "Profile the launch path" session card's page in that thread
+///     `sg_chat-screen` = the cold-start chat (DEMO_CHAT_ID); `sg_session` =
+///     its "Profile the launch path" session card's page in that chat
 ///     (EXP-1343; DEMO_SESSION_ID, fed by the relay stub), its pending
 ///     question in the composer's place;
 ///   * `sg_settings-team-agent` = Settings → team → Agents → Triage;
 ///   * `sg_pr-row` = the issue page's pull-request row (S-3 retired
 ///     `sg_guide` + `sg_guide-section` with the Guide tab).
 ///
-/// EXP-1284 added `sg_thread` + `sg_agent-channel` (the THREAD screen).
+/// EXP-1284 added `sg_chat-screen` + `sg_agent-channel` (the CHAT screen).
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
 /// greeting over the composer, nothing beneath it), the `#` typeahead's
 /// search-list sheet, Getting started's block (Settings' entry sheet) and the
 /// Feedback states screen (`FeedbackStatesScreen`, opened by
-/// `-uiTestingStyleguide feedback-states` on a signed-out relaunch). The run thread's three cards
+/// `-uiTestingStyleguide feedback-states` on a signed-out relaunch). The run chat's three cards
 /// (`sg_work-card`, `sg_script-card`, `sg_comment-call-card`, EXP-1240/1279/
-/// 1241) ride the same seam (`ThreadCardsScreen`).
+/// 1241) ride the same seam (`ChatCardsScreen`).
 ///
 /// EXP-909 retired `sg_usage`: the cross-device Accounts section it
 /// photographed is gone — every machine lists its own logins under its row, so
@@ -104,7 +104,7 @@ import XCTest
 /// Prerequisites — a seeded dev server (`apps/web/scripts/seed-screenshots.ts`:
 /// demo@exponential.at / screenshots-demo, team "Acme", boards "Mobile App" +
 /// the empty "Launch Marketing", showcase issue APP-5, open PRs and the
-/// threads holding them, the team agents, actions) PLUS, since EXP-642, the
+/// chats holding them, the team agents, actions) PLUS, since EXP-642, the
 /// relay stub: `bun run screenshots:desktop` (apps/web) registers the demo
 /// user's OWN device row, which is what `sg_machine-settings` (gated `isMine
 /// && registered`) and the `sg_chat*` shots photograph, and (EXP-1309)
@@ -129,20 +129,20 @@ final class StyleguideScreenshots: XCTestCase {
     }
 
     private static let teamName = "Acme"
-    /// APP-5 — the showcase issue: the only one the seed gives a comment thread
+    /// APP-5 — the showcase issue: the only one the seed gives comment replies
     /// (four comments, incl. an `@mention` + `#APP-2` issue ref).
     private static let showcaseTitle = "Reduce cold start below 800 ms"
-    /// EXP-1341: the cold-start thread (DEMO_THREAD_ID) is titled off its
+    /// EXP-1341: the cold-start chat (DEMO_CHAT_ID) is titled off its
     /// linked issues (APP-5, APP-10, FB-3), session-title.json `titles.issues`:
     /// `#APP-5 Reduce cold start below 800 ms + 2`; matched on the issue title.
-    private static let coldStartThreadTitle = "Reduce cold start below 800 ms"
+    private static let coldStartChatTitle = "Reduce cold start below 800 ms"
     /// First comment on APP-5, plain text before any markdown decoration.
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
     /// Assigned to the demo user, so it is on My Issues.
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// APP-14: the seed's realPr issue (its open PR row).
     private static let guideTitle = "Group board issues by assignee"
-    /// APP-15: its thread carries the seeded quick replies.
+    /// APP-15: its chat carries the seeded quick replies.
     private static let batchGuideTitle = "Batch-edit labels from the board"
     private static let searchQuery = "by:alex"
     /// A seeded board — the anchor that says we are on TEAM settings rather
@@ -178,9 +178,9 @@ final class StyleguideScreenshots: XCTestCase {
     private static let leadName = "Alex Carter"
     /// `DEMO_AGENT_REQUEST`, the person's ask in Triage's channel.
     private static let agentRequest = "Label the Android ones too"
-    /// The cold-start thread's child session (`DEMO_SESSION_ID`).
+    /// The cold-start chat's child session (`DEMO_SESSION_ID`).
     private static let sessionTitle = "Profile the launch path"
-    /// Its id (`DEMO_SESSION_ID`): the strip chip of its thread page.
+    /// Its id (`DEMO_SESSION_ID`): the strip chip of its chat page.
     private static let sessionId = "7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41"
     /// VAPP-122: the seeded Working hours app (`DEMO_APP_SLUG`, with
     /// records), whose editor's Preview tab is the `app` shot.
@@ -242,7 +242,7 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agent-home", settle: 2)
 
-        // ── sg_apps · sg_app: the team's Apps off the Threads header, then
+        // ── sg_apps · sg_app: the team's Apps off the Chats header, then
         // the Team dashboard editor (VAPP-110, DEMO_APP_SLUG) on its Chat tab.
         // Gated: opening the editor and leaving it ENDS the seeded editor
         // session, so only a run that wants these shots visits.
@@ -326,18 +326,18 @@ final class StyleguideScreenshots: XCTestCase {
         app.buttons["Clear selection"].firstMatch.tap()
         _ = bulkBar.waitForNonExistence(timeout: Wait.nav)
 
-        // ── sg_issue-comments: APP-5 scrolled to its comment thread ──────────
+        // ── sg_issue-comments: APP-5 scrolled to its comments ──────────
         // Tap the row's TITLE text, never the `issue-row-*` element (EXP-348).
         expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
         openIssue(app, title: Self.showcaseTitle)
-        let commentsHeader = app.staticTexts["comment-thread-header"]
+        let commentsHeader = app.staticTexts["comment-replies-header"]
         expect(commentsHeader, within: Wait.nav, "Issue detail did not open")
         // The comments shape can lag the issues shape by tens of seconds right
         // after the first login — gate on a real comment body, not the header.
         expect(
             anyElement(app, containing: Self.showcaseCommentFragment),
             within: Wait.sync,
-            "The comment thread on APP-5 never synced"
+            "The comments on APP-5 never synced"
         )
         // ── sg_issue-properties: the combined properties sheet ───────────────
         // EXP-1676: BEFORE the comments scroll: the page at its top behind the
@@ -381,7 +381,7 @@ final class StyleguideScreenshots: XCTestCase {
         }
         // The detail is one long ScrollView with no scroll-to anchor; walk down
         // until the "Activity" header is on screen, then two more swipes so the
-        // thread — not the header — fills the frame.
+        // chat — not the header — fills the frame.
         scrollUntilVisible(app, commentsHeader, attempts: 14)
         // EXP-1676: web's and Android's frame = the END of the page's scroller.
         for _ in 0..<6 { app.swipeUp() }
@@ -710,24 +710,24 @@ final class StyleguideScreenshots: XCTestCase {
         showBoard(app)
         settle(1)
 
-        // ── sg_thread-replies: the quick replies (EXP-1211) ──────────────────
-        // APP-15's thread again, left on its Conversation: the seeded
+        // ── sg_chat-replies: the quick replies (EXP-1211) ──────────────────
+        // APP-15's chat again, left on its Conversation: the seeded
         // `replies` card's row over the composer capsule.
-        if ScreenshotShots.isWanted("sg_thread-replies") || ScreenshotShots.isWanted("sg_session-slash-menu") {
+        if ScreenshotShots.isWanted("sg_chat-replies") || ScreenshotShots.isWanted("sg_session-slash-menu") {
             openIssue(app, title: Self.batchGuideTitle)
-            let threadChip = anyElement(app, identified: "issue-thread-chip")
-            _ = scrollUntilVisible(app, threadChip)
-            expect(threadChip, within: Wait.sync, "APP-15 sits in no thread — reseed with `bun run seed:screenshots`")
-            threadChip.tap()
-            let replies = anyElement(app, identified: "thread-replies")
-            expect(replies, within: Wait.sync, "APP-15's thread drew no quick replies — reseed with `bun run seed:screenshots`")
-            snapshot("sg_thread-replies", settle: 2)
-            // ── sg_session-slash-menu: `/` in the same thread's composer
-            // (NEW-7; web's `typeSlashInSessionComposer` on APP-15's thread):
+            let chatChip = anyElement(app, identified: "issue-chat-chip")
+            _ = scrollUntilVisible(app, chatChip)
+            expect(chatChip, within: Wait.sync, "APP-15 sits in no chat — reseed with `bun run seed:screenshots`")
+            chatChip.tap()
+            let replies = anyElement(app, identified: "chat-replies")
+            expect(replies, within: Wait.sync, "APP-15's chat drew no quick replies — reseed with `bun run seed:screenshots`")
+            snapshot("sg_chat-replies", settle: 2)
+            // ── sg_session-slash-menu: `/` in the same chat's composer
+            // (NEW-7; web's `typeSlashInSessionComposer` on APP-15's chat):
             // the builtins, then the team's prompts. Nothing is sent.
             if ScreenshotShots.isWanted("sg_session-slash-menu") {
-                let capsule = anyElement(app, identified: "thread-composer-collapsed")
-                expect(capsule, within: Wait.nav, "APP-15's thread has no composer capsule")
+                let capsule = anyElement(app, identified: "chat-composer-collapsed")
+                expect(capsule, within: Wait.nav, "APP-15's chat has no composer capsule")
                 capsule.tap()
                 _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
                 app.typeText("/")
@@ -736,7 +736,7 @@ final class StyleguideScreenshots: XCTestCase {
                         .matching(NSPredicate(format: "identifier BEGINSWITH 'slash-prompt-'"))
                         .firstMatch,
                     within: Wait.sync,
-                    "Typing / in the thread composer listed no prompts — does the seed insert the team's prompts?"
+                    "Typing / in the chat composer listed no prompts — does the seed insert the team's prompts?"
                 )
                 // EXP-1676: web's frame has no keyboard; the menu follows the draft.
                 dismissKeyboard(app)
@@ -748,35 +748,35 @@ final class StyleguideScreenshots: XCTestCase {
                     "The / menu closed with the keyboard — it follows the draft"
                 )
                 snapshot("sg_session-slash-menu", settle: 2)
-                clearSlashDraft(app, field: anyElement(app, identified: "thread-composer-field"))
+                clearSlashDraft(app, field: anyElement(app, identified: "chat-composer-field"))
             }
-            // Thread → issue → board.
+            // Chat → issue → board.
             goBack(app)
             goBack(app)
             settle(1)
         }
 
-        // ── sg_threads · sg_agent-channel · sg_thread · sg_session ──────────
-        // EXP-1309: the Threads tab and the screens it opens, LIVE over the
+        // ── sg_chats · sg_agent-channel · sg_chat-screen · sg_session ──────────
+        // EXP-1309: the Chats tab and the screens it opens, LIVE over the
         // seed web/desktop photograph (no specimen to drift). Taken this
         // late on purpose: every shape (issues for the chips, pull requests
         // for the row words) has synced by now, and an agent text parsed
         // before its issues landed would cache without its pills. A detour:
         // it leaves through the Issues tab it came from.
-        let threadShots = ["sg_threads", "sg_agent-channel", "sg_thread", "sg_session", "sg_script-card", "sg_work-card"]
-        if threadShots.map(ScreenshotShots.isWanted).contains(true) {
-            walkThreads(app)
+        let chatShots = ["sg_chats", "sg_agent-channel", "sg_chat-screen", "sg_session", "sg_script-card", "sg_work-card"]
+        if chatShots.map(ScreenshotShots.isWanted).contains(true) {
+            walkChats(app)
             showBoard(app)
             settle(1)
         }
 
-        // ── sg_thread-results: APP-14's thread on its Results tab ──────────
-        // results-tab.json, LIVE: from Chats, APP-14's thread (the stack top
+        // ── sg_chat-results: APP-14's chat on its Results tab ──────────
+        // results-tab.json, LIVE: from Chats, APP-14's chat (the stack top
         // over APP-15, the seeded PR with a real GitHub diff), then the
         // strip's last tab (icon-only, pinned right). Gate on the Changes row
         // (the PR's files loaded) and a result.
-        if ScreenshotShots.isWanted("sg_thread-results") {
-            walkThreadResults(app)
+        if ScreenshotShots.isWanted("sg_chat-results") {
+            walkChatResults(app)
             showBoard(app)
             settle(1)
         }
@@ -1147,39 +1147,39 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_feedback-states", settle: 2)
 
         // ── sg_work-card · sg_script-card · sg_comment-call-card: the run
-        // thread's cards (EXP-1240/1279/1241) ─────────────────────────────────
+        // chat's cards (EXP-1240/1279/1241) ─────────────────────────────────
         // Capture-only specimens over the real views, one relaunch each. The
         // names stay literal: views.test.ts reads them off the source.
         // EXP-1654: sg_work-card + sg_script-card are the live session
-        // walk's (walkThreads, in the transcript like web and desktop).
-        openThreadCards(app, "comment-call-card")
+        // walk's (walkChats, in the transcript like web and desktop).
+        openChatCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
         // ── sg_trace · sg_code-block: THE Trace + Queue and THE CodeBlock
         // (EXP-1324), capture-only specimens over the real ExpUI views.
-        openThreadCards(app, "trace")
+        openChatCards(app, "trace")
         snapshot("sg_trace", settle: 2)
-        openThreadCards(app, "code-block")
+        openChatCards(app, "code-block")
         snapshot("sg_code-block", settle: 2)
         // ── sg_ask-dock: THE Dock (fixtures/dock.json + ask-dock.json): one
         // plan card, the pile, the pile fanned, the plan's sheet.
-        openThreadCards(app, "ask-dock")
+        openChatCards(app, "ask-dock")
         snapshot("sg_ask-dock", settle: 2)
         // ── sg_dock-card: THE DockCard primitive (fixtures/dock.json): one
         // card, a banner with its action, the pile, the fan, the sheet frame.
-        openThreadCards(app, "dock-card")
+        openChatCards(app, "dock-card")
         snapshot("sg_dock-card", settle: 2)
         // ── sg_plan-card: THE rich plan / question card (EXP-1280,
         // fixtures/plan-card.json): a pending plan with a picture-tile
         // question, a multiple one and the inline surface; an answered
         // question with several picks; an approved plan with feedback.
-        openThreadCards(app, "plan-card")
+        openChatCards(app, "plan-card")
         snapshot("sg_plan-card", settle: 2)
         // ── sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu ·
         // sg_phone-page-header · sg_chat-header · sg_chat-transcript ·
-        // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
+        // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (session 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
-        // sg_device-readiness (EXP-1375) · sg_session-xref · sg_pr-checks (#EXP-1611) ·
+        // sg_device-readiness (EXP-1375) · sg_pr-checks (#EXP-1611) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
         walkSpecimens(app)
@@ -1188,7 +1188,7 @@ final class StyleguideScreenshots: XCTestCase {
         // words, drawn by the real card over a stand-in surface (the painted
         // surface's rows are not reachable from XCUITest, so no live walk).
         if ScreenshotShots.isWanted("sg_app-consent") {
-            openThreadCards(app, "app-consent")
+            openChatCards(app, "app-consent")
             expect(anyElement(app, containing: "Allow this surface to comment on issue APP-15?"), within: Wait.nav, "The app-consent specimen raised no consent card")
             snapshot("sg_app-consent", settle: 2)
         }
@@ -1217,6 +1217,9 @@ final class StyleguideScreenshots: XCTestCase {
         let devicesRow = teamSettingsRow(app, "Devices")
         scrollUntilVisible(app, devicesRow, attempts: 4)
         expect(devicesRow, within: Wait.nav, "The Team page has no Devices row")
+        // The last row can sit under the floating tab bar, where a tap lands
+        // on the bar (the board tab) instead: lift it clear first.
+        app.swipeUp()
         devicesRow.tap()
     }
 
@@ -1225,7 +1228,7 @@ final class StyleguideScreenshots: XCTestCase {
     static let specimenEntries = [
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-        "call-controls", "call-pill", "device-readiness", "session-xref",
+        "call-controls", "call-pill", "device-readiness",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab", "record-form-field-states",
@@ -1248,7 +1251,7 @@ final class StyleguideScreenshots: XCTestCase {
         for entry in Self.specimenEntries {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             // A simulator has no camera: the add-file menu forces its row.
-            openThreadCards(
+            openChatCards(
                 app,
                 Self.specimenScreens[entry] ?? entry,
                 extraArguments: entry == "composer-add-file" ? ["-uiTestingCameraRow"] : []
@@ -1267,7 +1270,6 @@ final class StyleguideScreenshots: XCTestCase {
             case "call-controls": snapshot("sg_call-controls", settle: 2)
             case "call-pill": snapshot("sg_call-pill", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
-            case "session-xref": snapshot("sg_session-xref", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "record-form-field-states": snapshot("sg_record-form-field-states", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
@@ -1275,7 +1277,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "needs-you": snapshot("sg_needs-you", settle: 2)
             case "results-tab": snapshot("sg_results-tab", settle: 2)
             case "pr-row": snapshot("sg_pr-row", settle: 2)
-            // Thread 20b7fdc2: THE session row (web's `session-row` island).
+            // Session 20b7fdc2: THE session row (web's `session-row` island).
             case "session-row": snapshot("sg_session-row", settle: 2)
             // #EXP-1611: the four Merge pills + the open Checks submenu.
             case "pr-checks": snapshot("sg_pr-checks", settle: 2)
@@ -1296,12 +1298,12 @@ final class StyleguideScreenshots: XCTestCase {
         }
     }
 
-    /// EXP-1259: relaunch signed out onto one run-thread card specimen.
+    /// EXP-1259: relaunch signed out onto one chat cards specimen.
     @MainActor
-    private func openThreadCards(_ app: XCUIApplication, _ card: String, extraArguments: [String] = []) {
+    private func openChatCards(_ app: XCUIApplication, _ card: String, extraArguments: [String] = []) {
         launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", card] + extraArguments)
         expect(
-            anyElement(app, identified: "thread-cards-screen"),
+            anyElement(app, identified: "chat-cards-screen"),
             within: Wait.launch,
             "The \(card) screen never opened — is -uiTestingStyleguide wired?"
         )
@@ -1705,50 +1707,50 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// results-tab.json: Chats → APP-14's thread → its Results tab
-    /// (`sg_thread-results`); ends back on the Chats list.
+    /// results-tab.json: Chats → APP-14's chat → its Results tab
+    /// (`sg_chat-results`); ends back on the Chats list.
     @MainActor
-    private func walkThreadResults(_ app: XCUIApplication) {
-        let threadsTab = app.buttons["tab-threads"]
-        expect(threadsTab, within: Wait.nav, "Threads tab missing")
-        threadsTab.tap()
-        let row = threadRow(app, containing: Self.guideTitle)
-        expect(row, within: Wait.sync, "The Chats list has no \"\(Self.guideTitle)\" thread — reseed with `bun run seed:screenshots`")
+    private func walkChatResults(_ app: XCUIApplication) {
+        let chatsTab = app.buttons["tab-chats"]
+        expect(chatsTab, within: Wait.nav, "Chats tab missing")
+        chatsTab.tap()
+        let row = chatRow(app, containing: Self.guideTitle)
+        expect(row, within: Wait.sync, "The Chats list has no \"\(Self.guideTitle)\" chat — reseed with `bun run seed:screenshots`")
         row.tap()
-        let tab = anyElement(app, identified: "thread-results-tab")
-        expect(tab, within: Wait.sync, "The thread strip drew no Results tab")
+        let tab = anyElement(app, identified: "chat-results-tab")
+        expect(tab, within: Wait.sync, "The chat strip drew no Results tab")
         XCTAssertTrue(tab.isHittable, "The Results tab is off screen — the strip must never scroll")
         tab.tap()
         expect(
-            anyElement(app, identified: "thread-results-changes"),
+            anyElement(app, identified: "chat-results-changes"),
             within: Wait.network,
             "The Results tab drew no Changes row — are the seeded PR's files reachable on GitHub?"
         )
         expect(anyElement(app, identified: "result-section"), within: Wait.sync, "The Results tab drew no result")
-        snapshot("sg_thread-results", settle: 3)
+        snapshot("sg_chat-results", settle: 3)
         goBack(app)
         settle(1)
     }
 
-    /// EXP-1309: the Threads tab → the Triage agent's channel → back → the
-    /// cold-start thread → its "Profile the launch path" session, each shot
-    /// gated on its seeded content; ends back on the Threads list.
+    /// EXP-1309: the Chats tab → the Triage agent's channel → back → the
+    /// cold-start chat → its "Profile the launch path" session, each shot
+    /// gated on its seeded content; ends back on the Chats list.
     @MainActor
-    private func walkThreads(_ app: XCUIApplication) {
-        let threadsTab = app.buttons["tab-threads"]
-        expect(threadsTab, within: Wait.nav, "Threads tab missing")
-        threadsTab.tap()
-        // ── sg_threads: gate on the rows' quiet words (pull requests + the
+    private func walkChats(_ app: XCUIApplication) {
+        let chatsTab = app.buttons["tab-chats"]
+        expect(chatsTab, within: Wait.nav, "Chats tab missing")
+        chatsTab.tap()
+        // ── sg_chats: gate on the rows' quiet words (pull requests + the
         // pending question have synced), not on the list container.
         // EXP-1339: `merged` draws no word (only the violet lead).
         for word in ["Question", "stack"] {
             expect(
-                threadRow(app, containing: word),
+                chatRow(app, containing: word),
                 within: Wait.sync,
                 "No chat row says \"\(word)\" — reseed with `bun run seed:screenshots`"
             )
         }
-        snapshot("sg_threads", settle: 2)
+        snapshot("sg_chats", settle: 2)
 
         // ── sg_agent-channel: the Triage agent's chat (DEMO_AGENT_ID) off its
         // pinned agent row (the agent rows sit above every
@@ -1772,18 +1774,18 @@ final class StyleguideScreenshots: XCTestCase {
         // A subset run that wants neither of the next two stops here: the
         // session step needs the relay stub (`bun run screenshots:desktop`).
         let sessionShots = ["sg_session", "sg_script-card", "sg_work-card"]
-        guard ScreenshotShots.isWanted("sg_thread") || sessionShots.contains(where: ScreenshotShots.isWanted) else { return }
+        guard ScreenshotShots.isWanted("sg_chat-screen") || sessionShots.contains(where: ScreenshotShots.isWanted) else { return }
 
-        // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
-        let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
-        expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
+        // ── sg_chat-screen: the cold-start chat (DEMO_CHAT_ID) ──────────────
+        let coldStart = chatRow(app, containing: Self.coldStartChatTitle)
+        expect(coldStart, within: Wait.nav, "Did not return to the Chats list")
         coldStart.tap()
         // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
         // left, the chips folded beside them (S-3: no Guide tab; the seeded
         // question + the child's plan stay inline, not in the Dock).
-        for id in ["thread-strip-add", "thread-tab-conversation"] {
+        for id in ["chat-strip-add", "chat-tab-conversation"] {
             let pinned = anyElement(app, identified: id)
-            expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
+            expect(pinned, within: Wait.sync, "The chat strip drew no \(id)")
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
         }
         // EXP-1558: the Conversation at its newest rows, as every other
@@ -1796,21 +1798,21 @@ final class StyleguideScreenshots: XCTestCase {
         expect(
             anyElement(app, containing: "Plan: lazy-load"),
             within: Wait.sync,
-            "The cold-start thread drew no plan row — reseed with `bun run seed:screenshots`"
+            "The cold-start chat drew no plan row — reseed with `bun run seed:screenshots`"
         )
         expect(
             anyElement(app, containing: "Cold start is at 740"),
             within: Wait.nav,
-            "The cold-start thread drew no pending question"
+            "The cold-start chat drew no pending question"
         )
-        snapshot("sg_thread", settle: 2)
+        snapshot("sg_chat-screen", settle: 2)
         guard sessionShots.contains(where: ScreenshotShots.isWanted) else {
             goBack(app)
             settle(1)
             return
         }
 
-        // ── sg_session: that session's page in the thread (DEMO_SESSION_ID) ─
+        // ── sg_session: that session's page in the chat (DEMO_SESSION_ID) ─
         // The relay stub's feed ends on an UNANSWERED question, whose card
         // waits in THE Dock (N-12). Nothing is answered.
         // #EXP-1433: the strip holds no session chips (issues + sessions fold
@@ -1825,20 +1827,20 @@ final class StyleguideScreenshots: XCTestCase {
         revealAndTap(
             app,
             sessionCard,
-            below: anyElement(app, identified: "thread-tab-conversation"),
-            "The cold-start thread drew no \"\(Self.sessionTitle)\" card"
+            below: anyElement(app, identified: "chat-tab-conversation"),
+            "The cold-start chat drew no \"\(Self.sessionTitle)\" card"
         )
         // NEW-16: a tap that missed the card lands on the header's back
-        // button and pops to the Threads list; say so instead of waiting a
+        // button and pops to the Chats list; say so instead of waiting a
         // minute for a Dock that can never draw.
         settle(1)
-        if !anyElement(app, identified: "thread-tab-conversation").exists,
-           threadRow(app, containing: Self.coldStartThreadTitle).exists {
-            XCTFail("Opening \"\(Self.sessionTitle)\" popped the thread back to the Threads list: the tap missed the card (header or status bar)")
+        if !anyElement(app, identified: "chat-tab-conversation").exists,
+           chatRow(app, containing: Self.coldStartChatTitle).exists {
+            XCTFail("Opening \"\(Self.sessionTitle)\" popped the chat back to the Chats list: the tap missed the card (header or status bar)")
             return
         }
-        // EXP-1343: a session chip of THIS thread opens as its page under
-        // the thread's ONE header (the thread title, Stop while live) — no
+        // EXP-1343: a session chip of THIS chat opens as its page under
+        // the chat's ONE header (the chat title, Stop while live) — no
         // pushed session screen, no back row (Android's `sg_session` is the
         // same page). S-3: the relay feed's pending question stays inline
         // (`feed-question`, dock.json) once the feed is live and answerable;
@@ -1856,11 +1858,11 @@ final class StyleguideScreenshots: XCTestCase {
         // #EXP-1433: the group tab reads the open item's name.
         expect(
             app.descendants(matching: .any)
-                .matching(identifier: "thread-strip-group-label")
+                .matching(identifier: "chat-strip-group-label")
                 .matching(NSPredicate(format: "label == %@", Self.sessionTitle))
                 .firstMatch,
             within: Wait.sync,
-            "The session did not open as the thread's \"\(Self.sessionTitle)\" page"
+            "The session did not open as the chat's \"\(Self.sessionTitle)\" page"
         )
         // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
@@ -1871,7 +1873,7 @@ final class StyleguideScreenshots: XCTestCase {
         // A card under the floating strip still reads hittable, so it must
         // sit below the strip's bottom edge.
         // The names stay literal: views.test.ts reads them off the source.
-        let strip = anyElement(app, identified: "thread-tab-conversation")
+        let strip = anyElement(app, identified: "chat-tab-conversation")
         // The Work card is found by its workflow's title: the feed holds more
         // than one `work-card` (firstMatch named one far above the strip).
         let revealFeedCard = { (id: String) in
@@ -1894,15 +1896,15 @@ final class StyleguideScreenshots: XCTestCase {
             revealFeedCard("work-card")
             snapshot("sg_work-card", settle: 2)
         }
-        // Back once (the session page → the Threads list) on the system
+        // Back once (the session page → the Chats list) on the system
         // back button (`goBack`: by name, never the bar's `…`).
         goBack(app)
         settle(1)
     }
 
-    /// A Threads row whose (combined) label contains `fragment`.
+    /// A Chats row whose (combined) label contains `fragment`.
     @MainActor
-    private func threadRow(_ app: XCUIApplication, containing fragment: String) -> XCUIElement {
+    private func chatRow(_ app: XCUIApplication, containing fragment: String) -> XCUIElement {
         app.descendants(matching: .any)
             .matching(identifier: "chat-row")
             .matching(NSPredicate(format: "label CONTAINS %@", fragment))

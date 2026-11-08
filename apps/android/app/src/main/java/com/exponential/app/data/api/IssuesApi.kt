@@ -44,10 +44,10 @@ data class CreateIssueInput(
     // writes the `parent` relation in the create's own transaction (the
     // detail's Sub-issues `+`). Omitted when null.
     @SerialName("parentId") val parentId: String? = null,
-    // EXP-1291: file the issue INTO this session's thread (the thread page's
+    // EXP-1291: file the issue INTO this session's chat (the chat page's
     // "New issue") — the server links it to the session's ROOT in the
     // create's own transaction, source `user`. Omitted when null.
-    @SerialName("sessionId") val threadId: String? = null,
+    @SerialName("sessionId") val chatId: String? = null,
 )
 
 @Serializable

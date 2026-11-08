@@ -245,20 +245,20 @@ describe(`session results guide fixture`, () => {
   })
 })
 
-// EXP-1175: the Run face's thread, the fixture's `thread` cases ×4.
-import { sessionThread } from "./session-results"
+// EXP-1175: the Run face's stream, the fixture's `stream` cases ×4.
+import { sessionResultStream } from "./session-results"
 
-describe(`session thread`, () => {
-  for (const c of fixture.thread.cases) {
+describe(`session result stream`, () => {
+  for (const c of fixture.stream.cases) {
     it(c.name, () => {
-      const thread = sessionThread(c.raw)
+      const stream = sessionResultStream(c.raw)
       expect({
-        items: thread.items.map((item) =>
+        items: stream.items.map((item) =>
           item.kind === `text`
             ? { kind: `text`, topic: item.topic, text: item.text }
             : { kind: `picture`, attachmentId: item.entry.attachmentId }
         ),
-        reply: thread.reply,
+        reply: stream.reply,
       }).toEqual(c.expected)
     })
   }
@@ -347,7 +347,7 @@ describe(`session results coverage fixture`, () => {
   })
 })
 
-// EXP-1245: the thread as turns, the fixture's `turns` cases ×4.
+// EXP-1245: the chat as turns, the fixture's `turns` cases ×4.
 import { sessionTurns, type SessionTurnEvent } from "./session-results"
 
 describe(`session turns`, () => {

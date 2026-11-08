@@ -12,7 +12,7 @@ vi.mock(`@tanstack/react-db`, () => ({
 
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 
-// EXP-1318: a thread row's device glyph resolves the root's `device_id`, the
+// EXP-1318: a chat row's device glyph resolves the root's `device_id`, the
 // device's LOGICAL id (`devices.device_id`), with the row id as a fallback.
 describe(`useDeviceGlyphs`, () => {
   it(`resolves the logical device id, else the row id, else nothing`, () => {

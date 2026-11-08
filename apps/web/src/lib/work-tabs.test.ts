@@ -19,7 +19,7 @@ import {
   type WorkTabsState,
 } from "@/lib/work-tabs"
 
-// EXP-870 / EXP-1293: the work-tab model — route-driven: an issue, a thread,
+// EXP-870 / EXP-1293: the work-tab model — route-driven: an issue, a chat,
 // an agent's channel or a raw session the URL opened is a tab; the New
 // session tab turns into whatever its page navigates to; a `running`-origin
 // navigation opens none; and the desktop's
@@ -32,24 +32,19 @@ const issue = (issueId: string, from: string | null = null): WorkTab => ({
   issueId,
   from,
 })
-const thread = (threadId: string, from: string | null = null): WorkTab => ({
-  kind: `thread`,
-  threadId,
+const chat = (chatId: string, from: string | null = null): WorkTab => ({
+  kind: `chat`,
+  chatId,
   from,
 })
 
 describe(`routePathFromLocation`, () => {
-  it(`names the four work items`, () => {
+  it(`names the three work items (a session path resolves to its chat in WorkTabsSync)`, () => {
     expect(routePathFromLocation(`/t/acme/boards/app/issues/APP-1`, `inbox`)).toEqual({
       kind: `issue`,
       boardSlug: `app`,
       identifier: `APP-1`,
       from: `inbox`,
-    })
-    expect(routePathFromLocation(`/t/acme/threads/t1`, null)).toEqual({
-      kind: `thread`,
-      threadId: `t1`,
-      from: null,
     })
     expect(routePathFromLocation(`/t/acme/agents/a1/`, ``)).toEqual({
       kind: `agent`,
@@ -65,22 +60,18 @@ describe(`routePathFromLocation`, () => {
 
   it(`names no tab for a session's Guide redirect`, () => {
     expect(routePathFromLocation(`/t/acme/sessions/s1`, null, `guide`)).toBeNull()
-    expect(routePathFromLocation(`/t/acme/threads/t1`, null, `guide`)).toEqual({
-      kind: `thread`,
-      threadId: `t1`,
-      from: null,
-    })
   })
 
   it(`is null on lists, full pages and broken escapes`, () => {
     for (const path of [
       `/t/acme`,
       `/t/acme/agent`,
-      `/t/acme/threads`,
+      `/t/acme/chats`,
       `/t/acme/inbox`,
       `/t/acme/boards/app`,
       `/t/acme/settings/agents/a1`,
-      `/t/acme/threads/%E0%A4%A`,
+      `/t/acme/chats/t1`,
+      `/t/acme/sessions/%E0%A4%A`,
       `/about`,
     ]) {
       expect(routePathFromLocation(path, null), path).toBeNull()
@@ -97,11 +88,11 @@ describe(`routePathFromLocation`, () => {
 describe(`upsertFromRoute`, () => {
   it(`appends a work item once and focuses it after`, () => {
     let s = upsertFromRoute(EMPTY_WORK_TABS, { kind: `issue`, issueId: `i1`, from: null })
-    s = upsertFromRoute(s, { kind: `thread`, threadId: `t1`, from: null })
+    s = upsertFromRoute(s, { kind: `chat`, chatId: `t1`, from: null })
     s = upsertFromRoute(s, { kind: `agent`, agentId: `a1`, from: null })
     s = upsertFromRoute(s, { kind: `session`, sessionId: `s1`, from: null })
-    expect(keys(s)).toEqual([`issue:i1`, `thread:t1`, `agent:a1`, `session:s1`])
-    expect(upsertFromRoute(s, { kind: `thread`, threadId: `t1`, from: null })).toBe(s)
+    expect(keys(s)).toEqual([`issue:i1`, `chat:t1`, `agent:a1`, `session:s1`])
+    expect(upsertFromRoute(s, { kind: `chat`, chatId: `t1`, from: null })).toBe(s)
   })
 
   it(`restamps the origin only on an explicit one`, () => {
@@ -115,11 +106,11 @@ describe(`upsertFromRoute`, () => {
   it(`opens no tab from the Running section, but focuses an open one`, () => {
     expect(originCreatesTab(TABLESS_ORIGIN)).toBe(false)
     expect(
-      upsertFromRoute(EMPTY_WORK_TABS, { kind: `thread`, threadId: `t1`, from: TABLESS_ORIGIN })
+      upsertFromRoute(EMPTY_WORK_TABS, { kind: `chat`, chatId: `t1`, from: TABLESS_ORIGIN })
     ).toBe(EMPTY_WORK_TABS)
-    const open = state([thread(`t1`)])
+    const open = state([chat(`t1`)])
     expect(
-      upsertFromRoute(open, { kind: `thread`, threadId: `t1`, from: TABLESS_ORIGIN })
+      upsertFromRoute(open, { kind: `chat`, chatId: `t1`, from: TABLESS_ORIGIN })
     ).toBe(open)
   })
 
@@ -134,28 +125,28 @@ describe(`upsertFromRoute`, () => {
     const s = state([issue(`i1`), NEW_RUN_TAB, issue(`i2`)])
     const landed = upsertFromRoute(
       s,
-      { kind: `thread`, threadId: `t1`, from: null },
+      { kind: `chat`, chatId: `t1`, from: null },
       { landing: true }
     )
-    expect(keys(landed)).toEqual([`issue:i1`, `thread:t1`, `issue:i2`])
+    expect(keys(landed)).toEqual([`issue:i1`, `chat:t1`, `issue:i2`])
     // An item that already has a tab takes the focus; the New tab stays.
     expect(
       upsertFromRoute(s, { kind: `issue`, issueId: `i2`, from: null }, { landing: true })
     ).toBe(s)
     // A Running row (the tabless origin) lands nothing either.
     expect(
-      upsertFromRoute(s, { kind: `thread`, threadId: `t9`, from: `running` }, { landing: true })
+      upsertFromRoute(s, { kind: `chat`, chatId: `t9`, from: `running` }, { landing: true })
     ).toBe(s)
     // Without a New session tab a landing is an ordinary open.
     expect(
       keys(
         upsertFromRoute(
           state([issue(`i1`)]),
-          { kind: `thread`, threadId: `t1`, from: null },
+          { kind: `chat`, chatId: `t1`, from: null },
           { landing: true }
         )
       )
-    ).toEqual([`issue:i1`, `thread:t1`])
+    ).toEqual([`issue:i1`, `chat:t1`])
   })
 
   it(`keys a route like its tab`, () => {
@@ -171,14 +162,14 @@ describe(`the New session tab, closing and pruning`, () => {
   })
 
   it(`closes the named tabs only`, () => {
-    const s = state([issue(`i1`), thread(`t1`), NEW_RUN_TAB])
-    expect(keys(closeTabs(s, [`thread:t1`, `new`]))).toEqual([`issue:i1`])
-    expect(closeTabs(s, [`thread:nope`])).toBe(s)
+    const s = state([issue(`i1`), chat(`t1`), NEW_RUN_TAB])
+    expect(keys(closeTabs(s, [`chat:t1`, `new`]))).toEqual([`issue:i1`])
+    expect(closeTabs(s, [`chat:nope`])).toBe(s)
   })
 
   it(`prunes what no longer resolves`, () => {
-    const s = state([issue(`i1`), thread(`t1`)])
-    expect(keys(pruneTabs(s, (tab) => tab.kind !== `thread`))).toEqual([`issue:i1`])
+    const s = state([issue(`i1`), chat(`t1`)])
+    expect(keys(pruneTabs(s, (tab) => tab.kind !== `chat`))).toEqual([`issue:i1`])
     expect(pruneTabs(s, () => true)).toBe(s)
   })
 })
@@ -193,10 +184,10 @@ describe(`tabHref`, () => {
       params: { teamSlug: `acme` },
       search: {},
     })
-    expect(tabHref(`acme`, thread(`t1`, `threads`), resolve)).toEqual({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `t1` },
-      search: { from: `threads` },
+    expect(tabHref(`acme`, chat(`t1`, `chats`), resolve)).toEqual({
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `t1` },
+      search: { from: `chats` },
     })
     expect(tabHref(`acme`, { kind: `agent`, agentId: `a1`, from: null }, resolve)).toEqual({
       to: `/t/$teamSlug/agents/$agentId`,
@@ -263,9 +254,9 @@ describe(`parseWorkTabsState`, () => {
   it(`round-trips a stored state`, () => {
     const s = state([
       issue(`i1`, `inbox`),
-      thread(`t1`),
+      chat(`t1`),
       { kind: `agent`, agentId: `a1`, from: null },
-      { kind: `session`, sessionId: `s1`, from: `threads` },
+      { kind: `session`, sessionId: `s1`, from: `chats` },
       NEW_RUN_TAB,
     ])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
@@ -277,14 +268,14 @@ describe(`parseWorkTabsState`, () => {
         JSON.stringify({
           tabs: [
             { kind: `run`, runId: `s1`, from: null, live: true },
-            { kind: `support`, threadId: `t1` },
+            { kind: `support`, chatId: `t1` },
             { kind: `issue` },
-            { kind: `thread`, threadId: `t1`, from: 4 },
-            { kind: `thread`, threadId: `t1`, from: `x` },
+            { kind: `chat`, chatId: `t1`, from: 4 },
+            { kind: `chat`, chatId: `t1`, from: `x` },
           ],
         })
       )
-    ).toEqual(state([thread(`t1`)]))
+    ).toEqual(state([chat(`t1`)]))
   })
 
   it(`reads corrupt or foreign data as an empty strip`, () => {

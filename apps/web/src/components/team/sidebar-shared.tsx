@@ -36,7 +36,7 @@ function NavDot({ tone }: { tone: SidebarDotTone }) {
  * (`lib/sessions/team-live-runs.ts` decides where it hangs). Same tones as
  * the mobile tab bar's chat badge: yellow while one of them waits on the
  * person, green otherwise. A dot, never a count — the picker only says
- * "look over there"; the team you are in lists its threads in the Running
+ * "look over there"; the team you are in lists its chats in the Running
  * section.
  * `corner` hangs it off an icon (the switcher chevron), `trailing` sits at
  * the right edge of a team row. */
@@ -68,10 +68,10 @@ export function TeamLiveDot({
   )
 }
 
-/** EXP-1293: the Threads entry's dot — green while a thread of the team
- *  runs, yellow while one needs you (`threadsNavState`); EXP-1323: else the
- *  unread dot (the Inbox's) while a thread holds an unread reply. */
-export function ThreadsLiveBadge({
+/** EXP-1293: the Chats entry's dot — green while a chat of the team
+ *  runs, yellow while one needs you (`chatsNavState`); EXP-1323: else the
+ *  unread dot (the Inbox's) while a chat holds an unread reply. */
+export function ChatsLiveBadge({
   state,
 }: {
   state: { live: boolean; needsYou: boolean; unread?: boolean }

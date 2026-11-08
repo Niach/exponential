@@ -44,11 +44,11 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
     match screen {
         Some(Screen::Home) => "home".into(),
         Some(Screen::NeedsYou) => "needs-you".into(),
-        Some(Screen::Threads) => "threads".into(),
+        Some(Screen::Chats) => "chats".into(),
         Some(Screen::Devices) => "devices".into(),
         Some(Screen::Drafts) => "drafts".into(),
         Some(Screen::IssueDetail { issue_id }) => format!("issue:{issue_id}"),
-        Some(Screen::Thread { session_id }) => format!("thread:{session_id}"),
+        Some(Screen::Chat { session_id }) => format!("chat:{session_id}"),
         Some(Screen::Session { session_id }) => format!("session:{session_id}"),
         Some(Screen::Agent { agent_id }) => format!("agent:{}", crate::agent_screen::resolve_agent_id(agent_id, cx)),
         Some(Screen::AppRun { app } | Screen::App { app }) => format!("app:{app}"),
@@ -58,9 +58,9 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
     }
 }
 
-fn threads_dot(team_id: &str, cx: &mut App) -> Option<IdeDot> {
-    let (needs_you, running) = crate::session_data::rail_threads_badge(team_id, cx);
-    uicore_model::ide::agent_dot(needs_you, running).or_else(|| crate::session_data::rail_threads_unread(team_id, cx).then_some(IdeDot::Primary))
+fn chats_dot(team_id: &str, cx: &mut App) -> Option<IdeDot> {
+    let (needs_you, running) = crate::session_data::rail_chats_badge(team_id, cx);
+    uicore_model::ide::agent_dot(needs_you, running).or_else(|| crate::session_data::rail_chats_unread(team_id, cx).then_some(IdeDot::Primary))
 }
 
 fn dot_color(dot: IdeDot, cx: &App) -> Hsla {
@@ -91,7 +91,7 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
     input.owner = crate::settings::is_owner(cx, &team_id);
     input.drafts = crate::drafts::drafts_in_team(&team_id, cx).iter().filter(|d| Some(&d.id) != open_draft.as_ref()).count();
     input.needs_you = crate::needs_you::rows_in_team(&team_id, cx).rows.len();
-    input.threads_dot = threads_dot(&team_id, cx);
+    input.chats_dot = chats_dot(&team_id, cx);
     let collections = Store::global(cx).collections().clone();
     for pin in crate::pins::pins_in_team(&team_id, cx) {
         let Some((domain::contract::PIN_KIND_ISSUE, target)) = crate::pins::pin_target(&pin) else { continue };
@@ -310,7 +310,7 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
         "nav" => {
             let screen = match id.as_str() {
                 "needs-you" => Screen::NeedsYou,
-                "threads" => Screen::Threads,
+                "chats" => Screen::Chats,
                 "devices" => Screen::Devices,
                 _ => Screen::Drafts,
             };
@@ -329,7 +329,7 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             navigation::set_active_board(window, cx, id.clone());
             navigate(window, cx, Screen::BoardIssues { board_id: id });
         }
-        "active" => navigation::navigate_from_live_rail(window, cx, Screen::Thread { session_id: id }),
+        "active" => navigation::navigate_from_live_rail(window, cx, Screen::Chat { session_id: id }),
         "assistant" => navigate(window, cx, Screen::Agent { agent_id: id }),
         "settings" => navigate(window, cx, Screen::Settings),
         _ => {}
@@ -406,7 +406,7 @@ impl HostPlugin for RegionHost {
             Glyph::Agent(agent) => crate::icons::agent_row_icon(agent).with_size(gpui::px(size)).into_any_element(),
             Glyph::App(app) => app.rail_icon().with_size(gpui::px(size)).into_any_element(),
             Glyph::Run(agent, state) => crate::run_rows::run_mark(*agent, *state, cx).into_any_element(),
-            Glyph::Device { device, row } => crate::threads_view::thread_device_icon(Some(device), &format!("rail-{row}"), cx).unwrap_or_else(|| Icon::empty().text_color(color).into_any_element()),
+            Glyph::Device { device, row } => crate::chats_view::chat_device_icon(Some(device), &format!("rail-{row}"), cx).unwrap_or_else(|| Icon::empty().text_color(color).into_any_element()),
         };
         Some(element)
     }
@@ -542,7 +542,7 @@ impl TabBarRegion {
     /// A sample strip, for the pictures.
     #[cfg(test)]
     pub(crate) fn show(&mut self, titles: &[&str], cx: &mut gpui::Context<Self>) {
-        let inputs: Vec<IdeTabInput> = titles.iter().enumerate().map(|(i, title)| IdeTabInput { key: format!("t{i}"), title: title.to_string(), icon: "nav-threads".into() }).collect();
+        let inputs: Vec<IdeTabInput> = titles.iter().enumerate().map(|(i, title)| IdeTabInput { key: format!("t{i}"), title: title.to_string(), icon: "nav-chats".into() }).collect();
         let value = serde_json::to_value(uicore_model::ide::ide_tabs(&inputs, Some("t1"))).unwrap();
         self.apply(&value, true, cx);
     }
@@ -882,7 +882,7 @@ mod tests {
     fn a_rows_hover_and_dot_reach_the_document() {
         let input = IdeSidebarInput {
             screen: "home".into(),
-            threads_dot: Some(IdeDot::Amber),
+            chats_dot: Some(IdeDot::Amber),
             boards: vec![IdeBoardInput { id: "b1".into(), name: "Web".into(), icon: "ide:board:b1".into() }],
             ..Default::default()
         };

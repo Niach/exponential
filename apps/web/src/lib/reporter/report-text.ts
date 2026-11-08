@@ -1,5 +1,5 @@
 // SLOP-4: pure text helpers for the reporter page — no DB import, shared by
-// the /api/support/thread route and the page's own display path.
+// the /api/support/conversation route and the page's own display path.
 import reporterReplyFixture from "@exp/domain-contract/fixtures/reporter-reply.json"
 import { replaceMentionTokens } from "@/lib/mention-refs"
 
@@ -31,7 +31,7 @@ export function unescapeReporterText(text: string): string {
 // for the reporter. Every `@<email>` mention token in member-written text the
 // reporter receives reads the fixture's `mentionText` ("@Support", beside the
 // "Support" author label), except a mention of the reporter's own address.
-// Applied server-side at every reporter egress: /api/support/thread, the
+// Applied server-side at every reporter egress: /api/support/conversation, the
 // reply email, the MCP reporter view.
 export function reporterFacingText(
   text: string,

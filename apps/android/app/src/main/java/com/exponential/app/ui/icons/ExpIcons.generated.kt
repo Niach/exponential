@@ -9476,6 +9476,7 @@ public object ExpIcons {
         "call-speaker" -> `volume-2`
         "call-speaker-off" -> `ear`
         "call-unmute" -> `mic-off`
+        "chat-results" -> `images`
         "ci-failed" -> `circle-x`
         "ci-passed" -> `circle-check`
         "ci-queued" -> `circle-dashed`
@@ -9549,6 +9550,7 @@ public object ExpIcons {
         "nav-apps" -> `layout-grid`
         "nav-boards" -> `folder-kanban`
         "nav-changelog" -> `megaphone`
+        "nav-chats" -> `list-tree`
         "nav-computer" -> `computer`
         "nav-create-issue" -> `square-pen`
         "nav-devices" -> `monitor`
@@ -9810,6 +9812,8 @@ public object ExpIcons {
     public val callSpeakerOff: ImageVector get() = `ear`
     /** Concept `call-unmute`. */
     public val callUnmute: ImageVector get() = `mic-off`
+    /** Concept `chat-results`. */
+    public val chatResults: ImageVector get() = `images`
     /** Concept `ci-failed`. */
     public val ciFailed: ImageVector get() = `circle-x`
     /** Concept `ci-passed`. */
@@ -9956,6 +9960,8 @@ public object ExpIcons {
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
     public val navChangelog: ImageVector get() = `megaphone`
+    /** Concept `nav-chats`. */
+    public val navChats: ImageVector get() = `list-tree`
     /** Concept `nav-computer`. */
     public val navComputer: ImageVector get() = `computer`
     /** Concept `nav-create-issue`. */

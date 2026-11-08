@@ -247,8 +247,8 @@ export const APP_PARITY: readonly AppParity[] = [
       },
       "android": {
         "status": "ok",
-        "symbol": "ThreadListRow / PrRow over Modifier.flatRow()",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/threads/ThreadsScreen.kt",
+        "symbol": "ChatListRow / PrRow over Modifier.flatRow()",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/chats/ChatsScreen.kt",
         "note": "PrRow.kt beside it; caption domain/SessionTree.kt"
       }
     }

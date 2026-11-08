@@ -1,15 +1,15 @@
 import type { ReactNode } from "react"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { dockRows, type DockSource } from "@exp/domain-contract/dock"
 import { DockCard, DockPile, DockSheetSpecimenFrame } from "./dock"
-import { ThreadPlanSheet } from "./session-thread-view"
+import { ChatPlanSheet } from "./session-chat-view"
 
 // N-12: THE Dock specimen (fixtures/dock.json + ask-dock.json ×4, the
 // CANONICAL one: the IDE, iOS and Android specimens draw exactly these
 // rows): the DockCards at rest in their four states: one waiting plan (a
 // single card), the pile (the queued messages, THE Queue, the suggested
 // tasks, a plan, a question: the front card whole, the others peeking out
-// above it), the pile fanned, and a plan card's sheet (the real `ThreadPlanSheet` in the sheet's static frame at
+// above it), the pile fanned, and a plan card's sheet (the real `ChatPlanSheet` in the sheet's static frame at
 // rest on page 0: the pinned header, the plan as the body, Next in the footer). The
 // styleguide entry and the app's `?dev=ask-dock` capture render it; the
 // natives' specimens draw the same rows.
@@ -25,7 +25,7 @@ const LONG_PLAN = [
   `6. Open the PR with the Guide.`,
 ].join(`\n`)
 
-const plan = (id: string, text: string, sessionId: string, questions: ThreadRow[] = []): ThreadRow => ({
+const plan = (id: string, text: string, sessionId: string, questions: SessionChatRow[] = []): SessionChatRow => ({
   type: `plan`,
   id,
   sessionId,
@@ -64,7 +64,7 @@ const QUESTIONS = [
 
 const RICH_PLAN = plan(`p1`, LONG_PLAN, `a`, QUESTIONS as never)
 
-const NAMES: Record<string, string> = { a: `Ask dock`, b: `Thread list`, c: `Dock polish` }
+const NAMES: Record<string, string> = { a: `Ask dock`, b: `Chat list`, c: `Dock polish` }
 
 const ASKS: DockSource[] = [
   { kind: `plan`, id: `p1`, text: LONG_PLAN, sessionName: NAMES.a!, questions: 2, createdAt: 10 },
@@ -163,7 +163,7 @@ export function AskDockSpecimen() {
       </Case>
       <Case label="The plan's sheet">
         <DockSheetSpecimenFrame row={single[0]!} height={420} onOpenFull={noop}>
-          <ThreadPlanSheet row={RICH_PLAN as never} renderText={text} attachmentSrc={(id) => id} busy={false} onDecide={noop} />
+          <ChatPlanSheet row={RICH_PLAN as never} renderText={text} attachmentSrc={(id) => id} busy={false} onDecide={noop} />
         </DockSheetSpecimenFrame>
       </Case>
     </div>

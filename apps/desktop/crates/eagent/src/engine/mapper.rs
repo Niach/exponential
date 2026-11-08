@@ -77,7 +77,7 @@ pub const WORKING_TOKEN_TICK_MS: u64 = 2000;
 /// The cap on a workflow's free text (contract `steerWorking.previewMax`).
 pub const WORKING_PREVIEW_MAX: usize = 160;
 
-/// The neutral line an empty turn leaves (contract `session-thread.json`
+/// The neutral line an empty turn leaves (contract `session-chat.json`
 /// `copy.emptyTurn`; `{reason}` = the ACP stop reason).
 pub const EMPTY_TURN_NOTICE: &str = "The agent ended its turn without a reply (stop: {reason})";
 
@@ -3888,7 +3888,7 @@ const PENDING_ECHOES_MAX: usize = 8;
 const FREE_TEXT_KEY: &str = "text";
 
 /// EXP-1322: a question card's options = the feed options minus the
-/// free-text row, each carrying its description when it has one (the thread
+/// free-text row, each carrying its description when it has one (the chat
 /// card shows it like the session view's card). `ReplyCard`'s serializer
 /// splits them into the wire pair: `options` (labels) + the
 /// `optionDescriptions` sidecar.
@@ -7026,7 +7026,7 @@ mod conversation_tests {
     }
 
     /// S-3: a turn that said, thought and did nothing leaves ONE neutral
-    /// line naming its stopReason (session-thread.json `copy.emptyTurn`);
+    /// line naming its stopReason (session-chat.json `copy.emptyTurn`);
     /// a turn that only worked (a tool call) or was Stopped leaves none.
     #[test]
     fn an_empty_turn_leaves_the_empty_turn_notice() {

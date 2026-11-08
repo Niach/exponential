@@ -38,12 +38,12 @@ public enum EmptyStateCopy {
         .inbox,
         .myIssues,
         .drafts,
-        .threads,
+        .chats,
         .boards,
         .issues,
         .noTeam,
         .runNotFound,
-        .threadNotFound,
+        .chatNotFound,
         .noSelectionIssue,
         .noSelectionNotification,
         .boardSwitcher,
@@ -88,8 +88,8 @@ public extension EmptyStateCopy.State {
         id: "drafts", size: .page, icon: "nav-drafts",
         title: "No drafts", description: nil, action: nil
     )
-    static let threads = Self(
-        id: "threads", size: .page, icon: "nav-threads",
+    static let chats = Self(
+        id: "chats", size: .page, icon: "nav-chats",
         title: "No sessions yet", description: nil, action: nil
     )
     static let boards = Self(
@@ -108,9 +108,9 @@ public extension EmptyStateCopy.State {
         id: "run-not-found", size: .page, icon: "action-run",
         title: "Session not found", description: nil, action: "Go to Agent"
     )
-    /// EXP-1284: a thread the store does not hold (and `threads.get` refused).
-    static let threadNotFound = Self(
-        id: "thread-not-found", size: .page, icon: "work-faces",
+    /// EXP-1284: a chat the store does not hold (and `chats.get` refused).
+    static let chatNotFound = Self(
+        id: "chat-not-found", size: .page, icon: "work-faces",
         title: "Chat not found", description: "It may still be syncing, or it was deleted.",
         action: "Go to Agent"
     )

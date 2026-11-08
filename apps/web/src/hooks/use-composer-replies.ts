@@ -5,7 +5,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { toTreeMessage } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
-// EXP-1211: the quick replies above a session's composer (session-thread.json
+// EXP-1211: the quick replies above a session's composer (session-chat.json
 // `repliesCases`): the session's newest `replies` card minus the sent ones.
 // A tap = `sessions.sendReply` (the reply as the next message), dismiss =
 // `sessions.dismissReplies`; the synced message row repaints the row.

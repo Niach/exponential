@@ -6,8 +6,8 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// EXP-1291 — a thread's issues (always on the ROOT). Visible like the
-// thread (`shared` / `owner_id` mirrors) and hidden with the issue's board
+// EXP-1291 — a chat's issues (always on the ROOT). Visible like the
+// chat (`shared` / `owner_id` mirrors) and hidden with the issue's board
 // (static trash/archive predicates). Mirrors stay out of the allowlist.
 export const SESSION_ISSUE_COLUMNS = [
   `id`,

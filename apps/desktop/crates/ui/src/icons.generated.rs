@@ -456,6 +456,8 @@ pub const CALL_SPEAKER: ExpIcon = ExpIcon::Volume2;
 pub const CALL_SPEAKER_OFF: ExpIcon = ExpIcon::Ear;
 /// Registry concept `call-unmute` -> Lucide `mic-off`.
 pub const CALL_UNMUTE: ExpIcon = ExpIcon::MicOff;
+/// Registry concept `chat-results` -> Lucide `images`.
+pub const CHAT_RESULTS: ExpIcon = ExpIcon::Images;
 /// Registry concept `ci-failed` -> Lucide `circle-x`.
 pub const CI_FAILED: ExpIcon = ExpIcon::CircleX;
 /// Registry concept `ci-passed` -> Lucide `circle-check`.
@@ -602,6 +604,8 @@ pub const NAV_APPS: ExpIcon = ExpIcon::LayoutGrid;
 pub const NAV_BOARDS: ExpIcon = ExpIcon::FolderKanban;
 /// Registry concept `nav-changelog` -> Lucide `megaphone`.
 pub const NAV_CHANGELOG: ExpIcon = ExpIcon::Megaphone;
+/// Registry concept `nav-chats` -> Lucide `list-tree`.
+pub const NAV_CHATS: ExpIcon = ExpIcon::ListTree;
 /// Registry concept `nav-computer` -> Lucide `computer`.
 pub const NAV_COMPUTER: ExpIcon = ExpIcon::Computer;
 /// Registry concept `nav-create-issue` -> Lucide `square-pen`.
@@ -1084,6 +1088,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "call-speaker" => CALL_SPEAKER,
         "call-speaker-off" => CALL_SPEAKER_OFF,
         "call-unmute" => CALL_UNMUTE,
+        "chat-results" => CHAT_RESULTS,
         "ci-failed" => CI_FAILED,
         "ci-passed" => CI_PASSED,
         "ci-queued" => CI_QUEUED,
@@ -1157,6 +1162,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-apps" => NAV_APPS,
         "nav-boards" => NAV_BOARDS,
         "nav-changelog" => NAV_CHANGELOG,
+        "nav-chats" => NAV_CHATS,
         "nav-computer" => NAV_COMPUTER,
         "nav-create-issue" => NAV_CREATE_ISSUE,
         "nav-devices" => NAV_DEVICES,

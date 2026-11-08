@@ -94,8 +94,8 @@ pub struct RefResolver {
     /// code; EXP-423: plus the status icon in the leading gutter.
     pub issue_chip: IssueChipResolver,
     /// EXP-760: also chip BARE `EXP-758` tokens (no `#`). Display-only and
-    /// opt-in — the STEERING views and every THREAD text (EXP-1309, web
-    /// `ThreadMarkdown`) set it because agents narrate identifiers that way;
+    /// opt-in — the STEERING views and every CHAT text (EXP-1309, web
+    /// `ChatMarkdown`) set it because agents narrate identifiers that way;
     /// descriptions and comments keep the `#IDENT` contract, which
     /// is what auto-relations and the stored text are matched against. The
     /// pattern is the web `BARE_REF_SOURCE` (`lib/issue-refs.ts`), mirrored
@@ -249,7 +249,7 @@ enum DecodeState {
 }
 
 /// The LIVE picture of every attachment URL (query-stripped), one per `App`:
-/// a second view of the same picture (issue + lightbox, thread + Guide, the
+/// a second view of the same picture (issue + lightbox, chat + Guide, the
 /// same run reopened while a list still shows it) shares ONE decode and ONE
 /// atlas tile instead of fetching and decoding its own. `Weak`: it retains
 /// nothing no view is holding — memory is bounded by what is on screen,

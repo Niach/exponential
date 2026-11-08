@@ -2,9 +2,10 @@
 // md+, the twin of the desktop title-band strip (apps/desktop/crates/ui/src/
 // screens.rs `TabKey`/`partition_tabs`).
 //
-// EXP-1293 (Threads v2): the strip is ROUTE-DRIVEN and nothing else. A tab is
-// a WORK ITEM the URL opened — an issue, a thread (`/threads/$id`), a team
-// agent's channel (`/agents/$id`) or one raw session (`/sessions/$id`) — and
+// EXP-1293: the strip is ROUTE-DRIVEN and nothing else. A tab is
+// a WORK ITEM the URL opened — an issue, a chat (a root session at `/sessions/$id`), a
+// team agent's channel (`/agents/$id`) or one raw session of an agent's tree
+// (`/sessions/$id`) — and
 // no other screen calls into the store:
 //
 //   * opening a work item focuses its tab, creating it at the end when absent
@@ -13,7 +14,7 @@
 //   * the strip's "+" (and Alt/Option+T) opens ONE "New session" tab
 //     (`kind: 'new'`) hosting the home composer (the Agent page). A
 //     navigation that LEAVES that page for a work item lands IN that tab,
-//     browser-like: the composer's start goes to its thread, and the thread
+//     browser-like: the composer's start goes to its chat, and the chat
 //     takes the New session tab's place (`landing`);
 //   * the sidebar's Running rows navigate with the `running` origin
 //     (`TABLESS_ORIGIN`), which creates NO tab — the row IS the affordance;
@@ -32,9 +33,9 @@ export type WorkTab =
       from: string | null
     }
   | {
-      /** A thread = a root session of kind `thread`. */
-      kind: `thread`
-      threadId: string
+      /** A chat = a root session (`/sessions/$id`, no agent). */
+      kind: `chat`
+      chatId: string
       from: string | null
     }
   | {
@@ -74,8 +75,8 @@ export function tabKey(tab: WorkTab): string {
   switch (tab.kind) {
     case `issue`:
       return `issue:${tab.issueId}`
-    case `thread`:
-      return `thread:${tab.threadId}`
+    case `chat`:
+      return `chat:${tab.chatId}`
     case `agent`:
       return `agent:${tab.agentId}`
     case `session`:
@@ -85,12 +86,12 @@ export function tabKey(tab: WorkTab): string {
   }
 }
 
-/** The session row a tab names (a thread or a session), if any. NEW-2: an
+/** The session row a tab names (a chat or a session), if any. NEW-2: an
  *  agent tab names an `agents` row, never a session. */
 export function tabSessionId(tab: WorkTab): string | null {
   switch (tab.kind) {
-    case `thread`:
-      return tab.threadId
+    case `chat`:
+      return tab.chatId
     case `session`:
       return tab.sessionId
     default:
@@ -103,14 +104,14 @@ export function tabSessionId(tab: WorkTab): string | null {
 /** What the current URL names, before any collection lookup. */
 export type RoutePath =
   | { kind: `issue`; boardSlug: string; identifier: string; from: string | null }
-  | { kind: `thread`; threadId: string; from: string | null }
   | { kind: `agent`; agentId: string; from: string | null }
   | { kind: `session`; sessionId: string; from: string | null }
 
 /** The work item a pathname shows — `null` for every other screen (lists,
  * full pages, settings, the Agent page). `view` = the `?view=` search value:
- * `/sessions/<id>?view=guide` only redirects to the thread's Guide, so it
- * names no tab. */
+ * `/sessions/<id>?view=guide` only redirects to the chat's conversation, so
+ * it names no tab. A `/sessions/<id>` path is resolved against the row
+ * (`WorkTabsSync`): a root = its chat tab, an agent's child = a session tab. */
 export function routePathFromLocation(
   pathname: string,
   from: string | null | undefined,
@@ -135,11 +136,10 @@ export function routePathFromLocation(
     if (boardSlug === null || identifier === null) return null
     return { kind: `issue`, boardSlug, identifier, from: token }
   }
-  const single = rest.match(/^\/(threads|agents|sessions)\/([^/]+)$/)
+  const single = rest.match(/^\/(agents|sessions)\/([^/]+)$/)
   if (single) {
     const id = decode(single[2])
     if (id === null) return null
-    if (single[1] === `threads`) return { kind: `thread`, threadId: id, from: token }
     if (single[1] === `agents`) return { kind: `agent`, agentId: id, from: token }
     if (view === `guide`) return null
     return { kind: `session`, sessionId: id, from: token }
@@ -151,7 +151,7 @@ export function routePathFromLocation(
  *  route's row exists in this team. */
 export type RouteTab =
   | { kind: `issue`; issueId: string; from: string | null }
-  | { kind: `thread`; threadId: string; from: string | null }
+  | { kind: `chat`; chatId: string; from: string | null }
   | { kind: `agent`; agentId: string; from: string | null }
   | { kind: `session`; sessionId: string; from: string | null }
 
@@ -269,10 +269,10 @@ export function tabHref(
   switch (tab.kind) {
     case `new`:
       return { to: `/t/$teamSlug/agent`, params: { teamSlug }, search: {} }
-    case `thread`:
+    case `chat`:
       return {
-        to: `/t/$teamSlug/threads/$threadId`,
-        params: { teamSlug, threadId: tab.threadId },
+        to: `/t/$teamSlug/sessions/$sessionId`,
+        params: { teamSlug, sessionId: tab.chatId },
         search,
       }
     case `agent`:
@@ -314,9 +314,10 @@ export { partitionTabs } from "@exp/domain-contract/session-tree"
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-/** EXP-1293: v2 — the v1 blobs named coding-session runs, which are gone. */
+/** EXP-1293: v2 — the v1 blobs named coding-session runs, which are gone.
+ *  EXP-1733: v3 — chat tabs are `chat` tabs (the old kind is dropped). */
 export function workTabsStorageKey(teamId: string): string {
-  return `exp:work-tabs:v2:${teamId}`
+  return `exp:work-tabs:v3:${teamId}`
 }
 
 function str(value: unknown): value is string {
@@ -335,9 +336,9 @@ function parseTab(value: unknown): WorkTab | null {
       return str(raw.issueId)
         ? { kind: `issue`, issueId: raw.issueId, from: optStr(raw.from) }
         : null
-    case `thread`:
-      return str(raw.threadId)
-        ? { kind: `thread`, threadId: raw.threadId, from: optStr(raw.from) }
+    case `chat`:
+      return str(raw.chatId)
+        ? { kind: `chat`, chatId: raw.chatId, from: optStr(raw.from) }
         : null
     case `agent`:
       return str(raw.agentId)

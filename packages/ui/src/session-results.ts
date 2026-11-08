@@ -503,33 +503,33 @@ export function sessionResultTileHeightFitting(
   return Math.max(1, Math.floor((base * availableWidth) / widest))
 }
 
-// EXP-1175: the Run face's THREAD — what the run published, in the order it
+// EXP-1175: the Run face's STREAM — what the run published, in the order it
 // published it, with the Summary text as the agent's reply at the end.
-// Fixture `session-results.json` `thread` (×4).
+// Fixture `session-results.json` `stream` (×4).
 
-export type SessionThreadItem =
+export type SessionResultStreamItem =
   | { kind: `text`; topic: string; text: string }
   | { kind: `picture`; entry: SessionResultEntry }
 
-export interface SessionThread {
-  items: SessionThreadItem[]
+export interface SessionResultStream {
+  items: SessionResultStreamItem[]
   /** The Summary topic's text (its first non-blank one), drawn LAST as the
    *  agent's reply; null without one. */
   reply: string | null
 }
 
-/** A run's thread in publish order, each piece with the server's write stamp
+/** A run's stream in publish order, each piece with the server's write stamp
  *  (`at`, ms; null on an entry filed before EXP-1251). */
-type ThreadPiece =
-  | { item: SessionThreadItem; reply?: undefined; at: number | null }
+type StreamPiece =
+  | { item: SessionResultStreamItem; reply?: undefined; at: number | null }
   | { item?: undefined; reply: string; at: number | null }
 
 function stampMs(value: unknown): number | null {
   return typeof value === `number` && Number.isFinite(value) && value > 0 ? value : null
 }
 
-function threadPieces(raw: unknown): ThreadPiece[] {
-  const pieces: ThreadPiece[] = []
+function streamPieces(raw: unknown): StreamPiece[] {
+  const pieces: StreamPiece[] = []
   const seenText = new Set<string>()
   let replied = false
   let pictures = 0
@@ -564,22 +564,22 @@ function threadPieces(raw: unknown): ThreadPiece[] {
  * topic's text is `reply`, never an item, while pictures filed under Summary
  * stay in the stream.
  */
-export function sessionThread(raw: unknown): SessionThread {
-  const items: SessionThreadItem[] = []
+export function sessionResultStream(raw: unknown): SessionResultStream {
+  const items: SessionResultStreamItem[] = []
   let reply: string | null = null
-  for (const piece of threadPieces(raw)) {
+  for (const piece of streamPieces(raw)) {
     if (piece.item) items.push(piece.item)
     else reply = piece.reply
   }
   return { items, reply }
 }
 
-// EXP-1245: the thread as a CONVERSATION of turns, for the run's OWNER (the
+// EXP-1245: the stream as a CONVERSATION of turns, for the run's OWNER (the
 // relay feed is theirs alone): each turn = the person's message that opened
 // it (a bubble), its status row (`startedAt`/`endedAt` feed the per-turn
 // caption) and the results the server stamped (`at`) inside it, the Summary
 // as the reply of the turn that last wrote it. Teammates and an offline host
-// have no feed and keep today's single-row thread. Fixture
+// have no feed and keep today's single-row stream. Fixture
 // `session-results.json` `turns` (×4).
 
 /** One relay feed fact the turns read: a person's message or a turn edge. */
@@ -616,12 +616,12 @@ export interface SessionTurn {
   startedAt: number | null
   /** The turn's `ended` edge (or the next message that cut in); null while live. */
   endedAt: number | null
-  items: SessionThreadItem[]
+  items: SessionResultStreamItem[]
   reply: string | null
 }
 
 export interface SessionTurns {
-  /** False = no feed: ONE turn holding today's thread, drawn under the one
+  /** False = no feed: ONE turn holding today's stream, drawn under the one
    *  run-wide status row. */
   perTurn: boolean
   turns: SessionTurn[]
@@ -687,13 +687,13 @@ export function sessionTurns(
     if (running) running.endedAt = event.at
   }
   if (turns.length === 0) {
-    const thread = sessionThread(raw)
+    const stream = sessionResultStream(raw)
     return {
       perTurn: false,
-      turns: [{ message: null, startedAt: null, endedAt: null, ...thread }],
+      turns: [{ message: null, startedAt: null, endedAt: null, ...stream }],
     }
   }
-  for (const piece of threadPieces(raw)) {
+  for (const piece of streamPieces(raw)) {
     let target = turns[0]!
     if (piece.at !== null) {
       for (const turn of turns) if (turnBoundary(turn) <= piece.at) target = turn

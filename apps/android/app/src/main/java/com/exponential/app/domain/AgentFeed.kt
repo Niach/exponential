@@ -188,7 +188,7 @@ sealed interface AgentFeedItem {
         val text: String,
         val subagentId: String? = null,
         override val seq: Long? = null,
-        /** EXP-1245: the relay's stamp; the turns thread slots the row by it. */
+        /** EXP-1245: the relay's stamp; the turns chat slots the row by it. */
         val at: Long? = null,
     ) : AgentFeedItem
 

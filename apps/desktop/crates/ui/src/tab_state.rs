@@ -1,7 +1,7 @@
 //! EXP-894 — per-TAB view state that survives a tab switch.
 //!
 //! The centre's heavyweight detail view (the issue detail; the support
-//! thread was one too until SLOP-4) is ONE shared instance, re-pointed on
+//! chat was one too until SLOP-4) is ONE shared instance, re-pointed on
 //! every tab switch (`screens.rs`).
 //! Re-pointing used to reset their local state, so a half-typed comment was
 //! gone the moment you looked at another tab and came back.

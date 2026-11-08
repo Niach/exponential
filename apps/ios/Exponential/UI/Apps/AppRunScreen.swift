@@ -67,7 +67,7 @@ struct AppRunScreen: View {
             } else if model.missing {
                 ZStack {
                     AppBackground()
-                    EmptyState(.threadNotFound)
+                    EmptyState(.chatNotFound)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {

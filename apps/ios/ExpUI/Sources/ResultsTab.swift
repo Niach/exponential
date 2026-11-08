@@ -51,7 +51,7 @@ public struct ResultsTabView<Lead: View, Thumbnail: View, Surface: View>: View {
         VStack(alignment: .leading, spacing: CGFloat(ResultsTab.Tab.Tile.leadGap)) {
             lead
             if results.isEmpty {
-                EmptyState(title: ResultsTab.Tab.Copy.empty, icon: AppIcons.threadResults, size: .page)
+                EmptyState(title: ResultsTab.Tab.Copy.empty, icon: AppIcons.chatResults, size: .page)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 48)
             } else {

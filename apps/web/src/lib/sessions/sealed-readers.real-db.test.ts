@@ -169,7 +169,7 @@ describe.skipIf(!ready.ok)(`EXP-1458: title + brief`, () => {
   })
 })
 
-/** An agent's conversation managing a thread, and a child of the thread. */
+/** An agent's conversation managing a chat, and a child of the chat. */
 async function managed() {
   const w = await world()
   const [agent] = await db
@@ -177,7 +177,7 @@ async function managed() {
     .values({ teamId: w.teamId, name: `Watcher`, deviceId: w.deviceId, ownerId: w.owner })
     .returning({ id: agents.id })
   const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: `watch` } })).sessionId
-  const thread = (
+  const chat = (
     await sendSession({
       userId: w.owner,
       callerSessionId: conversation,
@@ -185,7 +185,7 @@ async function managed() {
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `work` },
     })
   ).sessionId
-  const child = (await sendSession({ userId: w.owner, input: { parentId: thread, text: `child` } })).sessionId
+  const child = (await sendSession({ userId: w.owner, input: { parentId: chat, text: `child` } })).sessionId
   const sealedQuestion = () =>
     db.transaction((tx) =>
       insertMessage(tx, child, {
@@ -197,7 +197,7 @@ async function managed() {
     )
   const keyConversation = () =>
     db.update(sessions).set({ sealEpoch: 1, sealPublicKey: `A`.repeat(43) }).where(eq(sessions.id, conversation))
-  return { ...w, conversation, thread, child, sealedQuestion, keyConversation }
+  return { ...w, conversation, chat, child, sealedQuestion, keyConversation }
 }
 
 const mirrorOf = async (id: string) =>
@@ -214,13 +214,13 @@ describe.skipIf(!ready.ok)(`EXP-1458: escalate`, () => {
       card: buildQuestionCard({ question: `Port?`, options: [{ label: `1` }] }),
     })
     expect(await escalateTarget(m.owner, plain.messageId)).toEqual({ rootId: m.conversation })
-    // Its ask mirror in the thread names the same target.
-    const [threadMirror] = await db
+    // Its ask mirror in the chat names the same target.
+    const [chatMirror] = await db
       .select({ id: messages.id })
       .from(messages)
-      .where(and(inSession(m.thread), sql`${messages.card}->>'messageId' = ${plain.messageId}`))
-    expect(await escalateTarget(m.owner, threadMirror!.id)).toEqual({ rootId: m.conversation })
-    // A plain message, a stranger, a thread nobody manages.
+      .where(and(inSession(m.chat), sql`${messages.card}->>'messageId' = ${plain.messageId}`))
+    expect(await escalateTarget(m.owner, chatMirror!.id)).toEqual({ rootId: m.conversation })
+    // A plain message, a stranger, a chat nobody manages.
     const [first] = await db.select({ id: messages.id }).from(messages).where(inSession(m.child)).orderBy(asc(messages.createdAt)).limit(1)
     await expect(escalateTarget(m.owner, first!.id)).rejects.toMatchObject({ code: `BAD_REQUEST` })
     await expect(escalateTarget(m.mate, sealed)).rejects.toBeTruthy()

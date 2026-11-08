@@ -673,7 +673,7 @@ impl GettingStartedProgress {
             .sessions
             .read(cx)
             .iter()
-            .any(|session| session.team_id.as_deref() == Some(team_id) && session.is_thread());
+            .any(|session| session.team_id.as_deref() == Some(team_id) && session.is_chat());
         let members = collections
             .team_members
             .read(cx)

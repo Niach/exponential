@@ -24,7 +24,7 @@ object MdStyle {
     val IssueRefBg = Color.White.copy(alpha = 0.10f) // #IDENTIFIER pill (web .issue-ref-pill)
     val IssueRefBorder = Color.White.copy(alpha = 0.16f) // its hairline (EXP-423, Linear parity)
     val ChipToken = Color.White.copy(alpha = 0.55f) // the muted `#IDENT` inside a chip
-    // The mention pill (thread e4a04d22, web `.mention-pill` ×4): `--accent`
+    // The mention pill (session e4a04d22, web `.mention-pill` ×4): `--accent`
     // fill, `--border` hairline, `--accent-foreground` text, straight off the
     // shared design tokens.
     val MentionBg = DesignTokens.Palette.Accent
