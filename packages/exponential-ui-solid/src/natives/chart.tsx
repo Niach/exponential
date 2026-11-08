@@ -51,6 +51,16 @@ export function ChartNative(props: NativeProps): JSX.Element {
   const fmt = (v: number) => formatChartValue(ctx.formatter, v, props.props.valueFormat as ChartValueFormat | undefined)
   const [active, setActive] = createSignal<number | null>(null)
   let plotRef: SVGSVGElement | undefined
+  // VAPP-289: a pointerleave clears the highlight only after a real
+  // pointermove. A pointer that never moved sits at 0,0 (on the plot); a
+  // re-render's hover update then sends a pointerleave at no fixed moment,
+  // which wiped the keyboard highlight.
+  let pointerInside = false
+  const onLeave = () => {
+    if (!pointerInside) return
+    pointerInside = false
+    setActive(null)
+  }
 
   const geo = createMemo(() => {
     const k = kind()
@@ -178,6 +188,7 @@ export function ChartNative(props: NativeProps): JSX.Element {
     else if (e.key === `Escape`) setActive(null)
   }
   const onMove = (e: PointerEvent) => {
+    pointerInside = true
     const nn = n()
     if (round() || nn === 0) return
     const r = plotRef?.getBoundingClientRect()
@@ -284,7 +295,7 @@ export function ChartNative(props: NativeProps): JSX.Element {
           tabindex={sparkline() ? undefined : 0}
           onKeyDown={(e) => (sparkline() ? undefined : onKey(e))}
           onPointerMove={(e) => (sparkline() ? undefined : onMove(e))}
-          onPointerLeave={() => setActive(null)}
+          onPointerLeave={onLeave}
           onBlur={() => setActive(null)}
           class="xui-chart-svg"
         >
