@@ -1624,6 +1624,8 @@ impl Render for IssueTimeline {
             let foreground = cx.theme().foreground;
             div()
                 .id("timeline-activity-fold-toggle")
+                .role(gpui::Role::Button)
+                .aria_label(if show_all { "Show less" } else { "Show all" })
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
                 .cursor_pointer()

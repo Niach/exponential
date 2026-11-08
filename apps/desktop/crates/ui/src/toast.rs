@@ -298,6 +298,8 @@ fn face(toast: &Toast, content: f32, dismiss: Option<Dismiss>, cx: &App) -> Div 
     });
     let close = div()
         .id("toast-close")
+        .role(gpui::Role::Button)
+        .aria_label("Close")
         .size(px(LINE))
         .flex()
         .items_center()

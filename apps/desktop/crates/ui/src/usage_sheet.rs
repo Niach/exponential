@@ -323,6 +323,9 @@ fn render_context_window(
     // eye goes to, the indicator parks after it (web `chevron="trailing"`).
     let header = h_flex()
         .id("context-window-toggle")
+        .role(gpui::Role::Button)
+        .aria_label(domain::contract::CONTEXT_LAYOUT_TITLE)
+        .aria_expanded(legend_open)
         .w_full()
         .min_w_0()
         .items_center()

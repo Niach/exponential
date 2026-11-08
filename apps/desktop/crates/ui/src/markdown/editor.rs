@@ -772,6 +772,8 @@ fn render_image_slot(
                 // path (gpui element ids are hierarchical).
                 div()
                     .id("md-image-open")
+                    .role(gpui::Role::Button)
+                    .aria_label(if alt.is_empty() { "Image".to_string() } else { alt.clone() })
                     .when(chat_picture.is_some(), |el| el.w_full())
                     .cursor_pointer()
                     .on_click(move |_, window, cx| {
@@ -2390,6 +2392,10 @@ fn render_editor_preview(
     });
     div()
         .id("md-editor-preview")
+        .role(gpui::Role::MultilineTextInput)
+        // Web `MarkdownEditor`'s `aria-label` (`ariaLabel ?? \`Issue description\``;
+        // no web caller overrides it, and the description is this editor's one use).
+        .aria_label("Issue description")
         .w_full()
         .py_1()
         .min_h(px(96.))

@@ -628,6 +628,9 @@ impl IssueListView {
             // Stable per-issue ElementId (§4.6): echo/refetch keeps row
             // identity, no scroll reset.
             .id(row_id("issue-row", &issue.id))
+            .role(gpui::Role::ListItem)
+            .aria_label(format!("{} {}", issue.identifier, issue.title))
+            .aria_selected(is_selected || is_active)
             .group(ROW_GROUP)
             .h(px(ROW_HEIGHT))
             .w_full()
@@ -676,6 +679,7 @@ impl IssueListView {
                 let toggle_id = issue.id.clone();
                 select_cell(
                     &issue.id,
+                    format!("Select {}", issue.identifier).into(),
                     is_selected,
                     any_selected,
                     cx.listener(move |this, _, _, cx| {
@@ -1729,9 +1733,11 @@ pub(crate) fn selectable_row_fill(
 /// the [`SELECT_CELL_W`] cell holding THE checkbox, hover-revealed (the
 /// enclosing [`ROW_GROUP`]) and pinned visible while ANY selection exists
 /// (web `group-hover/row` parity); a click on it toggles `key`'s row (the
-/// cell swallows the click, so the row never sees it). `key` = the row's id.
+/// cell swallows the click, so the row never sees it). `key` = the row's id,
+/// `name` = the checkbox's accessible name (web: "Select <identifier>").
 pub(crate) fn select_cell(
     key: &str,
+    name: SharedString,
     selected: bool,
     any_selected: bool,
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -1742,7 +1748,7 @@ pub(crate) fn select_cell(
         .when(!any_selected, |cell| {
             cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
         })
-        .child(crate::controls::checkbox(row_id("select", key), selected.into(), false, cx).aria_label("Select").on_click(on_toggle))
+        .child(crate::controls::checkbox(row_id("select", key), selected.into(), false, cx).aria_label(name).on_click(on_toggle))
 }
 
 /// THE bulk bar's dock ×2 (the board's issue list, #EXP-1388's Chats page):
@@ -1787,6 +1793,7 @@ pub(crate) fn bulk_bar_button(
 }
 
 pub(crate) fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
+    // a11y: a click guard, not a control
     div()
         .id(id)
         .flex_shrink_0()

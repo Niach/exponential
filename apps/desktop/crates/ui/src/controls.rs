@@ -133,6 +133,8 @@ pub(crate) fn jump_to_bottom_button(
     let colors = cx.theme();
     div()
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(JUMP_TO_BOTTOM_LABEL)
         .flex()
         .items_center()
         .justify_center()

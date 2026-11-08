@@ -841,6 +841,8 @@ fn render_picker(
                         SharedString::from(format!("readiness-repo-{}", repo.id)),
                         cx,
                     )
+                    .role(gpui::Role::ListItem)
+                    .aria_label(repo.full_name.clone())
                     .gap_2()
                     .child(Icon::new(registry::UI_GITHUB).size_3().text_color(muted))
                     .child(

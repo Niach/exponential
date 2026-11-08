@@ -65,6 +65,9 @@ pub(crate) fn outline(
         column = column.child(
             h_flex()
                 .id(SharedString::from(format!("{row_id}-{}", entry.id)))
+                .role(gpui::Role::ListItem)
+                .aria_label(SharedString::from(entry.title.clone()))
+                .aria_selected(on)
                 .relative()
                 .w_full()
                 .min_w_0()

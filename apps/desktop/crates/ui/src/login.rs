@@ -768,6 +768,8 @@ impl LoginView {
         h_flex().justify_center().child(
             div()
                 .id("login-instance-toggle")
+                .role(gpui::Role::Button)
+                .aria_label(label)
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .cursor_pointer()
@@ -1060,6 +1062,8 @@ impl LoginView {
                             .child(
                                 div()
                                     .id("login-register")
+                                    .role(gpui::Role::Button)
+                                    .aria_label("Register")
                                     .text_color(cx.theme().primary)
                                     .cursor_pointer()
                                     .hover(|style| style.text_decoration_1())
@@ -1081,13 +1085,16 @@ impl LoginView {
         cx: &mut gpui::Context<Self>,
         handler: impl Fn(&mut Self, &mut Window, &mut gpui::Context<Self>) + 'static,
     ) -> impl IntoElement {
+        let label: SharedString = label.into();
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(label.clone())
             .text_sm()
             .text_color(cx.theme().muted_foreground)
             .cursor_pointer()
             .hover(|style| style.text_decoration_1())
-            .child(label.into())
+            .child(label)
             .on_click(cx.listener(move |this, _, window, cx| handler(this, window, cx)))
     }
 
@@ -1286,6 +1293,8 @@ pub(crate) fn legal_footer(cx: &App) -> impl IntoElement {
     let link = move |id: &'static str, label: &'static str, url: &'static str| {
         div()
             .id(id)
+            .role(gpui::Role::Link)
+            .aria_label(label)
             .cursor_pointer()
             .hover(move |style| style.text_color(foreground).text_decoration_1())
             .child(label)

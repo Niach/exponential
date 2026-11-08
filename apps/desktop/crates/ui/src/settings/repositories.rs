@@ -1385,6 +1385,9 @@ impl RepositoriesPane {
                                 ))),
                                 cx,
                             )
+                            .role(gpui::Role::ListItem)
+                            .aria_selected(checked)
+                            .aria_label(SharedString::from(name.clone()))
                             .child(
                                 div()
                                     .flex_1()

@@ -349,6 +349,8 @@ impl StoragePane {
             });
             div()
                 .id(SharedString::from(format!("storage-preview-{}", row.id)))
+                .role(gpui::Role::Button)
+                .aria_label(SharedString::from(row.filename.clone()))
                 .min_w_0()
                 .text_sm()
                 .whitespace_nowrap()

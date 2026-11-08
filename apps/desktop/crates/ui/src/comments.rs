@@ -586,6 +586,8 @@ pub(crate) fn comment_row(
             let parent_id = comment_id.clone();
             div()
                 .id(SharedString::from(format!("comment-reply-{comment_id}")))
+                .role(gpui::Role::Button)
+                .aria_label("Leave a reply…")
                 .w_full()
                 .py_1()
                 .text_xs()

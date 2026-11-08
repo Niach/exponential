@@ -619,6 +619,8 @@ impl AddRepositoryDialogView {
         let repo_for_click = repo.clone();
         h_flex()
             .id(("add-repo-row", index))
+            .role(gpui::Role::ListItem)
+            .aria_label(SharedString::from(repo.full_name.clone()))
             .w_full()
             .items_center()
             .gap_2()

@@ -1359,6 +1359,8 @@ pub(crate) fn muted_line_button(
     h_flex().w_full().min_w_0().child(
         h_flex()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(SharedString::from(text.clone()))
             .max_w_full()
             .min_w_0()
             .gap_1()
@@ -1458,6 +1460,10 @@ pub(crate) fn plan_row(
     };
     let press = h_flex()
         .id(SharedString::from(format!("plan-row-{message_id}")))
+        .when(opens, |row| {
+            row.role(gpui::Role::Button)
+                .aria_label(SharedString::from(domain::plan_page::plan_row_label(plan)))
+        })
         .flex_1()
         .min_w_0()
         .h_full()
@@ -2127,6 +2133,8 @@ fn suggestion_item_row(
                     .child(
                         div()
                             .id(SharedString::from(format!("thread-suggestion-filed-{message_id}-{}", item.id)))
+                            .role(gpui::Role::Button)
+                            .aria_label(SharedString::from(identifier.clone()))
                             .font_family(theme::terminal::FONT_FAMILY)
                             .cursor_pointer()
                             .hover(move |style| style.text_color(hover))

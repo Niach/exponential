@@ -85,6 +85,8 @@ pub(crate) fn result_section(
             let (open, images) = (result.clone(), images.clone());
             v_flex()
                 .id(SharedString::from(format!("result-picture-{}-{index}", result.id)))
+                .role(gpui::Role::Button)
+                .aria_label(SharedString::from(picture_text(picture)))
                 .flex_shrink_0()
                 .w(px(width))
                 .gap_1p5()
@@ -295,6 +297,8 @@ pub(crate) fn changes_row(
         .child(Icon::from(registry::UI_CHEVRON_RIGHT).with_size(px(14.)).text_color(muted));
     if let Some(on_open) = on_open {
         line = line
+            .role(gpui::Role::Button)
+            .aria_label(SharedString::from(RESULTS_TAB.tab.copy.changes.clone()))
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
             .on_click(move |_, window, cx| on_open(window, cx));
@@ -313,6 +317,8 @@ pub(crate) fn review_header(
     let muted = cx.theme().muted_foreground;
     let back = h_flex()
         .id("thread-results-review-back")
+        .role(gpui::Role::Button)
+        .aria_label(SharedString::from(RESULTS_TAB.tab.copy.label.clone()))
         .flex_shrink_0()
         .gap_1p5()
         .px_2()

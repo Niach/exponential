@@ -6978,6 +6978,8 @@ impl SteerSessionView {
                 card = card.child(
                     h_flex()
                         .id(("steer-step-current", item.id as usize))
+                        .role(gpui::Role::Button)
+                        .aria_label(SharedString::from(text.clone()))
                         .mt_1()
                         .w_full()
                         .min_w_0()
@@ -7111,6 +7113,7 @@ impl SteerSessionView {
             .unwrap_or_else(|| domain::plan_card::copy().answered.clone());
         let editable = open && self.step_editable(item);
         let item_id = item.id;
+        let step_label = SharedString::from(card.map(|card| card.text.clone()).unwrap_or_default());
         h_flex()
             .id(("steer-step", item_id as usize))
             .w_full()
@@ -7120,7 +7123,9 @@ impl SteerSessionView {
             .py_1()
             .text_xs()
             .when(editable, |this| {
-                this.cursor_pointer()
+                this.role(gpui::Role::Button)
+                    .aria_label(step_label)
+                    .cursor_pointer()
                     .rounded(px(theme::tokens::radius::SM))
                     .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -9124,9 +9129,14 @@ fn exp_tool_preview_row(
         kind::ISSUE => {
             let issue_id = preview.id.clone()?;
             if let Some(card) = crate::issue_preview::card(&issue_id, cx) {
+                let issue_label = SharedString::from(
+                    preview.title.clone().or_else(|| preview.identifier.clone()).unwrap_or_default(),
+                );
                 return Some(
                     div()
                         .id(("steer-exp-issue", id as usize))
+                        .role(gpui::Role::Button)
+                        .aria_label(issue_label.clone())
                         .cursor_pointer()
                         .on_click(move |_, window, cx| {
                             crate::navigation::navigate(

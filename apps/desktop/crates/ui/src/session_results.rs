@@ -742,6 +742,8 @@ pub(crate) fn tile(
         .child(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label.clone())
                 .w(px(width))
                 .h(px(height))
                 .flex_shrink_0()

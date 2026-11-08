@@ -232,6 +232,7 @@ impl RenderOnce for IssueChip {
             .bg(background)
             .text_xs()
             .child(lead);
+        let open_label = SharedString::from(format!("Open {}", self.identifier));
         // SLOP-15/16: the small chip names the issue in its tooltip.
         let tooltip = (self.small && !self.title.is_empty()).then(|| {
             SharedString::from(if self.identifier.is_empty() {
@@ -276,7 +277,10 @@ impl RenderOnce for IssueChip {
             );
         }
         if let Some(handler) = self.on_click {
-            chip = chip.on_click(move |event, window, cx| handler(event, window, cx));
+            chip = chip
+                .role(gpui::Role::Button)
+                .aria_label(open_label)
+                .on_click(move |event, window, cx| handler(event, window, cx));
         }
         let chip = chip.when(clickable, |chip| {
             // The only hover the painted chips could not have: the border
