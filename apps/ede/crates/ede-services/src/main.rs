@@ -20,8 +20,9 @@ fn usage() -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    // #LOGS-2: the log as before (stderr), plus Sentry when diagnostics are on.
-    let _observability = ede_observability::init("services", "info", ede_observability::Output::Stderr);
+    // No Sentry here (#LOGS-2): ede-shell links this crate, so it would join
+    // the IDE's licence graph; the compositor and the session report.
+    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let registry = Arc::new(Registry::default());
     match args.first().map(String::as_str) {

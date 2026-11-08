@@ -893,7 +893,6 @@ dependencies = [
 name = "ede-services"
 version = "0.2.11"
 dependencies = [
- "ede-observability",
  "ede-protocol",
  "emcp",
  "libc",

@@ -2366,16 +2366,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
-name = "debugid"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
-dependencies = [
- "serde",
- "uuid",
-]
-
-[[package]]
 name = "decibri-aec"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2756,19 +2746,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ede-observability"
-version = "0.2.11"
-dependencies = [
- "reqwest 0.13.5",
- "rustls",
- "sentry",
- "serde_json",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "ede-protocol"
 version = "0.14.143"
 dependencies = [
@@ -2781,7 +2758,6 @@ dependencies = [
 name = "ede-services"
 version = "0.2.11"
 dependencies = [
- "ede-observability",
  "ede-protocol",
  "emcp",
  "libc",
@@ -3654,18 +3630,6 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
-
-[[package]]
-name = "findshlibs"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40b9e59cd0f7e0806cca4be089683ecb6434e602038df21fe6bf6711b2f07f64"
-dependencies = [
- "cc",
- "lazy_static",
- "libc",
- "winapi",
-]
 
 [[package]]
 name = "finl_unicode"
@@ -4951,17 +4915,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "hostname"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "617aaa3557aef3810a6369d0a99fac8a080891b68bd9f9812a1eeda0c0730cbd"
-dependencies = [
- "cfg-if",
- "libc",
- "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -7786,27 +7739,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "objc2-ui-kit"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d87d638e33c06f577498cbcc50491496a3ed4246998a7fbba7ccb98b1e7eab22"
-dependencies = [
- "bitflags 2.13.2",
- "block2 0.6.2",
- "objc2 0.6.4",
- "objc2-cloud-kit",
- "objc2-core-data 0.3.2",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-core-image 0.3.2",
- "objc2-core-location",
- "objc2-core-text",
- "objc2-foundation 0.3.2",
- "objc2-quartz-core 0.3.2",
- "objc2-user-notifications",
-]
-
-[[package]]
 name = "objc2-user-notifications"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7944,22 +7876,6 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
-]
-
-[[package]]
-name = "os_info"
-version = "3.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cf20a545b305cf1da722b236b5155c9bb35f1d5ceb28c048bd96ca842f41b5b"
-dependencies = [
- "android_system_properties",
- "log",
- "nix 0.31.3",
- "objc2 0.6.4",
- "objc2-foundation 0.3.2",
- "objc2-ui-kit",
- "serde",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9990,121 +9906,6 @@ name = "send_wrapper"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
-
-[[package]]
-name = "sentry"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7c2c887f17023c9462a4202176efc33ca7228f9c30c0141c765ab534ab2d36b"
-dependencies = [
- "cfg_aliases 0.2.2",
- "sentry-backtrace",
- "sentry-contexts",
- "sentry-core",
- "sentry-debug-images",
- "sentry-log",
- "sentry-panic",
- "sentry-tracing",
-]
-
-[[package]]
-name = "sentry-backtrace"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c391d4330f3b37fdddf2b928151244e8c2dc0cfea1740e455cc8942af436f919"
-dependencies = [
- "backtrace",
- "regex",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-contexts"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "654dacb94135c713e1dcbff01314a83d333f0e62f76b91fed5ab87415075530c"
-dependencies = [
- "hostname",
- "libc",
- "os_info",
- "rustc_version",
- "sentry-core",
- "uname",
-]
-
-[[package]]
-name = "sentry-core"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edcb294ca821e5c5624edaf33535eb18b06ef4f8675201d3e4d81ce325741692"
-dependencies = [
- "rand 0.10.3",
- "sentry-types",
- "serde",
- "serde_json",
- "url",
-]
-
-[[package]]
-name = "sentry-debug-images"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74835055f6a57b78c0e13f941b460e39edc1899b05fe31dd47cd02367f70888f"
-dependencies = [
- "findshlibs",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-log"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f24141aaeb20c731719b33077f1063a79e07eef63a4954530559c067ba046aad"
-dependencies = [
- "bitflags 2.13.2",
- "log",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-panic"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5d28522f81ed90510ec43ed01cb1873a393b329dc719f93335b4c75fbef05d1"
-dependencies = [
- "sentry-backtrace",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-tracing"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec67c296aadc41d4d41b64738908c51cacddf99edebe7a2b476f9bf40de93ff5"
-dependencies = [
- "bitflags 2.13.2",
- "sentry-backtrace",
- "sentry-core",
- "tracing-core",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "sentry-types"
-version = "0.49.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83d84a36b6bdeeb7813976fb899fca45d94540d2e2b80eac91ba66b4c654d8f0"
-dependencies = [
- "debugid",
- "hex",
- "rand 0.10.3",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "time",
- "url",
- "uuid",
-]
 
 [[package]]
 name = "serde"
@@ -12493,15 +12294,6 @@ version = "0.14.143"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "uname"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b72f89f0ca32e4db1c04e2a72f5345d59796d4866a1ee0609084569f73683dc8"
-dependencies = [
- "libc",
 ]
 
 [[package]]

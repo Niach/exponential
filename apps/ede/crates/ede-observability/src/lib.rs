@@ -62,7 +62,7 @@ pub enum Output {
 /// The process's tracing subscriber (`RUST_LOG`, else `default_filter`, to
 /// `output`) plus, when diagnostics are on and the server enabled them, the
 /// Sentry client and its tracing layers. `component` tags every event
-/// (`compositor`, `session`, `services`).
+/// (`compositor`, `session`).
 pub fn init(component: &'static str, default_filter: &str, output: Output) -> Guard {
     // The ring provider for every rustls user in the process (the tunnel's
     // reqwest has none of its own); a second install is a no-op.

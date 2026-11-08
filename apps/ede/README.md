@@ -797,8 +797,7 @@ send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or lo
 
 ## Diagnostics (#LOGS-2)
 
-`crates/ede-observability`: the Sentry SDK in the compositor, `exponential-session` and
-`exponential-services` (panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions),
+`crates/ede-observability`: the Sentry SDK in the compositor and `exponential-session` (panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions),
 OFF unless the signed-in account's server turns it on. Nothing is baked in: the server of the first
 account in the IDE's shared `accounts.json` answers `GET <server>/api/monitoring/config?platform=ede`
 (`{"enabled", "dsn", "environment", "tracesSampleRate"}`), the answer is cached in

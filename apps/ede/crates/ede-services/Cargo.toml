@@ -14,8 +14,6 @@ emcp = { path = "../../../desktop/crates/emcp" }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 serde.workspace = true
 serde_json = "1"
-# #LOGS-2: logging + Sentry (through the server's tunnel).
-ede-observability = { path = "../ede-observability" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 libc = "0.2"

@@ -583,7 +583,7 @@ it is headers, and nothing of it ships.
 
 ## Exponential Desktop's diagnostics: the Sentry SDK (LOGS-2, 2026-11-09)
 
-eDE's compositor, session and services link the Sentry Rust SDK (`sentry`
+eDE's compositor and session link the Sentry Rust SDK (`sentry`
 0.49 and its `sentry-*` crates, MIT) through `apps/ede/crates/ede-observability`,
 with default features off: no native-tls, no built-in transport, no minidumps.
 What it adds to eDE's graph is permissive and notice-preserving only: MIT or
