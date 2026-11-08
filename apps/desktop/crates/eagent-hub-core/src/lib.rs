@@ -13,7 +13,7 @@ mod reduce;
 
 pub use model::*;
 pub use reduce::{
-    ask_hidden, awaits_caller, bus_listeners, clean_live_session_ids, hydrate, is_live, lead_of, reduce, reuse_refusal, tree_agent_id,
+    ask_hidden, awaits_caller, bus_listeners, clean_live_session_ids, hydrate, is_live, is_subagent, lead_of, reduce, reuse_refusal, tree_agent_id,
     ReuseRoot,
 };
 

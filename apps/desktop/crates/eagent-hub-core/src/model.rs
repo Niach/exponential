@@ -128,6 +128,11 @@ pub struct HubSession {
     pub background: bool,
     pub needs_input: bool,
     pub blocked: Option<Blocked>,
+    /// #EXP-1731: the CLI's own id of the subagent (Claude's Task/Agent tool, Codex's spawned thread) this row mirrors;
+    /// `Some` = a SUBAGENT row the device writes (`device.subagent`): it shares its parent's device, worktree and
+    /// branch, never opens a PR, takes no messages (a send goes to its parent) and counts against no cap.
+    #[serde(default)]
+    pub subagent_key: Option<String>,
     /// Sessions this one watches (the bus wakes it with their transitions).
     pub wake_on: Vec<String>,
     /// A ROOT's tree key epoch (EXP-1458): `Some` = keyed, its tree takes sealed text only (#FEED-185).
