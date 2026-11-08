@@ -1869,7 +1869,7 @@ impl Element for SurfaceElement {
         // FEED-200 (`swipe.rs`): registered before the nodes, so a wheel
         // event's capture pass starts with no blocker under the pointer.
         let hits = self.view.read(cx).swipe_hits.clone();
-        window.on_mouse_event(move |_: &gpui::ScrollWheelEvent, phase, _, _| {
+        window.on_mouse_event(move |_: &gpui::ScrollEvent, phase, _, _| {
             if phase == gpui::DispatchPhase::Capture {
                 hits.borrow_mut().clear();
             }

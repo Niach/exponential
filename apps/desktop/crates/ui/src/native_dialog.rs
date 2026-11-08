@@ -1250,7 +1250,7 @@ mod prompt_tests {
 #[cfg(test)]
 mod hug_tests {
     use super::*;
-    use gpui::{point, Bounds, VisualTestContext};
+    use gpui::Bounds;
 
     struct Probe(Pixels);
 
@@ -1262,23 +1262,32 @@ mod hug_tests {
 
     /// Opens `spec` in a test window and returns the panel's, the probe
     /// content's and the OK button's bounds, and the viewport height.
+    struct LayerHost;
+
+    impl gpui::Render for LayerHost {
+        fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().children(render_layer(window, cx))
+        }
+    }
+
     fn layout(
         spec: impl FnOnce(&mut App) -> AlertSpec,
         cx: &mut gpui::TestAppContext,
     ) -> (Bounds<Pixels>, Option<Bounds<Pixels>>, Option<Bounds<Pixels>>, Pixels) {
-        let cx: &mut VisualTestContext = cx.add_empty_window();
-        cx.update(|window, cx| {
+        // The layer paints deferred, so it draws in a real window frame with
+        // a view as the root, as a window's `Root` hosts it.
+        cx.update(|cx| {
             gpui_component::init(cx);
             init(cx);
+        });
+        let (_host, cx) = cx.add_window_view(|_, _| LayerHost);
+        cx.update(|window, cx| {
             let spec = spec(cx);
             open_alert(window, cx, spec);
         });
         for _ in 0..2 {
-            cx.draw(point(px(0.), px(0.)), size(px(900.), px(600.)), |window, cx| {
-                div()
-                    .size_full()
-                    .children(render_layer(window, cx))
-            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
         }
         (
             cx.debug_bounds("native-dialog-panel").expect("the panel draws"),
