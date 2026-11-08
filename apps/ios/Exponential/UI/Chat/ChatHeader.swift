@@ -149,8 +149,10 @@ struct ChatHeaderTitle: View {
         }
     }
 
+    /// The TREE's live sessions (web's `statusWord` rows): never a session
+    /// a card merely names (an agent's started chat is not its tree).
     private static func live(_ rows: ChatRows) -> [SessionEntity] {
-        rows.sessions.filter { $0.status != DomainContract.sessionStatusEnded }
+        rows.sessions.filter { $0.rootId == rows.root.id && $0.status != DomainContract.sessionStatusEnded }
     }
 
     /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·
