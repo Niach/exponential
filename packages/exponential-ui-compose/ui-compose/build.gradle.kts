@@ -87,6 +87,9 @@ android {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
         unitTests.all {
+            // #VAPP-291: the binding picks android.system.SystemCleaner at sdk 34, and
+            // Robolectric's runs on the JDK's internal CleanerFactory.
+            it.jvmArgs("--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED")
             // JNA finds the facade's host build (`cargo build -p exponential-ui-ffi --release --features cli`).
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
             it.systemProperty("exponential.ui.fixtures", File(repoRoot, "packages/exponential-ui/fixtures").absolutePath)
