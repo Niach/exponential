@@ -1004,7 +1004,11 @@ impl SurfaceView {
             ("QrScanner", _) => self.paint_qr_scanner(&lcx, index, window, cx),
             ("Unknown", _) => natives::unknown(&lcx),
             ("Checkbox", Some("box" | "checkbox")) if style.native && !is_mixed(n) => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
-            ("Switch", Some("track")) if style.native => gpui_component::switch::Switch::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
+            // #EXP-1629: the native switch is THE switch the SDK's controls
+            // paint (`controls::web_switch`), so a host whose theme asks for
+            // it draws exactly its own screens' switch. No handler: the press
+            // stays the core's, and the recipe's opacity dims it.
+            ("Switch", Some("track")) if style.native => crate::controls::web_switch(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
             ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n), is_mixed(n)),
             ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked(n)),
             ("Radio", Some("dot")) => {

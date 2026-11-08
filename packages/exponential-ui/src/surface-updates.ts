@@ -7,7 +7,7 @@
 import { ACCEPT_V09, A2UI_VERSION } from "./catalog"
 import { checkEntry, checkEnvelope, entryRefusal } from "./entry"
 import type { ExtensionDef, FlatComponent } from "./types"
-import { emptyUpgrade09State, upgradeMessage09, type Upgrade09State } from "./upgrade09"
+import { emptyUpgrade09State, upgradeMessage09In, type Upgrade09State } from "./upgrade09"
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 
@@ -45,8 +45,7 @@ export function surfaceUpdates(message: unknown, bridge: SurfaceBridge, options:
   const envelope = checkEnvelope(message, options.acceptV09 ?? ACCEPT_V09)
   if (envelope.kind === `refused`) return { updates, refused: [{ message: envelope.reason }] }
   if (envelope.kind === `upgrade`) {
-    const { messages, state } = upgradeMessage09(message, bridge.upgrade)
-    bridge.upgrade = state
+    const messages = upgradeMessage09In(message, bridge.upgrade)
     for (const m of messages) {
       if (!isObject(m) || m.version !== A2UI_VERSION) refused.push({ message: `upgrade09 produced no 1.0 message` })
       else {

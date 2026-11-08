@@ -1307,8 +1307,7 @@ impl Surface {
             crate::host::Envelope::V10 => {}
             crate::host::Envelope::Refused(reason) => return Err(reason),
             crate::host::Envelope::Upgrade => {
-                let (messages, state) = crate::upgrade09::upgrade_message09(message, &self.upgrade_state);
-                self.upgrade_state = state;
+                let messages = crate::upgrade09::upgrade_message09_in(message, &mut self.upgrade_state);
                 let mut out = ApplyOutcome { structure_changed: false, issues: Vec::new() };
                 for m in messages {
                     if m.get("version").and_then(Value::as_str) != Some(crate::catalog::A2UI_VERSION) {

@@ -6,6 +6,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Tabs `swipeable` (#FEED-200, `view/swipe.rs`): a two-finger trackpad swipe pages the Tabs like a finger. gpui's phased `ScrollWheelEvent`s (`ScrollDelta::Pixels`, `TouchPhase` Started/Moved/Ended) over the content send `swipe {phase: start|move|end, offset, velocity}` once `swipe_lock` calls the travel horizontal (vertical = the page's); a gesture starting over a node `swipe_blocks` names (Table, Chart, Slider, a horizontal scroller…) stays that node's; the fling's momentum never pages again; a mouse wheel (`Lines`) never swipes; a gesture silent for 500 ms settles. The panels and the thumb paint the core's `transform` / `transition` as any node does.
+- A `native: true` Switch track paints `controls::web_switch` (the switch the SDK's own controls draw: 36×20, a light thumb when off) instead of gpui-component's `Switch`, so a host's themed document wears its own screens' switch; no handler, the press and the recipe's dim stay the core's (#EXP-1629). No built-in theme sets it.
+- `binding` (#EXP-1629): the native host binding, a host's own screen drawn as a document. `Binding<S>` owns the screen's state and writes its projection at one data-model path (re-projected on `observe`d entities, an unchanged projection writes nothing); a named action or a committed text edit maps to a `Mutation` (applied at once, committed off the main thread, reverted and toasted through the host's `Toasts` on failure; a `key`ed failure never reverts a newer edit; a commit older than the field's last is dropped). `BindingHost` routes the document's actions and inputs to it and everything else to the host's own plugin.
 
 ## 0.19.1 (2026-11-07)
 
