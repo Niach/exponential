@@ -376,7 +376,8 @@ fn document(ink: &Ink) -> Value {
 
 /// The theme the pane paints in: the Exponential theme, its Switch the
 /// IDE's own (`controls::web_switch`, 36×20, painted natively), not the
-/// theme's 32px track, until the two agree (#EXP-1629 follow-up).
+/// theme's 32px track, until #EXP-1745 gives genUI's Switch that look.
+// drop with EXP-1745
 fn pane_theme() -> Option<std::sync::Arc<eui_core::theme::ResolvedTheme>> {
     let mut theme = (*eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID)?).clone();
     let rule = eui_core::theme::RecipeRule { when: None, style: serde_json::from_value(json!({"width": 36, "height": 20, "native": true})).ok()? };
