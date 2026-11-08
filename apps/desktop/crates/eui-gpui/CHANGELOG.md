@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Pixel snapping (EXP-1629): `SurfaceViewOptions::pixel_snap` (on by default) snaps a surface to whole device pixels at the window's scale factor like gpui's layout, so an eUI document paints the same pixels as the gpui view it replaces. A view under a measure override never snaps; the conformance dump turns it off (it compares the core's fractional frames with the web).
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

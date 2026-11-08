@@ -87,6 +87,13 @@ pub struct SurfaceViewOptions {
     /// scrim over all of it, like the web's fixed overlay. Off (the default)
     /// = it paints against the surface's own box.
     pub lift_layers: bool,
+    /// EXP-1629: snap positions and sizes to whole device pixels the way
+    /// gpui's own layout does (on by default, so an eUI document and the
+    /// gpui view it replaces paint the same pixels). Off = the core's
+    /// fractional frames, which the web conformance gate compares; a view
+    /// under a measure override (`fixed_measure`, `set_measure`) never
+    /// snaps (golden geometry).
+    pub pixel_snap: bool,
 }
 
 impl Default for SurfaceViewOptions {
@@ -105,6 +112,7 @@ impl Default for SurfaceViewOptions {
             fixed_measure: None,
             formatter: None,
             lift_layers: false,
+            pixel_snap: true,
         }
     }
 }
@@ -314,6 +322,8 @@ pub struct SurfaceView {
     /// #VAPP-252: [`SurfaceViewOptions::lift_layers`], the window they hang
     /// from and whether the last pass laid out against it.
     lift_layers: bool,
+    /// [`SurfaceViewOptions::pixel_snap`] (never under a measure override).
+    pixel_snap: bool,
     window_size: (f32, f32),
     pass_lifted: bool,
     nodes_dirty: bool,
@@ -573,6 +583,7 @@ impl SurfaceView {
             visible: VisibleRegion { left: 0.0, top: 0.0, height: window_size.1 },
             origin: gpui::Point::default(),
             lift_layers: options.lift_layers,
+            pixel_snap: options.pixel_snap,
             window_size,
             pass_lifted: false,
             nodes_dirty: true,
@@ -1073,6 +1084,7 @@ impl SurfaceView {
         };
         let max_h = (visible_h > 0.0).then_some(visible_h);
         self.sync_appearance(window);
+        self.surface.set_pixel_snap((self.pixel_snap && self.measure_override.is_none()).then(|| window.scale_factor()));
         let fill = if self.fill_height && self.viewport_height > 0.0 { self.viewport_height } else { 0.0 };
         self.surface.set_viewport(self.width, fill, if fill > 0.0 { None } else { max_h });
         // #VAPP-253: a lifted top or bottom sheet spans the window.

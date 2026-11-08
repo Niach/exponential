@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Pixel snapping (EXP-1629): `Surface::set_pixel_snap(Some(scale))` lays out on the device-pixel grid the way gpui's own layout does: absolute lengths round to it before layout (a non-zero border to at least one device pixel), measured sizes round up to it, and every box's outer edges round in absolute coordinates after layout, half a pixel toward zero. Off by default.
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
