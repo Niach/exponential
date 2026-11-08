@@ -99,8 +99,15 @@ export function sessionScreen(input: SessionScreenInput): SessionScreen {
   let open: SessionScreenOpen | null = input.open && OPENS.includes(input.open) ? (input.open as SessionScreenOpen) : null
   if (open === null && req === `settings`) open = `settings`
   if (open === `settings` && !spec.gear) open = null
+  const follows = open === `session` ? `sessions` : open === `issue` ? `issues` : null
   const active = (
-    req !== null && spec.tabs.includes(req) ? req : input.wide ? spec.wideDefault : `chat`
+    follows !== null && spec.tabs.includes(follows)
+      ? follows
+      : req !== null && spec.tabs.includes(req)
+        ? req
+        : input.wide
+          ? spec.wideDefault
+          : `chat`
   ) as SessionScreenTab
   const layout: SessionScreenLayout = input.wide
     ? active !== `chat` || open !== null
@@ -112,4 +119,25 @@ export function sessionScreen(input: SessionScreenInput): SessionScreen {
         ? `chat`
         : `tab`
   return { tabs, active, gear: spec.gear, open, layout }
+}
+
+export interface SessionScreenStatusInput {
+  status: string
+  busy: boolean
+  needsInput: boolean
+  /** The tree's root. */
+  root: boolean
+}
+
+/** THE tree's status word (`statusCases`): needs input > working > queued
+ *  (the root) > done (the root ended) > idle. */
+export function sessionScreenStatus(sessions: readonly SessionScreenStatusInput[]): string {
+  const words = fixture.copy.status
+  const live = sessions.filter((session) => session.status !== `ended`)
+  const root = sessions.find((session) => session.root) ?? null
+  if (live.some((session) => session.needsInput)) return words.needsInput
+  if (live.some((session) => session.busy)) return words.working
+  if (root?.status === `queued`) return words.queued
+  if (root?.status === `ended`) return words.done
+  return words.idle
 }
