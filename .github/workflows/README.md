@@ -126,6 +126,7 @@ copies in Niach/spezl; the Apple ones can be the same values (same team).
 | `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`, `NOTARY_KEY` | secret | `macos-app` | App Store Connect API key for notarytool (`NOTARY_KEY` = base64 .p8) | person (App Store Connect) |
 | `IOS_DIST_CERT_P12`, `IOS_DIST_CERT_PASSWORD` | secret | `apple-signing` | Apple Development + Distribution certs (base64 .p12) | person |
 | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` | secret | `build-ios.yml`, `testflight-upload` | App Store Connect API key (profiles + TestFlight upload) | person |
+| `GLITCHTIP_AUTH_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secret | `build-ios.yml` | #LOGS-2: dSYM upload to GlitchTip (upload-only token + Cloudflare Access service token); absent = step skipped | person |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | secret | `windows-sign` | an Entra app registration with the "Artifact Signing Certificate Profile Signer" role | person (Azure; identity validation first). A PARTIAL set fails the Windows leg |
 | `WINDOWS_SIGNING_ENDPOINT`, `WINDOWS_SIGNING_ACCOUNT`, `WINDOWS_SIGNING_PROFILE` | variable | `windows-sign` | Artifact Signing region endpoint, account, certificate profile | person |
 | `UPDATE_SIGNING_KEY` | secret | `updater-feed` | minisign secret key (`minisign -G -W`, base64 of the file) signing `SHA256SUMS.txt` | person (generate once, keep in KeePass) |
