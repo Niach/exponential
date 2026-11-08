@@ -45,6 +45,11 @@ use serde_json::{json, Map, Value};
 use crate::desktops::LocalDesktop;
 use crate::time;
 
+/// The CLIs this machine has (signed in), in the default's order: Claude, Codex.
+pub fn installed_runners() -> Vec<Arc<dyn Runner>> {
+    [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex].into_iter().map(AcpRunner::new).filter(AcpRunner::available).map(|r| Arc::new(r) as Arc<dyn Runner>).collect()
+}
+
 /// One run the runner controls (the ACP session, or a test double).
 pub trait Run: Send {
     fn send(&self, text: &str);
@@ -172,7 +177,9 @@ struct Live {
 
 pub struct LocalRuns {
     desktop: Arc<LocalDesktop>,
-    runner: Arc<dyn Runner>,
+    /// The CLIs this machine can run, the default first (#EDE-65 J5: a
+    /// session runs the one its `cli` names, else its agent's).
+    runners: Vec<Arc<dyn Runner>>,
     cwd: PathBuf,
     /// What the brief says about the host's tools (`HostTools::note`).
     host_note: Option<String>,
@@ -262,10 +269,10 @@ impl ToolProvider for Merged {
 impl LocalRuns {
     /// Starts the runner for `desktop`: the MCP hub, the hub state from the
     /// store's live sessions, the worker thread.
-    /// The runner over the person's first usable CLI, `None` without one.
+    /// The runner over the person's usable CLIs, `None` without one.
     pub fn start_first_cli(desktop: Arc<LocalDesktop>, cwd: PathBuf) -> Option<Result<Arc<Self>, String>> {
-        let acp = [eagent::agent::CodingAgent::Claude, eagent::agent::CodingAgent::Codex].into_iter().map(AcpRunner::new).find(AcpRunner::available)?;
-        Some(Self::start(desktop, Arc::new(acp), cwd))
+        let runners = installed_runners();
+        (!runners.is_empty()).then(|| Self::start_with_runners(desktop, runners, cwd, None))
     }
 
     pub fn start(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf) -> Result<Arc<Self>, String> {
@@ -274,6 +281,14 @@ impl LocalRuns {
 
     /// [`Self::start`] with the host's tools on the same hub.
     pub fn start_with(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf, host: Option<HostTools>) -> Result<Arc<Self>, String> {
+        Self::start_with_runners(desktop, vec![runner], cwd, host)
+    }
+
+    /// [`Self::start_with`] over several CLIs (the first = the default).
+    pub fn start_with_runners(desktop: Arc<LocalDesktop>, runners: Vec<Arc<dyn Runner>>, cwd: PathBuf, host: Option<HostTools>) -> Result<Arc<Self>, String> {
+        if runners.is_empty() {
+            return Err("no agent CLI to run".into());
+        }
         let local = Arc::new(LocalTools { desktop: desktop.clone() });
         let (provider, note): (Arc<dyn ToolProvider>, Option<String>) = match host {
             Some(host) => (Arc::new(Merged { local, host: host.provider }), Some(host.note)),
@@ -283,7 +298,7 @@ impl LocalRuns {
         let server = Server::serve(info, provider)?;
         let runs = Arc::new(Self {
             desktop,
-            runner,
+            runners,
             cwd,
             host_note: note,
             server,
@@ -609,7 +624,11 @@ impl LocalRuns {
         }
         let brief = Brief::new(sid, text).cwd(cwd).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
-        match self.runner.start(brief, grant, sink) {
+        let (runner, missing) = self.runner_for(session_id);
+        if let Some(missing) = missing {
+            let _ = self.post(session_id, "system", None, &format!("{missing} is not installed on this machine: {} runs this session.", runner.id()), None);
+        }
+        match runner.start(brief, grant, sink) {
             Ok(run) => {
                 self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None });
             }
@@ -618,6 +637,28 @@ impl LocalRuns {
                 self.step("device.report", json!({"sessionId": session_id, "deviceId": self.desktop.executor.device_id(), "status": "idle", "busy": false, "blocked": {"kind": "start_failed"}}));
                 let _ = self.post(session_id, "system", None, &format!("The agent could not start: {e}"), None);
             }
+        }
+    }
+
+    /// The CLI a session runs: the one its row's `cli` names (the composer's
+    /// pick), else its agent's, else the default; a named one this machine
+    /// lacks comes back as the second value (the default runs instead).
+    fn runner_for(&self, session_id: &str) -> (Arc<dyn Runner>, Option<String>) {
+        let text = |row: &Map<String, Value>, key: &str| row.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+        let session = self.desktop.store.row("sessions", session_id).ok().flatten();
+        let wanted = session.as_ref().and_then(|s| {
+            text(s, "cli").or_else(|| {
+                let agent = text(s, "agent_id")?;
+                text(&self.desktop.store.row("agents", &agent).ok().flatten()?, "cli")
+            })
+        });
+        let default = self.runners[0].clone();
+        match wanted {
+            None => (default, None),
+            Some(cli) => match self.runners.iter().find(|r| r.id() == cli) {
+                Some(runner) => (runner.clone(), None),
+                None => (default, Some(cli)),
+            },
         }
     }
 
@@ -1072,6 +1113,71 @@ mod tests {
         wait_for(&changes, || ede.store.row("sessions", &second).unwrap().unwrap()["status"] == json!("idle"));
         assert_eq!(ede_prompts.lock().unwrap().as_slice(), ["Second chat"]);
         ede_runs.stop_all();
+    }
+
+    /// A fake CLI under a real id ("claude", "codex").
+    struct NamedFake(&'static str, FakeRunner);
+
+    impl Runner for NamedFake {
+        fn id(&self) -> &str {
+            self.0
+        }
+        fn start(&self, brief: Brief, grant: HubGrant, sink: Arc<dyn EventSink>) -> Result<Box<dyn Run>, String> {
+            self.1.start(brief, grant, sink)
+        }
+    }
+
+    /// #EDE-65 J5: a session runs the CLI the chat's picker chose (its
+    /// `cli`), else its agent's, else the default; one this machine lacks
+    /// runs on the default with a note.
+    #[test]
+    fn a_session_runs_the_cli_it_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let (claude, codex) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let fake = |id: &'static str, prompts: &Arc<Mutex<Vec<String>>>| Arc::new(NamedFake(id, FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) })) as Arc<dyn Runner>;
+        let runs = LocalRuns::start_with_runners(desktop.clone(), vec![fake("claude", &claude), fake("codex", &codex)], dir.path().to_path_buf(), None).unwrap();
+        let changes = runs.changes();
+        let client = desktop.client();
+        let send = |text: &str, cli: Option<&str>| {
+            let mut input = api::sessions::SendInput::default();
+            input.team_id = Some(desktop.executor.team_id().to_string());
+            input.text = Some(text.into());
+            input.cli = cli.map(str::to_string);
+            api::sessions::send(&client, &input).unwrap().session_id
+        };
+        let idle = |session: &str| desktop.store.row("sessions", session).unwrap().unwrap()["status"] == json!("idle");
+
+        let picked = send("On codex", Some("codex"));
+        wait_for(&changes, || idle(&picked));
+        assert_eq!(codex.lock().unwrap().as_slice(), ["On codex"]);
+
+        let plain = send("On the default", None);
+        wait_for(&changes, || idle(&plain));
+        assert_eq!(claude.lock().unwrap().as_slice(), ["On the default"]);
+
+        // An agent's CLI when the session names none.
+        let agent = api::agents::ensure_assistant(&client, desktop.executor.team_id()).unwrap().expect("the assistant");
+        desktop.store.modify("agents", &agent.id, |row| {
+            let mut row = row.clone();
+            row.insert("cli".into(), json!("codex"));
+            Some(row)
+        }).unwrap();
+        let mut input = api::sessions::SendInput::default();
+        input.team_id = Some(desktop.executor.team_id().to_string());
+        input.agent_id = Some(agent.id.clone());
+        input.text = Some("For the assistant".into());
+        let for_agent = api::sessions::send(&client, &input).unwrap().session_id;
+        wait_for(&changes, || idle(&for_agent));
+        assert_eq!(codex.lock().unwrap().last().map(String::as_str), Some("For the assistant"));
+
+        let missing = send("On cursor", Some("cursor"));
+        wait_for(&changes, || idle(&missing));
+        assert_eq!(claude.lock().unwrap().last().map(String::as_str), Some("On cursor"));
+        let notes: Vec<Value> = desktop.store.rows_where("messages", "root_id", &missing).unwrap().into_iter().filter(|m| m["author_kind"] == json!("system")).map(|m| m["body"].clone()).collect();
+        assert_eq!(notes, [json!("cursor is not installed on this machine: claude runs this session.")]);
+        runs.stop_all();
     }
 }
 
