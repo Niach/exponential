@@ -2,6 +2,7 @@ package at.exponential.ui.model
 
 import at.exponential.ui.ffi.FfiEvent
 import at.exponential.ui.ffi.UiException
+import at.exponential.ui.ffi.swipeBlocks
 import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.InputKind
 import at.exponential.ui.host.PickedFile
@@ -217,6 +218,55 @@ fun SurfaceModel.isStripTab(index: Int): Boolean {
 /** VAPP-279: a strip tab's reorder drag (`phase` = start | move | end, `delta` = dp along the row since the drag started, screen direction). */
 fun SurfaceModel.tabDrag(index: Int, phase: String, delta: Float) {
     fire(index, "drag", JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "delta" to JsonValue.Num(delta.toDouble()))))
+}
+
+/** FEED-200: the `content` part of a `swipeable` Tabs (its panels page by a horizontal touch swipe). */
+fun SurfaceModel.isSwipeableTabContent(index: Int): Boolean {
+    val n = node(index) ?: return false
+    if (n.ownerComponent != "Tabs" || n.part != "content") return false
+    return ownerProps(index)["swipeable"]?.bool == true
+}
+
+/**
+ * FEED-200 (fixtures/swipe.json): a swipeable Tabs' pager swipe on its
+ * `content` (`phase` = start | move | end | cancel, `offset` = screen dp
+ * since the touch started, positive = rightwards; `velocity` = dp/ms at
+ * the release). The core draws the panels and the `thumb` and settles.
+ */
+fun SurfaceModel.tabSwipe(index: Int, phase: String, offset: Float, velocity: Float = 0f) {
+    fire(
+        index,
+        "swipe",
+        JsonValue.Obj(linkedMapOf("phase" to JsonValue.Str(phase), "offset" to JsonValue.Num(offset.toDouble()), "velocity" to JsonValue.Num(velocity.toDouble()))),
+    )
+}
+
+/**
+ * FEED-200: is a touch at ([x], [y]) dp from the swipeable Tabs' `content`
+ * (node [content]) the pager's? Not when it starts inside a node that
+ * scrolls, pans or drags sideways (`swipeBlocks` of its component, its
+ * `direction` prop and its resolved `overflowX`): the walk goes from the
+ * content down through the topmost child whose frame holds the point
+ * (skipping hidden and `pointerEvents: none` ones: the neighbour panels),
+ * following the scroll offsets of the scrollers it passes.
+ */
+fun SurfaceModel.swipeBlockedAt(content: Int, x: Float, y: Float): Boolean {
+    val origin = frame(content).topLeft
+    var at = androidx.compose.ui.geometry.Offset(origin.x + x, origin.y + y)
+    var i = content
+    var hops = 0
+    while (hops++ < 4096) {
+        val hit = (children.getOrNull(i) ?: break).asReversed().firstOrNull { k ->
+            val n = node(k)
+            val s = style(k)
+            n != null && !n.hidden && !s.pointerEventsNone && !s.visibilityHidden && frame(k).contains(at)
+        } ?: break
+        val n = node(hit) ?: break
+        if (runCatching { swipeBlocks(n.component, n.props["direction"]?.string, style(hit).overflowX) }.getOrDefault(false)) return true
+        scrolls[hit]?.let { at = androidx.compose.ui.geometry.Offset(at.x + it.offsetX, at.y + it.offsetY) }
+        i = hit
+    }
+    return false
 }
 
 /** A key on a node the core handles itself (a Resizable handle: arrows, Home, End, Enter). */

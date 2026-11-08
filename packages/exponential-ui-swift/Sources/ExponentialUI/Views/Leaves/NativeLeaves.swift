@@ -214,6 +214,8 @@ struct TableCellLeaf: View {
             guard let n = value.number ?? Double(value.displayText), !value.isNull, value.displayText != "" else { return fallback }
             return cx.model.formatNumber(n, precision: nil)
         case "date":
+            // FEED-202: a column `format` (dd.MM.yy) is the core's text.
+            if !cx.props.str("format").isEmpty { return fallback }
             return value.string.flatMap { cx.model.formatDate($0) } ?? fallback
         default:
             return fallback

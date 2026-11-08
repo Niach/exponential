@@ -4465,7 +4465,7 @@
     },
     {
       "name": "ede-services",
-      "version": "0.2.10",
+      "version": "0.2.11",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4480,7 +4480,7 @@
     },
     {
       "name": "ede-theme",
-      "version": "0.2.10",
+      "version": "0.2.11",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4495,7 +4495,7 @@
     },
     {
       "name": "ede-ui",
-      "version": "0.2.10",
+      "version": "0.2.11",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"

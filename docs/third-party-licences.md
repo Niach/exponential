@@ -106,8 +106,8 @@ none is open source, and none may appear in the MIT/Apache aggregate.
 
 | Component | Client | Pulled in by | Terms |
 | --- | --- | --- | --- |
-| `GoogleAppMeasurement` | iOS | `firebase-ios-sdk` 11.15.0 (`apps/ios/Tuist/Package.resolved`) | Closed-source binary framework under Google's own terms — `github.com/google/GoogleAppMeasurement` ships no OSS licence for the binaries |
-| `google-ads-on-device-conversion-ios-sdk` | iOS | `firebase-ios-sdk` 11.15.0 | Closed-source binary, Google Ads terms |
+| `GoogleAppMeasurement` | iOS | `firebase-ios-sdk` 12.19.3 (`apps/ios/Tuist/Package.resolved`) | Closed-source binary framework under Google's own terms — `github.com/google/GoogleAppMeasurement` ships no OSS licence for the binaries |
+| `google-ads-on-device-conversion-ios-sdk` | iOS | `firebase-ios-sdk` 12.19.3 | Closed-source binary, Google Ads terms |
 | `com.google.android.play:app-update-ktx` 2.1.0 | Android | `apps/android/gradle/libs.versions.toml` | Play Core Software Development Kit Terms of Service |
 
 These are store-build-only and never reach the web app or the public image, so

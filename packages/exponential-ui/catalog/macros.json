@@ -7792,6 +7792,43 @@
             },
             "children": [
               {
+                "part": "search",
+                "component": "Input",
+                "$if": "props.search",
+                "props": {
+                  "label": "",
+                  "name": "search",
+                  "type": "search",
+                  "placeholder": "$string.search",
+                  "value": "{props.searchValue}"
+                },
+                "$a11y": {
+                  "label": "$string.search"
+                },
+                "style": {
+                  "width": 240,
+                  "maxWidth": "100%"
+                }
+              },
+              {
+                "part": "filter",
+                "component": "Select",
+                "$if": "props.filterOptions",
+                "props": {
+                  "name": "filter",
+                  "options": "{props.filterOptions}",
+                  "value": "{props.filterValue}",
+                  "placeholder": "{props.filterLabel}"
+                },
+                "$a11y": {
+                  "label": "{props.filterLabel}"
+                },
+                "style": {
+                  "width": 180,
+                  "maxWidth": "100%"
+                }
+              },
+              {
                 "part": "count",
                 "component": "Text",
                 "props": {
@@ -7854,7 +7891,8 @@
               "rows": "{props.rows}",
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": "{props.totals|false}"
             },
             "style": {
               "@media (form-factor: phone)": {

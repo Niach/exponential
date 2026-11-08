@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tabs `swipeable` (#FEED-200): a horizontal TOUCH swipe on the `content` pages the panels (a mouse is unchanged): the axis locks through the core's `swipeLock`, a touch starting inside a Table, Chart, Carousel, ZoomableImage, Slider, Resizable, a horizontal List / ScrollArea or an `overflowX: auto|scroll` box is left to it (`swipeBlocks`, `SurfaceModel.swipeBlockedAt`), and `swipe {phase, offset, velocity}` goes to the core (`SurfaceModel.tabSwipe`), which draws and settles. A pure-translation `transform` now animates over the node's `transition` (snaps under reduced motion), so the panels and the `thumb` settle smoothly. `fixtures/swipe.json` lock / offset / settle / blocks replay through the facade.
 - Chart value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
 - While an anchored overlay is up, the events the core raises during a pass are dispatched (#EXP-1739: an overlay whose anchor moved or went closes).
 - The `Window` macro (VAPP-290): a framed window (a 34 dp chrome strip with three dots and a centred title, hidden from TalkBack, over a body holding its one child; the root a group named by the title) through the Box / Text paths, nothing of its own. `WindowTest`.

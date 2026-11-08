@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.10-alpine AS builder
+FROM oven/bun:1.3.14-alpine AS builder
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
@@ -40,7 +40,7 @@ COPY . .
 # into apps/web/public, which the web build then copies into .output/public.
 RUN bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
 
-FROM oven/bun:1.3.10-alpine
+FROM oven/bun:1.3.14-alpine
 WORKDIR /app
 COPY --from=builder /app/apps/web/.output .output
 COPY --from=builder /app/apps/web/src/db apps/web/src/db

@@ -22,6 +22,8 @@ export interface TableColumn {
   sortable?: boolean
   /** EXP-1548: one line with an ellipsis; cells wrap otherwise. */
   truncate?: boolean
+  /** FEED-202: a `date` / `dateTime` column's TR35 pattern (`dd.MM.yy`). */
+  format?: string
 }
 
 /** The checkbox column of a `multiple` table: as wide as the checkbox. */
@@ -66,4 +68,12 @@ export function sortRows(rows: readonly Record<string, unknown>[], sort: TableSo
     else c = collator.compare(String(va), String(vb))
     return c === 0 ? a - b : c * dir
   })
+}
+
+/** FEED-202: the `totals` row, one entry per column: a `number` or
+ *  `currency` column's sum over `rows` (each value as `num`: a numeric
+ *  string counts, anything else is 0), else null. The renderer shows
+ *  `$string.total` in the first column when it sums nothing. */
+export function tableTotals(rows: readonly Record<string, unknown>[], columns: readonly TableColumn[]): (number | null)[] {
+  return columns.map((c) => (c.type === `number` || c.type === `currency` ? rows.reduce((sum, r) => sum + num(r?.[c.key]), 0) : null))
 }

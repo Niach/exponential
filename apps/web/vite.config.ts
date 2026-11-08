@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 import { defineConfig, type PluginOption } from "vite"
 import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
@@ -49,12 +51,23 @@ function nodeVersionGuard(): PluginOption {
   }
 }
 
+// Nitro's runtime modules are `#nitro/runtime/*` package imports, which only
+// resolve from inside the nitro package; the custom server entry below
+// imports the same ones as the stock bun preset, so point the id at them.
+const nitroRuntimeDir = join(
+  dirname(createRequire(import.meta.url).resolve(`nitro/package.json`)),
+  `dist/runtime/internal`
+)
+
 const plugins: PluginOption[] = [
   nodeVersionGuard(),
   ...(process.env.DISABLE_TANSTACK_DEVTOOLS === `1` ? [] : [devtools()]),
   // Custom server entry adds Bun.serve idleTimeout: 255 (default is 10s,
   // which kills Electric long-poll connections mid-flight). See src/server-bun.ts.
-  nitro({ entry: `./src/server-bun.ts` }),
+  nitro({
+    entry: `./src/server-bun.ts`,
+    alias: { "#nitro/runtime": nitroRuntimeDir },
+  }),
   viteTsConfigPaths({
     projects: [`./tsconfig.json`],
   }),
