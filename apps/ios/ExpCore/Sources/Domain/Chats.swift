@@ -157,18 +157,6 @@ public enum Chats {
         public static let subtitleModelSeparator = " · "
     }
 
-    /// chats.json AGENT CHAT (`agentChat.tabCases`): an agent's chat's tabs: the
-    /// conversation, plus the plan tab while it holds a plan.
-    public static func agentChatTabs(holdsPlan: Bool) -> [String] {
-        holdsPlan ? ["conversation", "plan"] : ["conversation"]
-    }
-
-    /// chats.json AGENT CHAT (`agentChat.pageCases`): what a selection shows in
-    /// an agent's chat: only a page of its tabs survives.
-    public static func agentChatPage(selected: String, holdsPlan: Bool) -> String {
-        agentChatTabs(holdsPlan: holdsPlan).contains(selected) ? selected : "conversation"
-    }
-
     public static func agentChatSubtitle(modelLabel: String?) -> String {
         guard let modelLabel, !modelLabel.isEmpty else { return AgentChat.subtitle }
         return AgentChat.subtitle + AgentChat.subtitleModelSeparator + modelLabel

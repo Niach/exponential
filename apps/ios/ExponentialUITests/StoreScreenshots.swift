@@ -147,7 +147,7 @@ final class StoreScreenshots: XCTestCase {
         revealAndTap(
             app,
             sessionCard,
-            below: anyElement(app, identified: "chat-tab-conversation"),
+            below: anyElement(app, identified: "session-tabs"),
             "The chat's session card never scrolled into view"
         )
         expect(
