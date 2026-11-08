@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1731 SUBAGENTS AS CHILD ROWS (lib/sessions/subagent.ts, trpc sessions.subagent; the device: crates/eagent's SubagentEdge → crates/coding). A CLI subagent (Claude's Task/Agent tool and its workflow agents, Codex's spawned threads) is a child `sessions` row the DEVICE writes with `device.subagent` {sessionId = its parent, deviceId, key = the CLI's own id of it, freshId, status running|ended, failed?, summary?; the server also takes title}. The first edge of a key under a parent writes the row: one below the parent (rootId inherited, depth + 1), the parent's team, member, visibility and device (the server: its repository, branch and worktree too, cli/account/model; never its own branch or PR), `subagentKey` = the key, running and busy at once with startedAt stamped: never queued or claimed, no brief, no first input, no card on the parent (the parent's transcript already shows the tool call; the row shows under its Sessions tab). A later `running` edge is progress (a resumed key that had ended is live again in place); every edge stamps lastActivityAt on the row AND its parent (a subagent working is a sign of life of its parent). `ended` ends it: its summary (failed = copy.subagentFailed / subagentFailedBare) posts as its own last agent line (non-waking), then End as tree.json (session_ended on itself, its report to its WATCHERS) with NO kill (its process is its parent's). THE BUS NEVER POSTS A SUBAGENT'S LINE INTO ITS PARENT (no claim, turn, ask, wall or report: the parent is the CLI process that ran it and has it in-band), so a subagent never wakes its parent. An edge for an ended parent, or from a device the parent left, is ignored; a blank key = `invalid` (copy.subagentNoKey); an edge under a subagent = `invalid` (copy.subagentNoChildren; the CLI's subagents attach to the session that runs the CLI). CAPS: a subagent holds no live slot (rules.caps), is never refused by the depth cap, and is no sub-session for reuse.json's maxChildren; today's limits stay exactly as they are for every other row. MESSAGING: a subagent takes no input of its own (a message mid-run would resume a second copy of it, EXP-856): a send to one, running or ended, is the same send to its PARENT (live input, revive or continue, per tree.json), its result names the parent and carries copy.subagentRedirect as `warning`. send.start under a subagent = `invalid` (copy.subagentNoChildren). Linking issues to it is the server's and works as for any child. STRAYS: a parent whose turn is over (a report leaves it not busy: idle, a lost process, its end) runs no subagent any more: the live subagents its device never closed end then, oldest first, before the parent itself ends. The watchdog and the heartbeat's live list never look at a subagent (its liveness is its parent's). A person may End a subagent row (no kill).",
+  "$comment": "#EXP-1731 SUBAGENTS AS CHILD ROWS (lib/sessions/subagent.ts, trpc sessions.subagent; the device: crates/eagent's SubagentEdge → crates/coding). A CLI subagent (Claude's Task/Agent tool and its workflow agents, Codex's spawned threads) is a child `sessions` row the DEVICE writes with `device.subagent` {sessionId = its parent, deviceId, key = the CLI's own id of it, freshId, status running|ended, failed?, summary?; the server also takes title}. The first edge of a key under a parent writes the row: one below the parent (rootId inherited, depth + 1), the parent's team, member, visibility and device (the server: its repository, branch and worktree too, cli/account/model; never its own branch or PR), `subagentKey` = the key, running and busy at once with startedAt stamped: never queued or claimed, no brief, no first input, no card on the parent (the parent's transcript already shows the tool call; the row shows under its Sessions tab). A later `running` edge is progress (a resumed key that had ended is live again in place); every edge stamps lastActivityAt on the row AND its parent (a subagent working is a sign of life of its parent). `ended` ends it: its summary (dropped in a keyed tree, #FEED-192: the device sends none there; failed = copy.subagentFailed / subagentFailedBare) posts as its own last agent line (non-waking), then End as tree.json (session_ended on itself, its report to its WATCHERS) with NO kill (its process is its parent's). THE BUS NEVER POSTS A SUBAGENT'S LINE INTO ITS PARENT (no claim, turn, ask, wall or report: the parent is the CLI process that ran it and has it in-band), so a subagent never wakes its parent. An edge for an ended parent, or from a device the parent left, is ignored; a blank key = `invalid` (copy.subagentNoKey); an edge under a subagent = `invalid` (copy.subagentNoChildren; the CLI's subagents attach to the session that runs the CLI). CAPS: a subagent holds no live slot (rules.caps), is never refused by the depth cap, and is no sub-session for reuse.json's maxChildren; today's limits stay exactly as they are for every other row. MESSAGING: a subagent takes no input of its own (a message mid-run would resume a second copy of it, EXP-856): a send to one, running or ended, is the same send to its PARENT (live input, revive or continue, per tree.json), its result names the parent and carries copy.subagentRedirect as `warning`. send.start under a subagent = `invalid` (copy.subagentNoChildren). Linking issues to it is the server's and works as for any child. STRAYS: a parent whose turn is over (a report leaves it not busy: idle, a lost process, its end) runs no subagent any more: the live subagents its device never closed end then, oldest first, before the parent itself ends. The watchdog and the heartbeat's live list never look at a subagent (its liveness is its parent's). A person may End a subagent row (no kill).",
   "cases": [
     {
       "name": "a subagent's first edge writes its row: one below the parent, running and busy at once, nothing posted",
@@ -265,6 +265,129 @@
             {
               "kind": "post",
               "messageId": "m4",
+              "to": "s2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "s2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "s2",
+            "endedIds": [
+              "s2"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "s1": {
+            "status": "ended"
+          },
+          "s2": {
+            "status": "ended"
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-192: in a keyed tree a subagent's plaintext summary is dropped, never stored; a failure says only that",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "running",
+            "busy": true,
+            "sealEpoch": 1
+          },
+          {
+            "id": "s1",
+            "parentId": "r1",
+            "subagentKey": "toolu_s1",
+            "status": "running",
+            "busy": true
+          },
+          {
+            "id": "s2",
+            "parentId": "r1",
+            "subagentKey": "toolu_s2",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.subagent",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "key": "toolu_s1",
+              "status": "ended",
+              "summary": "Found the secret in config.ts."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "s1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "s1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "s1",
+            "endedIds": [
+              "s1"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "device.subagent",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "deviceId": "d1",
+              "key": "toolu_s2",
+              "status": "ended",
+              "failed": true,
+              "summary": "Could not read secrets.env"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "s2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Failed.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
               "to": "s2",
               "authorKind": "system",
               "authorSessionId": null,

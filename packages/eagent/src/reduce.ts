@@ -623,7 +623,8 @@ function endRows(ctx: Ctx, rows: HubSession[], named?: { id: string; summary: st
 /** #EXP-1731: a subagent row's end: its summary (a failure says so) as its own last line, then End (no kill, no
  *  report into its parent: deliver() skips it). */
 function endSubagent(ctx: Ctx, row: HubSession, summary: string | null, failed: boolean): string[] {
-  const said = summary?.trim() ?? ``
+  // #FEED-192: a keyed tree never takes the device's plaintext summary (dropped, never stored).
+  const said = ctx.state.sessions[row.rootId]?.sealEpoch != null ? `` : (summary?.trim() ?? ``)
   const text = failed ? (said ? fill(copy.subagentFailed, { summary: said }) : copy.subagentFailedBare) : said
   if (text) post(ctx, row.id, { authorKind: `agent`, authorSessionId: null, body: text, card: null, sealed: false, waking: false })
   return endRows(ctx, [row], { id: row.id, summary: text || null, summarySealed: false })
