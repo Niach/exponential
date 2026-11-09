@@ -427,6 +427,18 @@ fn drawn(doc: &mut Document) {
     }
 }
 
+/// THE sender avatar disc around its glyph (the IDE's `agent_avatar`).
+fn avatar_disc(inner: gpui::AnyElement, size: f32) -> gpui::AnyElement {
+    use gpui::{prelude::*, px};
+    gpui::div().flex_shrink_0().size(px(size)).rounded_full().overflow_hidden().flex().items_center().justify_center().bg(gpui::rgba(AVATAR_DISC)).child(inner).into_any_element()
+}
+
+/// An icon of the embedded set by its concept or Lucide name.
+fn plain_icon(name: &str, size: f32, color: gpui::Hsla) -> Option<gpui::AnyElement> {
+    use gpui::{prelude::*, px};
+    Some(gpui::svg().path(assets::icon_path(name)?).size(px(size)).text_color(color).into_any_element())
+}
+
 /// The sender avatar's disc: the exponential theme's dark `secondary`
 /// (#ffffff0f, the IDE's `cx.theme().secondary`).
 const AVATAR_DISC: u32 = 0xffffff0f;
@@ -446,8 +458,10 @@ impl HostPlugin for Host {
         // inner icon on the secondary disc, 32 → an 18 px glyph.
         if let Some(inner) = name.strip_prefix(chat::AVATAR_ICON_PREFIX) {
             let glyph = (size / 2.0 + 2.0).round();
-            let inner = self.icon_element(inner, glyph, color, _cx)?;
-            return Some(gpui::div().flex_shrink_0().size(px(size)).rounded_full().overflow_hidden().flex().items_center().justify_center().bg(gpui::rgba(AVATAR_DISC)).child(inner).into_any_element());
+            // A host glyph (an agent's own), else a plain icon (the
+            // Assistant's brand mark, the session and person glyphs).
+            let inner = self.icon_element(inner, glyph, color, _cx).or_else(|| plain_icon(inner, glyph, color))?;
+            return Some(avatar_disc(inner, size));
         }
         let glyph = self.glyphs.try_borrow().ok().and_then(|g| g.get(name).cloned());
         if let Some(glyph) = glyph {
@@ -3826,5 +3840,20 @@ mod failed_actions {
         let dump = super::failed_toast("answer", "the question", "{\"code\":\"CONFLICT\"}", 7);
         assert_eq!((dump.summary.as_str(), dump.body.as_str()), ("Couldn't answer the question", ""));
         assert_ne!(toast.id, dump.id, "each its own id");
+    }
+}
+
+#[cfg(test)]
+mod sender_avatar {
+    /// #EDE-65 lane O: every sender avatar's glyph resolves to a plain icon
+    /// when it is no host glyph (the Assistant's brand mark, the session's
+    /// and a person's), so the disc never falls back to genUI's placeholder.
+    #[test]
+    fn a_sender_avatar_paints_plain_icons() {
+        let white = gpui::Hsla::white();
+        for name in [crate::team_chat::ASSISTANT_ICON, "coding-assistant", "user"] {
+            assert!(super::plain_icon(name, 18.0, white).is_some(), "{name}");
+        }
+        assert!(super::plain_icon("no-such-icon", 18.0, white).is_none());
     }
 }
