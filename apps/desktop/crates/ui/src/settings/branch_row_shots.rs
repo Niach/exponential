@@ -14,19 +14,52 @@ use eui_gpui::view::SurfaceView;
 use super::doc::Ink;
 use crate::board_form::{branch_value_menu, BranchLoad};
 
-/// Today's Board detail Branch row: `main` is the repo default.
-pub(crate) struct IdeBranchRow;
+/// Today's Board detail Branch row and, under it, its menu as the row's
+/// `pointer_menu` builds it (`board_form::branch_dropdown`, branches
+/// `main` + `develop` with `main` the repo default: `single_select_menu`
+/// over `pointer_label_item("main · default")`, the shown one checked),
+/// drawn in place (a headless frame never paints the trigger's popover),
+/// its first row selected as the menu's dev open does (Down from nothing).
+pub(crate) struct IdeBranchRow {
+    menu: Option<Entity<gpui_component::menu::PopupMenu>>,
+}
 
 impl IdeBranchRow {
     pub(crate) fn for_shots(_window: &mut Window, _cx: &mut gpui::Context<Self>) -> Self {
-        Self
+        Self { menu: None }
     }
 }
 
 impl Render for IdeBranchRow {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let menu = branch_value_menu::<Self>("bench-branch", "main", Some("main".into()), false, |_, _| Some(BranchLoad::Ready(vec!["main".into(), "develop".into()])), |_, _| {}, |_, _, _| {}, cx);
-        div().w_full().min_w_0().child(crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row("Branch", None, menu, cx)]))
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use gpui::{px, Focusable as _};
+        let row = branch_value_menu::<Self>("bench-branch", "main", Some("main".into()), false, |_, _| Some(BranchLoad::Ready(vec!["main".into(), "develop".into()])), |_, _| {}, |_, _, _| {}, cx);
+        let menu = match self.menu.clone() {
+            Some(menu) => menu,
+            None => {
+                let menu = gpui_component::menu::PopupMenu::build(window, cx, |menu, _, _| {
+                    let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
+                    for (name, default) in [("main", true), ("develop", false)] {
+                        let label = if default { format!("{name} \u{00b7} default") } else { name.to_string() };
+                        menu = menu.item(crate::controls::pointer_label_item(gpui::SharedString::from(label), false).checked(name == "main"));
+                    }
+                    menu
+                });
+                menu.focus_handle(cx).focus(window, cx);
+                let handle = menu.focus_handle(cx);
+                window.on_next_frame(move |window, cx| handle.dispatch_action(&gpui_base::actions::SelectDown, window, cx));
+                self.menu = Some(menu.clone());
+                menu
+            }
+        };
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(40.))
+            .child(crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row("Branch", None, row, cx)]))
+            .child(div().flex().child(menu))
     }
 }
 

@@ -625,15 +625,14 @@ fn settings_prompts_no_team() {
     prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
 }
 
-/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened,
-/// today's IDE row vs the genUI row: run each into its own dir, the second
-/// with `EXP_SETTINGS_BEFORE=<the first's dir>`. `EXP_BRANCH_CLICK=x,y`
-/// moves the IDE row's click (its value button).
+/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened
+/// (the IDE's by its dev open, as a click would; genUI's by a trigger
+/// press), today's IDE row vs the genUI row: run each into its own dir, the
+/// second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
 #[test]
 #[ignore]
 fn settings_branch_menu_ide() {
-    let click = std::env::var("EXP_BRANCH_CLICK").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?)))).unwrap_or((PANE.0 - 24. - 14. - 30., 24. + 20.));
-    shoot_pane_clicked("branch-menu", IdeBranchRow::for_shots, |_, _| {}, None, &[click]);
+    shoot_pane("branch-menu", IdeBranchRow::for_shots, |_, _| {});
 }
 
 #[test]
