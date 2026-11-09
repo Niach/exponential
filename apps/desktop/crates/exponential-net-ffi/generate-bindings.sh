@@ -19,13 +19,14 @@ LIB="$TARGET/release/libexponential_net_ffi.$EXT"
 
 FEATURE_ARGS=(--features cli)
 BINDINGS="$HERE/bindings"
-CONFIG="$HERE/uniffi.toml"
+# uniffi 0.32 reads the crate's own uniffi.toml; --config only overrides it.
+CONFIG_ARGS=()
 MODULE=ExponentialNetFFI
 LANGS="swift kotlin"
 if [ "${ENET_PUSH_ONLY:-}" = "1" ]; then
   FEATURE_ARGS=(--no-default-features --features cli)
   BINDINGS="$HERE/bindings/push"
-  CONFIG="$HERE/uniffi-push.toml"
+  CONFIG_ARGS=(--config "$HERE/uniffi-push.toml")
   MODULE=ExponentialNetPush
   LANGS="swift"
 fi
@@ -33,7 +34,7 @@ cargo build -p exponential-net-ffi --release "${FEATURE_ARGS[@]}"
 for LANG in $LANGS; do
   rm -rf "$HERE/out/$LANG" && mkdir -p "$HERE/out/$LANG"
   cargo run -q -p exponential-net-ffi --release "${FEATURE_ARGS[@]}" --bin uniffi-bindgen -- generate \
-    --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG" --config "$CONFIG"
+    --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG" ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}
 done
 mkdir -p "$BINDINGS/swift"
 rm -f "$BINDINGS"/swift/*.swift "$BINDINGS"/swift/*.h
