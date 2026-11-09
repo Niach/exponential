@@ -110,6 +110,25 @@ describe(`githubForge`, () => {
     })
   })
 
+  it(`#FEED-212: reads whether a branch points at or contains a commit`, async () => {
+    for (const [status, expected] of [
+      [`identical`, true],
+      [`ahead`, true],
+      [`behind`, false],
+      [`diverged`, false],
+    ] as const) {
+      routes = []
+      on(`GET`, `/compare/c1...master`, 200, { status })
+      expect(await githubForge.branchContains(repo, `master`, `c1`)).toBe(expected)
+    }
+    routes = []
+    on(`GET`, `/compare/c1...master`, 404, { message: `Not Found` })
+    expect(await githubForge.branchContains(repo, `master`, `c1`)).toBe(false)
+    routes = []
+    on(`GET`, `/compare/c1...master`, 500, { message: `boom` })
+    expect(await githubForge.branchContains(repo, `master`, `c1`)).toBeNull()
+  })
+
   it(`closes a landed PR with a comment naming the commit`, async () => {
     on(`POST`, `/issues/7/comments`, 201, {})
     on(`PATCH`, `/pulls/7`, 200, {})

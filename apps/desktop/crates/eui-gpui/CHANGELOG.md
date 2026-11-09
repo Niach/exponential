@@ -6,6 +6,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - gpui revisions: zed `cc053a4a` (git) → `gpui-pre` 0.3.11 (crates.io, zed `f816e1f`); gpui-component `da4f9369` (git) → 0.9.0 (crates.io, longbridge/gpui-kit); rust 1.96.0 → 1.98.1. A breaking change for consumers: take gpui as `gpui = { package = "gpui-pre", version = "=0.3.11" }` and `gpui-component = "=0.9.0"`, drop the ztracing `[patch]` (zed relicensed it Apache-2.0) and the `cargo update --precise` step (README "gpui revisions"). Ships as the SDK's next minor.
+
+## 0.20.0 (2026-11-08)
+
 - Scrollbars (#EXP-1629): a scroll container's overlay scrollbar is gpui-component's own `Scrollbar` over the core's offset (`view/scrollbar.rs`), so an eUI surface in the IDE shows exactly the IDE's scrollbars: the theme's thumb, width and inset, shown when the offset changes (wheel, `scrollToIndex`, a drag), fading out after gpui-component's idle delay, wider under the pointer, draggable. It replaces the EXP-1555 bars (6 px at 2 px, shown on hover and for 1 s after a scroll). No catalog or prop change.
 - Tabs `swipeable` (#FEED-200, `view/swipe.rs`): a two-finger trackpad swipe pages the Tabs like a finger. gpui's phased `ScrollWheelEvent`s (`ScrollDelta::Pixels`, `TouchPhase` Started/Moved/Ended) over the content send `swipe {phase: start|move|end, offset, velocity}` once `swipe_lock` calls the travel horizontal (vertical = the page's); a gesture starting over a node `swipe_blocks` names (Table, Chart, Slider, a horizontal scroller…) stays that node's; the fling's momentum never pages again; a mouse wheel (`Lines`) never swipes; a gesture silent for 500 ms settles. The panels and the thumb paint the core's `transform` / `transition` as any node does.
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).

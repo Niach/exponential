@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 # The SDK. The painter wants the core at its own revision, so an app takes
 # both from the release tag on github.com/Niach/exponential
-# (`tag = "eui-v0.19.1"`). Path dependencies stand in for it here. The gpui
+# (`tag = "eui-v0.20.0"`). Path dependencies stand in for it here. The gpui
 # pins below follow the painter README's "gpui revisions" (gated by
 # check-gpui-revs.ts): the exact gpui-pre snapshot gpui-component pins.
 eui-core = { path = "../../../../apps/desktop/crates/eui-core" }

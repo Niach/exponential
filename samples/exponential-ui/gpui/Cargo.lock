@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "eui-core"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "indexmap",
  "libc",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "eui-gpui"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "eui-core",
  "eui-motion",
@@ -1501,6 +1501,7 @@ dependencies = [
  "tiny-skia",
  "tokio",
  "tokio-tungstenite",
+ "tracing",
  "unicode-bidi",
  "unicode-linebreak",
  "unicode-segmentation",
@@ -2233,6 +2234,7 @@ dependencies = [
  "slotmap",
  "smallvec",
  "spin 0.10.0",
+ "stacksafe",
  "strum",
  "taffy 0.15.0",
  "thiserror 2.0.21",
@@ -6027,6 +6029,27 @@ dependencies = [
  "libc",
  "psm",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "stacksafe"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95f9c34983ac74195c710c473db6fdf1085f64a47dbaa0090d1bea03be70da66"
+dependencies = [
+ "stacker",
+ "stacksafe-macro",
+]
+
+[[package]]
+name = "stacksafe-macro"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6feeae42a2d6b0dcb8aeb2f08d9e48cdac600239cf8a20fc59f9e252e86bdfe1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
 ]
 
 [[package]]

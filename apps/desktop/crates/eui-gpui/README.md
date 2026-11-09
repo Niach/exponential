@@ -35,8 +35,8 @@ all from the SAME tag:
 
 ```toml
 [dependencies]
-eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.19.1" }
-eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.19.1" }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.20.0" }
+eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.20.0" }
 # The dependency keys keep gpui's crate names; the packages are the snapshot.
 gpui = { package = "gpui-pre", version = "=0.3.11" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }

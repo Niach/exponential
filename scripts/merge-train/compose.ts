@@ -5,12 +5,12 @@
 // through the repo's resolver rules; a unit that cannot be resolved is dropped
 // whole (the tip resets to before it) and composing goes on.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
   globMatch,
   resolveConflicts,
+  trainChecksMode,
   type ResolveStrategy,
   type TrainChecksMode,
   type TrainPipelineOutcome,
@@ -19,7 +19,7 @@ import {
   type TrainUnitOutcome,
 } from "../../packages/domain-contract/src/merge-train"
 import { Git, sh } from "./git"
-import { fileNumber, jsonUnion, sameContents } from "./strategies"
+import { fileNumber, jsonUnion, prependUnion, sameContents } from "./strategies"
 
 export interface ComposeInput {
   /** A clone with base_sha and every head (and tested_sha) fetched. */
@@ -51,7 +51,7 @@ export function readConfig(git: Git, baseSha: string): TrainRepoConfig {
   const text = git.show(baseSha, `.exponential/merge-train.json`)
   if (!text) return { generated: [] }
   const parsed = JSON.parse(text) as Partial<TrainRepoConfig>
-  return { setup: parsed.setup, ci: parsed.ci, generated: parsed.generated ?? [] }
+  return { setup: parsed.setup, ci: parsed.ci, generated: parsed.generated ?? [], ...(parsed.lockfiles ? { lockfiles: parsed.lockfiles } : {}) }
 }
 
 class UnitConflict extends Error {
@@ -73,19 +73,21 @@ export function compose(input: ComposeInput): ComposeResult {
     const before = git.must(`rev-parse`, `HEAD`)
     const prs = unit.prs.map((p) => p.number)
     const resolved = new Set<string>()
+    const drifted = new Set<string>()
     try {
       for (const pr of unit.prs) {
-        for (const name of squash(git, pr.head_sha, config, run, () => {
+        const squashed = squash(git, pr.head_sha, config, run, () => {
           if (setupDone || !config.setup) return true
           setupDone = true
           return run(config.setup, input.dir)
-        }))
-          resolved.add(name)
+        })
+        for (const name of squashed.resolved) resolved.add(name)
+        for (const path of squashed.drifted) drifted.add(path)
         const message = `${pr.title} (#${pr.number})`
         if (git.run(`diff`, `--cached`, `--quiet`).ok) continue // already in the base
         git.must(`commit`, `--quiet`, `--no-verify`, `-m`, message, ...(pr.author ? [`--author`, pr.author] : []))
       }
-      units.push({ prs, outcome: `composed`, files: [], resolved: [...resolved] })
+      units.push({ prs, outcome: `composed`, files: [], resolved: [...resolved], ...(drifted.size > 0 ? { drifted: [...drifted] } : {}) })
     } catch (e) {
       if (!(e instanceof UnitConflict)) throw e
       git.must(`reset`, `--quiet`, `--hard`, before)
@@ -108,10 +110,17 @@ export function compose(input: ComposeInput): ComposeResult {
   if (!composed) git.must(`commit`, `--quiet`, `--allow-empty`, `-m`, `exp-train ${input.trainId}: nothing composed`)
   const head = git.must(`rev-parse`, `HEAD`)
   const workflows = config.ci?.workflows ?? []
-  let checks: TrainChecksMode = `none`
-  if (composed && input.mode === `untested`) checks = `skipped`
-  else if (composed && proven(git, input.units, units, head)) checks = `proven`
-  else if (composed && workflows.length > 0) checks = `dispatched`
+  // #LOGS-2: a Merge now is untested only when nothing was resolved and no
+  // lockfile drifted from its head; else the tree is one nobody tested.
+  const riding = units.filter((u) => u.outcome === `composed`)
+  const checks: TrainChecksMode = trainChecksMode({
+    mode: input.mode,
+    composed,
+    resolved: riding.some((u) => u.resolved.length > 0),
+    drifted: riding.some((u) => (u.drifted ?? []).length > 0),
+    proven: composed && proven(git, input.units, units, head),
+    workflows,
+  })
   return {
     outcome: { train: input.trainId, base_sha: input.baseSha, head, checks, units, error: null },
     dispatch: checks === `dispatched` ? workflows : [],
@@ -153,14 +162,15 @@ function proven(git: Git, input: TrainPipelineUnit[], units: TrainUnitOutcome[],
 }
 
 /** Squash one head onto the tip, resolving generated files; → the rule
- *  names applied. Throws UnitConflict with the files that bounce it. */
+ *  names applied + the drifted lockfiles (`lockDrift`). Throws
+ *  UnitConflict with the files that bounce it. */
 function squash(
   git: Git,
   head: string,
   config: TrainRepoConfig,
   run: (command: string, dir: string) => boolean,
   setup: () => boolean
-): string[] {
+): { resolved: string[]; drifted: string[] } {
   const tip = git.must(`rev-parse`, `HEAD`)
   const merge = git.run(`merge`, `--squash`, `--no-commit`, head)
   const conflicted = git.lines(`diff`, `--name-only`, `--diff-filter=U`)
@@ -179,7 +189,7 @@ function squash(
       ourChanges.some((q) => ruleOf(q) === rule)
     )
   })
-  if (conflicted.length === 0 && stale.length === 0) return []
+  if (conflicted.length === 0 && stale.length === 0) return { resolved: [], drifted: lockDrift(git, head, config, ourChanges, theirChanges) }
 
   const verdict = resolveConflicts([...conflicted, ...stale], config.generated)
   if (!verdict.ok) throw new UnitConflict(verdict.files)
@@ -221,9 +231,50 @@ function squash(
       .map((p) => git.show(`:0`, p) ?? ``)
     if (!sameContents(v.dropped, fresh)) throw new UnitConflict(v.paths)
   }
+  // 4. A regenerate must keep the unit's change (#FEED-212): a claimed path
+  //    the unit changed that came out as the tip's blob, while the head's
+  //    differs from the tip's, was silently dropped by a command that never
+  //    regenerated it.
+  const dropped = verdict.steps
+    .filter((s) => s.strategy === `regenerate`)
+    .flatMap((s) => s.paths)
+    .filter((p) => {
+      if (!theirChanges.includes(p)) return false
+      const tipBlob = blobAt(git, tip, p)
+      return blobAt(git, ``, p) === tipBlob && blobAt(git, head, p) !== tipBlob
+    })
+  if (dropped.length > 0) throw new UnitConflict(dropped)
   const left = git.lines(`diff`, `--name-only`, `--diff-filter=U`)
   if (left.length > 0) throw new UnitConflict(left)
-  return verdict.steps.map((s) => s.name)
+  return { resolved: verdict.steps.map((s) => s.name), drifted: lockDrift(git, head, config, ourChanges, theirChanges) }
+}
+
+/** #LOGS-2 (`repoPolicy.lockfiles`): the unit's lockfiles whose composed blob
+ *  is not the one at its head (git merged a lock cleanly onto a base that
+ *  moved it: a lock nobody resolved), + the paired locks the train moved
+ *  under a manifest the unit changed. */
+function lockDrift(git: Git, head: string, config: TrainRepoConfig, ourChanges: string[], theirChanges: string[]): string[] {
+  const policy = config.lockfiles
+  if (!policy) return []
+  const isLock = (p: string) => policy.paths.some((g) => globMatch(g, p))
+  const blob = (rev: string, p: string) => blobAt(git, rev, p)
+  const drifted = theirChanges.filter((p) => isLock(p) && blob(``, p) !== blob(head, p))
+  const dirOf = (p: string) => (p.includes(`/`) ? p.slice(0, p.lastIndexOf(`/`)) : ``)
+  for (const pair of policy.manifests ?? []) {
+    const changed = theirChanges.filter((p) => pair.paths.some((g) => globMatch(g, p)))
+    for (const lock of ourChanges) {
+      if (lock.split(`/`).pop() !== pair.lock || !isLock(lock) || drifted.includes(lock)) continue
+      const root = dirOf(lock)
+      if (changed.some((m) => root === `` || m.startsWith(`${root}/`))) drifted.push(lock)
+    }
+  }
+  return drifted
+}
+
+/** A path's blob id at `rev` (`` = the index); null = absent. */
+function blobAt(git: Git, rev: string, path: string): string | null {
+  const r = git.run(`rev-parse`, `--verify`, `--quiet`, `${rev}:${path}`)
+  return r.ok ? r.out.trim() : null
 }
 
 function remove(git: Git, path: string): void {
@@ -255,17 +306,11 @@ function pickBy(git: Git, path: string, strategy: ResolveStrategy, tip: string):
   let text: string
   if (strategy === `json-union`) text = jsonUnion(base, ours, theirs)
   else {
-    // prepend-union: a three-way line merge whose conflicting hunks keep
-    // both sides, the later unit's first (git merge-file --union).
-    const dir = mkdtempSync(join(tmpdir(), `exp-train-`))
-    const tmp = (name: string, body: string) => {
-      writeFileSync(join(dir, name), body)
-      return join(dir, name)
-    }
-    const r = git.run(`merge-file`, `-p`, `--union`, tmp(`theirs`, theirs), tmp(`base`, base ?? ``), tmp(`ours`, ours))
-    rmSync(dir, { recursive: true, force: true })
-    if (!r.out && r.err.trim()) throw new UnitConflict([path])
-    text = r.out
+    // prepend-union: each side ONE pure insertion at one split point, the
+    // later unit's block first; anything else bounces (#LOGS-2).
+    const merged = prependUnion(base ?? ``, ours, theirs)
+    if (merged === null) throw new UnitConflict([path])
+    text = merged
   }
   writeFileSync(join(git.dir, path), text)
   git.must(`add`, `--`, path)
