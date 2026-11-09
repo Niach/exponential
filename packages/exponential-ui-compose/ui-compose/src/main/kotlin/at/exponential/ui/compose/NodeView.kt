@@ -41,6 +41,13 @@ import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isAltPressed
+import androidx.compose.ui.input.pointer.isBackPressed
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isForwardPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
@@ -67,6 +74,11 @@ import at.exponential.ui.model.holdPointer
 import at.exponential.ui.model.hover
 import at.exponential.ui.model.isHeld
 import at.exponential.ui.model.isHoldButton
+import at.exponential.ui.model.isKeyRecorderField
+import at.exponential.ui.model.keyRecorderBlur
+import at.exponential.ui.model.keyRecorderMouse
+import at.exponential.ui.model.keyRecorderPress
+import at.exponential.ui.model.keyRecorderRecording
 import at.exponential.ui.model.press
 import at.exponential.ui.model.pressDown
 import at.exponential.ui.model.pressUp
@@ -200,6 +212,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
 
     val press: Modifier = when {
         hold -> holdGesture(index, node, model, disabled, focusRequester) { inputMode.inputMode == InputMode.Keyboard }
+        pressable && node.isKeyRecorderField -> keyRecorderGesture(index, node, model, disabled, focusRequester) { inputMode.inputMode == InputMode.Keyboard }
         pressable -> {
             val interactions = pressSource
             LaunchedEffect(interactions) {
@@ -416,6 +429,69 @@ private fun holdGesture(index: Int, node: NodeInfo, model: SurfaceModel, disable
             }
         }
     }
+
+/**
+ * #EXP-1629 (interactions-round1.json keyRecorder): a KeyRecorder's field.
+ * A tap (or Enter / Space through the surface's keys) presses it; when its
+ * `recording` turns true it takes the focus (focusable in touch mode too,
+ * so the hardware keys reach it), and while it records the surface's keys
+ * hand EVERY key to the core as `record` ([surfaceKeys]), mouse buttons 3-5
+ * over it are `record` {type: mouse} (consumed: no tap), and losing the
+ * focus is `blur` (the core: `stop` + recording false). Idle, the core
+ * drops record and blur; recording, it drops the press.
+ */
+@Composable
+private fun keyRecorderGesture(index: Int, node: NodeInfo, model: SurfaceModel, disabled: Boolean, focusRequester: FocusRequester, keyboard: () -> Boolean): Modifier {
+    val recording = node.keyRecorderRecording
+    LaunchedEffect(node.id, recording) {
+        if (recording) runCatching { focusRequester.requestFocus() }
+    }
+    return Modifier
+        .focusRequester(focusRequester)
+        .onFocusChanged {
+            model.focus(node.id, it.isFocused, keyboard())
+            if (!it.isFocused && model.keyRecorderRecording(index)) model.keyRecorderBlur(index)
+        }
+        .focusable(enabled = !disabled)
+        .pointerInput("${node.id}.keyRecorderMouse", disabled) {
+            if (disabled) return@pointerInput
+            awaitPointerEventScope {
+                var tertiary = false
+                var back = false
+                var forward = false
+                while (true) {
+                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                    val b = e.buttons
+                    val button = when {
+                        e.type != PointerEventType.Press -> null
+                        b.isTertiaryPressed && !tertiary -> 3
+                        b.isBackPressed && !back -> 4
+                        b.isForwardPressed && !forward -> 5
+                        else -> null
+                    }
+                    tertiary = b.isTertiaryPressed
+                    back = b.isBackPressed
+                    forward = b.isForwardPressed
+                    if (button != null && model.keyRecorderRecording(index)) {
+                        val m = e.keyboardModifiers
+                        model.keyRecorderMouse(index, button, m.isCtrlPressed, m.isAltPressed, m.isShiftPressed, m.isMetaPressed)
+                        e.changes.forEach { it.consume() }
+                    }
+                }
+            }
+        }
+        .pointerInput("${node.id}.keyRecorderTap", disabled) {
+            if (disabled) return@pointerInput
+            detectTapGestures(
+                onPress = {
+                    model.pressDown(node.id)
+                    tryAwaitRelease()
+                    model.pressUp(node.id)
+                },
+                onTap = { model.keyRecorderPress(index) },
+            )
+        }
+}
 
 /**
  * NEW-77: an inherited ink swap (from → to): a VoiceWave paints its child

@@ -4158,6 +4158,48 @@
         "remove"
       ]
     },
+    "KeyRecorder": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true
+        },
+        "recording": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "events": [
+        "start",
+        "stop",
+        "key"
+      ]
+    },
     "DatePicker": {
       "kind": "native",
       "group": "input",

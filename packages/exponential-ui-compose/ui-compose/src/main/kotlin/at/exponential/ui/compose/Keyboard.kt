@@ -1,5 +1,8 @@
 package at.exponential.ui.compose
 
+import android.view.InputDevice
+import android.view.KeyCharacterMap
+import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -20,6 +23,10 @@ import at.exponential.ui.model.fire
 import at.exponential.ui.model.holdInput
 import at.exponential.ui.model.isHeld
 import at.exponential.ui.model.isHoldButton
+import at.exponential.ui.model.isKeyRecorderField
+import at.exponential.ui.model.keyRecorderPayload
+import at.exponential.ui.model.keyRecorderRecord
+import at.exponential.ui.model.keyRecorderRecording
 import at.exponential.ui.model.nodeKey
 import at.exponential.ui.model.press
 import at.exponential.ui.model.scrollTo
@@ -57,11 +64,129 @@ internal fun keyName(e: KeyEvent): String? = when (e.key) {
  * follows composition = pre-order). Text fields keep their keys.
  */
 internal fun Modifier.surfaceKeys(model: SurfaceModel): Modifier = onPreviewKeyEvent { e ->
+    keyRecorderKey(model, e)?.let { return@onPreviewKeyEvent it }
     holdKey(model, e)?.let { return@onPreviewKeyEvent it }
     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
     val key = keyName(e)
     val typed = e.utf16CodePoint.takeIf { it > 32 }?.let { String(Character.toChars(it)) }
     handleKey(model, key, e.isShiftPressed, typed)
+}
+
+/**
+ * #EXP-1629: the CANONICAL KeyRecorder name of an Android key code (the
+ * physical key, never the shifted character; the same names on every
+ * painter): a-z, 0-9, f1-f24, the named keys and the US-layout punctuation.
+ * Null = not sent (numpad digits, media keys, the modifiers themselves).
+ */
+fun keyRecorderKeyName(keyCode: Int): String? = when (keyCode) {
+    in AndroidKeyEvent.KEYCODE_A..AndroidKeyEvent.KEYCODE_Z -> ('a' + (keyCode - AndroidKeyEvent.KEYCODE_A)).toString()
+    in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 -> ('0' + (keyCode - AndroidKeyEvent.KEYCODE_0)).toString()
+    in AndroidKeyEvent.KEYCODE_F1..AndroidKeyEvent.KEYCODE_F12 -> "f${keyCode - AndroidKeyEvent.KEYCODE_F1 + 1}"
+    // F13-F24 (API 35 codes 326-337; compile-time constants, so any device
+    // that reports them is read).
+    in AndroidKeyEvent.KEYCODE_F13..AndroidKeyEvent.KEYCODE_F24 -> "f${keyCode - AndroidKeyEvent.KEYCODE_F13 + 13}"
+    AndroidKeyEvent.KEYCODE_SPACE -> "space"
+    AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> "enter"
+    AndroidKeyEvent.KEYCODE_TAB -> "tab"
+    AndroidKeyEvent.KEYCODE_ESCAPE, AndroidKeyEvent.KEYCODE_BACK -> "escape"
+    AndroidKeyEvent.KEYCODE_DEL -> "backspace"
+    AndroidKeyEvent.KEYCODE_FORWARD_DEL -> "delete"
+    AndroidKeyEvent.KEYCODE_INSERT -> "insert"
+    AndroidKeyEvent.KEYCODE_MOVE_HOME -> "home"
+    AndroidKeyEvent.KEYCODE_MOVE_END -> "end"
+    AndroidKeyEvent.KEYCODE_PAGE_UP -> "pageup"
+    AndroidKeyEvent.KEYCODE_PAGE_DOWN -> "pagedown"
+    AndroidKeyEvent.KEYCODE_DPAD_UP -> "up"
+    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> "down"
+    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> "left"
+    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> "right"
+    AndroidKeyEvent.KEYCODE_MINUS -> "-"
+    AndroidKeyEvent.KEYCODE_EQUALS -> "="
+    AndroidKeyEvent.KEYCODE_LEFT_BRACKET -> "["
+    AndroidKeyEvent.KEYCODE_RIGHT_BRACKET -> "]"
+    AndroidKeyEvent.KEYCODE_BACKSLASH -> "\\"
+    AndroidKeyEvent.KEYCODE_SEMICOLON -> ";"
+    AndroidKeyEvent.KEYCODE_APOSTROPHE -> "'"
+    AndroidKeyEvent.KEYCODE_COMMA -> ","
+    AndroidKeyEvent.KEYCODE_PERIOD -> "."
+    AndroidKeyEvent.KEYCODE_SLASH -> "/"
+    AndroidKeyEvent.KEYCODE_GRAVE -> "`"
+    else -> null
+}
+
+/** The modifier keys themselves: a press / release of one alone is a `modifiers` change. */
+private val MODIFIER_KEYS = mapOf(
+    AndroidKeyEvent.KEYCODE_CTRL_LEFT to "ctrl", AndroidKeyEvent.KEYCODE_CTRL_RIGHT to "ctrl",
+    AndroidKeyEvent.KEYCODE_ALT_LEFT to "alt", AndroidKeyEvent.KEYCODE_ALT_RIGHT to "alt",
+    AndroidKeyEvent.KEYCODE_SHIFT_LEFT to "shift", AndroidKeyEvent.KEYCODE_SHIFT_RIGHT to "shift",
+    AndroidKeyEvent.KEYCODE_META_LEFT to "meta", AndroidKeyEvent.KEYCODE_META_RIGHT to "meta",
+)
+
+/** The other side's meta-state bit of a modifier key (still held after this one's release). */
+private fun otherSide(keyCode: Int): Int = when (keyCode) {
+    AndroidKeyEvent.KEYCODE_CTRL_LEFT -> AndroidKeyEvent.META_CTRL_RIGHT_ON
+    AndroidKeyEvent.KEYCODE_CTRL_RIGHT -> AndroidKeyEvent.META_CTRL_LEFT_ON
+    AndroidKeyEvent.KEYCODE_ALT_LEFT -> AndroidKeyEvent.META_ALT_RIGHT_ON
+    AndroidKeyEvent.KEYCODE_ALT_RIGHT -> AndroidKeyEvent.META_ALT_LEFT_ON
+    AndroidKeyEvent.KEYCODE_SHIFT_LEFT -> AndroidKeyEvent.META_SHIFT_RIGHT_ON
+    AndroidKeyEvent.KEYCODE_SHIFT_RIGHT -> AndroidKeyEvent.META_SHIFT_LEFT_ON
+    AndroidKeyEvent.KEYCODE_META_LEFT -> AndroidKeyEvent.META_META_RIGHT_ON
+    AndroidKeyEvent.KEYCODE_META_RIGHT -> AndroidKeyEvent.META_META_LEFT_ON
+    else -> 0
+}
+
+/**
+ * #EXP-1629: one Android key event while a KeyRecorder records → its
+ * `record` payload, or null = send nothing (a key repeat, a key outside
+ * the canonical list); the caller swallows the key either way. A modifier
+ * key alone = `modifiers` with the flags AFTER the event (its own flag
+ * from the event, the other side's bit kept); every other key = `down` /
+ * `up` with its canonical name and the held flags. Pure (raw ints).
+ */
+fun keyRecorderKeyPayload(keyCode: Int, down: Boolean, metaState: Int, repeatCount: Int = 0): JsonValue? {
+    if (repeatCount > 0) return null
+    var ctrl = metaState and AndroidKeyEvent.META_CTRL_ON != 0
+    var alt = metaState and AndroidKeyEvent.META_ALT_ON != 0
+    var shift = metaState and AndroidKeyEvent.META_SHIFT_ON != 0
+    var meta = metaState and AndroidKeyEvent.META_META_ON != 0
+    val modifier = MODIFIER_KEYS[keyCode]
+    if (modifier != null) {
+        val held = down || metaState and otherSide(keyCode) != 0
+        when (modifier) {
+            "ctrl" -> ctrl = held
+            "alt" -> alt = held
+            "shift" -> shift = held
+            else -> meta = held
+        }
+        return keyRecorderPayload("modifiers", ctrl, alt, shift, meta)
+    }
+    val key = keyRecorderKeyName(keyCode) ?: return null
+    return keyRecorderPayload(if (down) "down" else "up", ctrl, alt, shift, meta, key = key)
+}
+
+/**
+ * #EXP-1629: while the focused KeyRecorder field records, EVERY key is
+ * its (Tab moves no focus, Escape closes nothing, no shortcut, no repeat):
+ * the event is consumed and its payload, if any, goes out as `record`.
+ * Null = not recording (the surface's keys as usual). The system Back of
+ * the navigation bar (the virtual keyboard device) and a mouse's back
+ * button (the mouse's button 4 is the pointer path) are left alone.
+ */
+private fun keyRecorderKey(model: SurfaceModel, e: KeyEvent): Boolean? {
+    val n = model.keyboardFocus?.let(model::indexOf)?.let(model::node) ?: return null
+    if (!n.isKeyRecorderField || !n.keyRecorderRecording) return null
+    val native = e.nativeKeyEvent
+    if (native.keyCode == AndroidKeyEvent.KEYCODE_BACK) {
+        if (native.deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD) return null
+        if (native.source and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE) return true
+    }
+    val down = when (e.type) {
+        KeyEventType.KeyDown -> true
+        KeyEventType.KeyUp -> false
+        else -> return true
+    }
+    keyRecorderKeyPayload(native.keyCode, down, native.metaState, native.repeatCount)?.let { model.keyRecorderRecord(n.index, it) }
+    return true
 }
 
 /**

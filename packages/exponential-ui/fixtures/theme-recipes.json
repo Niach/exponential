@@ -69147,6 +69147,309 @@
       }
     },
     {
+      "component": "KeyRecorder",
+      "part": "field",
+      "props": {
+        "recording": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 160,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 160,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#00000000",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "KeyRecorder",
+      "part": "field",
+      "props": {
+        "recording": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "borderColor": "#a1a1a1",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#737373",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "borderColor": "#a1a1a1",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#737373",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "borderColor": "#a78bfa",
+              "transition": 160,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#a78bfa",
+              "transition": 160,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "borderColor": "#ea580c",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#f97316",
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "paddingHorizontal": 7,
+              "paddingVertical": 3.5,
+              "borderRadius": 5.25
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "KeyRecorder",
+      "part": "placeholder",
+      "props": {
+        "recording": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 12.25,
+              "lineHeight": 19.82
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 12.25,
+              "lineHeight": 19.82
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 12.25,
+              "lineHeight": 19.82
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 12.25,
+              "lineHeight": 19.82
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Row",
       "part": "root",
       "props": {

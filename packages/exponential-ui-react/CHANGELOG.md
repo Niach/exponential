@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
+
 ## 0.20.0 (2026-11-08)
 
 - Chart `valueFormat` (ticks, tooltip, value labels, summary) and `rows` + `categoryField` + series `field` (#FEED-205).

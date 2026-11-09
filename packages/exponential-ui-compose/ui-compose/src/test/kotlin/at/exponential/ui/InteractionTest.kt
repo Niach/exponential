@@ -1,6 +1,9 @@
 package at.exponential.ui
 
+import android.view.KeyEvent as AndroidKeyEvent
 import at.exponential.ui.compose.handleKey
+import at.exponential.ui.compose.keyRecorderKeyName
+import at.exponential.ui.compose.keyRecorderKeyPayload
 import at.exponential.ui.host.ClosureHost
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.InputKind
@@ -11,6 +14,12 @@ import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.boxHover
+import at.exponential.ui.model.keyRecorderBlur
+import at.exponential.ui.model.keyRecorderMouse
+import at.exponential.ui.model.keyRecorderPayload
+import at.exponential.ui.model.keyRecorderPress
+import at.exponential.ui.model.keyRecorderRecord
+import at.exponential.ui.model.keyRecorderRecording
 import at.exponential.ui.model.checked
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.INPUT_DEBOUNCE_MS
@@ -470,6 +479,119 @@ class InteractionTest {
             assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
         }
         }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `keyRecorder` (#EXP-1629): what the
+     * painter sends for each step: a press = [keyRecorderPress], a key
+     * down / up = the Android key code of the canonical name with the held
+     * mods' meta state through [keyRecorderKeyPayload] (the capture half),
+     * a modifier change = one `modifiers` payload, a mouse button =
+     * [keyRecorderMouse] (3-5 only), blur = [keyRecorderBlur], hostWrite =
+     * the host's data write; then the fired actions {name, context} and
+     * /recording (null = unset), and the field's live `recording`.
+     */
+    @Test
+    fun keyRecorderCasesStartRecordAndStop() {
+        val f = Fixtures.json("interactions-round1.json")["keyRecorder"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertTrue(cases.size >= 10)
+        val codes = (0..400).filter { it != AndroidKeyEvent.KEYCODE_BACK && it != AndroidKeyEvent.KEYCODE_NUMPAD_ENTER }
+            .mapNotNull { c -> keyRecorderKeyName(c)?.let { it to c } }.toMap()
+        fun meta(mods: List<JsonValue>): Int = mods.mapNotNull { it.string }.fold(0) { acc, m ->
+            acc or when (m) {
+                "ctrl" -> AndroidKeyEvent.META_CTRL_ON or AndroidKeyEvent.META_CTRL_LEFT_ON
+                "alt" -> AndroidKeyEvent.META_ALT_ON or AndroidKeyEvent.META_ALT_LEFT_ON
+                "shift" -> AndroidKeyEvent.META_SHIFT_ON or AndroidKeyEvent.META_SHIFT_LEFT_ON
+                "meta" -> AndroidKeyEvent.META_META_ON or AndroidKeyEvent.META_META_LEFT_ON
+                else -> error("mod $m")
+            }
+        }
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("key-recorder", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            m.setViewport(390f, 800f)
+            for (step in c["steps"]?.array.orEmpty()) {
+                val field = m.idx("ptt.field")
+                val held = step["mods"]?.array.orEmpty()
+                when {
+                    step["press"] != null -> m.keyRecorderPress(field)
+                    step["blur"] != null -> m.keyRecorderBlur(field)
+                    step["down"] != null || step["up"] != null -> {
+                        val down = step["down"] != null
+                        val key = (step["down"] ?: step["up"])!!.string!!
+                        val code = codes[key] ?: error("$name: no key code for $key")
+                        keyRecorderKeyPayload(code, down, meta(held))?.let { m.keyRecorderRecord(field, it) }
+                    }
+                    step["modifiers"] != null -> {
+                        val set = step["modifiers"]!!.array.orEmpty().mapNotNull { it.string }.toSet()
+                        m.keyRecorderRecord(field, keyRecorderPayload("modifiers", "ctrl" in set, "alt" in set, "shift" in set, "meta" in set))
+                    }
+                    step["mouse"] != null -> m.keyRecorderMouse(field, step["mouse"]!!.number!!.toInt())
+                    step["hostWrite"] != null -> m.setData(step["hostWrite"]!!["path"]!!.string!!, step["hostWrite"]!!["value"])
+                    else -> error("$name: unknown step ${step.json}")
+                }
+            }
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            val recording = JsonValue.parse(m.surface.dataJson())["recording"] ?: JsonValue.Null
+            assertEquals("$name: /recording", c["recording"] ?: JsonValue.Null, recording)
+            assertEquals("$name: the field records", recording.bool == true, m.keyRecorderRecording(m.idx("ptt.field")))
+        }
+    }
+
+    /** #EXP-1629: Android key codes → the canonical KeyRecorder names (the physical key). */
+    @Test
+    fun keyRecorderKeyNamesAreCanonical() {
+        val want = mapOf(
+            AndroidKeyEvent.KEYCODE_A to "a", AndroidKeyEvent.KEYCODE_K to "k", AndroidKeyEvent.KEYCODE_Z to "z",
+            AndroidKeyEvent.KEYCODE_0 to "0", AndroidKeyEvent.KEYCODE_1 to "1", AndroidKeyEvent.KEYCODE_9 to "9",
+            AndroidKeyEvent.KEYCODE_F1 to "f1", AndroidKeyEvent.KEYCODE_F12 to "f12", AndroidKeyEvent.KEYCODE_F13 to "f13", AndroidKeyEvent.KEYCODE_F24 to "f24",
+            AndroidKeyEvent.KEYCODE_SPACE to "space", AndroidKeyEvent.KEYCODE_ENTER to "enter", AndroidKeyEvent.KEYCODE_NUMPAD_ENTER to "enter",
+            AndroidKeyEvent.KEYCODE_TAB to "tab", AndroidKeyEvent.KEYCODE_ESCAPE to "escape", AndroidKeyEvent.KEYCODE_BACK to "escape",
+            AndroidKeyEvent.KEYCODE_DEL to "backspace", AndroidKeyEvent.KEYCODE_FORWARD_DEL to "delete", AndroidKeyEvent.KEYCODE_INSERT to "insert",
+            AndroidKeyEvent.KEYCODE_MOVE_HOME to "home", AndroidKeyEvent.KEYCODE_MOVE_END to "end",
+            AndroidKeyEvent.KEYCODE_PAGE_UP to "pageup", AndroidKeyEvent.KEYCODE_PAGE_DOWN to "pagedown",
+            AndroidKeyEvent.KEYCODE_DPAD_UP to "up", AndroidKeyEvent.KEYCODE_DPAD_DOWN to "down",
+            AndroidKeyEvent.KEYCODE_DPAD_LEFT to "left", AndroidKeyEvent.KEYCODE_DPAD_RIGHT to "right",
+            AndroidKeyEvent.KEYCODE_MINUS to "-", AndroidKeyEvent.KEYCODE_EQUALS to "=",
+            AndroidKeyEvent.KEYCODE_LEFT_BRACKET to "[", AndroidKeyEvent.KEYCODE_RIGHT_BRACKET to "]",
+            AndroidKeyEvent.KEYCODE_BACKSLASH to "\\", AndroidKeyEvent.KEYCODE_SEMICOLON to ";",
+            AndroidKeyEvent.KEYCODE_APOSTROPHE to "'", AndroidKeyEvent.KEYCODE_COMMA to ",",
+            AndroidKeyEvent.KEYCODE_PERIOD to ".", AndroidKeyEvent.KEYCODE_SLASH to "/", AndroidKeyEvent.KEYCODE_GRAVE to "`",
+        )
+        for ((code, name) in want) assertEquals("key code $code", name, keyRecorderKeyName(code))
+        for (code in listOf(AndroidKeyEvent.KEYCODE_NUMPAD_1, AndroidKeyEvent.KEYCODE_VOLUME_UP, AndroidKeyEvent.KEYCODE_CTRL_LEFT, AndroidKeyEvent.KEYCODE_SHIFT_RIGHT, AndroidKeyEvent.KEYCODE_AT, AndroidKeyEvent.KEYCODE_UNKNOWN)) {
+            assertNull("key code $code", keyRecorderKeyName(code))
+        }
+        // Every canonical name is reached: 86 names (a-z, 0-9, f1-f24, 15 named, 11 punctuation).
+        assertEquals(26 + 10 + 24 + 15 + 11, (0..400).mapNotNull(::keyRecorderKeyName).toSet().size)
+    }
+
+    /** #EXP-1629: the shifted digit reads its key; modifiers alone; repeats; unknown keys. */
+    @Test
+    fun keyRecorderKeyPayloads() {
+        val shift = AndroidKeyEvent.META_SHIFT_ON or AndroidKeyEvent.META_SHIFT_LEFT_ON
+        val ctrl = AndroidKeyEvent.META_CTRL_ON or AndroidKeyEvent.META_CTRL_LEFT_ON
+        assertEquals(keyRecorderPayload("down", false, false, true, false, key = "1"), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_1, true, shift))
+        assertEquals(keyRecorderPayload("up", true, false, false, false, key = "k"), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_K, false, ctrl))
+        // A modifier alone: the flags after the event, whatever the event's meta state says about itself.
+        assertEquals(keyRecorderPayload("modifiers", true, false, false, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_CTRL_LEFT, true, 0))
+        assertEquals(keyRecorderPayload("modifiers", true, false, true, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_SHIFT_LEFT, true, ctrl))
+        assertEquals(keyRecorderPayload("modifiers", false, false, true, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_CTRL_LEFT, false, ctrl or shift))
+        // The other side still held keeps the flag.
+        assertEquals(
+            keyRecorderPayload("modifiers", true, false, false, false),
+            keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_CTRL_LEFT, false, AndroidKeyEvent.META_CTRL_ON or AndroidKeyEvent.META_CTRL_LEFT_ON or AndroidKeyEvent.META_CTRL_RIGHT_ON),
+        )
+        assertEquals(keyRecorderPayload("modifiers", false, false, false, true), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_META_RIGHT, true, 0))
+        assertEquals(keyRecorderPayload("modifiers", false, true, false, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_ALT_RIGHT, true, 0))
+        assertNull(keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_K, true, ctrl, repeatCount = 1))
+        assertNull(keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_VOLUME_UP, true, 0))
     }
 
     /**

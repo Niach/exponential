@@ -134,6 +134,8 @@ extension SurfaceModel {
         default:
             if n.isTextField { return }
         }
+        // #EXP-1629: a press elsewhere takes the focus from a recording KeyRecorder.
+        keyRecorderBlurOthers(pressing: index)
         // EXP-1605: a Motion's state machine gets the click first.
         motionDrivers[n.id]?.post("click")
         fire(index, "press")

@@ -394,6 +394,17 @@ impl Surface {
         if event == "contextmenu" {
             return self.context_menu(&n, payload);
         }
+        // #EXP-1629 (interactions-round1.json keyRecorder): a KeyRecorder's
+        // field presses only while idle; `record` and `blur` count only while
+        // it records (its `recording` recipe prop, resolved at build).
+        if let Some(q) = n.part_query.as_ref().filter(|q| q.component == "KeyRecorder" && q.part == "field") {
+            let recording = q.props.get("recording").and_then(Value::as_bool) == Some(true);
+            match event {
+                "press" if recording => return vec![],
+                "record" | "blur" if !recording => return vec![],
+                _ => {}
+            }
+        }
         // VAPP-162: a `hold` Button never fires `press` (Surface::hold drives it).
         if event == "press" && n.component == "Button" && n.part.is_none() && n.props.get("hold").and_then(Value::as_bool) == Some(true) {
             return vec![];

@@ -145,6 +145,8 @@ private struct NodeBody: View {
         }
         .modifier(TooltipLongPress(node: node, model: model))
         .modifier(NativeHooks(node: node, model: model))
+        // #EXP-1629: a recording KeyRecorder field captures the keyboard.
+        .modifier(KeyRecorderCaptureModifier(node: node, model: model, enabled: interactive))
         .modifier(HoverReporting(id: node.id, model: model, on: hovers))
         .modifier(BoxHoverFiring(id: node.id, model: model, on: interactive && node.component == "Box" && node.part == nil))
         .modifier(ResizeHandleModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
