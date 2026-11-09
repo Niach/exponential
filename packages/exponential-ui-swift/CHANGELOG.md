@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `row` + the IDE popup (#EXP-1629): `triggerVariant: row` paints the trigger as a Group row (the `label` part leading inside it, the `value` part trailing and truncating at its recipe opacity, the `Select.chevron` glyph as the `chevron` part); the field trigger's text and glyph are the `value` / `chevron` parts too (`SelectTrigger`, measured alike). The popup opens with the cursor on the first chosen option (else the first enabled one) scrolled into view; the cursor is the ONE option reporting `hover` (the pointer and ↑/↓ move it, from a searchable Select's field too; Enter / Space pick it), `selected` stays the chosen one; the check is the `check` part's size and ink. Snapshot re-recorded.
+- Markdown: an image directly in a top-level paragraph's text splits the paragraph into the text before it, a block image and the text after it (edges trimmed, an empty side dropped); in a heading, list item, cell, quote or inside a span it stays its alt text (#FEED-208, `fixtures/markdown-render.json` `image_split_*`).
 
 ## 0.20.0 (2026-11-08)
 

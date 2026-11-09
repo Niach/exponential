@@ -187,9 +187,9 @@ pub(crate) fn claude_writing_frame(delta: f32) -> usize {
 /// for as long as a session works, and gpui repaints the WHOLE window for
 /// every animation frame, at the monitor's rate while focused — so both
 /// faces are STEPPED (`with_stepped_animation`): the spark repaints only
-/// when its 90 ms frame changes, the pulse at the smooth step.
+/// when its 90 ms frame changes, the pulse at the pulse step (#LOGS-3).
 pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) -> gpui::Div {
-    use eui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
+    use eui_gpui::controls::{SteppedAnimationExt as _, PULSE_STEP};
     let slot = div().flex_shrink_0().size(px(size));
     match agent {
         Some(coding::CodingAgent::Claude) => slot.child(
@@ -217,7 +217,7 @@ pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) 
                     gpui::Animation::new(crate::steer_viewer::WORKING_PULSE)
                         .repeat()
                         .with_easing(gpui::bounce(gpui::ease_in_out)),
-                    SMOOTH_STEP,
+                    PULSE_STEP,
                     |mark, delta| mark.opacity(0.4 + 0.6 * delta),
                 ),
             )

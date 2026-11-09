@@ -219,6 +219,58 @@ pub(crate) fn arc_spinner_colored(size: f32, color: Hsla, _cx: &App) -> AnyEleme
         .into_any_element()
 }
 
+/// #LOGS-3 — gpui-component's `Spinner` (same builder, same face: its icon
+/// turning once per 0.8 s, ease-in-out) on the stepped budget. Upstream's
+/// asks gpui for a frame on EVERY frame it paints, so one "Checks running"
+/// row redrew the whole window at the display's rate while focused.
+#[derive(IntoElement)]
+pub(crate) struct Spinner {
+    size: gpui_component::Size,
+    icon: Icon,
+    color: Option<Hsla>,
+}
+
+impl Spinner {
+    pub(crate) fn new() -> Self {
+        Self { size: gpui_component::Size::Medium, icon: Icon::new(crate::icons::registry::UI_LOADING), color: None }
+    }
+
+    pub(crate) fn icon(mut self, icon: impl Into<Icon>) -> Self {
+        self.icon = icon.into();
+        self
+    }
+
+    pub(crate) fn color(mut self, color: Hsla) -> Self {
+        self.color = Some(color);
+        self
+    }
+}
+
+impl gpui_component::Sizable for Spinner {
+    fn with_size(mut self, size: impl Into<gpui_component::Size>) -> Self {
+        self.size = size.into();
+        self
+    }
+}
+
+impl gpui::RenderOnce for Spinner {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        use gpui::{percentage, Transformation};
+        use gpui_component::Sizable as _;
+        div().child(
+            self.icon
+                .with_size(self.size)
+                .when_some(self.color, |icon, color| icon.text_color(color))
+                .with_stepped_animation(
+                    "circle",
+                    Animation::new(Duration::from_millis(800)).repeat().with_easing(gpui::ease_in_out),
+                    SMOOTH_STEP,
+                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
+                ),
+        )
+    }
+}
+
 /// [`spinner_colored`] in the muted foreground.
 pub(crate) fn spinner(size: f32, cx: &App) -> AnyElement {
     spinner_colored(size, cx.theme().muted_foreground, cx)

@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select (#EXP-1629): the trigger paints its parts from their recipes (`natives::select_trigger`: the `value` or `placeholder` text with its colour and opacity, the `chevron` at the recipe's size and opacity, the trigger's `gap`); a `row` trigger leads with its `label` (the `Select/label` recipe's weight) and ends the value. An option's `hover` is the popup's ONE cursor: the keyboard focus (opening on the first chosen option) and the pointer move it, keyboard moves scroll it into view, and an option draws no focus ring. The `check` takes its recipe's size and colour.
+- One animation grid (#LOGS-3): every `with_stepped_animation` and `repaint_on_next_step` repaint lands on a tick of ONE 33.3 ms grid the app shares, and a loop's start moves back onto its step's line, so loops at different steps (a 33 ms spinner, a 90 ms sprite, a 100 ms label) share frames instead of adding up: a window redraws at most 30 times a second whatever animates. New `PULSE_STEP` (every second tick, 15 fps) for a long-lived opacity pulse. A looping keyframe `animation` (infinite iterations: a `spin`, a `pulse`) repaints on the grid instead of requesting every frame; a finite one keeps every frame. Each stepped element opens an `anim.step` trace span labelled with its id while tracing listens.
 
 ## 0.20.0 (2026-11-08)
 
