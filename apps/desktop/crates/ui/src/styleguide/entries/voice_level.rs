@@ -12,7 +12,7 @@ pub(crate) const OWNER: &str = "VAPP-162";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let cases: Vec<serde_json::Value> = (6..=9)
-        .map(|i| specimen_node("exponential-ui-voice-wave", &format!("specimen-voice-wave-case-{i}")).expect("a bars case"))
+        .map(|i| specimen_node("exponential-ui-voice-wave", &format!("specimen_voice_wave_case_{i}")).expect("a bars case"))
         .collect();
     let tree = serde_json::json!({"id": "sg-voice-level", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.lg", "padding": "$spacing.xl"}, "children": cases});
     div().w_full().child(styleguide_surface("sg-voice-level", tree, window, cx))

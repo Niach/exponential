@@ -13,6 +13,6 @@ pub(crate) const ID: &str = "outline";
 pub(crate) const OWNER: &str = "EXP-1495";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-outline", "specimen-outline").expect("the Outline specimen");
+    let tree = specimen_node("exponential-ui-outline", "specimen_outline").expect("the Outline specimen");
     div().w_full().child(styleguide_surface("sg-outline", tree, window, cx))
 }
