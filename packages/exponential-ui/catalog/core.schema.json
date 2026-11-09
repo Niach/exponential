@@ -3864,7 +3864,7 @@
           "default": "default"
         },
         "seed": {
-          "type": "string",
+          "$ref": "common_types.json#/$defs/DynamicString",
           "description": "A user id: the palette hue; none = muted."
         },
         "style": {

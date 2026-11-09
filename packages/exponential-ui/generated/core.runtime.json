@@ -2067,7 +2067,8 @@
           "default": "default"
         },
         "seed": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         }
       }
     },

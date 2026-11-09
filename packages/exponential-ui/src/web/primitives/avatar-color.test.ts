@@ -17,7 +17,7 @@ describe(`fixtures/avatar.json`, () => {
   test(`the palette is design-tokens avatar, in its order`, () => {
     const tokens = Object.entries(design.avatar).filter(([k]) => !k.startsWith(`$`)).map(([, v]) => v)
     expect(fixture.palette).toEqual(tokens)
-    expect([...AVATAR_PALETTE]).toEqual(fixture.palette)
+    expect([...AVATAR_PALETTE] as string[]).toEqual(fixture.palette)
     expect(AVATAR_HUE_COUNT).toBe(fixture.palette.length)
     expect(AVATAR_FILL_ALPHA).toBe(fixture.fillAlpha)
   })
