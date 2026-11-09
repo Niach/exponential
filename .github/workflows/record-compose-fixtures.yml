@@ -52,6 +52,8 @@ name: record-compose-fixtures
 # `Embed/example` case of the Compose snapshot `components.json` and
 # `Embed.png`, pending in ComponentSnapshotImagesTest until then; not in the
 # kitchen sink, so its goldens come back unchanged).
+# EDE-65 (2026-11-09): re-recorded for the core catalog's Embed (the
+# Compose snapshot `components.json` + `Embed.png`; not in the kitchen sink).
 on:
   workflow_dispatch: {}
   push:
