@@ -406,6 +406,9 @@
         "description": {
           "type": "string"
         },
+        "trailing": {
+          "type": "string"
+        },
         "image": {
           "type": "url"
         },
@@ -4126,7 +4129,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ]
     },
     "SearchList": {

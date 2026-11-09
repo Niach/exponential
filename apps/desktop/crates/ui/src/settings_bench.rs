@@ -21,6 +21,7 @@ use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -622,6 +623,22 @@ fn settings_prompts_loading() {
 #[ignore]
 fn settings_prompts_no_team() {
     prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
+}
+
+/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened
+/// (the IDE's by its dev open, as a click would; genUI's by a trigger
+/// press), today's IDE row vs the genUI row: run each into its own dir, the
+/// second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_branch_menu_ide() {
+    shoot_pane("branch-menu", IdeBranchRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_branch_menu_eui() {
+    shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
 }
 
 /// #EXP-1629: the IDE's chromeless group fields vs genUI Textarea

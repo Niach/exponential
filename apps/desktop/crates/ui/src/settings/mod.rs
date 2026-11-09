@@ -37,6 +37,9 @@
 pub(crate) mod about;
 // #EXP-1629: what the panes' eUI documents share.
 mod doc;
+// #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
+#[cfg(test)]
+pub(crate) mod branch_row_shots;
 pub(crate) mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device

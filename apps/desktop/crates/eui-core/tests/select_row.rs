@@ -4,12 +4,14 @@
 //! options' states (only the chosen one is `selected` and checked), the
 //! list opening at the top and the bottom fade while options sit below.
 //! A row's `description` stacks under its label (the `labels` column) and
-//! the value + chevron move into the trailing `control` column.
+//! the value + chevron move into the trailing `control` column. An
+//! option's `trailing` reads on after its label in the popup row only, and
+//! `open` fires as the popup opens.
 
 use std::collections::HashMap;
 
 use eui_core::measure::FixedMeasure;
-use eui_core::surface::{LayoutOutput, PlacedFrame, Surface, SurfaceOptions};
+use eui_core::surface::{LayoutOutput, OutEvent, PlacedFrame, Surface, SurfaceOptions};
 use eui_core::types::NestedNode;
 use serde_json::{json, Value};
 
@@ -212,4 +214,56 @@ fn every_opening_starts_at_the_top_with_the_fade_below() {
     let mut s = surface(select(json!({"triggerVariant": "row"})));
     open(&mut s);
     assert!(s.index_of("sel.fade").is_none());
+}
+
+fn branch() -> Value {
+    json!({"id": "sel", "component": "Select", "props": {"label": "Branch", "name": "branch", "triggerVariant": "row", "searchable": true, "value": "main", "options": [{"label": "main", "value": "main", "trailing": "\u{00b7} default"}, {"label": "develop", "value": "develop"}]}, "on": {"open": {"event": {"name": "loadBranches"}}}})
+}
+
+fn opens(events: &[OutEvent]) -> usize {
+    events.iter().filter(|e| matches!(e, OutEvent::Action { name, event, .. } if name == "loadBranches" && event == "open")).count()
+}
+
+#[test]
+fn an_option_trailing_reads_on_after_its_label_in_the_popup_only() {
+    let mut s = surface(branch());
+    open(&mut s);
+    assert_eq!(node(&mut s, "sel.value").props["text"], json!("main"), "the trigger shows the label alone");
+    assert_eq!(node(&mut s, "sel.trigger").props["text"], json!("main"));
+    // The IDE branch picker's `format!("{name} \u{00b7} default")`, in the item's own style.
+    assert_eq!(node(&mut s, "sel.item.0").props["text"], json!("main \u{00b7} default"));
+    assert_eq!(node(&mut s, "sel.item.1").props["text"], json!("develop"));
+    // The search matches the label, never the trailing text.
+    let search = s.index_of("sel.search").unwrap();
+    s.event(search, "change", Some(json!({"value": "default"})));
+    s.layout(&mut fixed());
+    assert!(s.index_of("sel.item.0").is_none(), "`default` is no branch name");
+    s.event(search, "change", Some(json!({"value": "mai"})));
+    s.layout(&mut fixed());
+    assert_eq!(node(&mut s, "sel.item.0").props["text"], json!("main \u{00b7} default"));
+}
+
+#[test]
+fn open_fires_once_as_the_popup_opens() {
+    let mut s = surface(branch());
+    let mut m = fixed();
+    s.layout(&mut m);
+    let t = s.index_of("sel.trigger").unwrap();
+    assert_eq!(opens(&s.event(t, "press", None)), 1, "the press that opens it");
+    s.layout(&mut m);
+    // Re-opening through `change {open}` while open: nothing.
+    assert_eq!(opens(&s.event(t, "change", Some(json!({"open": true})))), 0);
+    assert_eq!(opens(&s.event(t, "press", None)), 0, "closing fires nothing");
+    s.layout(&mut m);
+    assert_eq!(opens(&s.set_open("sel", true)), 1, "a host's set_open opens it too");
+    assert_eq!(opens(&s.set_open("sel", false)), 0);
+    // A host's PLATFORM menu (Compose's native one) reports its opening.
+    s.layout(&mut m);
+    let t = s.index_of("sel.trigger").unwrap();
+    assert_eq!(opens(&s.event(t, "open", None)), 1);
+    // A Select without the handler, a Popover: no `open` action.
+    let mut plain = surface(select(json!({})));
+    plain.layout(&mut m);
+    let t = plain.index_of("sel.trigger").unwrap();
+    assert!(plain.event(t, "press", None).iter().all(|e| !matches!(e, OutEvent::Action { event, .. } if event == "open")));
 }
