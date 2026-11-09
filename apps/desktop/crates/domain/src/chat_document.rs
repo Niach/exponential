@@ -111,6 +111,28 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
     })
 }
 
+/// What an Embed's inner `event` on a chat card asks of the host (lane Q,
+/// `ede_chat {action: card, messageId, name, context}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardReply {
+    /// The person's next message into `session_id` (the IDE's surface card:
+    /// `chats::surface_reply`).
+    Send { session_id: String, text: String },
+}
+
+/// THE card rule the IDE follows: an `exponential_show` surface's `reply`
+/// event with text posts that text as the person's next message; a plan's or
+/// question's inline surface has no transport (plan-card.json: its events
+/// stay in the card, the options and the plan page answer it), and every
+/// other event is ignored.
+pub fn card_reply(rows: &[SessionChatRow], message_id: &str, name: Option<&str>, context: Option<&serde_json::Value>) -> Option<CardReply> {
+    let text = crate::chats::surface_reply(name, context)?;
+    match rows.iter().find(|row| row.id() == message_id)? {
+        SessionChatRow::Surface { session_id, .. } => Some(CardReply::Send { session_id: session_id.clone(), text }),
+        _ => None,
+    }
+}
+
 /// The agent CLI a session's `cli` names for the `/` menu (the IDE's
 /// `agent_of`): `codex`, else `claude` (an absent or unknown one too).
 pub fn session_agent(cli: Option<&str>) -> &'static str {
@@ -451,5 +473,29 @@ mod tests {
         let ChatRowInput::Question { surface: Some(question), .. } = &out[1] else { panic!("{out:?}") };
         assert_eq!(question["data"]["pick"], "none", "an open card shows its own data");
         assert!(matches!(&out[2], ChatRowInput::Card { surface: None, .. }), "a report has no surface");
+    }
+
+    #[test]
+    fn a_show_card_s_reply_posts_its_text_and_a_plan_s_surface_has_no_transport() {
+        let surface = SessionChatRow::Surface { id: "m1".into(), session_id: "s1".into(), title: None, surface: card_surface() };
+        let plan = SessionChatRow::Plan {
+            id: "p".into(),
+            session_id: "s1".into(),
+            plan: "# Plan".into(),
+            questions: vec![],
+            surface: Some(card_surface()),
+            decision: None,
+            fresh: false,
+            answers: None,
+            feedback: None,
+            surface_data: None,
+        };
+        let rows = [surface, plan];
+        let reply = serde_json::json!({"text": " Ship "});
+        assert_eq!(card_reply(&rows, "m1", Some("reply"), Some(&reply)), Some(CardReply::Send { session_id: "s1".into(), text: "Ship".into() }));
+        assert_eq!(card_reply(&rows, "m1", Some("other"), Some(&reply)), None, "only reply answers");
+        assert_eq!(card_reply(&rows, "m1", Some("reply"), Some(&serde_json::json!({"text": " "}))), None, "a blank reply posts nothing");
+        assert_eq!(card_reply(&rows, "p", Some("reply"), Some(&reply)), None, "a plan's surface stays in its card");
+        assert_eq!(card_reply(&rows, "gone", Some("reply"), Some(&reply)), None);
     }
 }
