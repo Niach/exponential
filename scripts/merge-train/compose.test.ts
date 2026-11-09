@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { TrainRepoConfig } from "../../packages/domain-contract/src/merge-train"
+import { rustChangelog, webChangelog } from "./changelog-shapes"
 import { compose } from "./compose"
 import { Git, sh } from "./git"
 
@@ -53,7 +54,7 @@ const CHANGELOG = `export const CHANGELOG = [\n  { v: 1 },\n]\n`
 const POLICY: TrainRepoConfig = {
   ci: { workflows: [`ci.yml`] },
   generated: [
-    { name: `changelog`, paths: [`changelog.ts`], strategy: `prepend-union` },
+    { name: `changelog`, paths: [`changelog.ts`, `changelog.rs`], strategy: `prepend-union` },
     { name: `bindings`, paths: [`gen/**`], strategy: `regenerate`, command: `cp src/enum.txt gen/enum.txt` },
     { name: `migrations`, paths: [`db/*.sql`, `db/meta/**`], strategy: `renumber`, command: `bash gen-migration.sh`, verify: [`db/*.sql`] },
     { name: `index`, paths: [`shots/index.json`], strategy: `json-union` },
@@ -78,6 +79,48 @@ describe(`compose: a sibling in the way is no bounce (#EXP-1711)`, () => {
     const other = r.branch({ "c.txt": `c1\n` }, moved)
     const { outcome } = compose({ dir: r.dir, trainId: `s2`, baseSha: moved, mode: `test`, units: [{ prs: [pr(3, other)] }, { prs: [pr(4, stale)] }] })
     expect(outcome.units.map((u) => [u.outcome, u.against ?? null])).toEqual([[`composed`, null], [`conflict`, null]])
+  })
+})
+
+describe(`compose: changelogs prepended at one spot (#LOGS-2)`, () => {
+  const web = (ids: string[]) => webChangelog(ids)
+  const rs = (id: string) => rustChangelog(id, [[233, `a`], [232, `z`]])
+  const files = (id: string) => ({ "changelog.ts": web([id, `a`]), "changelog.rs": rs(id) })
+  const BASE = { "changelog.ts": web([`a`]), "changelog.rs": rustChangelog(`a`, [[232, `z`]]) }
+
+  it(`three units = three whole entries, newest first, the mirror renumbered`, () => {
+    const r = repo(BASE, POLICY)
+    const [b, c, d] = [`b`, `c`, `d`].map((id) => r.branch(files(id)))
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, b!)] }, { prs: [pr(2, c!)] }, { prs: [pr(3, d!)] }] })
+    expect(outcome.units.map((u) => [u.outcome, u.resolved])).toEqual([[`composed`, []], [`composed`, [`changelog`]], [`composed`, [`changelog`]]])
+    expect(r.read(`changelog.ts`)).toBe(web([`d`, `c`, `b`, `a`]))
+    expect(r.read(`changelog.rs`)).toBe(rustChangelog(`d`, [[235, `c`], [234, `b`], [233, `a`], [232, `z`]]))
+    // the old resolver, a line union, fused them into one object
+    const dir = mkdtempSync(join(tmpdir(), `union-`))
+    dirs.push(dir)
+    for (const [n, body] of Object.entries({ base: web([`a`]), ours: web([`b`, `a`]), theirs: web([`c`, `a`]) })) writeFileSync(join(dir, n), body)
+    const fused = sh(dir, [`git`, `merge-file`, `-p`, `--union`, `theirs`, `base`, `ours`]).out
+    expect(fused).toContain(`    title: \`C\`,\n    id: \`b\`,`)
+  })
+
+  it(`an edit beside the prepend bounces the unit instead of a line union`, () => {
+    const r = repo(BASE, POLICY)
+    const b = r.branch(files(`b`))
+    const c = r.branch({ "changelog.ts": web([`c`, `a`]).replace(`title: \`A\``, `title: \`A2\``) })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, b)] }, { prs: [pr(2, c)] }] })
+    expect(outcome.units[1]).toMatchObject({ outcome: `conflict`, files: [`changelog.ts`] })
+    expect(r.read(`changelog.ts`)).toBe(web([`b`, `a`]))
+  })
+
+  it(`a Merge now that had to resolve a conflict runs CI; a clean one stays instant`, () => {
+    const r = repo(BASE, POLICY)
+    const landed = r.branch(files(`b`))
+    const c = r.branch(files(`c`))
+    const resolved = compose({ dir: r.dir, trainId: `t`, baseSha: landed, mode: `untested`, units: [{ prs: [pr(2, c)] }] })
+    expect(resolved.outcome.units[0]!.resolved).toEqual([`changelog`])
+    expect([resolved.outcome.checks, resolved.dispatch]).toEqual([`dispatched`, [`ci.yml`]])
+    const clean = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, c)] }] })
+    expect([clean.outcome.checks, clean.dispatch]).toEqual([`skipped`, []])
   })
 })
 

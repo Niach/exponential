@@ -5,12 +5,12 @@
 // through the repo's resolver rules; a unit that cannot be resolved is dropped
 // whole (the tip resets to before it) and composing goes on.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
   globMatch,
   resolveConflicts,
+  trainChecksMode,
   type ResolveStrategy,
   type TrainChecksMode,
   type TrainPipelineOutcome,
@@ -19,7 +19,7 @@ import {
   type TrainUnitOutcome,
 } from "../../packages/domain-contract/src/merge-train"
 import { Git, sh } from "./git"
-import { fileNumber, jsonUnion, sameContents } from "./strategies"
+import { fileNumber, jsonUnion, prependUnion, sameContents } from "./strategies"
 
 export interface ComposeInput {
   /** A clone with base_sha and every head (and tested_sha) fetched. */
@@ -108,10 +108,15 @@ export function compose(input: ComposeInput): ComposeResult {
   if (!composed) git.must(`commit`, `--quiet`, `--allow-empty`, `-m`, `exp-train ${input.trainId}: nothing composed`)
   const head = git.must(`rev-parse`, `HEAD`)
   const workflows = config.ci?.workflows ?? []
-  let checks: TrainChecksMode = `none`
-  if (composed && input.mode === `untested`) checks = `skipped`
-  else if (composed && proven(git, input.units, units, head)) checks = `proven`
-  else if (composed && workflows.length > 0) checks = `dispatched`
+  // #LOGS-2: a Merge now is untested only when nothing was resolved; a
+  // rewritten conflict is a tree nobody tested, so CI runs on it.
+  const checks: TrainChecksMode = trainChecksMode({
+    mode: input.mode,
+    composed,
+    resolved: units.some((u) => u.outcome === `composed` && u.resolved.length > 0),
+    proven: composed && proven(git, input.units, units, head),
+    workflows,
+  })
   return {
     outcome: { train: input.trainId, base_sha: input.baseSha, head, checks, units, error: null },
     dispatch: checks === `dispatched` ? workflows : [],
@@ -255,17 +260,11 @@ function pickBy(git: Git, path: string, strategy: ResolveStrategy, tip: string):
   let text: string
   if (strategy === `json-union`) text = jsonUnion(base, ours, theirs)
   else {
-    // prepend-union: a three-way line merge whose conflicting hunks keep
-    // both sides, the later unit's first (git merge-file --union).
-    const dir = mkdtempSync(join(tmpdir(), `exp-train-`))
-    const tmp = (name: string, body: string) => {
-      writeFileSync(join(dir, name), body)
-      return join(dir, name)
-    }
-    const r = git.run(`merge-file`, `-p`, `--union`, tmp(`theirs`, theirs), tmp(`base`, base ?? ``), tmp(`ours`, ours))
-    rmSync(dir, { recursive: true, force: true })
-    if (!r.out && r.err.trim()) throw new UnitConflict([path])
-    text = r.out
+    // prepend-union: each side ONE pure insertion at one split point, the
+    // later unit's block first; anything else bounces (#LOGS-2).
+    const merged = prependUnion(base ?? ``, ours, theirs)
+    if (merged === null) throw new UnitConflict([path])
+    text = merged
   }
   writeFileSync(join(git.dir, path), text)
   git.must(`add`, `--`, path)

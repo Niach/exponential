@@ -427,6 +427,25 @@ export interface TrainVerdict {
 
 const PASSING = new Set([`success`, `neutral`, `skipped`])
 
+/** COMPOSE's CI mode (`pipeline.checksModes`). A Merge now is untested
+ *  only when nothing was resolved: a rule that rewrote a conflicted file
+ *  made a tree nobody tested, so CI runs on it (#LOGS-2). */
+export function trainChecksMode(input: {
+  mode: `test` | `untested`
+  composed: boolean
+  /** Any composed unit's `resolved` non-empty. */
+  resolved: boolean
+  /** A lone unit whose composed tree is its tested_sha's. */
+  proven: boolean
+  workflows: readonly string[]
+}): TrainChecksMode {
+  if (!input.composed) return `none`
+  if (input.mode === `untested` && !input.resolved) return `skipped`
+  if (input.proven) return `proven`
+  return input.workflows.length > 0 ? `dispatched` : `none`
+}
+
+
 /** The pipeline's result + the forge's checks at its head (oldest first:
  *  the newest per name wins) + the base branch's required check names. */
 export function trainVerdict(input: {
