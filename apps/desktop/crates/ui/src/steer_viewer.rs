@@ -109,16 +109,21 @@ struct CopyTranscriptSelection {
     text: String,
 }
 
-static REGISTER_COPY_ACTION: std::sync::Once = std::sync::Once::new();
+/// Marks an App that has the [`CopyTranscriptSelection`] handler.
+struct CopyActionRegistered;
+impl gpui::Global for CopyActionRegistered {}
 
 /// EXP-1266: the global [`CopyTranscriptSelection`] handler, registered once
-/// per process (the `file_tree::ensure_actions_registered` rule: menu
-/// actions reach only App-global handlers).
+/// per App (the `file_tree::ensure_actions_registered` rule: menu actions
+/// reach only App-global handlers). Per App, not per process: a process-wide
+/// `Once` left every App but the first without it (parallel tests).
 fn ensure_copy_action_registered(cx: &mut App) {
-    REGISTER_COPY_ACTION.call_once(|| {
-        cx.on_action(|action: &CopyTranscriptSelection, cx| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(action.text.clone()));
-        });
+    if cx.has_global::<CopyActionRegistered>() {
+        return;
+    }
+    cx.set_global(CopyActionRegistered);
+    cx.on_action(|action: &CopyTranscriptSelection, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(action.text.clone()));
     });
 }
 
