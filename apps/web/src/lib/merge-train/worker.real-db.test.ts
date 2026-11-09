@@ -4,7 +4,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
 import { agents, boards, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
-import { probeRealDb } from "@/test/real-db"
+import { probeRealDb, retryingConflict } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 import type { Forge } from "@/lib/ecode/forge"
 
@@ -53,8 +53,8 @@ const made = { teams: [] as string[], users: [] as string[] }
 
 afterAll(async () => {
   if (!ready.ok) return
-  if (made.teams.length) await db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`)
-  if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
+  if (made.teams.length) await retryingConflict(() => db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`))
+  if (made.users.length) await retryingConflict(() => db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`))
 })
 
 // ── the in-memory forge ──────────────────────────────────────────────────

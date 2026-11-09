@@ -76,6 +76,10 @@ export interface MigrationOptions {
   batchSize?: number
   /** Test seam: runs between a batch's read and its write. */
   afterRead?: (table: string, ids: string[]) => Promise<void>
+  /** Test seam: walks one team's rows only (every table here carries
+   *  `team_id`), so a real-DB suite never reads or row-locks the rows the
+   *  suites beside it commit. The script and boot walk everything. */
+  teamId?: string
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
@@ -194,9 +198,10 @@ function fingerprintOf(spec: TableSpec): string {
   return `md5(jsonb_build_array(${spec.columns.map((c) => c.column).join(`, `)})::text)`
 }
 
-async function readPage(client: MigrationDb, spec: TableSpec, after: string, limit: number): Promise<Row[]> {
+async function readPage(client: MigrationDb, spec: TableSpec, after: string, limit: number, teamId: string | undefined): Promise<Row[]> {
   const where = spec.where ? sql` AND ${sql.raw(spec.where)}` : sql``
-  return rowsOf<Row>(await client.execute(sql`${selectRows(spec)} WHERE id > ${after}::uuid${where} ORDER BY id LIMIT ${limit}`))
+  const team = teamId ? sql` AND team_id = ${teamId}::uuid` : sql``
+  return rowsOf<Row>(await client.execute(sql`${selectRows(spec)} WHERE id > ${after}::uuid${where}${team} ORDER BY id LIMIT ${limit}`))
 }
 
 async function readIds(client: MigrationDb, spec: TableSpec, ids: string[]): Promise<Row[]> {
@@ -307,7 +312,7 @@ async function migrateTable(client: MigrationDb, spec: TableSpec, options: Migra
   let after = NIL_UUID
   let conflicted: string[] = []
   for (;;) {
-    const rows = await readPage(client, spec, after, options.batchSize)
+    const rows = await readPage(client, spec, after, options.batchSize, options.teamId)
     if (rows.length === 0) break
     after = rows[rows.length - 1]!.id
     const plans: RowPlan[] = []

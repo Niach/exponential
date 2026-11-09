@@ -9,8 +9,10 @@ import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
 import fixture from "./a2ui10-migrate.fixture.json"
 
 // VAPP-289 (round 9 §14.1): the migration against the real migrated Postgres.
-// Run with DATABASE_URL on a throwaway database (`exp_vapp289`); each case
-// rolls back, so the walk also passes over that database's other rows.
+// Each case rolls back and walks its own seeded team only (`teamId`): the
+// real-DB files run side by side on one database, and a table-wide walk read
+// their committed rows (a foreign failed row turned `ok` false) and, applying,
+// row-locked them until the rollback (their writes and cleanup deadlocked).
 
 const ready = await probeRealDb(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'refresh_conversation_digests_update') AS ok`)
 if (!ready.ok) console.info(`[a2ui10-migrate.real-db] skipped: ${ready.reason}`)
@@ -133,16 +135,12 @@ async function seedAll(s: Seed) {
 describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
   it(`a dry run counts and changes nothing`, async () => {
     await inRollback(async (tx) => {
-      // The walk covers every row and CI runs the real-DB files side by side,
-      // so one snapshot keeps their commits out of the delta below.
-      await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`)
-      // The throwaway database's own rows count too.
-      const base = await runA2ui10Migration(tx as Client, { apply: false })
       const s = await seed(tx)
+      const base = await runA2ui10Migration(tx as Client, { apply: false, teamId: s.teamId })
       await seedAll(s)
       const before = await snapshot(tx, s.teamId)
       const xmin = await xmins(tx, s.teamId)
-      const report = await runA2ui10Migration(tx as Client, { apply: false })
+      const report = await runA2ui10Migration(tx as Client, { apply: false, teamId: s.teamId })
       expect(await snapshot(tx, s.teamId)).toBe(before)
       expect(await xmins(tx, s.teamId)).toBe(xmin)
       expect(report.mode).toBe(`dry-run`)
@@ -166,8 +164,8 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       const s = await seed(tx)
       const seeded = await seedAll(s)
       const digest = await tx.execute(sql`SELECT digest, updated_at FROM conversations WHERE id = ${s.conversationId}::uuid`)
-      const dry = await runA2ui10Migration(tx as Client, { apply: false })
-      const report = await runA2ui10Migration(tx as Client, { apply: true, batchSize: 3 })
+      const dry = await runA2ui10Migration(tx as Client, { apply: false, teamId: s.teamId })
+      const report = await runA2ui10Migration(tx as Client, { apply: true, batchSize: 3, teamId: s.teamId })
       expect(report.ok).toBe(true)
       for (const [name, column] of Object.entries(report.columns)) expect(column.rewritten, name).toBe(dry.columns[name]!.toRewrite)
 
@@ -199,10 +197,10 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
       await seedAll(s)
-      await runA2ui10Migration(tx as Client, { apply: true })
+      await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
       const before = await snapshot(tx, s.teamId)
       const xmin = await xmins(tx, s.teamId)
-      const again = await runA2ui10Migration(tx as Client, { apply: true })
+      const again = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
       expect(again.ok).toBe(true)
       for (const column of Object.values(again.columns)) expect(column).toMatchObject({ toRewrite: 0, rewritten: 0, failed: [], conflicted: [] })
       expect(again.electric).toEqual({ rows: 0, bytes: 0 })
@@ -216,7 +214,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       const s = await seed(tx)
       const sealed = await s.message(fixture.cards.sealed)
       const ask = await s.message(fixture.cards.sealedAsk)
-      const report = await runA2ui10Migration(tx as Client, { apply: true })
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
       expect(report.columns[`messages.card`]!.sealedSkipped).toBeGreaterThanOrEqual(2)
       expect((await messageRow(tx, sealed)).card).toEqual(fixture.cards.sealed)
       expect((await messageRow(tx, ask)).card).toEqual(fixture.cards.sealedAsk)
@@ -230,7 +228,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       const format4 = await s.version(broken, 1, CAT.formatFour)
       const card = await s.message(fixture.cards.brokenComponent)
       const good = await s.message(fixture.cards.plan)
-      const report = await runA2ui10Migration(tx as Client, { apply: true })
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
       expect(report.ok).toBe(false)
       expect(report.columns[`apps.draft_package`]!.failed).toEqual([{ id: broken, reason: expect.stringContaining(`no component has the id root`) }])
       expect(report.columns[`apps.package`]!.heldBack).toBe(1)
@@ -255,6 +253,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       let raced = false
       const report = await runA2ui10Migration(tx as Client, {
         apply: true,
+        teamId: s.teamId,
         afterRead: async (table) => {
           if (raced) return
           if (table === `apps`) {
@@ -278,6 +277,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       let n = 0
       const report = await runA2ui10Migration(tx as Client, {
         apply: true,
+        teamId: s.teamId,
         afterRead: async (table) => {
           if (table === `apps`) await tx.execute(sql`UPDATE apps SET package = ${JSON.stringify({ ...CAT.fieldVisits, version: `5.0.${(n += 1)}` })}::jsonb WHERE id = ${id}::uuid`)
         },
@@ -294,6 +294,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       const id = await s.app(`beside-${id8()}`, { package: CAT.fieldVisits })
       const report = await runA2ui10Migration(tx as Client, {
         apply: true,
+        teamId: s.teamId,
         afterRead: async (table) => {
           if (table === `apps`) await tx.execute(sql`UPDATE apps SET automation_state = '{"nightly": {"checkedAt": "2026-11-07"}}'::jsonb WHERE id = ${id}::uuid`)
         },
@@ -331,7 +332,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
               })
           },
         }),
-        { apply: true, batchSize: 500 }
+        { apply: true, batchSize: 500, teamId: s.teamId }
       )
       expect(report.columns[`messages.card`]!.failed).toEqual([{ id: bad, reason: `unsupported Unicode escape sequence` }])
       expect((await messageRow(tx, good)).card.surface!.version).toBe(`1.0`)
@@ -358,7 +359,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
         const pkg = file.package ?? file
         ids.push(await s.app(`shipped-${id8()}`, { package: pkg, draft: pkg }))
       }
-      const report = await runA2ui10Migration(tx as Client, { apply: true })
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
       expect(report.columns[`apps.package`]!.failed).toEqual([])
       for (const id of ids) {
         const app = await appRow(tx, id)
