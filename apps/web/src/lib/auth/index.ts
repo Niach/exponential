@@ -52,6 +52,7 @@ import {
   providerProfileFromClaims,
 } from "@/lib/placeholder-members"
 import { mintAppleClientSecret } from "./apple"
+import { oidcPkcePlugin } from "./oidc-pkce"
 import { githubOAuthClient } from "@/lib/integrations/github-app"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import { askNameBeforeHook, fallbackUserName } from "./ask-name"
@@ -728,10 +729,9 @@ export const auth = betterAuth({
               discoveryUrl: p.discoveryUrl,
               // better-auth 1.7 moved generic callbacks to /callback/:id, but
               // every IdP has the 1.6 URI registered: keep sending it (the
-              // route aliases it, routes/api/auth/$.ts) and keep 1.6's
-              // non-PKCE code flow, so no self-hosted login changes.
+              // route aliases it, routes/api/auth/$.ts). `pkce` stays unset:
+              // oidcPkcePlugin decides it per flow from the discovery doc.
               redirectURI: legacyOidcCallbackUrl(p.id),
-              pkce: false,
               scopes:
                 p.scopes ??
                 (p.adminGroups?.length
@@ -745,6 +745,9 @@ export const auth = betterAuth({
               }),
             })),
           }),
+          // PKCE when the IdP's discovery lists S256, sealed per flow
+          // (lib/auth/oidc-pkce.ts). After genericOAuth: wraps its providers.
+          oidcPkcePlugin(oidcProviders.map((p) => ({ id: p.id, discoveryUrl: p.discoveryUrl }))),
         ]
       : []),
     ...(isCloudInstance() && process.env.CREEM_API_KEY
