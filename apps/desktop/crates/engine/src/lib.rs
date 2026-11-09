@@ -9,7 +9,7 @@
 //! ```text
 //! coding::prepare_with_hooks → PreparedLaunch { transport: Acp, acp: Some(..) }
 //!   → engine::start(EngineStart, host) ──► EngineSession
-//!       ├ thread acp-engine-<sid8>: Client.builder()…connect_with(adapter, main_fn)
+//!       ├ thread acp-engine-<sid8>: Client.v1()…connect_with(adapter, main_fn)
 //!       │    adapter = Claude | Codex   (ConnectTo<Client>)
 //!       ├ mapper.rs : SessionUpdate/requests → wire ActivityEvent + LocalFeedEvent
 //!       ├ lifecycle.rs : outbox, publisher, diffs, kill feed, end sequence

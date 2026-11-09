@@ -867,6 +867,22 @@
       }
     ]
   },
+  "Avatar\/size=xl" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Avatar",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "avatar",
+        "radius" : 9999
+      }
+    ]
+  },
   "Badge\/example" : {
     "height" : 20,
     "nodes" : [
@@ -14637,8 +14653,7 @@
     "height" : 20,
     "nodes" : [
       {
-        "bg" : "#ffffff0a",
-        "border" : 1,
+        "bg" : "#ffffff1c",
         "component" : "Box",
         "frame" : [
           0,
@@ -14652,12 +14667,71 @@
       {
         "component" : "Text",
         "frame" : [
-          5,
-          -0.5,
+          187,
+          0,
           16,
           20
         ],
         "id" : "kbd.label"
+      }
+    ]
+  },
+  "KbdGroup\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "kbd_group"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "kbd_group.key.0",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          6,
+          0,
+          8,
+          20
+        ],
+        "id" : "kbd_group.key.0.label"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          24,
+          0,
+          20,
+          20
+        ],
+        "id" : "kbd_group.key.1",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          30,
+          0,
+          8,
+          20
+        ],
+        "id" : "kbd_group.key.1.label"
       }
     ]
   },
@@ -14680,7 +14754,7 @@
         "frame" : [
           0,
           0,
-          112,
+          108,
           29
         ],
         "id" : "key_recorder.field",
@@ -14691,19 +14765,18 @@
         "frame" : [
           8,
           4.5,
-          96,
+          92,
           20
         ],
         "id" : "key_recorder.field.value"
       },
       {
-        "bg" : "#ffffff0a",
-        "border" : 1,
+        "bg" : "#ffffff1c",
         "component" : "Box",
         "frame" : [
           8,
           4.5,
-          42,
+          40,
           20
         ],
         "id" : "key_recorder.field.value.key.0",
@@ -14712,21 +14785,20 @@
       {
         "component" : "Text",
         "frame" : [
-          13,
-          4,
+          12,
+          4.5,
           32,
           20
         ],
         "id" : "key_recorder.field.value.key.0.label"
       },
       {
-        "bg" : "#ffffff0a",
-        "border" : 1,
+        "bg" : "#ffffff1c",
         "component" : "Box",
         "frame" : [
-          54,
+          52,
           4.5,
-          50,
+          48,
           20
         ],
         "id" : "key_recorder.field.value.key.1",
@@ -14735,8 +14807,8 @@
       {
         "component" : "Text",
         "frame" : [
-          59,
-          4,
+          56,
+          4.5,
           40,
           20
         ],
@@ -14763,7 +14835,7 @@
         "frame" : [
           0,
           0,
-          112,
+          108,
           29
         ],
         "id" : "key_recorder.field",
@@ -14774,19 +14846,18 @@
         "frame" : [
           8,
           4.5,
-          96,
+          92,
           20
         ],
         "id" : "key_recorder.field.value"
       },
       {
-        "bg" : "#ffffff0a",
-        "border" : 1,
+        "bg" : "#ffffff1c",
         "component" : "Box",
         "frame" : [
           8,
           4.5,
-          42,
+          40,
           20
         ],
         "id" : "key_recorder.field.value.key.0",
@@ -14795,21 +14866,20 @@
       {
         "component" : "Text",
         "frame" : [
-          13,
-          4,
+          12,
+          4.5,
           32,
           20
         ],
         "id" : "key_recorder.field.value.key.0.label"
       },
       {
-        "bg" : "#ffffff0a",
-        "border" : 1,
+        "bg" : "#ffffff1c",
         "component" : "Box",
         "frame" : [
-          54,
+          52,
           4.5,
-          50,
+          48,
           20
         ],
         "id" : "key_recorder.field.value.key.1",
@@ -14818,8 +14888,8 @@
       {
         "component" : "Text",
         "frame" : [
-          59,
-          4,
+          56,
+          4.5,
           40,
           20
         ],

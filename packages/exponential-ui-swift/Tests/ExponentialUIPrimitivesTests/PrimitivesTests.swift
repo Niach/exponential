@@ -108,11 +108,33 @@ final class MarkdownParseTests: XCTestCase {
         XCTAssertEqual(Markdown.plain(linked[0].inlines), "a b")
     }
 
-    func testAvatarRule() {
-        XCTAssertEqual(AvatarFallback.initials("Alex Chen"), "AC")
-        XCTAssertEqual(AvatarFallback.initials("ada lovelace byron"), "AL")
-        XCTAssertEqual(AvatarFallback.seedHue("Alex Chen"), AvatarFallback.seedHue("Alex Chen"))
-        XCTAssertLessThan(AvatarFallback.seedHue("x"), 360)
+    /// #EXP-1629: `fixtures/avatar.json` replayed: the palette, the fill
+    /// alpha, the FNV-1a hue per seed and the initials per name.
+    func testAvatarRule() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // Tests/ExponentialUIPrimitivesTests/
+            .deletingLastPathComponent()  // Tests/
+            .deletingLastPathComponent()  // packages/exponential-ui-swift/
+            .deletingLastPathComponent()  // packages/
+            .appendingPathComponent("exponential-ui/fixtures/avatar.json")
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        let palette = try XCTUnwrap(json["palette"] as? [String])
+        XCTAssertEqual(AvatarFallback.palette, palette.map { RGBA(hex: $0)! })
+        XCTAssertEqual(AvatarFallback.fillAlpha, try XCTUnwrap(json["fillAlpha"] as? Double))
+        let hues = try XCTUnwrap(json["hues"] as? [[Any]])
+        XCTAssertFalse(hues.isEmpty)
+        for row in hues {
+            let seed = try XCTUnwrap(row[0] as? String), want = try XCTUnwrap(row[1] as? Int)
+            XCTAssertEqual(AvatarFallback.hueIndex(seed), want, "hue of `\(seed)`")
+            let tint = AvatarFallback.tint(seed: seed)
+            XCTAssertEqual(tint.ink, AvatarFallback.palette[want])
+            XCTAssertEqual(tint.fill.a, AvatarFallback.fillAlpha)
+        }
+        let initials = try XCTUnwrap(json["initials"] as? [[String]])
+        XCTAssertFalse(initials.isEmpty)
+        for row in initials {
+            XCTAssertEqual(AvatarFallback.initials(row[0]), row[1], "initials of `\(row[0])`")
+        }
         XCTAssertEqual(RGBA(hex: "#ff0000")?.r, 1)
         XCTAssertEqual(RGBA(hex: "#0f0")?.g, 1)
         XCTAssertNil(RGBA(hex: "red"))

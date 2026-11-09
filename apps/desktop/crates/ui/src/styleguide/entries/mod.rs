@@ -70,6 +70,8 @@ pub(crate) mod computer_use_banner;
 pub(crate) mod feedback_states;
 pub(crate) mod trace;
 pub(crate) mod code_block;
+// EXP-1629: the Exponential UI Avatar, painted from its specimen.
+pub(crate) mod avatar;
 // VAPP-162: the round-5 Exponential UI pieces, painted from the specimens.
 pub(crate) mod qr_code;
 pub(crate) mod qr_scanner;
@@ -78,6 +80,7 @@ pub(crate) mod outline;
 pub(crate) mod tree;
 pub(crate) mod record_form;
 pub(crate) mod settings_row;
+pub(crate) mod kbd_group;
 // #EXP-1629: the shortcut field.
 pub(crate) mod key_recorder;
 pub(crate) mod record_table;
@@ -179,6 +182,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
+    Entry { id: avatar::ID, owner: avatar::OWNER, render: avatar::render },
     Entry { id: qr_code::ID, owner: qr_code::OWNER, render: qr_code::render },
     Entry { id: qr_scanner::ID, owner: qr_scanner::OWNER, render: qr_scanner::render },
     Entry { id: nav_rail::ID, owner: nav_rail::OWNER, render: nav_rail::render },
@@ -197,6 +201,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: record_form::ID, owner: record_form::OWNER, render: record_form::render },
     Entry { id: record_table::ID, owner: record_table::OWNER, render: record_table::render },
     Entry { id: settings_row::ID, owner: settings_row::OWNER, render: settings_row::render },
+    Entry { id: kbd_group::ID, owner: kbd_group::OWNER, render: kbd_group::render },
     Entry { id: key_recorder::ID, owner: key_recorder::OWNER, render: key_recorder::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },

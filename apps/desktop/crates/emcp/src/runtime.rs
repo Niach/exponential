@@ -11,6 +11,22 @@ pub(crate) fn install_crypto() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
+/// THE builders of every emcp reqwest client: reqwest 0.13 without a bundled
+/// provider builds its TLS from the process default and panics without one,
+/// and this can be the process's first emcp call (before `runtime()`). The
+/// workspace's `exp-http` gate allowlists only this file.
+pub(crate) fn http_client() -> reqwest::ClientBuilder {
+    install_crypto();
+    reqwest::Client::builder()
+}
+
+/// [`http_client`]'s blocking twin (the codemode gateway's).
+#[cfg(feature = "codemode")]
+pub(crate) fn blocking_http_client() -> reqwest::blocking::ClientBuilder {
+    install_crypto();
+    reqwest::blocking::Client::builder()
+}
+
 pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {

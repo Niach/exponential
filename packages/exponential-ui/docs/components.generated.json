@@ -1369,6 +1369,42 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Kbd/<part>."
     },
     {
+      "name": "KbdGroup",
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "specimenId": "exponential-ui-kbd-group",
+      "description": "Key chord: one Kbd cap per key.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "keys",
+          "type": "[string]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Keys in order (`⌘`, `K`)."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group of the Kbd caps, read in order",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "KbdGroup",
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KbdGroup/<part>."
+    },
+    {
       "name": "Label",
       "kind": "macro",
       "group": "text",
@@ -1867,7 +1903,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         {
           "name": "src",
@@ -1879,7 +1915,7 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "sm | default | lg | xl",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -1890,9 +1926,9 @@
           "name": "seed",
           "type": "string",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
-          "description": "Hashes the fallback hue; default the name."
+          "description": "A user id: the palette hue; none = muted."
         }
       ],
       "accessibility": {
@@ -1904,6 +1940,7 @@
         "id": "example",
         "component": "Avatar",
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       },
       "macro": null
@@ -4320,6 +4357,14 @@
           "description": "Picture URL."
         },
         {
+          "name": "seed",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Their id: the avatar hue."
+        },
+        {
           "name": "state",
           "type": "ringing | connecting | talking | ended",
           "required": false,
@@ -4399,6 +4444,7 @@
         "id": "example",
         "component": "CallSurface",
         "name": "Assistant",
+        "seed": "agent-assistant",
         "state": "talking",
         "activity": "speaking",
         "level": 0.6,

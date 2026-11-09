@@ -112,7 +112,7 @@ fn jitter_at(base: Duration, roll: u64) -> Duration {
 fn build() -> Client {
     // The keepalive pings live on the async builder only; the blocking
     // builder wraps one, so configure there and convert.
-    let builder = reqwest::Client::builder()
+    let builder = exp_http::client()
         .connect_timeout(CONNECT_TIMEOUT)
         .pool_max_idle_per_host(POOL_MAX_IDLE_PER_HOST)
         .pool_idle_timeout(POOL_IDLE_TIMEOUT)

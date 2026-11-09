@@ -38,7 +38,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     AvailableCommand, ContentBlock, ContentChunk, CreateElicitationRequest, ElicitationMode,
     ElicitationPropertySchema, PermissionOption, PermissionOptionKind, RequestPermissionRequest,
     SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions,
@@ -899,19 +899,19 @@ impl Mapper {
                     .map(|entry| PlanEntryView {
                         content: entry.content.clone(),
                         priority: match entry.priority {
-                            agent_client_protocol::schema::v1::PlanEntryPriority::High => {
+                            agent_client_protocol::v1::schema::PlanEntryPriority::High => {
                                 PlanEntryPriorityView::High
                             }
-                            agent_client_protocol::schema::v1::PlanEntryPriority::Low => {
+                            agent_client_protocol::v1::schema::PlanEntryPriority::Low => {
                                 PlanEntryPriorityView::Low
                             }
                             _ => PlanEntryPriorityView::Medium,
                         },
                         status: match entry.status {
-                            agent_client_protocol::schema::v1::PlanEntryStatus::InProgress => {
+                            agent_client_protocol::v1::schema::PlanEntryStatus::InProgress => {
                                 PlanEntryStatusView::InProgress
                             }
-                            agent_client_protocol::schema::v1::PlanEntryStatus::Completed => {
+                            agent_client_protocol::v1::schema::PlanEntryStatus::Completed => {
                                 PlanEntryStatusView::Completed
                             }
                             _ => PlanEntryStatusView::Pending,
@@ -1020,7 +1020,7 @@ impl Mapper {
                 self.emit_usage(usage.used, usage.size, cost, out);
             }
             SessionUpdate::CompactionUpdate(update) => {
-                use agent_client_protocol::schema::v1::CompactionStatus;
+                use agent_client_protocol::v1::schema::CompactionStatus;
                 let trigger = notification
                     .meta
                     .as_ref()
@@ -2960,7 +2960,7 @@ impl Mapper {
 
     /// One file's section of the wire patch: the unified diff of its old and
     /// new text, or `None` when the edit changed nothing.
-    fn edit_patch(&self, diff: &agent_client_protocol::schema::v1::Diff) -> Option<String> {
+    fn edit_patch(&self, diff: &agent_client_protocol::v1::schema::Diff) -> Option<String> {
         let path = self.display_path(&diff.path);
         let patch = wire::tool_diff::unified_diff(&path, diff.old_text.as_deref(), &diff.new_text);
         if patch.is_empty() {
@@ -3019,7 +3019,7 @@ impl Mapper {
         &self,
         kind: ToolKind,
         title: &str,
-        locations: &[agent_client_protocol::schema::v1::ToolCallLocation],
+        locations: &[agent_client_protocol::v1::schema::ToolCallLocation],
         raw_input: Option<&Value>,
     ) -> Option<String> {
         if let Some(location) = locations.first() {
@@ -3664,7 +3664,7 @@ impl Mapper {
     fn elicit_steps(
         &self,
         message: &str,
-        schema: &agent_client_protocol::schema::v1::ElicitationSchema,
+        schema: &agent_client_protocol::v1::schema::ElicitationSchema,
     ) -> Vec<ElicitStep> {
         let is_plain_string = |property: &ElicitationPropertySchema| {
             matches!(
@@ -3903,9 +3903,9 @@ fn card_options(options: &[QuestionOption]) -> Vec<ReplyOption> {
 }
 
 fn multi_select_options(
-    items: &agent_client_protocol::schema::v1::MultiSelectItems,
+    items: &agent_client_protocol::v1::schema::MultiSelectItems,
 ) -> Vec<(String, String)> {
-    use agent_client_protocol::schema::v1::MultiSelectItems;
+    use agent_client_protocol::v1::schema::MultiSelectItems;
     match items {
         MultiSelectItems::String(items) => {
             items.values.iter().map(|value| (value.clone(), value.clone())).collect()
@@ -4499,7 +4499,7 @@ pub fn phase_event(phase: EnginePhase) -> LocalFeedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         ContentChunk, PermissionOption, PermissionOptionId, RequestPermissionRequest, SessionId,
         SessionNotification, TextContent, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
     };
@@ -4524,7 +4524,7 @@ mod tests {
     /// and the rate-limit slot still rides the same arm.
     #[test]
     fn a_session_title_surfaces_once_per_change_and_never_clears() {
-        use agent_client_protocol::schema::v1::SessionInfoUpdate;
+        use agent_client_protocol::v1::schema::SessionInfoUpdate;
         let mut mapper = mapper();
         let titled = |title: &str| {
             notify(SessionUpdate::SessionInfoUpdate(
@@ -4576,7 +4576,7 @@ mod tests {
     /// gate reads exactly that edge.
     #[test]
     fn a_turn_end_closes_a_compaction_whose_end_never_came() {
-        use agent_client_protocol::schema::v1::{
+        use agent_client_protocol::v1::schema::{
             CompactionId, CompactionStatus, CompactionUpdate,
         };
         let mut mapper = mapper();
@@ -4615,7 +4615,7 @@ mod tests {
     fn chunk(text: &str, message_id: Option<&str>) -> ContentChunk {
         let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
         match message_id {
-            Some(id) => chunk.message_id(agent_client_protocol::schema::v1::MessageId::new(id)),
+            Some(id) => chunk.message_id(agent_client_protocol::v1::schema::MessageId::new(id)),
             None => chunk,
         }
     }
@@ -5423,7 +5423,7 @@ mod tests {
         // adapters publish — a VALUE with no `values`, because a switch is
         // the `/model <alias>` prompt, not a menu pick. NEW-2: the agent's
         // own commands are parsed and never published.
-        use agent_client_protocol::schema::v1::{
+        use agent_client_protocol::v1::schema::{
             SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode, SessionModeId,
         };
         let mut mapper = mapper();
@@ -5478,7 +5478,7 @@ mod tests {
     /// learns. An unchanged republish is still deduped (EXP-758).
     #[test]
     fn a_config_option_update_republishes_the_model_once() {
-        use agent_client_protocol::schema::v1::{
+        use agent_client_protocol::v1::schema::{
             ConfigOptionUpdate, SessionConfigSelectOption,
         };
         let option = |value: &str| {
@@ -5530,7 +5530,7 @@ mod tests {
 
     #[test]
     fn usage_carries_only_a_dollar_cost() {
-        use agent_client_protocol::schema::v1::{Cost, UsageUpdate};
+        use agent_client_protocol::v1::schema::{Cost, UsageUpdate};
         let mut mapper = mapper();
         let mut out = MapOut::default();
         mapper.on_update(
@@ -5549,7 +5549,7 @@ mod tests {
     /// whole and in order, and an unchanged list is not restated.
     #[test]
     fn a_plan_update_publishes_the_task_list_slot_once() {
-        use agent_client_protocol::schema::v1::{
+        use agent_client_protocol::v1::schema::{
             Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
         };
         let plan = || {
@@ -5592,7 +5592,7 @@ mod tests {
     /// of the new run is always restated.
     #[test]
     fn an_empty_plan_clears_the_slot_and_a_session_start_resets_the_dedupe() {
-        use agent_client_protocol::schema::v1::{
+        use agent_client_protocol::v1::schema::{
             Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionMode, SessionModeId,
         };
         let plan = || {
@@ -6176,7 +6176,7 @@ mod tests {
     /// carries its lane.
     #[test]
     fn an_api_error_is_an_inline_row_and_never_walls() {
-        use agent_client_protocol::schema::v1::SessionInfoUpdate;
+        use agent_client_protocol::v1::schema::SessionInfoUpdate;
         let carrier = |subagent: Option<&str>| {
             let mut note = notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()));
             let mut meta = serde_json::Map::new();
@@ -6268,7 +6268,7 @@ mod tests {
 #[cfg(test)]
 mod exp850_tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         SessionId, SessionInfoUpdate, SessionNotification, ToolCall as AcpToolCall, ToolCallId,
     };
     use serde_json::json;
@@ -6644,7 +6644,7 @@ mod exp850_tests {
 #[cfg(test)]
 mod exp1224_tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         SessionId, SessionInfoUpdate, SessionNotification, TextContent, ToolCall as AcpToolCall,
         ToolCallId, UsageUpdate,
     };
@@ -6923,7 +6923,7 @@ mod exp1224_tests {
 #[cfg(test)]
 mod conversation_tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         ContentChunk, ElicitationFormMode, ElicitationSchema, ElicitationSessionScope,
         PermissionOption, PermissionOptionId, RequestPermissionRequest, SessionId,
         StringPropertySchema, TextContent, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
@@ -6950,7 +6950,7 @@ mod conversation_tests {
 
     fn say(mapper: &mut Mapper, text: &str, message_id: &str, out: &mut MapOut) {
         let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
-            .message_id(agent_client_protocol::schema::v1::MessageId::new(message_id));
+            .message_id(agent_client_protocol::v1::schema::MessageId::new(message_id));
         mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)), out);
     }
 
@@ -7006,7 +7006,7 @@ mod conversation_tests {
         let mut lane = serde_json::Map::new();
         lane.insert(SUBAGENT_ID_META_KEY.to_string(), json!("task-1"));
         let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("subagent words")))
-            .message_id(agent_client_protocol::schema::v1::MessageId::new("m-sub"));
+            .message_id(agent_client_protocol::v1::schema::MessageId::new("m-sub"));
         mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)).meta(lane), &mut out);
         mapper.on_stop(StopReason::EndTurn, &mut out);
         let replies = texts(&out.replies);
@@ -7274,7 +7274,7 @@ mod conversation_tests {
     /// joined `answer` is the fallback for older servers.
     #[test]
     fn a_multi_select_card_answer_reads_answers_first() {
-        use agent_client_protocol::schema::v1::{EnumOption, MultiSelectPropertySchema};
+        use agent_client_protocol::v1::schema::{EnumOption, MultiSelectPropertySchema};
         let mut mapper = live();
         let mut out = MapOut::default();
         let request = CreateElicitationRequest::new(

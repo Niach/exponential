@@ -1589,6 +1589,16 @@
           "playful": 64,
           "orange": 56
         }
+      },
+      {
+        "name": "avatarXl",
+        "ref": "$control.avatarXl",
+        "values": {
+          "neutral": 48,
+          "exponential": 48,
+          "playful": 48,
+          "orange": 48
+        }
       }
     ],
     "shadow": [
@@ -2656,6 +2666,15 @@
       "parts": [
         "root",
         "label"
+      ],
+      "props": []
+    },
+    {
+      "name": "KbdGroup",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "key"
       ],
       "props": []
     },

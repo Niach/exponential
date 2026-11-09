@@ -23,10 +23,9 @@ gradle.settingsEvaluated {
     // The plugin resolves `releaseRuntimeClasspath` while its task is CREATED
     // (a lazy `tasks.register`), and the first resolve loads the included
     // builds, which Gradle refuses inside a lazy context ("cannot be executed
-    // in the current context"). Resolve it once here, eagerly, first.
-    gradle.projectsEvaluated {
-        rootProject.project(":app").configurations.getByName("releaseRuntimeClasspath").incoming.resolutionResult.root
-    }
+    // in the current context"). Resolve it once, eagerly, first: in `:app`'s
+    // own afterEvaluate (Gradle 9 refuses a resolve from `projectsEvaluated`,
+    // which holds no project lock).
 }
 
 fun Project.runnerApp() {
@@ -34,6 +33,7 @@ fun Project.runnerApp() {
     buildscript.repositories.gradlePluginPortal()
     buildscript.dependencies.add("classpath", "com.jaredsburrows:gradle-license-plugin:0.9.9")
     pluginManager.withPlugin("com.android.application") {
+        afterEvaluate { configurations.getByName("releaseRuntimeClasspath").incoming.resolutionResult.root }
         apply(plugin = "com.jaredsburrows.license")
         extensions.getByName("licenseReport").withGroovyBuilder {
             for (flag in listOf("GenerateCsvReport", "GenerateHtmlReport", "GenerateTextReport",

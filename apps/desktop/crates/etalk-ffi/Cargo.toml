@@ -28,6 +28,6 @@ cli = ["uniffi/cli"]
 etalk = { path = "../etalk", default-features = false }
 etalk-codec = { path = "../etalk-codec" }
 # The version already in apps/desktop/Cargo.lock (eUI's and eNet's facades): ONE uniffi in the tree.
-uniffi = { version = "0.31" }
+uniffi = { version = "0.32" }
 # An incoming `call_event` is JSON text.
 serde_json = { workspace = true }

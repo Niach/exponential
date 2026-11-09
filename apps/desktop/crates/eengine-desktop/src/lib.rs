@@ -156,6 +156,12 @@ impl DesktopConfig {
     }
 }
 
+/// THIS OS's file dialogs (the Linux portal's file chooser), for a host's
+/// own pickers (#EDE-65: eDE's chat composer); `None` = no backend.
+pub fn dialogs(config: &DesktopConfig) -> Option<Arc<dyn Dialogs>> {
+    platform::dialogs(config)
+}
+
 /// The capabilities THIS OS provides, ready for the Engine's broker. One the
 /// platform has no backend for is left out (Linux has no share portal,
 /// Windows gets no share or print: see README.md), so the broker answers

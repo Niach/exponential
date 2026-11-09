@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-1148 third-party components are distributed as part of this build. They are
+1142 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -324,9 +324,9 @@ Applies to the following 113 components:
     MIT elected from `MIT OR Apache-2.0`
   camino 1.2.6
     MIT elected from `MIT OR Apache-2.0`
-  cargo-platform 0.1.9
+  cargo-platform 0.3.3
     MIT elected from `MIT OR Apache-2.0`
-  cargo_metadata 0.19.2
+  cargo_metadata 0.23.1
   concurrent-queue 2.5.0
     MIT elected from `Apache-2.0 OR MIT`
   curve25519-dalek-derive 0.1.1  [x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu]
@@ -360,8 +360,8 @@ Applies to the following 113 components:
     MIT elected from `Apache-2.0/MIT`
   flume 0.12.0
     MIT elected from `Apache-2.0/MIT`
-  fs-err 2.11.0
-    MIT elected from `MIT/Apache-2.0`
+  fs-err 3.3.2
+    MIT elected from `MIT OR Apache-2.0`
   futures-lite 2.6.1
     MIT elected from `Apache-2.0 OR MIT`
   glow 0.17.0  [x86_64-unknown-linux-gnu]
@@ -538,7 +538,7 @@ DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 43 components:
+Applies to the following 40 components:
 
   windows 0.54.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -608,13 +608,9 @@ Applies to the following 43 components:
     MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.59.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.60.2  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.61.2  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows-targets 0.52.6  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.53.5  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows-threading 0.1.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -623,8 +619,6 @@ Applies to the following 43 components:
   windows-version 0.1.7  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows_x86_64_msvc 0.52.6  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.53.1  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -1142,11 +1136,11 @@ Applies to the following 18 components:
     MIT elected from `MIT OR Apache-2.0`
   serde_spanned 0.6.9
     MIT elected from `MIT OR Apache-2.0`
-  serde_spanned 1.1.1  [build-time only, not linked]
+  serde_spanned 1.1.1
     MIT elected from `MIT OR Apache-2.0`
   toml 0.8.23
     MIT elected from `MIT OR Apache-2.0`
-  toml 1.1.2+spec-1.1.0  [build-time only, not linked]
+  toml 1.1.2+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
   toml_datetime 0.6.11
     MIT elected from `MIT OR Apache-2.0`
@@ -1160,7 +1154,7 @@ Applies to the following 18 components:
     MIT elected from `MIT OR Apache-2.0`
   toml_write 0.1.2
     MIT elected from `MIT OR Apache-2.0`
-  toml_writer 1.1.1+spec-1.1.0  [build-time only, not linked]
+  toml_writer 1.1.1+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -1551,13 +1545,13 @@ Apache-2.0
 
 Applies to the following 10 components:
 
-  agent-client-protocol 2.1.0
-  agent-client-protocol-derive 2.1.0
-  agent-client-protocol-schema 1.7.0
-  ede-observability 0.2.11
-  ede-services 0.2.11
-  ede-theme 0.2.11
-  ede-ui 0.2.11
+  agent-client-protocol 5.0.0
+  agent-client-protocol-derive 5.0.0
+  agent-client-protocol-schema 1.15.1
+  ede-observability 0.2.12
+  ede-services 0.2.12
+  ede-theme 0.2.12
+  ede-ui 0.2.12
   spirv 0.4.0+sdk-1.4.341.0  [x86_64-unknown-linux-gnu]
   stacksafe 1.0.3
   stacksafe-macro 1.0.3
@@ -1835,14 +1829,14 @@ MPL-2.0
 Applies to the following 9 components:
 
   option-ext 0.2.0
-  uniffi 0.31.0
-  uniffi_bindgen 0.31.0
-  uniffi_core 0.31.0
-  uniffi_internal_macros 0.31.0
-  uniffi_macros 0.31.0
-  uniffi_meta 0.31.0
-  uniffi_pipeline 0.31.0
-  uniffi_udl 0.31.0
+  uniffi 0.32.2
+  uniffi_bindgen 0.32.2
+  uniffi_core 0.32.2
+  uniffi_internal_macros 0.32.2
+  uniffi_macros 0.32.2
+  uniffi_meta 0.32.2
+  uniffi_pipeline 0.32.2
+  uniffi_udl 0.32.2
 
 ..............................................................................
 
@@ -3293,6 +3287,54 @@ MIT
 
 Applies to the following 4 components:
 
+  askama 0.16.1
+    Copyright (c) 2017-2020 Dirkjan Ochtman
+    MIT elected from `MIT OR Apache-2.0`
+  askama_derive 0.16.1
+    Copyright (c) 2017-2020 Dirkjan Ochtman
+    MIT elected from `MIT OR Apache-2.0`
+  askama_macros 0.16.1
+    Copyright (c) 2017-2020 Dirkjan Ochtman
+    MIT elected from `MIT OR Apache-2.0`
+  askama_parser 0.16.1
+    Copyright (c) 2017-2020 Dirkjan Ochtman
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2017-2020 Dirkjan Ochtman
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 4 components:
+
   bao-tree 0.17.0
     Copyright 2025 N0, INC.
     MIT elected from `MIT OR Apache-2.0`
@@ -4439,51 +4481,6 @@ MIT
 
 Applies to the following 3 components:
 
-  askama 0.14.0
-    Copyright (c) 2017-2020 Dirkjan Ochtman
-    MIT elected from `MIT OR Apache-2.0`
-  askama_derive 0.14.0
-    Copyright (c) 2017-2020 Dirkjan Ochtman
-    MIT elected from `MIT OR Apache-2.0`
-  askama_parser 0.14.0
-    Copyright (c) 2017-2020 Dirkjan Ochtman
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2017-2020 Dirkjan Ochtman
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 3 components:
-
   async-compression 0.4.42
     Copyright (c) 2018 the rustasync developers
     MIT elected from `MIT OR Apache-2.0`
@@ -5024,59 +5021,6 @@ MIT
 
 Applies to the following 3 components:
 
-  md-5 0.10.6  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2006-2009 Graydon Hoare
-    Copyright (c) 2009-2013 Mozilla Foundation
-    Copyright (c) 2016 Artyom Pavlov
-    MIT elected from `MIT OR Apache-2.0`
-  sha1 0.10.6
-    Copyright (c) 2006-2009 Graydon Hoare
-    Copyright (c) 2009-2013 Mozilla Foundation
-    Copyright (c) 2016 Artyom Pavlov
-    MIT elected from `MIT OR Apache-2.0`
-  sha2 0.10.9
-    Copyright (c) 2006-2009 Graydon Hoare
-    Copyright (c) 2009-2013 Mozilla Foundation
-    Copyright (c) 2016 Artyom Pavlov
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2006-2009 Graydon Hoare
-Copyright (c) 2009-2013 Mozilla Foundation
-Copyright (c) 2016 Artyom Pavlov
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 3 components:
-
   nix 0.28.0
     Copyright (c) 2015 Carl Lerche + nix-rust Authors
   nix 0.30.1  [x86_64-unknown-linux-gnu]
@@ -5223,33 +5167,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 3 components:
-
-  quinn 0.11.11
-    Copyright (c) 2018 The quinn Developers
-    MIT elected from `MIT OR Apache-2.0`
-  quinn-proto 0.11.15
-    Copyright (c) 2018 The quinn Developers
-    MIT elected from `MIT OR Apache-2.0`
-  quinn-udp 0.5.14
-    Copyright (c) 2018 The quinn Developers
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2018 The quinn Developers
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -7064,14 +6981,14 @@ MIT
 
 Applies to the following 2 components:
 
-  libsqlite3-sys 0.30.1
-    Copyright (c) 2014-2021 The rusqlite developers
-  rusqlite 0.32.1
-    Copyright (c) 2014-2021 The rusqlite developers
+  libsqlite3-sys 0.39.1
+    Copyright (c) 2014 The rusqlite developers
+  rusqlite 0.41.1
+    Copyright (c) 2014 The rusqlite developers
 
 ..............................................................................
 
-Copyright (c) 2014-2021 The rusqlite developers
+Copyright (c) 2014 The rusqlite developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -7108,6 +7025,54 @@ Applies to the following 2 components:
 ..............................................................................
 
 Copyright (c) 2019 Nick Fitzgerald, 2021 Yuki Okushi
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  md-5 0.10.6  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2006-2009 Graydon Hoare
+    Copyright (c) 2009-2013 Mozilla Foundation
+    Copyright (c) 2016 Artyom Pavlov
+    MIT elected from `MIT OR Apache-2.0`
+  sha2 0.10.9
+    Copyright (c) 2006-2009 Graydon Hoare
+    Copyright (c) 2009-2013 Mozilla Foundation
+    Copyright (c) 2016 Artyom Pavlov
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2006-2009 Graydon Hoare
+Copyright (c) 2009-2013 Mozilla Foundation
+Copyright (c) 2016 Artyom Pavlov
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -7626,6 +7591,57 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  sha1 0.11.0
+    Copyright (c) 2006-2009 Graydon Hoare
+    Copyright (c) 2009-2013 Mozilla Foundation
+    Copyright (c) 2016 Artyom Pavlov
+    Copyright (c) 2016-2026 The RustCrypto Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  sha2 0.11.1
+    Copyright (c) 2006-2009 Graydon Hoare
+    Copyright (c) 2009-2013 Mozilla Foundation
+    Copyright (c) 2016 Artyom Pavlov
+    Copyright (c) 2016-2026 The RustCrypto Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2016-2026 The RustCrypto Project Developers
+Copyright (c) 2016 Artyom Pavlov
+Copyright (c) 2009-2013 Mozilla Foundation
+Copyright (c) 2006-2009 Graydon Hoare
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -15840,7 +15856,7 @@ MIT
 
 Applies to the following component:
 
-  hashlink 0.9.1
+  hashlink 0.12.2
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -19173,39 +19189,6 @@ MIT
 
 Applies to the following component:
 
-  reqwest 0.12.28
-    Copyright (c) 2016-2025 Sean McArthur
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2016-2025 Sean McArthur
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
   reqwest 0.13.5
     Copyright (c) 2016-2026 Sean McArthur
     MIT elected from `MIT OR Apache-2.0`
@@ -19725,51 +19708,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  sha2 0.11.1
-    Copyright (c) 2006-2009 Graydon Hoare
-    Copyright (c) 2009-2013 Mozilla Foundation
-    Copyright (c) 2016 Artyom Pavlov
-    Copyright (c) 2016-2026 The RustCrypto Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2016-2026 The RustCrypto Project Developers
-Copyright (c) 2016 Artyom Pavlov
-Copyright (c) 2009-2013 Mozilla Foundation
-Copyright (c) 2006-2009 Graydon Hoare
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -20875,7 +20813,7 @@ MIT
 
 Applies to the following component:
 
-  tokio-tungstenite 0.24.0
+  tokio-tungstenite 0.30.0
     Copyright (c) 2017 Alexey Galakhov
     Copyright (c) 2017 Daniel Abramov
 
@@ -21574,7 +21512,7 @@ MIT
 
 Applies to the following component:
 
-  tungstenite 0.24.0
+  tungstenite 0.30.0
     Copyright (c) 2016 Jason Housley
     Copyright (c) 2017 Alexey Galakhov
     MIT elected from `MIT OR Apache-2.0`
@@ -23510,11 +23448,13 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   ash 0.38.0+1.3.281
     MIT elected from `MIT OR Apache-2.0`
-  askama 0.14.0
+  askama 0.16.1
     MIT elected from `MIT OR Apache-2.0`
-  askama_derive 0.14.0
+  askama_derive 0.16.1
     MIT elected from `MIT OR Apache-2.0`
-  askama_parser 0.14.0
+  askama_macros 0.16.1
+    MIT elected from `MIT OR Apache-2.0`
+  askama_parser 0.16.1
     MIT elected from `MIT OR Apache-2.0`
   async-broadcast 0.7.2
     MIT elected from `MIT OR Apache-2.0`
@@ -23631,7 +23571,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   camino 1.2.6
     MIT elected from `MIT OR Apache-2.0`
-  cargo-platform 0.1.9
+  cargo-platform 0.3.3
     MIT elected from `MIT OR Apache-2.0`
   cast 0.3.0
     MIT elected from `MIT OR Apache-2.0`
@@ -23863,8 +23803,8 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   form_urlencoded 1.2.2
     MIT elected from `MIT OR Apache-2.0`
-  fs-err 2.11.0
-    MIT elected from `MIT/Apache-2.0`
+  fs-err 3.3.2
+    MIT elected from `MIT OR Apache-2.0`
   futf 0.1.5
     MIT elected from `MIT / Apache-2.0`
   futures 0.3.34
@@ -23933,7 +23873,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   hashbrown 0.17.1
     MIT elected from `MIT OR Apache-2.0`
-  hashlink 0.9.1
+  hashlink 0.12.2
     MIT elected from `MIT OR Apache-2.0`
   hdrhistogram 7.6.0
     MIT elected from `MIT/Apache-2.0`
@@ -24347,12 +24287,6 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   quick-error 2.0.1
     MIT elected from `MIT/Apache-2.0`
-  quinn 0.11.11
-    MIT elected from `MIT OR Apache-2.0`
-  quinn-proto 0.11.15
-    MIT elected from `MIT OR Apache-2.0`
-  quinn-udp 0.5.14
-    MIT elected from `MIT OR Apache-2.0`
   quote 1.0.47
     MIT elected from `MIT OR Apache-2.0`
   rand 0.10.3
@@ -24414,8 +24348,6 @@ Elections made in this build
   regress 0.12.0
     MIT elected from `MIT OR Apache-2.0`
   renderdoc-sys 1.1.0
-    MIT elected from `MIT OR Apache-2.0`
-  reqwest 0.12.28
     MIT elected from `MIT OR Apache-2.0`
   reqwest 0.13.5
     MIT elected from `MIT OR Apache-2.0`
@@ -24505,7 +24437,7 @@ Elections made in this build
     MIT elected from `Apache-2.0 OR MIT`
   serial2 0.2.37
     BSD-2-Clause elected from `BSD-2-Clause OR Apache-2.0`
-  sha1 0.10.6
+  sha1 0.11.0
     MIT elected from `MIT OR Apache-2.0`
   sha2 0.10.9
     MIT elected from `MIT OR Apache-2.0`
@@ -24681,7 +24613,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   ttf-parser 0.25.1
     MIT elected from `MIT OR Apache-2.0`
-  tungstenite 0.24.0
+  tungstenite 0.30.0
     MIT elected from `MIT OR Apache-2.0`
   typed-path 0.13.0
     MIT elected from `MIT OR Apache-2.0`
@@ -24847,13 +24779,9 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.59.0
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.60.2
-    MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.61.2
     MIT elected from `MIT OR Apache-2.0`
   windows-targets 0.52.6
-    MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.53.5
     MIT elected from `MIT OR Apache-2.0`
   windows-threading 0.1.0
     MIT elected from `MIT OR Apache-2.0`
@@ -24862,8 +24790,6 @@ Elections made in this build
   windows-version 0.1.7
     MIT elected from `MIT OR Apache-2.0`
   windows_x86_64_msvc 0.52.6
-    MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.53.1
     MIT elected from `MIT OR Apache-2.0`
   wmi 0.18.4
     MIT elected from `MIT OR Apache-2.0`
@@ -27230,28 +27156,28 @@ obtained.
   option-ext 0.2.0
     Source Code Form: https://github.com/soc/option-ext
     Distributed unmodified.
-  uniffi 0.31.0
+  uniffi 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_bindgen 0.31.0
+  uniffi_bindgen 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_core 0.31.0
+  uniffi_core 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_internal_macros 0.31.0
+  uniffi_internal_macros 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_macros 0.31.0
+  uniffi_macros 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_meta 0.31.0
+  uniffi_meta 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_pipeline 0.31.0
+  uniffi_pipeline 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_udl 0.31.0
+  uniffi_udl 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
 

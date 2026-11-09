@@ -39,6 +39,52 @@ fileprivate extension ForeignBytes {
     init(bufferPointer: UnsafeBufferPointer<UInt8>) {
         self.init(len: Int32(bufferPointer.count), data: bufferPointer.baseAddress)
     }
+
+    init(rawBufferPointer: UnsafeRawBufferPointer) {
+        self.init(
+            len: Int32(rawBufferPointer.count),
+            data: rawBufferPointer.baseAddress?.assumingMemoryBound(to: UInt8.self)
+        )
+    }
+}
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Conforms to `FfiConverter` so the compiler enforces the full converter
+// method set. Only the scope-bound `lower(_:_body:)` overload is sound —
+// zero-copy byte buffers only flow foreign -> Rust, and only in argument
+// position. The four protocol-witness methods (`lift`, `lower`, `read`,
+// `write`) `fatalError` at runtime if anyone reaches them.
+//
+// The scope-bound `lower` takes a closure because the `ForeignBytes`
+// pointer is only guaranteed valid for the duration of
+// `Data.withUnsafeBytes`. Callers must run the full FFI call inside
+// the closure body.
+fileprivate enum FfiConverterByRefBytes: FfiConverter {
+    typealias SwiftType = Data
+    typealias FfiType = ForeignBytes
+
+    static func lower<R>(_ value: Data, _ body: (ForeignBytes) throws -> R) rethrows -> R {
+        return try value.withUnsafeBytes { rawBuf in
+            try body(ForeignBytes(rawBufferPointer: rawBuf))
+        }
+    }
+
+    static func lower(_ value: Data) -> ForeignBytes {
+        fatalError("ByRef bytes cannot use the plain lower: returning ForeignBytes escapes the Data.withUnsafeBytes scope. Use the scope-bound lower(_:_body:) overload instead.")
+    }
+
+    static func lift(_ value: ForeignBytes) throws -> Data {
+        fatalError("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+    }
+
+    static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        fatalError("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
+
+    static func write(_ value: Data, into buf: inout [UInt8]) {
+        fatalError("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
 }
 
 // For every type used in the interface, we provide helper methods for conveniently
@@ -599,7 +645,11 @@ fileprivate struct FfiConverterString: FfiConverter {
             return String()
         }
         let bytes = UnsafeBufferPointer<UInt8>(start: value.data!, count: Int(value.len))
-        return String(bytes: bytes, encoding: String.Encoding.utf8)!
+        // Use Swift's native UTF-8 decoder; `String(bytes:encoding:.utf8)` goes
+        // through Foundation's NSString and silently strips a leading U+FEFF BOM.
+        // Invalid UTF-8 substitutes U+FFFD instead of trapping (unreachable
+        // given Rust's `String` invariant).
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     public static func lower(_ value: String) -> RustBuffer {
@@ -615,7 +665,8 @@ fileprivate struct FfiConverterString: FfiConverter {
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> String {
         let len: Int32 = try readInt(&buf)
-        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        // See `lift` above for why we avoid Foundation's NSString-backed decoder here.
+        return String(decoding: try readBytes(&buf, count: Int(len)), as: UTF8.self)
     }
 
     public static func write(_ value: String, into buf: inout [UInt8]) {
@@ -713,8 +764,9 @@ open class TalkDecoder: TalkDecoderProtocol, @unchecked Sendable {
 public convenience init(rate: UInt32)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeTalkError_lift) {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_constructor_talkdecoder_new(
-        FfiConverterUInt32.lower(rate),$0
+        FfiConverterUInt32.lower(rate),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -737,9 +789,10 @@ public convenience init(rate: UInt32)throws  {
      */
 open func decode(packet: Data)throws  -> [Int16]  {
     return try  FfiConverterSequenceInt16.lift(try rustCallWithError(FfiConverterTypeTalkError_lift) {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_method_talkdecoder_decode(
             self.uniffiCloneHandle(),
-        FfiConverterData.lower(packet),$0
+        FfiConverterData.lower(packet),uniffiCallStatus
     )
 })
 }
@@ -750,17 +803,19 @@ open func decode(packet: Data)throws  -> [Int16]  {
      */
 open func decodeFec(packet: Data)throws  -> [Int16]  {
     return try  FfiConverterSequenceInt16.lift(try rustCallWithError(FfiConverterTypeTalkError_lift) {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_method_talkdecoder_decode_fec(
             self.uniffiCloneHandle(),
-        FfiConverterData.lower(packet),$0
+        FfiConverterData.lower(packet),uniffiCallStatus
     )
 })
 }
     
 open func frameSamples() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_method_talkdecoder_frame_samples(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -880,10 +935,11 @@ open class TalkEncoder: TalkEncoderProtocol, @unchecked Sendable {
 public convenience init(rate: UInt32, bitrate: Int32, lossPercent: Int32?)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeTalkError_lift) {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_constructor_talkencoder_new(
         FfiConverterUInt32.lower(rate),
         FfiConverterInt32.lower(bitrate),
-        FfiConverterOptionInt32.lower(lossPercent),$0
+        FfiConverterOptionInt32.lower(lossPercent),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -906,9 +962,10 @@ public convenience init(rate: UInt32, bitrate: Int32, lossPercent: Int32?)throws
      */
 open func encode(pcm: [Int16])throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeTalkError_lift) {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_method_talkencoder_encode(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceInt16.lower(pcm),$0
+        FfiConverterSequenceInt16.lower(pcm),uniffiCallStatus
     )
 })
 }
@@ -918,8 +975,9 @@ open func encode(pcm: [Int16])throws  -> Data  {
      */
 open func frameSamples() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_method_talkencoder_frame_samples(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1032,8 +1090,9 @@ open class TalkUplink: TalkUplinkProtocol, @unchecked Sendable {
 public convenience init(rate: UInt32)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeTalkError_lift) {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_constructor_talkuplink_new(
-        FfiConverterUInt32.lower(rate),$0
+        FfiConverterUInt32.lower(rate),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -1056,10 +1115,11 @@ public convenience init(rate: UInt32)throws  {
      */
 open func push(seq: UInt16, packet: Data) -> [Int16]  {
     return try!  FfiConverterSequenceInt16.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_method_talkuplink_push(
             self.uniffiCloneHandle(),
         FfiConverterUInt16.lower(seq),
-        FfiConverterData.lower(packet),$0
+        FfiConverterData.lower(packet),uniffiCallStatus
     )
 })
 }
@@ -1611,8 +1671,7 @@ public func FfiConverterTypeTalkCallView_lower(_ value: TalkCallView) -> RustBuf
     return FfiConverterTypeTalkCallView.lower(value)
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * One round call button, in [`TalkCallView::buttons`] order.
  */
@@ -1688,8 +1747,7 @@ public func FfiConverterTypeTalkCallButton_lower(_ value: TalkCallButton) -> Rus
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * One flow event (`flowCases` events; a caller gets the host's as `call_event`).
  */
@@ -1894,8 +1952,7 @@ public func FfiConverterTypeTalkCallEvent_lower(_ value: TalkCallEvent) -> RustB
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 
 public enum TalkCallPhase: Equatable, Hashable {
     
@@ -1982,8 +2039,7 @@ public func FfiConverterTypeTalkCallPhase_lower(_ value: TalkCallPhase) -> RustB
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Where the telephone is drawn.
  */
@@ -2059,8 +2115,7 @@ public func FfiConverterTypeTalkCallPlatform_lower(_ value: TalkCallPlatform) ->
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * The voice device's doctor row `speech` as a caller reads it.
  */
@@ -2144,7 +2199,8 @@ public func FfiConverterTypeTalkCallSpeech_lower(_ value: TalkCallSpeech) -> Rus
 
 
 
-public enum TalkError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum TalkError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -2431,15 +2487,17 @@ fileprivate struct FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffe
  */
 public func callAnswerMs(random: Double, readyMs: UInt64?) -> UInt64?  {
     return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_answer_ms(
         FfiConverterDouble.lower(random),
-        FfiConverterOptionUInt64.lower(readyMs),$0
+        FfiConverterOptionUInt64.lower(readyMs),uniffiCallStatus
     )
 })
 }
 public func callConstants() -> TalkCallConstants  {
     return try!  FfiConverterTypeTalkCallConstants_lift(try! rustCall() {
-    uniffi_etalk_ffi_fn_func_call_constants($0
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_call_constants(uniffiCallStatus
     )
 })
 }
@@ -2449,8 +2507,9 @@ public func callConstants() -> TalkCallConstants  {
  */
 public func callEventOfWire(json: String) -> TalkCallEvent?  {
     return try!  FfiConverterOptionTypeTalkCallEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_event_of_wire(
-        FfiConverterString.lower(json),$0
+        FfiConverterString.lower(json),uniffiCallStatus
     )
 })
 }
@@ -2459,8 +2518,9 @@ public func callEventOfWire(json: String) -> TalkCallEvent?  {
  */
 public func callGreeting(language: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_greeting(
-        FfiConverterOptionString.lower(language),$0
+        FfiConverterOptionString.lower(language),uniffiCallStatus
     )
 })
 }
@@ -2469,7 +2529,8 @@ public func callGreeting(language: String?) -> String  {
  */
 public func callIdle() -> TalkCallState  {
     return try!  FfiConverterTypeTalkCallState_lift(try! rustCall() {
-    uniffi_etalk_ffi_fn_func_call_idle($0
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_call_idle(uniffiCallStatus
     )
 })
 }
@@ -2479,8 +2540,9 @@ public func callIdle() -> TalkCallState  {
  */
 public func callRingMs(random: Double) -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_ring_ms(
-        FfiConverterDouble.lower(random),$0
+        FfiConverterDouble.lower(random),uniffiCallStatus
     )
 })
 }
@@ -2489,7 +2551,8 @@ public func callRingMs(random: Double) -> UInt64  {
  */
 public func callRingRandom() -> Double  {
     return try!  FfiConverterDouble.lift(try! rustCall() {
-    uniffi_etalk_ffi_fn_func_call_ring_random($0
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_call_ring_random(uniffiCallStatus
     )
 })
 }
@@ -2498,8 +2561,9 @@ public func callRingRandom() -> Double  {
  */
 public func callRingToneOn(ms: Int64) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_ring_tone_on(
-        FfiConverterInt64.lower(ms),$0
+        FfiConverterInt64.lower(ms),uniffiCallStatus
     )
 })
 }
@@ -2508,7 +2572,8 @@ public func callRingToneOn(ms: Int64) -> Bool  {
  */
 public func callSpecJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_etalk_ffi_fn_func_call_spec_json($0
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_call_spec_json(uniffiCallStatus
     )
 })
 }
@@ -2517,8 +2582,9 @@ public func callSpecJson() -> String  {
  */
 public func callSpeechOf(state: String?) -> TalkCallSpeech?  {
     return try!  FfiConverterOptionTypeTalkCallSpeech.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_speech_of(
-        FfiConverterOptionString.lower(state),$0
+        FfiConverterOptionString.lower(state),uniffiCallStatus
     )
 })
 }
@@ -2527,9 +2593,10 @@ public func callSpeechOf(state: String?) -> TalkCallSpeech?  {
  */
 public func callStep(state: TalkCallState, event: TalkCallEvent) -> TalkCallState  {
     return try!  FfiConverterTypeTalkCallState_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_step(
         FfiConverterTypeTalkCallState_lower(state),
-        FfiConverterTypeTalkCallEvent_lower(event),$0
+        FfiConverterTypeTalkCallEvent_lower(event),uniffiCallStatus
     )
 })
 }
@@ -2538,8 +2605,9 @@ public func callStep(state: TalkCallState, event: TalkCallEvent) -> TalkCallStat
  */
 public func callTimer(ms: UInt64) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_timer(
-        FfiConverterUInt64.lower(ms),$0
+        FfiConverterUInt64.lower(ms),uniffiCallStatus
     )
 })
 }
@@ -2548,8 +2616,9 @@ public func callTimer(ms: UInt64) -> String  {
  */
 public func callUnavailable(input: TalkCallAvailabilityInput) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_unavailable(
-        FfiConverterTypeTalkCallAvailabilityInput_lower(input),$0
+        FfiConverterTypeTalkCallAvailabilityInput_lower(input),uniffiCallStatus
     )
 })
 }
@@ -2558,9 +2627,10 @@ public func callUnavailable(input: TalkCallAvailabilityInput) -> String?  {
  */
 public func callView(state: TalkCallState, platform: TalkCallPlatform) -> TalkCallView?  {
     return try!  FfiConverterOptionTypeTalkCallView.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_view(
         FfiConverterTypeTalkCallState_lower(state),
-        FfiConverterTypeTalkCallPlatform_lower(platform),$0
+        FfiConverterTypeTalkCallPlatform_lower(platform),uniffiCallStatus
     )
 })
 }
@@ -2570,8 +2640,9 @@ public func callView(state: TalkCallState, platform: TalkCallPlatform) -> TalkCa
  */
 public func callWireEvent(event: TalkCallEvent) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_etalk_ffi_fn_func_call_wire_event(
-        FfiConverterTypeTalkCallEvent_lower(event),$0
+        FfiConverterTypeTalkCallEvent_lower(event),uniffiCallStatus
     )
 })
 }
@@ -2580,7 +2651,8 @@ public func callWireEvent(event: TalkCallEvent) -> String?  {
  */
 public func codecBackend() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_etalk_ffi_fn_func_codec_backend($0
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_codec_backend(uniffiCallStatus
     )
 })
 }
@@ -2600,79 +2672,79 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_answer_ms() != 53912) {
+    if (uniffi_etalk_ffi_checksum_func_call_answer_ms() != 19214) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_constants() != 38058) {
+    if (uniffi_etalk_ffi_checksum_func_call_constants() != 54576) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_event_of_wire() != 62343) {
+    if (uniffi_etalk_ffi_checksum_func_call_event_of_wire() != 56908) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_greeting() != 61134) {
+    if (uniffi_etalk_ffi_checksum_func_call_greeting() != 52618) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_idle() != 40680) {
+    if (uniffi_etalk_ffi_checksum_func_call_idle() != 46858) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_ring_ms() != 54771) {
+    if (uniffi_etalk_ffi_checksum_func_call_ring_ms() != 22345) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_ring_random() != 1685) {
+    if (uniffi_etalk_ffi_checksum_func_call_ring_random() != 41353) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_ring_tone_on() != 50956) {
+    if (uniffi_etalk_ffi_checksum_func_call_ring_tone_on() != 19410) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_spec_json() != 57207) {
+    if (uniffi_etalk_ffi_checksum_func_call_spec_json() != 15596) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_speech_of() != 18946) {
+    if (uniffi_etalk_ffi_checksum_func_call_speech_of() != 59869) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_step() != 57206) {
+    if (uniffi_etalk_ffi_checksum_func_call_step() != 62821) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_timer() != 57713) {
+    if (uniffi_etalk_ffi_checksum_func_call_timer() != 29389) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_unavailable() != 50105) {
+    if (uniffi_etalk_ffi_checksum_func_call_unavailable() != 38799) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_view() != 33741) {
+    if (uniffi_etalk_ffi_checksum_func_call_view() != 16228) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_wire_event() != 52493) {
+    if (uniffi_etalk_ffi_checksum_func_call_wire_event() != 26984) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_codec_backend() != 31099) {
+    if (uniffi_etalk_ffi_checksum_func_codec_backend() != 14256) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_method_talkdecoder_decode() != 54291) {
+    if (uniffi_etalk_ffi_checksum_method_talkdecoder_decode() != 32885) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_method_talkdecoder_decode_fec() != 10709) {
+    if (uniffi_etalk_ffi_checksum_method_talkdecoder_decode_fec() != 25506) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_method_talkdecoder_frame_samples() != 30388) {
+    if (uniffi_etalk_ffi_checksum_method_talkdecoder_frame_samples() != 43598) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_method_talkencoder_encode() != 32266) {
+    if (uniffi_etalk_ffi_checksum_method_talkencoder_encode() != 23812) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_method_talkencoder_frame_samples() != 56673) {
+    if (uniffi_etalk_ffi_checksum_method_talkencoder_frame_samples() != 56645) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_method_talkuplink_push() != 19209) {
+    if (uniffi_etalk_ffi_checksum_method_talkuplink_push() != 65300) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_constructor_talkdecoder_new() != 4473) {
+    if (uniffi_etalk_ffi_checksum_constructor_talkdecoder_new() != 35827) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_constructor_talkencoder_new() != 23336) {
+    if (uniffi_etalk_ffi_checksum_constructor_talkencoder_new() != 36907) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_constructor_talkuplink_new() != 13949) {
+    if (uniffi_etalk_ffi_checksum_constructor_talkuplink_new() != 56298) {
         return InitializationResult.apiChecksumMismatch
     }
 

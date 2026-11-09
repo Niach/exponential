@@ -59,6 +59,8 @@ chrono = { version = "0.4.38", default-features = false, features = ["std", "clo
 # The switcher's thumbnails: captures as PNG data URLs.
 png = "0.17"
 base64 = "0.22"
+# #EDE-65 lane L: the chat composer's uploads (api::attachment_upload).
+anyhow.workspace = true
 # Notifications and the tray over the session bus (zbus like the IDE's voice tray; blocking calls from the main loop).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 futures-util = { version = "0.3", default-features = false }

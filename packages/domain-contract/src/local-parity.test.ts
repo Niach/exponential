@@ -50,7 +50,8 @@ describe(`local parity (EDE-55)`, () => {
   })
   test.each(fixture.sessions.send.cases)(`sendRows: $name`, (c) => {
     const existing = (c as { existing?: { session: Row; conversation: Row } }).existing ?? null
-    const got = sendRows(c.input as Row, { teamId: team.teamId, identity: team.identity, deviceId: fixture.sessions.deviceId, existing, nextId: ids(c.ids), now: c.now })
+    const attachments = (c as { attachments?: Row[] }).attachments ?? []
+    const got = sendRows(c.input as Row, { teamId: team.teamId, identity: team.identity, deviceId: fixture.sessions.deviceId, existing, attachments, nextId: ids(c.ids), now: c.now })
     if (`expected` in c) expect(got).toEqual({ rows: c.expected, output: c.output })
     if (`expectedTitle` in c) expect(got.rows[0]!.row.title).toBe(c.expectedTitle)
   })

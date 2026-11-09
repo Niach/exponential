@@ -31,7 +31,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-210 third-party components are distributed as part of this build. They are
+199 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -45,62 +45,55 @@ section for the policy.
 Apache-2.0
 ------------------------------------------------------------------------------
 
-Applies to the following 85 components:
+Applies to the following 76 components:
 
-  androidx.activity:activity 1.12.4
-  androidx.activity:activity-compose 1.12.4
-  androidx.activity:activity-ktx 1.12.4
-  androidx.annotation:annotation 1.9.1
+  androidx.activity:activity 1.13.0
+  androidx.activity:activity-compose 1.13.0
+  androidx.activity:activity-ktx 1.13.0
+  androidx.annotation:annotation 1.10.0
   androidx.annotation:annotation-experimental 1.4.1
   androidx.arch.core:core-common 2.2.0
   androidx.arch.core:core-runtime 2.2.0
   androidx.autofill:autofill 1.0.0
   androidx.collection:collection 1.5.0
   androidx.collection:collection-ktx 1.5.0
-  androidx.compose.animation:animation 1.11.4
-  androidx.compose.animation:animation-core 1.11.4
-  androidx.compose.foundation:foundation 1.11.4
-  androidx.compose.foundation:foundation-layout 1.11.4
+  androidx.compose.animation:animation 1.12.1
+  androidx.compose.animation:animation-core 1.12.1
+  androidx.compose.foundation:foundation 1.12.1
+  androidx.compose.foundation:foundation-layout 1.12.1
   androidx.compose.material3:material3 1.4.0
-  androidx.compose.material:material-ripple 1.11.4
-  androidx.compose.runtime:runtime 1.11.4
-  androidx.compose.runtime:runtime-annotation 1.11.4
-  androidx.compose.runtime:runtime-retain 1.11.4
-  androidx.compose.runtime:runtime-saveable 1.11.4
-  androidx.compose.ui:ui 1.11.4
-  androidx.compose.ui:ui-geometry 1.11.4
-  androidx.compose.ui:ui-graphics 1.11.4
-  androidx.compose.ui:ui-text 1.11.4
-  androidx.compose.ui:ui-unit 1.11.4
-  androidx.compose.ui:ui-util 1.11.4
-  androidx.compose:compose-bom 2026.06.01
+  androidx.compose.material:material-ripple 1.12.1
+  androidx.compose.runtime:runtime 1.12.1
+  androidx.compose.runtime:runtime-annotation 1.12.1
+  androidx.compose.runtime:runtime-retain 1.12.1
+  androidx.compose.runtime:runtime-saveable 1.12.1
+  androidx.compose.ui:ui 1.12.1
+  androidx.compose.ui:ui-geometry 1.12.1
+  androidx.compose.ui:ui-graphics 1.12.1
+  androidx.compose.ui:ui-text 1.12.1
+  androidx.compose.ui:ui-unit 1.12.1
+  androidx.compose.ui:ui-util 1.12.1
+  androidx.compose:compose-bom 2026.09.00
   androidx.concurrent:concurrent-futures 1.1.0
-  androidx.core:core 1.16.0
-  androidx.core:core-ktx 1.16.0
+  androidx.core:core 1.19.1
+  androidx.core:core-ktx 1.19.1
   androidx.core:core-viewtree 1.0.0
   androidx.customview:customview 1.0.0
   androidx.customview:customview-poolingcontainer 1.0.0
-  androidx.documentfile:documentfile 1.0.0
-  androidx.dynamicanimation:dynamicanimation 1.0.0
   androidx.emoji2:emoji2 1.4.0
   androidx.exifinterface:exifinterface 1.3.6
   androidx.graphics:graphics-path 1.0.1
   androidx.interpolator:interpolator 1.0.0
-  androidx.legacy:legacy-support-core-utils 1.0.0
-  androidx.lifecycle:lifecycle-common 2.9.4
-  androidx.lifecycle:lifecycle-common-java8 2.9.4
-  androidx.lifecycle:lifecycle-livedata 2.9.4
-  androidx.lifecycle:lifecycle-livedata-core 2.9.4
-  androidx.lifecycle:lifecycle-livedata-core-ktx 2.9.4
-  androidx.lifecycle:lifecycle-process 2.9.4
-  androidx.lifecycle:lifecycle-runtime 2.9.4
-  androidx.lifecycle:lifecycle-runtime-compose 2.9.4
-  androidx.lifecycle:lifecycle-runtime-ktx 2.9.4
-  androidx.lifecycle:lifecycle-viewmodel 2.9.4
-  androidx.lifecycle:lifecycle-viewmodel-ktx 2.9.4
-  androidx.lifecycle:lifecycle-viewmodel-savedstate 2.9.4
-  androidx.loader:loader 1.0.0
-  androidx.localbroadcastmanager:localbroadcastmanager 1.0.0
+  androidx.lifecycle:lifecycle-common 2.10.0
+  androidx.lifecycle:lifecycle-common-java8 2.10.0
+  androidx.lifecycle:lifecycle-livedata-core 2.10.0
+  androidx.lifecycle:lifecycle-process 2.10.0
+  androidx.lifecycle:lifecycle-runtime 2.10.0
+  androidx.lifecycle:lifecycle-runtime-compose 2.10.0
+  androidx.lifecycle:lifecycle-runtime-ktx 2.10.0
+  androidx.lifecycle:lifecycle-viewmodel 2.10.0
+  androidx.lifecycle:lifecycle-viewmodel-ktx 2.10.0
+  androidx.lifecycle:lifecycle-viewmodel-savedstate 2.10.0
   androidx.media3:media3-common 1.11.1
   androidx.media3:media3-container 1.11.1
   androidx.media3:media3-database 1.11.1
@@ -109,17 +102,15 @@ Applies to the following 85 components:
   androidx.media3:media3-exoplayer 1.11.1
   androidx.media3:media3-extractor 1.11.1
   androidx.media3:media3-ui 1.11.1
-  androidx.navigationevent:navigationevent 1.0.2
-  androidx.navigationevent:navigationevent-compose 1.0.2
-  androidx.print:print 1.0.0
+  androidx.navigationevent:navigationevent 1.0.0
+  androidx.navigationevent:navigationevent-compose 1.0.0
   androidx.profileinstaller:profileinstaller 1.4.0
   androidx.recyclerview:recyclerview 1.3.0
-  androidx.savedstate:savedstate 1.3.2
-  androidx.savedstate:savedstate-compose 1.3.2
-  androidx.savedstate:savedstate-ktx 1.3.2
+  androidx.savedstate:savedstate 1.4.0
+  androidx.savedstate:savedstate-compose 1.4.0
+  androidx.savedstate:savedstate-ktx 1.4.0
   androidx.startup:startup-runtime 1.1.1
   androidx.tracing:tracing 1.2.0
-  androidx.transition:transition 1.6.0
   androidx.versionedparcelable:versionedparcelable 1.1.1
   androidx.window:window 1.5.0
   androidx.window:window-core 1.5.0
@@ -222,15 +213,15 @@ Applies to the following 27 components:
     MIT elected from `MIT OR Apache-2.0`
   camino 1.2.6
     MIT elected from `MIT OR Apache-2.0`
-  cargo-platform 0.1.9
+  cargo-platform 0.3.3
     MIT elected from `MIT OR Apache-2.0`
-  cargo_metadata 0.19.2
+  cargo_metadata 0.23.1
   displaydoc 0.2.6
     MIT elected from `MIT OR Apache-2.0`
   fastrand 2.4.1
     MIT elected from `Apache-2.0 OR MIT`
-  fs-err 2.11.0
-    MIT elected from `MIT/Apache-2.0`
+  fs-err 3.3.2
+    MIT elected from `MIT OR Apache-2.0`
   itoa 1.0.18
     MIT elected from `MIT OR Apache-2.0`
   linux-raw-sys 0.12.1
@@ -396,12 +387,12 @@ MPL-2.0
 
 Applies to the following 6 components:
 
-  uniffi 0.31.0
-  uniffi_core 0.31.0
-  uniffi_internal_macros 0.31.0
-  uniffi_macros 0.31.0
-  uniffi_meta 0.31.0
-  uniffi_pipeline 0.31.0
+  uniffi 0.32.2
+  uniffi_core 0.32.2
+  uniffi_internal_macros 0.32.2
+  uniffi_macros 0.32.2
+  uniffi_meta 0.32.2
+  uniffi_pipeline 0.32.2
 
 ..............................................................................
 
@@ -837,15 +828,15 @@ MIT
 
 Applies to the following 5 components:
 
-  serde_spanned 0.6.9
+  serde_spanned 1.1.1
     MIT elected from `MIT OR Apache-2.0`
-  toml 0.8.23
+  toml 1.1.2+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
-  toml_datetime 0.6.11
+  toml_datetime 1.1.1+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
-  toml_edit 0.22.27
+  toml_parser 1.1.2+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
-  toml_write 0.1.2
+  toml_writer 1.1.1+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -1053,56 +1044,14 @@ MIT
 
 Applies to the following 2 components:
 
-  hashbrown 0.14.5
-    Copyright (c) 2016 Amanieu d'Antras
-    MIT elected from `MIT OR Apache-2.0`
-  hashbrown 0.17.1
-    Copyright (c) 2016 Amanieu d'Antras
-    MIT elected from `MIT OR Apache-2.0`
+  libsqlite3-sys 0.39.1
+    Copyright (c) 2014 The rusqlite developers
+  rusqlite 0.41.1
+    Copyright (c) 2014 The rusqlite developers
 
 ..............................................................................
 
-Copyright (c) 2016 Amanieu d'Antras
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 2 components:
-
-  libsqlite3-sys 0.30.1
-    Copyright (c) 2014-2021 The rusqlite developers
-  rusqlite 0.32.1
-    Copyright (c) 2014-2021 The rusqlite developers
-
-..............................................................................
-
-Copyright (c) 2014-2021 The rusqlite developers
+Copyright (c) 2014 The rusqlite developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1731,45 +1680,6 @@ Applies to the following component:
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  ahash 0.8.12
-    Copyright (c) 2018 Tom Kaitchuck
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2018 Tom Kaitchuck
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -2670,7 +2580,46 @@ MIT
 
 Applies to the following component:
 
-  hashlink 0.9.1
+  hashbrown 0.17.1
+    Copyright (c) 2016 Amanieu d'Antras
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2016 Amanieu d'Antras
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  hashlink 0.12.2
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -3570,7 +3519,7 @@ MIT
 
 Applies to the following component:
 
-  winnow 0.7.15
+  winnow 1.0.3
 
 ..............................................................................
 
@@ -3592,45 +3541,6 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  zerocopy 0.8.52
-    Copyright 2023 The Fuchsia Authors
-    MIT elected from `BSD-2-Clause OR Apache-2.0 OR MIT`
-
-..............................................................................
-
-Copyright 2023 The Fuchsia Authors
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -3684,6 +3594,38 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+
+
+------------------------------------------------------------------------------
+Zlib
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  foldhash 0.2.0
+    Copyright (c) 2024 Orson Peters
+
+..............................................................................
+
+Copyright (c) 2024 Orson Peters
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
 
 
 ------------------------------------------------------------------------------
@@ -3757,8 +3699,6 @@ Elections made in this build
 
   adler2 2.0.1
     MIT elected from `0BSD OR MIT OR Apache-2.0`
-  ahash 0.8.12
-    MIT elected from `MIT OR Apache-2.0`
   android_system_properties 0.1.5
     MIT elected from `MIT/Apache-2.0`
   anyhow 1.0.103
@@ -3773,7 +3713,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   camino 1.2.6
     MIT elected from `MIT OR Apache-2.0`
-  cargo-platform 0.1.9
+  cargo-platform 0.3.3
     MIT elected from `MIT OR Apache-2.0`
   cc 1.2.65
     MIT elected from `MIT OR Apache-2.0`
@@ -3803,17 +3743,15 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   form_urlencoded 1.2.2
     MIT elected from `MIT OR Apache-2.0`
-  fs-err 2.11.0
-    MIT elected from `MIT/Apache-2.0`
+  fs-err 3.3.2
+    MIT elected from `MIT OR Apache-2.0`
   getrandom 0.2.17
     MIT elected from `MIT OR Apache-2.0`
   getrandom 0.4.3
     MIT elected from `MIT OR Apache-2.0`
-  hashbrown 0.14.5
-    MIT elected from `MIT OR Apache-2.0`
   hashbrown 0.17.1
     MIT elected from `MIT OR Apache-2.0`
-  hashlink 0.9.1
+  hashlink 0.12.2
     MIT elected from `MIT OR Apache-2.0`
   heck 0.5.0
     MIT elected from `MIT OR Apache-2.0`
@@ -3867,7 +3805,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   serde_json 1.0.151
     MIT elected from `MIT OR Apache-2.0`
-  serde_spanned 0.6.9
+  serde_spanned 1.1.1
     MIT elected from `MIT OR Apache-2.0`
   sha2 0.10.9
     MIT elected from `MIT OR Apache-2.0`
@@ -3893,13 +3831,13 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   thiserror-impl 2.0.21
     MIT elected from `MIT OR Apache-2.0`
-  toml 0.8.23
+  toml 1.1.2+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
-  toml_datetime 0.6.11
+  toml_datetime 1.1.1+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
-  toml_edit 0.22.27
+  toml_parser 1.1.2+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
-  toml_write 0.1.2
+  toml_writer 1.1.1+spec-1.1.0
     MIT elected from `MIT OR Apache-2.0`
   ttf-parser 0.25.1
     MIT elected from `MIT OR Apache-2.0`
@@ -3917,8 +3855,6 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   version_check 0.9.5
     MIT elected from `MIT/Apache-2.0`
-  zerocopy 0.8.52
-    MIT elected from `BSD-2-Clause OR Apache-2.0 OR MIT`
 
 
 ==============================================================================
@@ -4710,21 +4646,21 @@ that licence requires that recipients of a binary be informed of how to obtain
 the Source Code Form; the URL given for each component is where it may be
 obtained.
 
-  uniffi 0.31.0
+  uniffi 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_core 0.31.0
+  uniffi_core 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_internal_macros 0.31.0
+  uniffi_internal_macros 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_macros 0.31.0
+  uniffi_macros 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_meta 0.31.0
+  uniffi_meta 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.
-  uniffi_pipeline 0.31.0
+  uniffi_pipeline 0.32.2
     Source Code Form: https://github.com/mozilla/uniffi-rs
     Distributed unmodified.

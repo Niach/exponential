@@ -2808,7 +2808,9 @@
           "display": "flex",
           "flexDirection": "row",
           "alignItems": "center",
+          "justifyContent": "center",
           "height": "$control.badge",
+          "minWidth": "$control.badge",
           "paddingHorizontal": "$spacing.xs",
           "borderRadius": "$radius.sm",
           "alignSelf": "flex-start"
@@ -2819,8 +2821,48 @@
             "component": "Text",
             "props": {
               "text": "{props.keys}",
-              "variant": "code",
+              "variant": "caption",
               "lines": 1
+            }
+          }
+        ]
+      }
+    },
+    "KbdGroup": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "alignSelf": "flex-start"
+        },
+        "$template": {
+          "path": "{props.keys.@path}",
+          "item": {
+            "part": "key",
+            "component": "Kbd",
+            "props": {
+              "keys": {
+                "@path": ""
+              }
+            }
+          }
+        },
+        "children": [
+          {
+            "part": "key",
+            "component": "Kbd",
+            "$each": "props.keys",
+            "$as": "key",
+            "props": {
+              "keys": "{key}"
             }
           }
         ]
@@ -5039,6 +5081,7 @@
                     "props": {
                       "name": "{props.name}",
                       "src": "{props.avatar}",
+                      "seed": "{props.seed}",
                       "size": "lg"
                     }
                   }

@@ -6658,6 +6658,139 @@
       ]
     },
     {
+      "name": "KbdGroup/bound:keys",
+      "input": {
+        "id": "kbd_group",
+        "component": "KbdGroup",
+        "props": {
+          "keys": {
+            "@path": "/keys"
+          }
+        }
+      },
+      "expanded": {
+        "id": "kbd_group",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "alignSelf": "flex-start"
+        },
+        "recipe": {
+          "macro": "KbdGroup",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group"
+        },
+        "template": {
+          "component": "kbd_group.key",
+          "path": "/keys"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "keys": [
+              "⌘",
+              "K"
+            ]
+          },
+          "bound": {
+            "id": "kbd_group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd_group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "keys": []
+          },
+          "bound": {
+            "id": "kbd_group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd_group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "kbd_group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd_group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Label/bound:text",
       "input": {
         "id": "label",
@@ -31105,6 +31238,7 @@
           "name": {
             "@path": "/name"
           },
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -31138,6 +31272,7 @@
                       "name": {
                         "@path": "/name"
                       },
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -31473,6 +31608,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -31805,6 +31941,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -32134,6 +32271,7 @@
                         "id": "call_surface.head.wave.avatar",
                         "component": "Avatar",
                         "props": {
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -32445,6 +32583,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -32482,6 +32621,7 @@
                       "src": {
                         "@path": "/avatar"
                       },
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -32814,6 +32954,7 @@
                         "props": {
                           "name": "Assistant",
                           "src": "Bound",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -33147,6 +33288,1353 @@
                         "props": {
                           "name": "Assistant",
                           "src": "",
+                          "seed": "agent-assistant",
+                          "size": "lg"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "avatar",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "wave",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.name",
+                    "component": "Text",
+                    "props": {
+                      "text": "Assistant",
+                      "variant": "title",
+                      "align": "center",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.sm",
+                      "maxWidth": "100%"
+                    },
+                    "accessibility": {
+                      "role": "heading",
+                      "level": 2
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "name",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.status",
+                    "component": "Text",
+                    "props": {
+                      "text": "01:24",
+                      "variant": "muted",
+                      "align": "center",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.xs"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "status",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Sure, Friday at eight works.",
+                      "align": "center",
+                      "lines": 4,
+                      "live": "polite"
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.xl2",
+                      "maxWidth": "100%"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "caption",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "width": "100%",
+                  "maxWidth": 384,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "head",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$spacing.xl"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "spacer",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.controls",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call_surface.controls.muteTip",
+                    "component": "Tooltip",
+                    "props": {
+                      "content": "Mute"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.muteTip.mute",
+                        "component": "Button",
+                        "props": {
+                          "variant": "secondary",
+                          "size": "icon"
+                        },
+                        "children": [
+                          {
+                            "id": "call_surface.controls.muteTip.mute.muteIcon",
+                            "component": "Icon",
+                            "props": {
+                              "name": "call-mute",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "muteIcon",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "width": 56,
+                          "height": 56,
+                          "borderRadius": "$radius.full",
+                          "flexShrink": 0
+                        },
+                        "accessibility": {
+                          "label": "Mute"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "mute",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "muteTip",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.controls.endTip",
+                    "component": "Tooltip",
+                    "props": {
+                      "content": "End call"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.endTip.end",
+                        "component": "Button",
+                        "props": {
+                          "variant": "destructive",
+                          "size": "icon"
+                        },
+                        "children": [
+                          {
+                            "id": "call_surface.controls.endTip.end.endIcon",
+                            "component": "Icon",
+                            "props": {
+                              "name": "call-end",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "endIcon",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "width": 56,
+                          "height": 56,
+                          "borderRadius": "$radius.full",
+                          "flexShrink": 0
+                        },
+                        "accessibility": {
+                          "label": "End call"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "end",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "endTip",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "center",
+                  "alignItems": "flex-start",
+                  "gap": 32
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "controls",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "width": "100%",
+              "height": "100%",
+              "minHeight": 0,
+              "paddingHorizontal": "$spacing.xl",
+              "paddingTop": "$spacing.xl3",
+              "paddingBottom": "$spacing.xl3"
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Assistant"
+            },
+            "recipe": {
+              "macro": "CallSurface",
+              "part": "root",
+              "props": {
+                "state": "talking",
+                "muted": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "call_surface",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "call_surface.head",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call_surface.head.wave",
+                    "component": "VoiceWave",
+                    "props": {
+                      "activity": "speaking",
+                      "level": 0.6,
+                      "size": "xl"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.head.wave.avatar",
+                        "component": "Avatar",
+                        "props": {
+                          "name": "Assistant",
+                          "seed": "agent-assistant",
+                          "size": "lg"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "avatar",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "wave",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.name",
+                    "component": "Text",
+                    "props": {
+                      "text": "Assistant",
+                      "variant": "title",
+                      "align": "center",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.sm",
+                      "maxWidth": "100%"
+                    },
+                    "accessibility": {
+                      "role": "heading",
+                      "level": 2
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "name",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.status",
+                    "component": "Text",
+                    "props": {
+                      "text": "01:24",
+                      "variant": "muted",
+                      "align": "center",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.xs"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "status",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Sure, Friday at eight works.",
+                      "align": "center",
+                      "lines": 4,
+                      "live": "polite"
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.xl2",
+                      "maxWidth": "100%"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "caption",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "width": "100%",
+                  "maxWidth": 384,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "head",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$spacing.xl"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "spacer",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.controls",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call_surface.controls.muteTip",
+                    "component": "Tooltip",
+                    "props": {
+                      "content": "Mute"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.muteTip.mute",
+                        "component": "Button",
+                        "props": {
+                          "variant": "secondary",
+                          "size": "icon"
+                        },
+                        "children": [
+                          {
+                            "id": "call_surface.controls.muteTip.mute.muteIcon",
+                            "component": "Icon",
+                            "props": {
+                              "name": "call-mute",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "muteIcon",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "width": 56,
+                          "height": 56,
+                          "borderRadius": "$radius.full",
+                          "flexShrink": 0
+                        },
+                        "accessibility": {
+                          "label": "Mute"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "mute",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "muteTip",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.controls.endTip",
+                    "component": "Tooltip",
+                    "props": {
+                      "content": "End call"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.endTip.end",
+                        "component": "Button",
+                        "props": {
+                          "variant": "destructive",
+                          "size": "icon"
+                        },
+                        "children": [
+                          {
+                            "id": "call_surface.controls.endTip.end.endIcon",
+                            "component": "Icon",
+                            "props": {
+                              "name": "call-end",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "endIcon",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "width": 56,
+                          "height": 56,
+                          "borderRadius": "$radius.full",
+                          "flexShrink": 0
+                        },
+                        "accessibility": {
+                          "label": "End call"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "end",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "endTip",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "center",
+                  "alignItems": "flex-start",
+                  "gap": 32
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "controls",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "width": "100%",
+              "height": "100%",
+              "minHeight": 0,
+              "paddingHorizontal": "$spacing.xl",
+              "paddingTop": "$spacing.xl3",
+              "paddingBottom": "$spacing.xl3"
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Assistant"
+            },
+            "recipe": {
+              "macro": "CallSurface",
+              "part": "root",
+              "props": {
+                "state": "talking",
+                "muted": false
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "CallSurface/bound:seed",
+      "input": {
+        "id": "call_surface",
+        "component": "CallSurface",
+        "props": {
+          "name": "Assistant",
+          "seed": {
+            "@path": "/seed"
+          },
+          "state": "talking",
+          "activity": "speaking",
+          "level": 0.6,
+          "status": "01:24",
+          "caption": "Sure, Friday at eight works."
+        }
+      },
+      "expanded": {
+        "id": "call_surface",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "call_surface.head",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "call_surface.head.wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "speaking",
+                  "level": 0.6,
+                  "size": "xl"
+                },
+                "children": [
+                  {
+                    "id": "call_surface.head.wave.avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Assistant",
+                      "seed": {
+                        "@path": "/seed"
+                      },
+                      "size": "lg"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "avatar",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "wave",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "call_surface.head.name",
+                "component": "Text",
+                "props": {
+                  "text": "Assistant",
+                  "variant": "title",
+                  "align": "center",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "marginTop": "$spacing.sm",
+                  "maxWidth": "100%"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "name",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 2
+                }
+              },
+              {
+                "id": "call_surface.head.status",
+                "component": "Text",
+                "props": {
+                  "text": "01:24",
+                  "variant": "muted",
+                  "align": "center",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "marginTop": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "status",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.head.caption",
+                "component": "Text",
+                "props": {
+                  "text": "Sure, Friday at eight works.",
+                  "align": "center",
+                  "lines": 4,
+                  "live": "polite"
+                },
+                "children": [],
+                "style": {
+                  "marginTop": "$spacing.xl2",
+                  "maxWidth": "100%"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "caption",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "width": "100%",
+              "maxWidth": 384,
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "CallSurface",
+              "part": "head",
+              "props": {
+                "state": "talking",
+                "muted": false
+              }
+            }
+          },
+          {
+            "id": "call_surface.spacer",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "flexGrow": 1,
+              "minHeight": "$spacing.xl"
+            },
+            "recipe": {
+              "macro": "CallSurface",
+              "part": "spacer",
+              "props": {
+                "state": "talking",
+                "muted": false
+              }
+            }
+          },
+          {
+            "id": "call_surface.controls",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "call_surface.controls.muteTip",
+                "component": "Tooltip",
+                "props": {
+                  "content": "$string.mute"
+                },
+                "children": [
+                  {
+                    "id": "call_surface.controls.muteTip.mute",
+                    "component": "Button",
+                    "props": {
+                      "variant": "secondary",
+                      "size": "icon"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.muteTip.mute.muteIcon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "call-mute",
+                          "size": "lg"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "muteIcon",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "width": 56,
+                      "height": 56,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "mute",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    },
+                    "accessibility": {
+                      "label": "$string.mute"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "muteTip",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.controls.endTip",
+                "component": "Tooltip",
+                "props": {
+                  "content": "$string.endCall"
+                },
+                "children": [
+                  {
+                    "id": "call_surface.controls.endTip.end",
+                    "component": "Button",
+                    "props": {
+                      "variant": "destructive",
+                      "size": "icon"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.endTip.end.endIcon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "call-end",
+                          "size": "lg"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "endIcon",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "width": 56,
+                      "height": 56,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "end",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    },
+                    "accessibility": {
+                      "label": "$string.endCall"
+                    }
+                  }
+                ],
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "endTip",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "justifyContent": "center",
+              "alignItems": "flex-start",
+              "gap": 32
+            },
+            "recipe": {
+              "macro": "CallSurface",
+              "part": "controls",
+              "props": {
+                "state": "talking",
+                "muted": false
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "center",
+          "width": "100%",
+          "height": "100%",
+          "minHeight": 0,
+          "paddingHorizontal": "$spacing.xl",
+          "paddingTop": "$spacing.xl3",
+          "paddingBottom": "$spacing.xl3"
+        },
+        "recipe": {
+          "macro": "CallSurface",
+          "part": "root",
+          "props": {
+            "state": "talking",
+            "muted": false
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Assistant"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "seed": "agent-assistant"
+          },
+          "bound": {
+            "id": "call_surface",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "call_surface.head",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call_surface.head.wave",
+                    "component": "VoiceWave",
+                    "props": {
+                      "activity": "speaking",
+                      "level": 0.6,
+                      "size": "xl"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.head.wave.avatar",
+                        "component": "Avatar",
+                        "props": {
+                          "name": "Assistant",
+                          "seed": "agent-assistant",
+                          "size": "lg"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "avatar",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "hidden": true
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "wave",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.name",
+                    "component": "Text",
+                    "props": {
+                      "text": "Assistant",
+                      "variant": "title",
+                      "align": "center",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.sm",
+                      "maxWidth": "100%"
+                    },
+                    "accessibility": {
+                      "role": "heading",
+                      "level": 2
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "name",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.status",
+                    "component": "Text",
+                    "props": {
+                      "text": "01:24",
+                      "variant": "muted",
+                      "align": "center",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.xs"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "status",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.head.caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Sure, Friday at eight works.",
+                      "align": "center",
+                      "lines": 4,
+                      "live": "polite"
+                    },
+                    "children": [],
+                    "style": {
+                      "marginTop": "$spacing.xl2",
+                      "maxWidth": "100%"
+                    },
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "caption",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "width": "100%",
+                  "maxWidth": 384,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "head",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$spacing.xl"
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "spacer",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              },
+              {
+                "id": "call_surface.controls",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call_surface.controls.muteTip",
+                    "component": "Tooltip",
+                    "props": {
+                      "content": "Mute"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.muteTip.mute",
+                        "component": "Button",
+                        "props": {
+                          "variant": "secondary",
+                          "size": "icon"
+                        },
+                        "children": [
+                          {
+                            "id": "call_surface.controls.muteTip.mute.muteIcon",
+                            "component": "Icon",
+                            "props": {
+                              "name": "call-mute",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "muteIcon",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "width": 56,
+                          "height": 56,
+                          "borderRadius": "$radius.full",
+                          "flexShrink": 0
+                        },
+                        "accessibility": {
+                          "label": "Mute"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "mute",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "muteTip",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "call_surface.controls.endTip",
+                    "component": "Tooltip",
+                    "props": {
+                      "content": "End call"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.controls.endTip.end",
+                        "component": "Button",
+                        "props": {
+                          "variant": "destructive",
+                          "size": "icon"
+                        },
+                        "children": [
+                          {
+                            "id": "call_surface.controls.endTip.end.endIcon",
+                            "component": "Icon",
+                            "props": {
+                              "name": "call-end",
+                              "size": "lg"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "CallSurface",
+                              "part": "endIcon",
+                              "props": {
+                                "state": "talking",
+                                "muted": false
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "width": 56,
+                          "height": 56,
+                          "borderRadius": "$radius.full",
+                          "flexShrink": 0
+                        },
+                        "accessibility": {
+                          "label": "End call"
+                        },
+                        "recipe": {
+                          "macro": "CallSurface",
+                          "part": "end",
+                          "props": {
+                            "state": "talking",
+                            "muted": false
+                          }
+                        }
+                      }
+                    ],
+                    "recipe": {
+                      "macro": "CallSurface",
+                      "part": "endTip",
+                      "props": {
+                        "state": "talking",
+                        "muted": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "center",
+                  "alignItems": "flex-start",
+                  "gap": 32
+                },
+                "recipe": {
+                  "macro": "CallSurface",
+                  "part": "controls",
+                  "props": {
+                    "state": "talking",
+                    "muted": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "width": "100%",
+              "height": "100%",
+              "minHeight": 0,
+              "paddingHorizontal": "$spacing.xl",
+              "paddingTop": "$spacing.xl3",
+              "paddingBottom": "$spacing.xl3"
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Assistant"
+            },
+            "recipe": {
+              "macro": "CallSurface",
+              "part": "root",
+              "props": {
+                "state": "talking",
+                "muted": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "seed": ""
+          },
+          "bound": {
+            "id": "call_surface",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "call_surface.head",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "call_surface.head.wave",
+                    "component": "VoiceWave",
+                    "props": {
+                      "activity": "speaking",
+                      "level": 0.6,
+                      "size": "xl"
+                    },
+                    "children": [
+                      {
+                        "id": "call_surface.head.wave.avatar",
+                        "component": "Avatar",
+                        "props": {
+                          "name": "Assistant",
+                          "seed": "",
                           "size": "lg"
                         },
                         "children": [],
@@ -33790,6 +35278,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": {
             "@path": "/state"
           },
@@ -33836,6 +35325,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -34345,6 +35835,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -34677,6 +36168,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -35007,6 +36499,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -35305,6 +36798,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": {
             "@path": "/activity"
@@ -35346,6 +36840,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -35677,6 +37172,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -36009,6 +37505,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -36339,6 +37836,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -36652,6 +38150,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": {
@@ -36687,6 +38186,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -37018,6 +38518,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -37350,6 +38851,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -37679,6 +39181,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -37992,6 +39495,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -38029,6 +39533,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -38361,6 +39866,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -38694,6 +40200,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -39024,6 +40531,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -39337,6 +40845,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -39370,6 +40879,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -39713,6 +41223,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -40045,6 +41556,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -40353,6 +41865,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -40644,6 +42157,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -40677,6 +42191,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -41020,6 +42535,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -41352,6 +42868,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -41659,6 +43176,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -41949,6 +43467,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -41992,6 +43511,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -42398,6 +43918,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -42757,6 +44278,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -43114,6 +44636,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -43439,6 +44962,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -43473,6 +44997,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Assistant",
+                      "seed": "agent-assistant",
                       "size": "lg"
                     },
                     "children": [],
@@ -43930,6 +45455,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -44350,6 +45876,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -44768,6 +46295,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": "Assistant",
+                          "seed": "agent-assistant",
                           "size": "lg"
                         },
                         "children": [],
@@ -52112,7 +53640,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Ctrl",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -52127,7 +53655,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -52148,7 +53678,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Space",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -52163,7 +53693,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -52421,7 +53953,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -52436,7 +53968,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -52457,7 +53991,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -52472,7 +54006,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -52597,7 +54133,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -52612,7 +54148,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -52633,7 +54171,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -52648,7 +54186,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -52782,7 +54322,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Ctrl",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -52797,7 +54337,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -52818,7 +54360,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Space",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -52833,7 +54375,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -52930,7 +54474,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -52945,7 +54489,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -52966,7 +54512,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -52981,7 +54527,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -53079,7 +54627,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -53094,7 +54642,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -53115,7 +54665,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -53130,7 +54680,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -53226,7 +54778,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -53241,7 +54793,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -53262,7 +54816,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -53277,7 +54831,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"

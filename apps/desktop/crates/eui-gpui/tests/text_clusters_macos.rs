@@ -3,15 +3,34 @@
 //! cluster whole in one face of the sans chain that has both characters,
 //! and the mark's ink must sit over the l (never a bar after it).
 
-#![cfg(target_os = "macos")]
+//!
+//! `harness = false` (Cargo.toml): gpui-pre's Mac platform must be created on
+//! the process main thread, and libtest runs `#[test]` fns on worker threads.
+//! `main` runs the check itself; a `--list` (cargo-nextest's discovery) lists
+//! nothing, like `terminal`'s exit_hook, so it runs under plain `cargo test`.
 
+#[cfg(target_os = "macos")]
 use std::borrow::Cow;
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
 
+#[cfg(target_os = "macos")]
 use eui_gpui::fallback::{cluster_runs, default_chain};
+#[cfg(target_os = "macos")]
 use gpui::{px, Font, FontStyle, FontWeight, SharedString, TextRun, TextSystem, WindowTextSystem};
 
-#[test]
+fn main() {
+    if std::env::args().any(|arg| arg == "--list") {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        ipa_mark_attaches_on_coretext();
+        println!("test ipa_mark_attaches_on_coretext ... ok");
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn ipa_mark_attaches_on_coretext() {
     let platform = gpui_platform::current_platform(true).text_system();
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/conformance/fonts");

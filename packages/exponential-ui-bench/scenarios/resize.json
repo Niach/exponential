@@ -181,6 +181,7 @@
               "component": "Avatar",
               "props": {
                 "name": "Alex Chen",
+                "seed": "demo-alex",
                 "size": "default"
               }
             },
@@ -2334,7 +2335,8 @@
                       "id": "hover_card_avatar",
                       "component": "Avatar",
                       "props": {
-                        "name": "Alex Chen"
+                        "name": "Alex Chen",
+                        "seed": "demo-alex"
                       }
                     },
                     {
@@ -3000,6 +3002,17 @@
                   "component": "Kbd",
                   "props": {
                     "keys": "⌘S"
+                  }
+                },
+                {
+                  "id": "nf_kbd_group",
+                  "component": "KbdGroup",
+                  "props": {
+                    "keys": [
+                      "Ctrl",
+                      "Shift",
+                      "P"
+                    ]
                   }
                 }
               ]

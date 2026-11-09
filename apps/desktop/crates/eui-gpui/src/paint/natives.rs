@@ -21,7 +21,7 @@ use gpui_component::Icon;
 use crate::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use serde_json::{Map, Value};
 
-use super::color::{color_of, hsl};
+use super::color::color_of;
 use super::icons::{self, Glyph};
 use super::parts::{control, part_props, px_prop, spacing, theme_color};
 use super::{Decoration, PaintStyle};
@@ -451,12 +451,16 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
 
 /// The rotating loader glyph.
 pub fn spinner_glyph(id: impl Into<gpui::ElementId>, size: f32, color: Hsla) -> AnyElement {
-    Icon::new(gpui_component::IconName::LoaderCircle)
-        .size(px(size))
-        .text_color(color)
-        // EXP-1325: a loader may spin for a long while — stepped.
-        .with_stepped_animation(id, Animation::new(Duration::from_millis(800)).repeat(), SMOOTH_STEP, |icon, delta| icon.transform(Transformation::rotate(gpui::percentage(delta))))
-        .into_any_element()
+    // EXP-1325: a loader may spin for a long while — stepped; #LOGS-4: a
+    // glyph, so inside a host's cached region only the glyph repaints.
+    crate::controls::stepped_glyph(id, gpui::size(px(size), px(size)), Animation::new(Duration::from_millis(800)).repeat(), SMOOTH_STEP, move |delta, _, _| {
+        Icon::new(gpui_component::IconName::LoaderCircle)
+            .size(px(size))
+            .text_color(color)
+            .transform(Transformation::rotate(gpui::percentage(delta)))
+            .into_any_element()
+    })
+    .into_any_element()
 }
 
 /// Button / Toggle content: spinner or icon, then the label (mirrored in RTL).
@@ -601,18 +605,24 @@ pub fn icon(cx: &LeafCx, app: &gpui::App) -> AnyElement {
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()
 }
 
-/// Initials of a name (two words max, upper-cased).
+/// The Avatar's initials (`fixtures/avatar.json`: the IDE's `initials`).
 pub fn initials(name: &str) -> String {
-    name.split_whitespace().take(2).filter_map(|w| w.chars().next()).flat_map(char::to_uppercase).collect()
+    eui_core::avatar::avatar_initials(name)
 }
 
-/// The avatar seed hue (`seedHue` of the React renderer).
-pub fn seed_hue(seed: &str) -> f32 {
-    let mut h: u32 = 0;
-    for c in seed.encode_utf16() {
-        h = h.wrapping_mul(31).wrapping_add(c as u32);
+/// The seeded avatar's hue: `AVATAR_PALETTE[fnv1a32(seed) % 8]`.
+pub fn seed_hue(seed: &str) -> Hsla {
+    color_of(Some(eui_core::avatar::AVATAR_PALETTE[eui_core::avatar::avatar_hue_index(seed)])).unwrap_or_default()
+}
+
+/// The fallback's (fill, ink): a seed's hue at the fill alpha + the hue, no
+/// seed = the `Avatar/fallback` recipe colours.
+pub fn avatar_colors(seed: &str, recipe_bg: Option<Hsla>, recipe_ink: Hsla) -> (Option<Hsla>, Hsla) {
+    if seed.is_empty() {
+        return (recipe_bg, recipe_ink);
     }
-    (h % 360) as f32
+    let hue = seed_hue(seed);
+    (Some(hue.opacity(eui_core::avatar::AVATAR_FILL_ALPHA)), hue)
 }
 
 /// Standard base64 (padding optional, whitespace skipped).
@@ -690,40 +700,43 @@ pub(crate) fn percent_decode(s: &str) -> Vec<u8> {
     out
 }
 
-/// `Avatar`: the image when the host resolves one, else tinted initials.
-pub fn avatar(cx: &LeafCx) -> AnyElement {
-    let name = cx.str("name");
-    let seed = if cx.str("seed").is_empty() { name } else { cx.str("seed") };
+/// `Avatar` (#EXP-1629, `fixtures/avatar.json`): the picture once it
+/// decodes, wearing the `Avatar/image` ring; else the initials on the seed's
+/// hue (no seed = the `Avatar/fallback` recipe colours), sized + weighted by
+/// the fallback recipe.
+pub fn avatar(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
     let fallback = cx.part("Avatar", "fallback", &[]);
-    let (bg, fg) = if seed.is_empty() {
-        (fallback.bg, fallback.color.unwrap_or(cx.ink))
-    } else {
-        let hue = seed_hue(seed);
-        (Some(hsl(hue, 0.7, 0.55, 0.22)), hsl(hue, 0.6, if cx.mode == Mode::Dark { 0.72 } else { 0.38 }, 1.0))
-    };
-    let letters = {
-        let s = initials(name);
-        if s.is_empty() {
-            "?".to_string()
-        } else {
-            s
-        }
-    };
+    let fallback_props = cx.part_props("Avatar", "fallback", &[]);
+    let (bg, fg) = avatar_colors(cx.str("seed"), fallback.bg, fallback.color.unwrap_or(cx.ink));
     let size = cx.w.min(cx.h);
-    let fs = px_prop(&cx.part_props("Avatar", "fallback", &[]), "fontSize").unwrap_or((size * 0.4).round());
-    let initials_el = move || {
-        div().size_full().flex().items_center().justify_center().rounded_full().when_some(bg, |d, bg| d.bg(bg)).text_color(fg).text_size(px(fs)).child(SharedString::from(letters.clone())).into_any_element()
-    };
-    let src = cx.str("src");
-    let mut out = div().size_full().rounded_full().overflow_hidden();
-    match crate::media::image_source(cx.host, src) {
-        Some(source) => {
-            let fb = initials_el.clone();
-            out = out.child(img(source).size_full().rounded_full().object_fit(ObjectFit::Cover).with_fallback(fb).with_loading(initials_el));
-        }
-        None => out = out.child(initials_el()),
+    let fs = px_prop(&fallback_props, "fontSize").map_or((size / 2.0).round(), |f| f * cx.scale);
+    let weight = fallback_props.get("fontWeight").and_then(Value::as_f64).unwrap_or(400.0) as f32;
+    let out = div().size_full().rounded_full().overflow_hidden();
+    let picture = crate::media::image_source(cx.host, cx.str("src")).and_then(|source| match render_image(&source, window, app) {
+        Some(Ok(data)) => Some(data),
+        _ => None,
+    });
+    if let Some(data) = picture {
+        let ring = cx.part("Avatar", "image", &[]);
+        let bw = ring.border.iter().copied().fold(0.0_f32, f32::max) * cx.scale;
+        // The IDE's gpui-component Avatar: the border takes its width out of
+        // the box and the picture sits inside it, so a translucent
+        // `$color.border` reads as a hairline over the ground, not over the
+        // picture's edge.
+        return out
+            .when(bw > 0.0, |d| d.border(px(bw)).border_color(ring.border_color.unwrap_or(gpui::transparent_black())))
+            .child(img(ImageSource::Render(data)).size_full().rounded_full().object_fit(ObjectFit::Cover))
+            .into_any_element();
     }
-    out.into_any_element()
+    out.flex()
+        .items_center()
+        .justify_center()
+        .when_some(bg, |d, bg| d.bg(bg))
+        .text_color(fg)
+        .text_size(px(fs))
+        .font_weight(gpui::FontWeight(weight))
+        .child(SharedString::from(initials(cx.str("name"))))
+        .into_any_element()
 }
 
 /// What an `Image` paints without a loadable source (round 2 §7): the
@@ -1582,13 +1595,27 @@ pub fn cell_text(v: Option<&Value>) -> String {
 mod tests {
     use super::*;
 
+    /// `fixtures/avatar.json` (#EXP-1629): palette, hash, initials, fill.
     #[test]
-    fn avatar_initials_and_hues() {
-        assert_eq!(initials("Alex Chen"), "AC");
-        assert_eq!(initials("ada lovelace byron"), "AL");
-        assert_eq!(initials(""), "");
-        assert_eq!(seed_hue("Alex Chen"), seed_hue("Alex Chen"));
-        assert!(seed_hue("x") < 360.0);
+    fn avatar_replays_the_fixture() {
+        let f: Value = serde_json::from_str(include_str!("../../../../../../packages/exponential-ui/fixtures/avatar.json")).expect("avatar.json");
+        let palette: Vec<&str> = f["palette"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(palette, eui_core::avatar::AVATAR_PALETTE);
+        assert_eq!(f["fillAlpha"].as_f64().unwrap() as f32, eui_core::avatar::AVATAR_FILL_ALPHA);
+        for case in f["hues"].as_array().unwrap() {
+            let (seed, idx) = (case[0].as_str().unwrap(), case[1].as_u64().unwrap() as usize);
+            assert_eq!(eui_core::avatar::avatar_hue_index(seed), idx, "hue of {seed:?}");
+            if !seed.is_empty() {
+                let hue = color_of(Some(palette[idx])).unwrap();
+                assert_eq!(avatar_colors(seed, None, gpui::black()), (Some(hue.opacity(0.2)), hue), "colours of {seed:?}");
+            }
+        }
+        for case in f["initials"].as_array().unwrap() {
+            assert_eq!(initials(case[0].as_str().unwrap()), case[1].as_str().unwrap(), "initials of {:?}", case[0]);
+        }
+        // No seed = the recipe's muted colours.
+        let muted = color_of(Some("#27272a"));
+        assert_eq!(avatar_colors("", muted, gpui::white()), (muted, gpui::white()));
     }
 
     #[test]

@@ -156,9 +156,8 @@ pub(crate) fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 fn headless() -> HeadlessAppContext {
-    let platform = gpui_platform::current_platform(true);
-    let mut cx = HeadlessAppContext::with_platform(
-        platform.text_system(),
+        let mut cx = HeadlessAppContext::with_platform(
+        crate::test_text_system(),
         Arc::new(gpui_component_assets::Assets),
         gpui_platform::current_headless_renderer,
     );

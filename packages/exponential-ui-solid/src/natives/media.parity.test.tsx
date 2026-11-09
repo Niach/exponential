@@ -55,6 +55,10 @@ describe(`DOM parity: media`, { timeout: 60_000 }, () => {
       { id: `av1`, component: `Avatar`, props: { name: `Jane Doe`, src: `https://example.com/j.png`, size: `lg` } },
       { id: `av2`, component: `Avatar`, props: { name: ``, seed: `x` } },
       { id: `av3`, component: `Avatar`, props: {} },
+      // #EXP-1629 (fixtures/avatar.json): a palette seed at xl, an email, an empty seed, a picture's ring.
+      { id: `av4`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-mira`, size: `xl` } },
+      { id: `av5`, component: `Avatar`, props: { name: `mira-k`, seed: ``, size: `sm` } },
+      { id: `av6`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-jonas`, src: `https://example.com/k.png`, size: `xl` } },
       {
         id: `c1`,
         component: `Carousel`,

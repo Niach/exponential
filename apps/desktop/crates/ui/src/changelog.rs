@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-ede-chat-images",
+    date: "2026-11-09",
+    title: "Images in Exponential Desktop's chat",
+    summary: "Exponential Desktop 0.2.12: attach images in the agent chat like in the desktop app, a Local desktop's messages carry their attachments, and crashes and hangs report themselves.",
+    body: r#"- **Images in the chat**: Exponential Desktop's agent chat takes image attachments, like the desktop app's, and a Local desktop's messages carry their attachments to the agent.
+- **Diagnostics**: Exponential Desktop and its background services report crashes, hangs and slow frames, so problems get fixed faster.
+- **Under the hood**: a newer window compositor and UI toolkit."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_238: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-swipe-app-screens",
     date: "2026-11-09",
     title: "Swipe between an app's screens",

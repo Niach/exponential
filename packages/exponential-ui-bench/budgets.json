@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated. VAPP-202: `records-25k`'s core timings on `mint` are the eApps §15 line, not a measurement: p95 ≤ 16 ms on a mid phone ≈ 5 ms on a desktop CPU 3× faster (each p50 and p95 at 5 ms, warnings on `mint` like every timing there); its `matched` count gates everywhere. The web runner's timings are recorded from its first CI run (`ratchet --write`). VAPP-289: cold-start nodes and theme-switch restyled +10 where the regenerated scenarios add EXP-1740's Window specimen (suite 42507452622).",
+  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated. VAPP-202: `records-25k`'s core timings on `mint` are the eApps §15 line, not a measurement: p95 ≤ 16 ms on a mid phone ≈ 5 ms on a desktop CPU 3× faster (each p50 and p95 at 5 ms, warnings on `mint` like every timing there); its `matched` count gates everywhere. The web runner's timings are recorded from its first CI run (`ratchet --write`). VAPP-289: cold-start nodes and theme-switch restyled +10 where the regenerated scenarios add EXP-1740's Window specimen (suite 42507452622); the same +10 on macbook swift-ios-simulator (suite 42566418462). mint core cold-start allocations 267106 = the CI measure after #2438 (KeyRecorder) and #2440 (Select) grew the catalog, +2.1 % past the ±1 % tolerance (suite 42566418462).",
   "floor": 0.5,
   "$countTolerance": "allocations gate within ±1 %: the Rust core's cold-start allocation count moves with every eui-core change, so an exact budget was always stale one release behind master and every genUI tag needed its own budget PR (rounds 129-136). Other counts stay exact.",
   "countTolerance": {
@@ -632,7 +632,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 719,
+          "nodes": 729,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -686,7 +686,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 506.1,
-          "nodes": 719,
+          "nodes": 729,
           "coldStartMs": 641.5,
           "memoryMb": 32.2
         },
@@ -746,7 +746,7 @@
           "coldStartMs": 65.6,
           "firstPaintMs": 32.6,
           "memoryMb": 46.4,
-          "nodes": 714
+          "nodes": 724
         },
         "deep-nesting": {
           "depth": 48,
@@ -791,7 +791,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.8,
-          "restyled": 719,
+          "restyled": 729,
           "themeSwitchMs": 25.5
         }
       },
@@ -858,7 +858,7 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 261714,
+          "allocations": 267106,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,
@@ -929,7 +929,7 @@
           "coldStartMs": 66.8,
           "firstPaintMs": 44.3,
           "memoryMb": 87.8,
-          "nodes": 719
+          "nodes": 729
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -950,7 +950,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 66,
-          "restyled": 719,
+          "restyled": 729,
           "themeSwitchMs": 94.5
         },
         "resize": {

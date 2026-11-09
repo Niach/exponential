@@ -128,6 +128,22 @@ fn sessions_agents_prompts_records_and_refusals() {
     let _: Arc<elocal::LocalExecutor> = desktop.executor.clone();
 }
 
+/// #EDE-65 lane L: a send names its stored attachments: their ids ride the
+/// message and their lines join the body (local-parity.json sessions.send).
+#[test]
+fn a_send_with_attachments_appends_their_lines() {
+    let (_dir, desktop) = desktop();
+    let client = desktop.client();
+    let team_id = desktop.team().unwrap()["id"].as_str().unwrap().to_string();
+    let row = desktop.executor.attachment_create("shot.png", "image/png", b"PNG!", None).unwrap();
+    let id = row["id"].as_str().unwrap().to_string();
+    let input = api::sessions::SendInput { team_id: Some(team_id), text: Some("look".into()), attachment_ids: Some(vec![id.clone()]), ..Default::default() };
+    let out = api::sessions::send(&client, &input).unwrap();
+    let message = desktop.store.rows_where("messages", "root_id", &out.session_id).unwrap().into_iter().find(|m| m["author_kind"] == "user").unwrap();
+    assert_eq!(message["body"], format!("look\n\n![shot.png](/api/attachments/{id})"));
+    assert_eq!(message["attachment_ids"], serde_json::json!([id]));
+}
+
 /// #EXP-1727: a git working copy linked as the board's repository.
 #[test]
 fn a_linked_folder_is_the_boards_repository() {

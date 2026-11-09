@@ -144,6 +144,11 @@
       "notes": "text (the shortcut spelled out)",
       "keys": []
     },
+    "KbdGroup": {
+      "role": "group",
+      "notes": "group of the Kbd caps, read in order",
+      "keys": []
+    },
     "Label": {
       "role": "text",
       "notes": "label of the control named by `for`",

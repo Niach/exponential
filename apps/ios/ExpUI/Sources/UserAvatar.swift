@@ -87,7 +87,7 @@ public struct UserAvatar: View {
     // initials to a lone "…" — visible in the App Store screenshots
     // (EXP-393). 0.42 of the diameter matches the Android InitialsAvatar.
     private var initialsChip: some View {
-        AvatarView(name: initials, size: size, fill: Self.fill(hueKey), ink: Self.ink(hueKey), fontSize: size * UserAvatarTokens.initialsScale, initials: initials, minimumScaleFactor: UserAvatarTokens.minimumScaleFactor)
+        AvatarView(name: initials, size: size, fill: Self.fill(hueKey), ink: Self.ink(hueKey), fontSize: size * UserAvatarTokens.initialsScale, fontWeight: .medium, initials: initials, minimumScaleFactor: UserAvatarTokens.minimumScaleFactor)
     }
 
     /// The initials' colour: the avatar hue picked off the key.

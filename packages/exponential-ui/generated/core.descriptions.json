@@ -451,6 +451,20 @@
         "keys": "⌘K"
       }
     },
+    "KbdGroup": {
+      "props": {
+        "keys": {
+          "description": "Keys in order (`⌘`, `K`)."
+        }
+      },
+      "description": "Key chord: one Kbd cap per key.",
+      "example": {
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      }
+    },
     "Label": {
       "props": {
         "text": {
@@ -620,7 +634,7 @@
     "Avatar": {
       "props": {
         "name": {
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         "src": {
           "description": "Picture URL."
@@ -629,12 +643,13 @@
           "description": "Diameter class."
         },
         "seed": {
-          "description": "Hashes the fallback hue; default the name."
+          "description": "A user id: the palette hue; none = muted."
         }
       },
       "description": "Round user picture; falls back to initials on a stable hue.",
       "example": {
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       }
     },
@@ -1515,6 +1530,9 @@
         "avatar": {
           "description": "Picture URL."
         },
+        "seed": {
+          "description": "Their id: the avatar hue."
+        },
         "state": {
           "description": "ringing: Cancel only."
         },
@@ -1543,6 +1561,7 @@
       "description": "Voice call screen: wave, avatar, name, status, caption, call buttons.",
       "example": {
         "name": "Assistant",
+        "seed": "agent-assistant",
         "state": "talking",
         "activity": "speaking",
         "level": 0.6,

@@ -111,6 +111,12 @@
       "default",
       "lg"
     ],
+    "avatarSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -1853,6 +1859,22 @@
         }
       }
     },
+    "KbdGroup": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true
+        }
+      }
+    },
     "Label": {
       "kind": "macro",
       "group": "text",
@@ -2062,11 +2084,12 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "avatarSize",
           "default": "default"
         },
         "seed": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         }
       }
     },
@@ -3109,6 +3132,10 @@
         },
         "avatar": {
           "type": "url",
+          "bindable": true
+        },
+        "seed": {
+          "type": "string",
           "bindable": true
         },
         "state": {
