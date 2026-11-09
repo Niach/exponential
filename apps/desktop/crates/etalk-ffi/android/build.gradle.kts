@@ -10,7 +10,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     id("maven-publish")
     id("signing")
 }
@@ -22,7 +21,7 @@ version = (findProperty("talkVersion") as String?) ?: "0.2.4"
 
 android {
     namespace = "at.exponential.talk"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 26

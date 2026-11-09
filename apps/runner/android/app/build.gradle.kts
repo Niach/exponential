@@ -9,7 +9,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -60,7 +59,7 @@ val iconSource = tasks.register<IconSource>("runnerIconSource") {
 
 android {
     namespace = "at.exponential.runner"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         // E7: the bundle's runner.json `id` (placeholder until bundled).
