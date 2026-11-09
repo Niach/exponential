@@ -740,7 +740,7 @@ mod tests {
         // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner;
         // round 6's Outline and Mosaic; EXP-1586's ZoomableImage; EXP-1604's
         // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo.
-        assert_eq!(specimens().len(), 101);
+        assert_eq!(specimens().len(), 102);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());

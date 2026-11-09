@@ -12,8 +12,8 @@ pub(crate) const ID: &str = "kbd-group";
 pub(crate) const OWNER: &str = "EXP-1629";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let kbd = specimen_node("exponential-ui-kbd", "specimen-kbd").expect("the Kbd specimen");
-    let group = specimen_node("exponential-ui-kbd-group", "specimen-kbd-group").expect("the KbdGroup specimen");
+    let kbd = specimen_node("exponential-ui-kbd", "specimen_kbd").expect("the Kbd specimen");
+    let group = specimen_node("exponential-ui-kbd-group", "specimen_kbd_group").expect("the KbdGroup specimen");
     div()
         .w_full()
         .flex()
