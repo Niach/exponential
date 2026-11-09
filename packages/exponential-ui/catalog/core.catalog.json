@@ -2491,7 +2491,7 @@
         "seed": {
           "type": "string",
           "bindable": true,
-          "description": "A user id: the palette hue; none = muted."
+          "description": "A user id; else the name picks the hue."
         }
       },
       "example": {
