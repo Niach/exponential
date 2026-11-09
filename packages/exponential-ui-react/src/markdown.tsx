@@ -5,7 +5,8 @@
 // view) passes it as `host.Markdown` and this one steps aside. VAPP-103:
 // every href passes the URL policy (denied = the label as text), every
 // image the media policy. A paragraph that is one image is a BLOCK image
-// (denied = a paragraph of its alt text); an image inside running text is
+// (denied = a paragraph of its alt text); #FEED-208: an image directly in a
+// top-level paragraph's text splits it around a block image, elsewhere it is
 // its alt text, as on every renderer. #VAPP-258: a fenced block whose fence
 // names a catalog language paints CodeBlock's tokens (`markdownCodeLines`)
 // in the `CodeBlock/token {kind}` recipe's colours (the surface's scope on
