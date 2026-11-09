@@ -204,6 +204,8 @@ pub enum FeedKind {
         text: String,
         /// EXP-773: a turn addressed to a SUBAGENT, shown inside its card.
         subagent_id: Option<String>,
+        /// #EXP-1756: when it was sent (epoch ms), the bubble's `HH:mm`.
+        at: Option<i64>,
     },
     /// Informational only — a permission prompt is never answerable remotely.
     Permission {
@@ -1053,6 +1055,7 @@ impl SteerFeed {
         self.push_item(FeedKind::UserMessage {
             text: text.to_string(),
             subagent_id: None,
+            at: Some(at),
         })
     }
 
@@ -1405,7 +1408,7 @@ impl SteerFeed {
                         text: text.clone(),
                     });
                 }
-                self.push_item(FeedKind::UserMessage { text, subagent_id });
+                self.push_item(FeedKind::UserMessage { text, subagent_id, at });
             }
             ActivityEvent::Question {
                 text,
@@ -1818,6 +1821,7 @@ impl SteerFeed {
             self.push_item(FeedKind::UserMessage {
                 text,
                 subagent_id: None,
+                at: Some(at),
             });
         }
         for (key, state) in carried {
@@ -5586,6 +5590,7 @@ mod edit_card_fixture_tests {
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
                 subagent_id: raw.subagent_id.clone(),
+                at: None,
             },
             "api_error" => FeedKind::ApiError {
                 message: raw.message.clone().unwrap_or_default(),
@@ -5828,6 +5833,7 @@ mod exp_tool_group_fixture_tests {
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
                 subagent_id: raw.subagent_id.clone(),
+                at: None,
             },
             "subagent" => FeedKind::Subagent {
                 subagent_id: raw.subagent_id.clone().unwrap_or_default(),
