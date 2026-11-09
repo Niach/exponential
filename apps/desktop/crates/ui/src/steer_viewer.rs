@@ -56,6 +56,7 @@
 //! the screen's own chrome is the desktop's answer to that.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -227,6 +228,9 @@ fn orphan_fingerprint(workflow_id: &str) -> u64 {
 /// list's own bookkeeping) is over the window and not over the run. The
 /// contract's `steerFeed.window` — web, iOS and Android render the same.
 const FEED_WINDOW: usize = domain::contract::STEER_FEED_WINDOW;
+
+/// #LOGS-7: a session's conversation cards and (a root's) tree suggestions.
+type ConvMemo = (Rc<Vec<domain::session_tree::SessionChatRow>>, Option<Rc<Vec<domain::session_tree::SessionChatRow>>>);
 
 /// How much older transcript one "scrolled to the top" extension pulls in.
 const FEED_WINDOW_STEP: usize = domain::contract::STEER_FEED_WINDOW_STEP;
@@ -659,6 +663,9 @@ pub(crate) struct SteerSessionView {
     /// tail (`conv_trailing`: indices into `conv_cards`).
     tree_suggestions: Vec<domain::session_tree::SessionChatRow>,
     conv_trailing: Vec<usize>,
+    /// #LOGS-7: the memoised cards and suggestions `conv_cards` /
+    /// `tree_suggestions` were last taken from.
+    conv_memo: Option<ConvMemo>,
     /// #EXP-1545: the Live child whose Queue THE Dock shows (its view, its
     /// name), set by the chat ([`Self::set_queue_from`]).
     queue_from: Option<(Entity<SteerSessionView>, String)>,
@@ -929,6 +936,7 @@ impl SteerSessionView {
             conv_unanchored: Vec::new(),
             tree_suggestions: Vec::new(),
             conv_trailing: Vec::new(),
+            conv_memo: None,
             queue_from: None,
             dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
@@ -2235,6 +2243,12 @@ impl SteerSessionView {
     /// One drained batch, then ONE [`Self::refresh_derived`]: it walks the
     /// whole feed, so a per-event call makes a replay quadratic.
     /// Tests: feed `events` as if the stream delivered them.
+    /// #LOGS-7: the composer's field (the long-chat bench types into it).
+    #[cfg(test)]
+    pub(crate) fn composer_for_test(&self) -> Entity<TextareaState> {
+        self.input.clone()
+    }
+
     #[cfg(test)]
     pub(crate) fn apply_events_for_test(&mut self, events: Vec<ViewerEvent>, cx: &mut gpui::Context<Self>) {
         self.apply_events(events, cx);
@@ -3290,24 +3304,34 @@ impl SteerSessionView {
             self.conv_unanchored.clear();
             self.tree_suggestions.clear();
             self.conv_trailing.clear();
+            self.conv_memo = None;
             return;
         }
         // EXP-1398 (ask-dock.json `sessionCardsCases`): THE card set ×4.
-        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
-        let by_id: HashMap<&str, &domain::rows::MessageRow> =
-            messages.iter().map(|message| (message.id.as_str(), message)).collect();
-        self.conv_cards = domain::ask_dock::session_cards(&messages)
-            .iter()
-            .filter_map(|card| {
-                let message = by_id.get(card.id.as_str())?;
-                if card.kind == domain::ask_dock::SessionCardKind::Surface {
-                    domain::session_tree::surface_card_row(message)
-                } else {
-                    domain::session_tree::ask_card_row(message)
+        // #LOGS-7: the cards and the tree's suggestions are derived once per
+        // store change (`session_data`'s memos), never per frame; a frame
+        // whose inputs did not move keeps what the last one derived.
+        let cards = crate::session_data::conversation_cards(&self.session_id, cx);
+        let suggestions = self
+            .tree_scope
+            .then(|| crate::session_data::tree_suggestions(&self.session_id, crate::session_data::now_ms(), cx));
+        let same = self.conv_memo.as_ref().is_some_and(|(at, tree)| {
+            Rc::ptr_eq(at, &cards)
+                && match (tree, &suggestions) {
+                    (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                    (None, None) => true,
+                    _ => false,
                 }
-            })
-            .collect();
-        crate::surface_card::sync_rows(cx.entity_id(), &self.conv_cards, cx);
+        });
+        if same {
+            // Last frame's trailing suggestions come off again below.
+            self.conv_cards.truncate(cards.len());
+        } else {
+            self.conv_cards = cards.to_vec();
+            crate::surface_card::sync_rows(cx.entity_id(), &self.conv_cards, cx);
+            self.tree_suggestions = suggestions.as_deref().cloned().unwrap_or_default();
+            self.conv_memo = Some((cards, suggestions));
+        }
         // The calls the window shows (a card whose call is above it sits at
         // the head).
         let shown: HashSet<FeedItemId> = self
@@ -3333,18 +3357,6 @@ impl SteerSessionView {
         // #EXP-1732: a ROOT's view = its chat's Chat tab: the tree's
         // suggested tasks too (dock.json: an open item docks; a settled
         // card stays inline, at the tail).
-        self.tree_suggestions = if self.tree_scope {
-            crate::session_data::chat_view_and_messages(&self.session_id, None, crate::session_data::now_ms(), false, cx)
-                .map(|(view, _)| {
-                    view.rows
-                        .into_iter()
-                        .filter(|row| matches!(row, domain::session_tree::SessionChatRow::Suggestions { .. }))
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
         let docked = crate::session_chat::docked_ids(&self.tree_suggestions);
         self.conv_trailing.clear();
         for row in &self.tree_suggestions {

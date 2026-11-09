@@ -127,7 +127,7 @@ fn no_card(message: &MessageRow) -> bool {
 /// The first prompt's usable line: a person's text or another session's
 /// input, oldest first (`created_at`, then `id`).
 pub fn first_prompt<'m>(session_id: &str, messages: &[&'m MessageRow]) -> Option<&'m str> {
-    let mut inputs: Vec<&MessageRow> = messages
+    let inputs: Vec<&MessageRow> = messages
         .iter()
         .copied()
         .filter(|message| {
@@ -147,8 +147,13 @@ pub fn first_prompt<'m>(session_id: &str, messages: &[&'m MessageRow]) -> Option
             .and_then(parse_instant)
             .unwrap_or(0)
     };
-    inputs.sort_by(|a, b| at(a).cmp(&at(b)).then_with(|| a.id.cmp(&b.id)));
-    inputs.into_iter().find_map(|message| first_line(message.body_text()))
+    // #LOGS-7: the oldest usable one in one pass (each timestamp parsed
+    // once), not a sort of every input.
+    inputs
+        .into_iter()
+        .filter_map(|message| Some((at(message), message.id.as_str(), first_line(message.body_text())?)))
+        .min_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)))
+        .map(|(_, _, line)| line)
 }
 
 /// THE display title (fixture `session-title.json` rungs).
