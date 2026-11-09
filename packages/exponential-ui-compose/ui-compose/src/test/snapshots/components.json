@@ -14637,8 +14637,7 @@
     "height" : 20,
     "nodes" : [
       {
-        "bg" : "#ffffff0a",
-        "border" : 1,
+        "bg" : "#ffffff1c",
         "component" : "Box",
         "frame" : [
           0,
@@ -14652,12 +14651,71 @@
       {
         "component" : "Text",
         "frame" : [
-          5,
-          -0.5,
+          187,
+          0,
           16,
           20
         ],
         "id" : "kbd.label"
+      }
+    ]
+  },
+  "KbdGroup\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "kbd-group"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "kbd-group.key.0",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          6,
+          0,
+          8,
+          20
+        ],
+        "id" : "kbd-group.key.0.label"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          24,
+          0,
+          20,
+          20
+        ],
+        "id" : "kbd-group.key.1",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          30,
+          0,
+          8,
+          20
+        ],
+        "id" : "kbd-group.key.1.label"
       }
     ]
   },
