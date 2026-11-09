@@ -71,3 +71,6 @@ export { treeKeyTarget } from "./tree-keys"
 // #EXP-1629: the KeyRecorder field's DOM capture (React + Solid Box).
 export { keyRecorderKey, keyRecorderCode, keyRecorderKeyPayload, keyRecorderMousePayload, isKeyRecorderField } from "./key-recorder"
 export type { KeyRecorderPayload } from "./key-recorder"
+// #EDE-65: the Composer's `menuKeys` (React + Solid Composer).
+export { composerMenuKey } from "./composer-keys"
+export type { ComposerMenuKey, ComposerKeyEvent } from "./composer-keys"
