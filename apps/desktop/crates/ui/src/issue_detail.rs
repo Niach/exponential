@@ -831,6 +831,12 @@ impl IssueDetailView {
                                     .reporter_email
                                     .as_deref()
                                     .is_some_and(|email| !email.trim().is_empty()),
+                                avatar_key: crate::user_avatar::avatar_hue_key(
+                                    None,
+                                    submission.reporter_name.as_deref(),
+                                    submission.reporter_email.as_deref(),
+                                )
+                                .map(str::to_string),
                             }
                         });
                         view.timeline.update(cx, |timeline, cx| {
