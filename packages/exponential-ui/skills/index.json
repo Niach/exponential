@@ -24,7 +24,7 @@
     {
       "name": "exponential-genui",
       "description": "Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props.",
-      "bytes": 4226,
+      "bytes": 4239,
       "files": [
         "references/functions.md",
         "references/style.md",

@@ -12112,6 +12112,54 @@
       }
     },
     {
+      "id": "exponential-ui-key-recorder",
+      "component": "KeyRecorder",
+      "title": "KeyRecorder",
+      "node": {
+        "id": "specimen-key-recorder",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-key-recorder-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-key-recorder-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-key-recorder",
+                "component": "KeyRecorder",
+                "props": {
+                  "label": "Push to talk",
+                  "value": [
+                    "Ctrl",
+                    "Space"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-date-picker",
       "component": "DatePicker",
       "title": "DatePicker",
