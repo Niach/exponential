@@ -141,3 +141,14 @@ export function sessionScreenStatus(sessions: readonly SessionScreenStatusInput[
   if (root?.status === `ended`) return words.done
   return words.idle
 }
+
+/** TONE ×4: the subtitle wears apps.json `editorHeader`'s tones: `attention`
+ *  (the needs-input amber) while the word is needs input (an app also while
+ *  its device part is `noDeviceOnline`), `active` while working or queued,
+ *  else `muted`. */
+export function sessionScreenTone(status: string, offline = false): `attention` | `active` | `muted` {
+  const words = fixture.copy.status
+  if (status === words.needsInput || offline) return `attention`
+  if (status === words.working || status === words.queued) return `active`
+  return `muted`
+}

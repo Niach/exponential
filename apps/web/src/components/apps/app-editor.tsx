@@ -58,6 +58,7 @@ import {
   sessionScreen,
   sessionScreenStatus,
   sessionScreenSubtitle,
+  sessionScreenTone,
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
@@ -367,10 +368,6 @@ export function AppEditor({
         online: shownDevice ? deviceIsOnline(shownDevice) : false,
       }
     : null
-  const header = editorHeader(
-    root ? { status: root.status, busy: root.busy, needsInput: root.needsInput } : null,
-    headerDeviceInput
-  )
   // #EXP-1732: the subtitle's device part alone (no root = no word).
   const headerDevice = editorHeader(null, headerDeviceInput)
   // #EXP-1729: Account › and Model › (composer-menu.json, an app editor's
@@ -894,20 +891,19 @@ export function AppEditor({
 
   // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word (never
   // dropped) · apps.json `editorHeader`'s DEVICE part (the name, else `no
-  // device online`), in `editorHeader`'s tone.
+  // device online`).
   const statusRows = root && !tree.some((row) => row.id === root.id) ? [root, ...tree] : tree
-  const subtitle = sessionScreenSubtitle({
-    status: sessionScreenStatus(
-      statusRows.map((row) => ({
-        status: row.status,
-        busy: row.busy,
-        needsInput: row.needsInput,
-        root: row.id === root?.id,
-      }))
-    ),
-    device: headerDevice.subtitle,
-    trigger: null,
-  })
+  const status = sessionScreenStatus(
+    statusRows.map((row) => ({
+      status: row.status,
+      busy: row.busy,
+      needsInput: row.needsInput,
+      root: row.id === root?.id,
+    }))
+  )
+  const subtitle = sessionScreenSubtitle({ status, device: headerDevice.subtitle, trigger: null })
+  // session-screen.json TONE ×4: the word's tone, amber while no device is online.
+  const tone = sessionScreenTone(status, headerDeviceInput?.online !== true)
 
   return (
     <>
@@ -918,7 +914,7 @@ export function AppEditor({
         title={app.name}
         titleTrailing={versionPill}
         subtitle={subtitle}
-        subtitleClass={CHAT_HEADER_TONE_CLASS[header.tone]}
+        subtitleClass={CHAT_HEADER_TONE_CLASS[tone]}
         trailing={
           showPublish && !isMobile ? (
             <Button size="sm" onClick={() => void publish(head)} pending={publishing === head} disabled={publishing !== null} data-testid={APPS_TEST_IDS.publish}>

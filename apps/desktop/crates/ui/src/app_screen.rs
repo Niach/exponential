@@ -1106,20 +1106,21 @@ impl AppScreenView {
         });
         // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word
         // (never dropped) · apps.json `editorHeader`'s DEVICE part (the
-        // name, else `no device online`), in `editorHeader`'s tone (#EXP-1729).
+        // name, else `no device online`), in the word's TONE (amber while no
+        // device is online).
         let root = self.editor_root(cx);
         let tree = root.as_ref().map(|root| crate::session_data::tree_of_root(&root.id, cx)).unwrap_or_default();
         let word = crate::session_chat::tree_status_word(root.as_ref(), &tree);
         let (subtitle, subtitle_color) = match self.editor_header.clone() {
-            Some((header, device)) => {
-                let tone = match header.tone {
-                    domain::apps::EditorHeaderTone::Attention => theme::tokens::YELLOW.to_hsla(),
-                    domain::apps::EditorHeaderTone::Active => foreground,
-                    domain::apps::EditorHeaderTone::Muted => muted,
-                };
+            Some((_, device)) => {
+                let offline = device == domain::apps::APPS.editor_header.copy.no_device_online;
+                let tone = crate::session_chat::tone_color(domain::session_screen::session_screen_tone(&word, offline), cx);
                 (domain::session_screen::session_screen_subtitle(Some(word.as_str()), Some(device.as_str()), None), Some(tone))
             }
-            None => (crate::session_chat::screen_subtitle(root.as_ref(), &tree, None, cx), None),
+            None => {
+                let tone = crate::session_chat::tone_color(domain::session_screen::session_screen_tone(&word, false), cx);
+                (crate::session_chat::screen_subtitle(root.as_ref(), &tree, None, cx), Some(tone))
+            }
         };
         screen_header(
             ScreenHeader {

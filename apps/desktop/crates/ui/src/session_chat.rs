@@ -2741,6 +2741,16 @@ pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow]) -
     session_screen_status(&rows)
 }
 
+/// session-screen.json TONE ×4: the subtitle's colour (attention = the
+/// needs-input amber, active = the foreground, muted = the muted default).
+pub(crate) fn tone_color(tone: domain::apps::EditorHeaderTone, cx: &App) -> gpui::Hsla {
+    match tone {
+        domain::apps::EditorHeaderTone::Attention => theme::tokens::YELLOW.to_hsla(),
+        domain::apps::EditorHeaderTone::Active => cx.theme().foreground,
+        domain::apps::EditorHeaderTone::Muted => cx.theme().muted_foreground,
+    }
+}
+
 /// The header's subtitle (`session_screen_subtitle`): THE tree's status word
 /// ([`tree_status_word`]), the root's device's name (else the agent's), an
 /// agent's first enabled trigger.
@@ -3725,7 +3735,9 @@ impl SessionChatScreenView {
             }
         };
         let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
-        screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color: None, trailing, gear, menu, back, tabs }, cx)
+        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree), false);
+        let subtitle_color = Some(tone_color(tone, cx));
+        screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, gear, menu, back, tabs }, cx)
     }
 
     /// #EXP-1545 + #EXP-1678 (dock.json ONE CHILD STREAM): keep a viewer

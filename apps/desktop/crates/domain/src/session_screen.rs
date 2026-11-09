@@ -351,6 +351,22 @@ pub fn session_screen_status(sessions: &[SessionScreenStatusInput]) -> String {
     }
 }
 
+/// TONE ×4 (`sessionScreenTone`): the subtitle wears apps.json
+/// `editorHeader`'s tones: attention (the needs-input amber) while the word
+/// is needs input (an app also while its device part is `noDeviceOnline`),
+/// active while working or queued, else muted.
+pub fn session_screen_tone(status: &str, offline: bool) -> crate::apps::EditorHeaderTone {
+    use crate::apps::EditorHeaderTone;
+    let words = &SESSION_SCREEN.copy.status;
+    if status == words.needs_input || offline {
+        EditorHeaderTone::Attention
+    } else if status == words.working || status == words.queued {
+        EditorHeaderTone::Active
+    } else {
+        EditorHeaderTone::Muted
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,5 +438,17 @@ mod tests {
             let input: Vec<SessionScreenStatusInput> = serde_json::from_value(case["input"].clone()).unwrap();
             assert_eq!(session_screen_status(&input), case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn tone_follows_the_word() {
+        use crate::apps::EditorHeaderTone::{Active, Attention, Muted};
+        let words = &SESSION_SCREEN.copy.status;
+        assert_eq!(session_screen_tone(&words.needs_input, false), Attention);
+        assert_eq!(session_screen_tone(&words.working, false), Active);
+        assert_eq!(session_screen_tone(&words.queued, false), Active);
+        assert_eq!(session_screen_tone(&words.done, false), Muted);
+        assert_eq!(session_screen_tone(&words.idle, false), Muted);
+        assert_eq!(session_screen_tone(&words.idle, true), Attention);
     }
 }

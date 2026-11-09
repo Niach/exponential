@@ -7,6 +7,7 @@ import {
   sessionScreenKind,
   sessionScreenStatus,
   sessionScreenSubtitle,
+  sessionScreenTone,
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
@@ -37,7 +38,7 @@ import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { ChatScreenHeaderMenu, useChatTabMenu } from "@/components/chat/chat-tab-menu"
 import { useChatActions } from "@/components/chat/chat-menu"
-import { HEADER_DISC_CLASS } from "@/components/chat/chat-header"
+import { CHAT_HEADER_TONE_CLASS, HEADER_DISC_CLASS } from "@/components/chat/chat-header"
 import { SessionScreenFrame } from "@/components/chat/session-screen-frame"
 import {
   SESSION_ISSUE_MENU,
@@ -475,16 +476,17 @@ export function ChatScreen({
       ? `working`
       : (chatLeadPrState(pullRequests) ?? `waiting`)
   const avatar = agent ? agent.avatar : <ChatLeadDisc lead={lead} agent={root.cli ?? null} className={HEADER_DISC_CLASS} />
+  // session-screen.json STATUS WORD: THE tree's word, never dropped.
+  const status = sessionScreenStatus(
+    (rows.some((row) => row.id === root.id) ? rows : [root, ...rows]).map((row) => ({
+      status: row.status,
+      busy: row.busy,
+      needsInput: row.needsInput,
+      root: row.id === root.id,
+    }))
+  )
   const subtitle = sessionScreenSubtitle({
-    // session-screen.json STATUS WORD: THE tree's word, never dropped.
-    status: sessionScreenStatus(
-      (rows.some((row) => row.id === root.id) ? rows : [root, ...rows]).map((row) => ({
-        status: row.status,
-        busy: row.busy,
-        needsInput: row.needsInput,
-        root: row.id === root.id,
-      }))
-    ),
+    status,
     device: deviceGlyph(root.deviceId)?.name ?? null,
     trigger: agent?.trigger ?? null,
   })
@@ -532,6 +534,7 @@ export function ChatScreen({
               ) : undefined
             }
             subtitle={subtitle}
+            subtitleClass={CHAT_HEADER_TONE_CLASS[sessionScreenTone(status)]}
             trailing={
               <>
                 {/* S-3: the Merge pill sits in the header on every width. */}
