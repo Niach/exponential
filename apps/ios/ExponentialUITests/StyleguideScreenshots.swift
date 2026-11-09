@@ -1925,10 +1925,15 @@ final class StyleguideScreenshots: XCTestCase {
         }
         // Back twice (#EXP-1732: the pushed session item → the chat → the
         // Chats list) on the back button (`goBack`: by name, never the `…`).
-        goBack(app)
-        settle(1)
-        goBack(app)
-        settle(1)
+        // #EXP-1757: a Back tapped while the item's feed still settles is
+        // swallowed (a run without the card shots taps it right after the
+        // snapshot), so go back until the Chats list's tab bar is up.
+        let chatsTab = app.buttons["tab-chats"]
+        for _ in 0..<4 where !(chatsTab.exists && chatsTab.isHittable) {
+            goBack(app)
+            settle(1)
+        }
+        expect(chatsTab, within: Wait.nav, "Did not get back to the Chats list")
     }
 
     /// A Chats row whose (combined) label contains `fragment`.
