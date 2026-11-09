@@ -5,7 +5,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -39,7 +38,7 @@ val copyFixtureAssets by tasks.registering(Copy::class) {
 
 android {
     namespace = "at.exponential.ui.kitchensink"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "at.exponential.ui.kitchensink"
@@ -52,7 +51,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDir(fixtureAssets)
+            assets.srcDir(fixtureAssets.get().asFile)
         }
     }
 

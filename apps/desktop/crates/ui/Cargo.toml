@@ -159,3 +159,9 @@ raw-window-handle = "0.6"
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", features = ["xkb", "randr"] }
 raw-window-handle = "0.6"
+
+# The headless test text system on macOS without the Mac platform: gpui-pre
+# builds `MacPlatform` only on the process main thread, and libtest runs
+# tests on worker threads (`crate::test_text_system`).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.11", features = ["font-kit"] }

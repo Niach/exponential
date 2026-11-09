@@ -1859,6 +1859,22 @@
         }
       }
     },
+    "KbdGroup": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true
+        }
+      }
+    },
     "Label": {
       "kind": "macro",
       "group": "text",

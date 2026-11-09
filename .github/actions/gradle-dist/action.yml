@@ -1,10 +1,12 @@
 name: gradle-dist
 description: >-
-  Keeps the Gradle wrapper's download working when github.com's release
-  downloads fail (services.gradle.org redirects there): probes every committed
-  wrapper's distributionUrl and, when it does not answer, points that checkout's
-  wrapper at a mirror of the same zip. The committed distributionSha256Sum
-  still verifies whatever the wrapper downloads.
+  Keeps the Gradle wrapper's download working when services.gradle.org (and
+  the github.com release downloads it redirects to) fail: downloads every
+  committed wrapper's distribution itself, retrying every error, from its
+  distributionUrl and then from a mirror of the same zip, and points that
+  checkout's wrapper at the local file. The committed distributionSha256Sum
+  still verifies it. A probe alone is not enough: an outage that starts
+  between the probe and the wrapper's own (unretried) download fails the job.
 inputs:
   mirror:
     description: The mirror's base URL; the wrapper's file name is appended.
@@ -17,11 +19,26 @@ runs:
         MIRROR: ${{ inputs.mirror }}
       run: |
         set -euo pipefail
+        dists="$RUNNER_TEMP/gradle-dists"
+        mkdir -p "$dists"
         git ls-files -z '*gradle/wrapper/gradle-wrapper.properties' | while IFS= read -r -d '' props; do
           url="$(sed -n 's/^distributionUrl=//p' "$props" | sed 's/\\:/:/g')"
-          if curl -fsSL -r 0-0 -o /dev/null --retry 2 --max-time 60 "$url"; then
-            continue
+          zip="$dists/${url##*/}"
+          if [ ! -s "$zip" ]; then
+            fetched=""
+            for source in "$url" "$MIRROR/${url##*/}"; do
+              if curl -fsSL --retry 4 --retry-all-errors --retry-delay 5 --max-time 600 -o "$zip.part" "$source"; then
+                mv "$zip.part" "$zip"
+                fetched="$source"
+                break
+              fi
+              echo "::warning::$source failed"
+            done
+            if [ -z "$fetched" ]; then
+              rm -f "$zip.part"
+              echo "::warning::no source served ${url##*/}; $props keeps $url"
+              continue
+            fi
           fi
-          echo "::warning::$url failed; $props downloads from $MIRROR"
-          sed -i "s|^distributionUrl=.*|distributionUrl=${MIRROR/:/\\\\:}/${url##*/}|" "$props"
+          sed -i "s|^distributionUrl=.*|distributionUrl=file\\\\:${zip}|" "$props"
         done

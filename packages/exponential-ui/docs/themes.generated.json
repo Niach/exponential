@@ -2670,6 +2670,15 @@
       "props": []
     },
     {
+      "name": "KbdGroup",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "key"
+      ],
+      "props": []
+    },
+    {
       "name": "Label",
       "kind": "macro",
       "parts": [

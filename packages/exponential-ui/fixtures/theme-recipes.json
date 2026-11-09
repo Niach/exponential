@@ -60935,17 +60935,13 @@
           "light": {
             "default": {
               "backgroundColor": "#f5f5f5",
-              "borderWidth": 1,
-              "borderBottomWidth": 2,
-              "borderColor": "#e5e5e5"
+              "borderWidth": 0
             }
           },
           "dark": {
             "default": {
               "backgroundColor": "#262626",
-              "borderWidth": 1,
-              "borderBottomWidth": 2,
-              "borderColor": "#ffffff1a"
+              "borderWidth": 0
             }
           }
         },
@@ -60953,17 +60949,13 @@
           "light": {
             "default": {
               "backgroundColor": "#f5f5f5",
-              "borderWidth": 1,
-              "borderBottomWidth": 2,
-              "borderColor": "#e5e5e5"
+              "borderWidth": 0
             }
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff0a",
-              "borderWidth": 1,
-              "borderBottomWidth": 2,
-              "borderColor": "#ffffff1a"
+              "backgroundColor": "#ffffff1c",
+              "borderWidth": 0
             }
           }
         },
@@ -60971,18 +60963,14 @@
           "light": {
             "default": {
               "backgroundColor": "#ccfbf1",
-              "borderWidth": 2,
-              "borderBottomWidth": 3,
-              "borderColor": "#7c3aed",
+              "borderWidth": 0,
               "borderRadius": 14
             }
           },
           "dark": {
             "default": {
               "backgroundColor": "#134e4a",
-              "borderWidth": 2,
-              "borderBottomWidth": 3,
-              "borderColor": "#c4b5fd",
+              "borderWidth": 0,
               "borderRadius": 14
             }
           }
@@ -60990,18 +60978,14 @@
         "orange": {
           "light": {
             "default": {
-              "backgroundColor": "#f5f5f5",
-              "borderWidth": 1,
-              "borderBottomWidth": 2,
-              "borderColor": "#e5e5e5"
+              "backgroundColor": "#ffedd5",
+              "borderWidth": 0
             }
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff0a",
-              "borderWidth": 1,
-              "borderBottomWidth": 2,
-              "borderColor": "#ffffff1a"
+              "backgroundColor": "#431407",
+              "borderWidth": 0
             }
           }
         }
@@ -61016,15 +61000,13 @@
           "light": {
             "default": {
               "color": "#737373",
-              "fontFamily": "Geist Mono",
-              "fontSize": 12
+              "fontWeight": 500
             }
           },
           "dark": {
             "default": {
               "color": "#a1a1a1",
-              "fontFamily": "Geist Mono",
-              "fontSize": 12
+              "fontWeight": 500
             }
           }
         },
@@ -61032,15 +61014,13 @@
           "light": {
             "default": {
               "color": "#737373",
-              "fontFamily": "ui-monospace",
-              "fontSize": 12
+              "fontWeight": 500
             }
           },
           "dark": {
             "default": {
               "color": "#a1a1a1",
-              "fontFamily": "ui-monospace",
-              "fontSize": 12
+              "fontWeight": 500
             }
           }
         },
@@ -61048,15 +61028,13 @@
           "light": {
             "default": {
               "color": "#6b5b8a",
-              "fontFamily": "Fira Code",
-              "fontSize": 12
+              "fontWeight": 600
             }
           },
           "dark": {
             "default": {
               "color": "#c4b5fd",
-              "fontFamily": "Fira Code",
-              "fontSize": 12
+              "fontWeight": 600
             }
           }
         },
@@ -61064,15 +61042,13 @@
           "light": {
             "default": {
               "color": "#737373",
-              "fontFamily": "ui-monospace",
-              "fontSize": 12
+              "fontWeight": 500
             }
           },
           "dark": {
             "default": {
               "color": "#a1a1a1",
-              "fontFamily": "ui-monospace",
-              "fontSize": 12
+              "fontWeight": 500
             }
           }
         }
