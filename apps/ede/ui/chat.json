@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). /chat/draft is the composer's text, owned by the document. ATTACHMENTS (#EDE-65 lane L, the IDE's composer rules): the composer's attach control (ede_chat attach) opens the desktop's file chooser; the picks stage as /chatFiles {open, items [{key, label, image, icon}]}, a removable Chip each above the composer (the image itself as its picture, else the file's glyph; ede_chat unattach {key}), images up to 4 × 10 MB and files up to 4 × 50 MB, one notice for the rest; the send uploads them (a team's session files, a Local desktop's blob store) and passes their ids with the text, a failed upload is the toast and keeps them for the retry. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
+  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). KEYS (#EDE-65 lane P, the IDE's composer menus): while /chatMenu is open the composer's menuKeys hands ArrowUp/ArrowDown/Enter/Tab/Escape to the host as the event ede_chat {action: key, key} (an event: its context carries the key); the host highlights one row (`selected`, domain::chat_document::menu_key): the arrows move it, wrapping, Enter and Tab pick it like its press, Escape shuts the menu for that draft; a rebuilt `/` menu keeps its row (clamped), the typeahead starts at its first. /chat/draft is the composer's text, owned by the document. ATTACHMENTS (#EDE-65 lane L, the IDE's composer rules): the composer's attach control (ede_chat attach) opens the desktop's file chooser; the picks stage as /chatFiles {open, items [{key, label, image, icon}]}, a removable Chip each above the composer (the image itself as its picture, else the file's glyph; ede_chat unattach {key}), images up to 4 × 10 MB and files up to 4 × 50 MB, one notice for the rest; the send uploads them (a team's session files, a Local desktop's blob store) and passes their ids with the text, a failed upload is the toast and keeps them for the retry. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -281,6 +281,9 @@
                       "icon": {
                         "@path": "icon"
                       },
+                      "selected": {
+                        "@path": "selected"
+                      },
                       "density": "compact",
                       "pressable": true
                     },
@@ -458,6 +461,9 @@
                   "value": {
                     "@path": "/chat/draft"
                   },
+                  "menuKeys": {
+                    "@path": "/chatMenu/open"
+                  },
                   "attachments": true
                 },
                 "on": {
@@ -488,6 +494,14 @@
                       "@call": "ede_chat",
                       "args": {
                         "action": "attach"
+                      }
+                    }
+                  },
+                  "key": {
+                    "event": {
+                      "name": "ede_chat",
+                      "context": {
+                        "action": "key"
                       }
                     }
                   }
@@ -1356,6 +1370,9 @@
                       "icon": {
                         "@path": "icon"
                       },
+                      "selected": {
+                        "@path": "selected"
+                      },
                       "density": "compact",
                       "pressable": true
                     },
@@ -1513,6 +1530,9 @@
                   "value": {
                     "@path": "/chat/draft"
                   },
+                  "menuKeys": {
+                    "@path": "/chatMenu/open"
+                  },
                   "busy": false,
                   "attachments": true
                 },
@@ -1552,6 +1572,14 @@
                       "@call": "ede_chat",
                       "args": {
                         "action": "attach"
+                      }
+                    }
+                  },
+                  "key": {
+                    "event": {
+                      "name": "ede_chat",
+                      "context": {
+                        "action": "key"
                       }
                     }
                   }
