@@ -92,19 +92,25 @@ pub(crate) fn feed_source_for(
 /// [`feed_source_for`] against the live state, then the source it names.
 pub(crate) fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
     let engine = local_engine(session_id, cx);
-    let record =
-        coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id);
+    let ended = crate::session_data::session(session_id, cx).is_some_and(|row| row.is_ended());
     // EXP-773: the DEVICE's own activity journal is the transcript of a past
     // run — the exact events the relay fanned out, on disk, with no agent to
     // respawn. It is preferred for that reason; the engine's `session/load`
     // replay stays the fallback for a run recorded before journals existed.
-    let journal = journal_events(session_id, cx);
-    let feed = feed_source_for(
-        engine.is_some(),
-        journal.is_some() || record.is_some(),
-        crate::session_data::session(session_id, cx)
-            .is_some_and(|row| row.is_ended()),
-    );
+    // #LOGS-7: the disk is read only when a replay can be the answer (an
+    // ended run with no live engine): a live chat opened without parsing
+    // the whole run registry.
+    let (journal, record) = if engine.is_none() && ended {
+        let journal = journal_events(session_id, cx);
+        let record = journal
+            .is_none()
+            .then(|| coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id))
+            .flatten();
+        (journal, record)
+    } else {
+        (None, None)
+    };
+    let feed = feed_source_for(engine.is_some(), journal.is_some() || record.is_some(), ended);
     match (feed, engine) {
         (SessionFeed::Local, Some(session)) => (SessionFeed::Local, FeedSource::Local { session }),
         (SessionFeed::Replay, _) => match journal {
