@@ -88,7 +88,7 @@ final class Round1NativesTests: XCTestCase {
     /// painter knows (no bare boxes where content belongs).
     func testRound1MacrosExpandToKnownLeaves() throws {
         let specimens = try Fixtures.json("specimens.json")["specimens"]?.array ?? []
-        for name in ["Rating", "Stepper", "Breadcrumb", "Row", "Section", "Chip", "AppBar", "Kbd", "Label", "Sparkline"] {
+        for name in ["Rating", "Stepper", "Breadcrumb", "Row", "Section", "Chip", "AppBar", "Kbd", "KbdGroup", "Label", "Sparkline"] {
             guard let spec = specimens.first(where: { $0["component"]?.string == name }), let tree = spec["node"] else { XCTFail("no \(name) specimen"); continue }
             let m = try model(name)
             try m.setNested(json: tree.json)

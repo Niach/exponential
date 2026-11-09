@@ -57,6 +57,7 @@
         "record-form",
         "record-table",
         "settings-row",
+        "kbd-group",
         "key-recorder"
       ]
     },
@@ -160,6 +161,7 @@
     "record-form": "VAPP-217",
     "record-table": "VAPP-217",
     "settings-row": "VAPP-280",
+    "kbd-group": "EXP-1629",
     "key-recorder": "EXP-1629",
     "mosaic": "EXP-1495",
     "window": "VAPP-290",

@@ -6658,6 +6658,139 @@
       ]
     },
     {
+      "name": "KbdGroup/bound:keys",
+      "input": {
+        "id": "kbd_group",
+        "component": "KbdGroup",
+        "props": {
+          "keys": {
+            "@path": "/keys"
+          }
+        }
+      },
+      "expanded": {
+        "id": "kbd_group",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "alignSelf": "flex-start"
+        },
+        "recipe": {
+          "macro": "KbdGroup",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group"
+        },
+        "template": {
+          "component": "kbd_group.key",
+          "path": "/keys"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "keys": [
+              "⌘",
+              "K"
+            ]
+          },
+          "bound": {
+            "id": "kbd_group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd_group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "keys": []
+          },
+          "bound": {
+            "id": "kbd_group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd_group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "kbd_group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd_group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Label/bound:text",
       "input": {
         "id": "label",
@@ -53507,7 +53640,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Ctrl",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -53522,7 +53655,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -53543,7 +53678,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Space",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -53558,7 +53693,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -53816,7 +53953,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -53831,7 +53968,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -53852,7 +53991,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -53867,7 +54006,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -53992,7 +54133,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54007,7 +54148,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54028,7 +54171,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54043,7 +54186,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54177,7 +54322,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Ctrl",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -54192,7 +54337,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -54213,7 +54360,7 @@
                         "component": "Text",
                         "props": {
                           "text": "Space",
-                          "variant": "code",
+                          "variant": "caption",
                           "lines": 1
                         },
                         "children": [],
@@ -54228,7 +54375,9 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
+                      "justifyContent": "center",
                       "height": "$control.badge",
+                      "minWidth": "$control.badge",
                       "paddingHorizontal": "$spacing.xs",
                       "borderRadius": "$radius.sm",
                       "alignSelf": "flex-start"
@@ -54325,7 +54474,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54340,7 +54489,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54361,7 +54512,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54376,7 +54527,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54474,7 +54627,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54489,7 +54642,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54510,7 +54665,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54525,7 +54680,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54621,7 +54778,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54636,7 +54793,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"
@@ -54657,7 +54816,7 @@
                             "component": "Text",
                             "props": {
                               "text": "Space",
-                              "variant": "code",
+                              "variant": "caption",
                               "lines": 1
                             },
                             "children": [],
@@ -54672,7 +54831,9 @@
                           "display": "flex",
                           "flexDirection": "row",
                           "alignItems": "center",
+                          "justifyContent": "center",
                           "height": "$control.badge",
+                          "minWidth": "$control.badge",
                           "paddingHorizontal": "$spacing.xs",
                           "borderRadius": "$radius.sm",
                           "alignSelf": "flex-start"

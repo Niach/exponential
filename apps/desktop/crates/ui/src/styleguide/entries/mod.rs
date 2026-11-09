@@ -80,6 +80,7 @@ pub(crate) mod outline;
 pub(crate) mod tree;
 pub(crate) mod record_form;
 pub(crate) mod settings_row;
+pub(crate) mod kbd_group;
 // #EXP-1629: the shortcut field.
 pub(crate) mod key_recorder;
 pub(crate) mod record_table;
@@ -200,6 +201,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: record_form::ID, owner: record_form::OWNER, render: record_form::render },
     Entry { id: record_table::ID, owner: record_table::OWNER, render: record_table::render },
     Entry { id: settings_row::ID, owner: settings_row::OWNER, render: settings_row::render },
+    Entry { id: kbd_group::ID, owner: kbd_group::OWNER, render: kbd_group::render },
     Entry { id: key_recorder::ID, owner: key_recorder::OWNER, render: key_recorder::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },

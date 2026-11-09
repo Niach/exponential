@@ -219,7 +219,7 @@
     "TimePicker": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
     "DateRangePicker": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "day": [ { "style": { "borderRadius": "$radius.full" } } ], "range": [ { "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground" } } ] },
     "FileUpload": { "dropzone": [ { "style": { "borderRadius": "$radius.xl2", "borderWidth": "$border.thick", "borderColor": "$color.primary", "backgroundColor": "$color.muted" } } ] },
-    "Kbd": { "root": [ { "style": { "borderRadius": "$radius.md", "backgroundColor": "$color.secondary", "borderColor": "$color.primary" } } ] },
+    "Kbd": { "root": [ { "style": { "borderRadius": "$radius.md", "backgroundColor": "$color.secondary" } } ] },
     "Stepper": { "marker": [ { "style": { "borderWidth": "$border.thick", "borderColor": "$color.primary" } }, { "when": { "status": "done" }, "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground", "borderColor": "$color.secondary" } } ], "check": [ { "style": { "color": "$color.secondaryForeground" } } ] },
     "Rating": { "icon": [ { "when": { "filled": true }, "style": { "color": "$color.primary" } } ] }
   }

@@ -1369,6 +1369,42 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Kbd/<part>."
     },
     {
+      "name": "KbdGroup",
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "specimenId": "exponential-ui-kbd-group",
+      "description": "Key chord: one Kbd cap per key.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "keys",
+          "type": "[string]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Keys in order (`⌘`, `K`)."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group of the Kbd caps, read in order",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "KbdGroup",
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KbdGroup/<part>."
+    },
+    {
       "name": "Label",
       "kind": "macro",
       "group": "text",
