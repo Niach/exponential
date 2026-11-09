@@ -609,3 +609,18 @@ no service is bundled: the envelopes go to the Exponential server's own tunnel
 (`packages/licenses` collects `apps/desktop` only); these crates join whoever
 adds that collector.
 
+## Android crash reporting: the Sentry SDK (#LOGS-2)
+
+### What we ship (2026-11-09)
+
+The Android app links `io.sentry:sentry-android-core`, `-ndk`, `-navigation`,
+`sentry-okhttp` and `sentry` 8.63.0 plus `sentry-native-ndk` 0.17.6 (all MIT,
+Copyright (c) Sentry) and `com.abovevacant:epitaph` 0.2.0 (MIT). The NDK
+module ships `libsentry.so` (sentry-native, MIT) per ABI. Everything sits in
+`collect:android`'s inventory. The gradle licence report leaves
+`sentry-android-core` out, so the collector adds it from its own POM
+(`REPORT_OMISSIONS` in `collect-android.ts`).
+
+No session replay (`sentry-android-replay`) and no Sentry Gradle plugin are
+linked. Events leave only through the signed-in server's `/api/monitoring`
+tunnel, never to a Sentry or GlitchTip host directly.

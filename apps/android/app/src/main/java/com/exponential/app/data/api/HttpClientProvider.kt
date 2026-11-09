@@ -2,6 +2,7 @@ package com.exponential.app.data.api
 
 import com.exponential.app.AppConstants
 import com.exponential.app.BuildConfig
+import com.exponential.app.Observability
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -134,6 +135,9 @@ object HttpClientModule {
                     // multiplex. NOT set on the steer client: on a WebSocket
                     // the same interval is a pong deadline (EXP-656).
                     if (keepAlivePings) pingInterval(30, TimeUnit.SECONDS)
+                    // #LOGS-2: API + shape spans (inert while Sentry is off).
+                    // The steer client's sockets stay out.
+                    if (keepAlivePings) addInterceptor(Observability.okHttpInterceptor())
                 }
             }
             // Still required after the engine swap: an engine left to its own
