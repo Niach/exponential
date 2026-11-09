@@ -204,6 +204,13 @@ pub struct Shell {
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the session bar spans everything right of it).
     rail: Entity<RailView>,
+    /// #LOGS-4: the cached regions around the rail, the tab band and the
+    /// dock, and the layer that paints their animated glyphs: a working
+    /// mark's frame repaints the mark, not the region around it.
+    rail_region: Entity<eui_gpui::controls::GlyphRegion>,
+    band_region: Entity<eui_gpui::controls::GlyphRegion>,
+    dock_region: Entity<eui_gpui::controls::GlyphRegion>,
+    glyph_layer: Entity<eui_gpui::controls::GlyphLayer>,
     /// EXP-456: the settings navigation — it takes the RAIL's slot (the
     /// window's leftmost column) while `Screen::Settings` is up, sliding in
     /// as the rail slides out; the settings detail fills everything right of
@@ -490,8 +497,17 @@ impl Shell {
         // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
         // no spurious entry animation.
         let left_anim = SwapAnim::new(window_left_occupant(window, cx));
+        let region = |views: Vec<gpui::AnyView>, cx: &mut gpui::Context<Self>| cx.new(|_| eui_gpui::controls::GlyphRegion::new(views));
+        let rail_region = region(vec![rail.clone().into()], cx);
+        let band_region = region(vec![tab_bar.clone().into(), session_bar.clone().into()], cx);
+        let dock_region = region(vec![dock_area.clone().into()], cx);
+        let glyph_layer = cx.new(|_| eui_gpui::controls::GlyphLayer);
 
         Self {
+            rail_region,
+            band_region,
+            dock_region,
+            glyph_layer,
             dock_area,
             session_bar,
             tab_bar,
@@ -730,7 +746,11 @@ impl Shell {
     /// ITS width.
     fn left_child(&self, occupant: LeftOccupant, width: f32) -> AnyElement {
         let child: AnyElement = match occupant {
-            LeftOccupant::Rail => self.rail.clone().into_any_element(),
+            LeftOccupant::Rail => eui_gpui::controls::glyph_scope(
+                "rail",
+                self.rail_region.clone().cached(StyleRefinement::default().size_full()),
+            )
+            .into_any_element(),
             LeftOccupant::Settings => self.settings_nav.clone().into_any_element(),
         };
         div()
@@ -1054,9 +1074,12 @@ impl Render for Shell {
                                 // gpui's own `refresh` calls). Caching needs
                                 // a definite size: the wrapper's box.
                                 .child(div().flex_1().min_h_0().child(
-                                    self.dock_area
-                                        .clone()
-                                        .cached(StyleRefinement::default().size_full()),
+                                    eui_gpui::controls::glyph_scope(
+                                        "dock",
+                                        self.dock_region
+                                            .clone()
+                                            .cached(StyleRefinement::default().size_full()),
+                                    ),
                                 )),
                         )
                         .child(
@@ -1069,8 +1092,14 @@ impl Render for Shell {
                                 .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
                                 .mx(px(PANEL_MARGIN))
                                 .mb(crate::window_frame::frame_bottom_resize_inset(window))
-                                .child(self.tab_bar.clone())
-                                .child(self.session_bar.clone()),
+                                // #LOGS-4: a cached region, like the rail
+                                // and the dock.
+                                .child(eui_gpui::controls::glyph_scope(
+                                    "tabs",
+                                    self.band_region
+                                        .clone()
+                                        .cached(StyleRefinement::default().size_full()),
+                                )),
                         )
                 })
                 // EXP-1156: the edge handle LAST, so it hit-tests above the
@@ -1170,6 +1199,9 @@ impl Render for Shell {
                     .bg(theme::background_gradient())
                     .text_color(cx.theme().foreground)
                     .child(body)
+                    // #LOGS-4: the regions' animated glyphs, above the
+                    // content and below every overlay layer.
+                    .child(self.glyph_layer.clone())
                     // EXP-837: the text-selection disarm — a window move eats
                     // the mouse-up that would have ended a selection drag.
                     .child(crate::text_selection_guard::selection_guard())

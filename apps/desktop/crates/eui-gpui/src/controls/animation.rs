@@ -137,6 +137,9 @@ impl<E: IntoElement + 'static> Element for SteppedAnimationElement<E> {
             let id = format!("{:?}", self.id);
             tracing::trace_span!("anim.step", id = id.as_str()).entered()
         });
+        // #LOGS-4: an unfocused window shows the static face (gpui refreshes
+        // it when the focus comes back).
+        let paused = super::glyph_layer::animation_paused(window, cx);
         window.with_element_state(global_id.unwrap(), |state, window| {
             let now = cx.background_executor().now();
             let mut state = state.unwrap_or_else(|| SteppedAnimationState {
@@ -144,7 +147,7 @@ impl<E: IntoElement + 'static> Element for SteppedAnimationElement<E> {
                 armed_until: None,
             });
             let elapsed = now.saturating_duration_since(state.start);
-            let (delta, done) = if cx.reduce_motion() {
+            let (delta, done) = if paused {
                 (if self.animation.oneshot { 1.0 } else { 0.0 }, true)
             } else {
                 let mut delta =
@@ -213,7 +216,7 @@ impl gpui::Global for StepEpoch {}
 /// 30; a 33 ms pulse, a 90 ms sprite and a 100 ms label = ~50, #LOGS-3).
 /// Every repaint lands on a tick of ONE [`SMOOTH_STEP`] grid counted from
 /// this epoch, so all loops wake together and share a single frame.
-fn step_epoch(now: Instant, cx: &mut App) -> Instant {
+pub(super) fn step_epoch(now: Instant, cx: &mut App) -> Instant {
     if !cx.has_global::<StepEpoch>() {
         cx.set_global(StepEpoch(now));
     }
@@ -234,7 +237,7 @@ pub fn until_shared_tick(now: Instant, due: Instant, epoch: Instant) -> Duration
 /// three sparks started at different moments wake together, and the first
 /// tick after each line shows that line's frame (none is skipped). The
 /// phase moves by less than one step.
-fn aligned_start(now: Instant, step: Duration, epoch: Instant) -> Instant {
+pub(super) fn aligned_start(now: Instant, step: Duration, epoch: Instant) -> Instant {
     let since = now.saturating_duration_since(epoch);
     now - (step - until_next_step(since, step)).min(since)
 }
@@ -250,7 +253,7 @@ fn arm(
     window: &Window,
     cx: &mut App,
 ) {
-    if armed_until.is_some_and(|until| now < until) {
+    if armed_until.is_some_and(|until| now < until) || super::glyph_layer::animation_paused(window, cx) {
         return;
     }
     let epoch = step_epoch(now, cx);
@@ -318,7 +321,11 @@ mod tests {
             let (renders, deltas) = (renders.clone(), deltas.clone());
             move |_, _| Probe { renders, deltas }
         });
+        // An unfocused window paints the static face (#LOGS-4): focus it,
+        // and count from the frame its focus drew.
+        window.update(cx, |_, window, _| window.activate_window()).unwrap();
         cx.run_until_parked();
+        renders.set(1);
         (renders, deltas, window)
     }
 
@@ -431,6 +438,7 @@ mod tests {
             let draws = draws.clone();
             move |_, _| Staggered { draws, steps: vec![SMOOTH_STEP] }
         });
+        window.update(cx, |_, window, _| window.activate_window()).unwrap();
         cx.run_until_parked();
 
         // Two more loops join between ticks, each at its own moment.
