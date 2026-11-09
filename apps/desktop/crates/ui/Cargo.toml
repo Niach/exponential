@@ -72,6 +72,12 @@ imagesize = "0.13"
 # screenshot) and cut it into strips — see tall_image.rs. Already in the tree
 # via gpui; default features stay off, only the accepted formats.
 image = { workspace = true, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+# #LOGS-5: the Home dawn's mark rendered off the main thread as gpui would
+# (dawn_mark.rs): gpui's resvg, the PNG encoder `image` uses, base64. All
+# already in the tree.
+resvg = { version = "0.46", default-features = false }
+png = "0.18"
+base64 = "0.22"
 # §4.7 ExpIcon: icon_named!(ExpIcon, "../../assets/icons") — the project-local
 # Lucide set (status circles, priority signal bars, …).
 gpui-component-macros.workspace = true

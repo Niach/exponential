@@ -104,6 +104,13 @@ const SUBJECT_CHIP_MAX_W: f32 = 320.;
 /// `AgentHomeDawn`).
 const PAGE_MARK_SIZE: f32 = 440.;
 const PAGE_MARK_ALPHA: f32 = 0.025;
+/// The share of the mark's height the dawn shows (its top half).
+const PAGE_MARK_SHOWN: f32 = 0.5;
+
+/// #LOGS-5: start the dawn mark's raster at app start (see `dawn_mark`).
+pub(crate) fn warm_dawn(cx: &App) {
+    crate::dawn_mark::warm(PAGE_MARK_SIZE, PAGE_MARK_SHOWN, cx);
+}
 /// How many slices the half mark's fade is painted in (gpui has no mask).
 const PAGE_MARK_FADE_STEPS: usize = 12;
 
@@ -2900,7 +2907,7 @@ impl ChatScreenView {
 /// its row and inked a step fainter (web's `mask-image: linear-gradient(
 /// black 33%, transparent)`).
 pub(crate) fn dawn(cx: &App) -> AnyElement {
-    let slice_h = PAGE_MARK_SIZE / 2. / PAGE_MARK_FADE_STEPS as f32;
+    let slice_h = PAGE_MARK_SIZE * PAGE_MARK_SHOWN / PAGE_MARK_FADE_STEPS as f32;
     let foreground = cx.theme().foreground;
     v_flex()
         .id(home_greeting::TEST_ID_MARK)
@@ -2919,13 +2926,19 @@ pub(crate) fn dawn(cx: &App) -> AnyElement {
                 .flex()
                 .justify_center()
                 .items_start()
-                .child(
-                    Icon::from(crate::icons::ExpIcon::Logo)
-                        .size(px(PAGE_MARK_SIZE))
-                        .flex_shrink_0()
-                        .mt(px(-(row as f32) * slice_h))
-                        .text_color(foreground.opacity(PAGE_MARK_ALPHA * fade)),
-                )
+                .child({
+                    // #LOGS-5: the logo `Icon`'s box, its tile rasterized off the main thread.
+                    let color = foreground.opacity(PAGE_MARK_ALPHA * fade);
+                    gpui::canvas(
+                        |_, _, _| (),
+                        move |bounds, (), window, cx| {
+                            crate::dawn_mark::paint(bounds, color, PAGE_MARK_SHOWN, window, cx)
+                        },
+                    )
+                    .size(px(PAGE_MARK_SIZE))
+                    .flex_shrink_0()
+                    .mt(px(-(row as f32) * slice_h))
+                })
         }))
         .into_any_element()
 }
