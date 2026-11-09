@@ -878,6 +878,19 @@ function treeCases(): ComponentCase[] {
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
+  // #EXP-1760: the identity pickers of boards, agents and labels: a pick
+  // (tinted), none (the dashed placeholder) and the open grid of the board
+  // set (with No icon) / the label palette, in a box tall enough for it.
+  IconPicker: [
+    { label: `value · color`, node: { id: `icon`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6` } } },
+    { label: `empty`, node: { id: `icon-none`, component: `IconPicker`, props: {} } },
+    { label: `open · the board set, allowNone`, node: { id: `icon-open-box`, component: `Box`, style: { height: 400 }, children: [{ id: `icon-open`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6`, allowNone: true, open: true } }] } },
+  ],
+  ColorPicker: [
+    { label: `value`, node: { id: `color`, component: `ColorPicker`, props: { value: `#3b82f6` } } },
+    { label: `empty`, node: { id: `color-none`, component: `ColorPicker`, props: {} } },
+    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 160 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
+  ],
   // #VAPP-285: a repository: folders open and closed, a selected file, an
   // empty folder; then a lazy folder opened (its loading row).
   Tree: [

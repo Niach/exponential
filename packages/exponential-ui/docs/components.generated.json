@@ -6801,6 +6801,145 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KeyRecorder/<part>."
     },
     {
+      "name": "IconPicker",
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-icon-picker",
+      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picked icon name."
+        },
+        {
+          "name": "icons",
+          "type": "[icon]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Offered icons; default the board set."
+        },
+        {
+          "name": "color",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Hex tint of the pick."
+        },
+        {
+          "name": "allowNone",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Adds a No icon row."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Grid shows; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "button",
+        "notes": "trigger = button named by the pick (`Icon: rocket`, else `Pick an icon`) opening a dialog; each cell a toggle button named by its icon, aria-pressed on the pick",
+        "keys": [
+          "Enter, Space: open; Tab moves through the cells",
+          "Enter, Space on a cell: pick it and close; Escape: close"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "IconPicker",
+        "value": "rocket",
+        "color": "#3b82f6",
+        "icons": [
+          "code",
+          "rocket",
+          "star",
+          "zap"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe IconPicker/<part>."
+    },
+    {
+      "name": "ColorPicker",
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-color-picker",
+      "description": "Colour field: a swatch opens the palette grid.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picked hex colour."
+        },
+        {
+          "name": "colors",
+          "type": "[string]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Offered hexes; default the label palette."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Grid shows; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "button",
+        "notes": "as IconPicker: the trigger is named `Color: #hex`, each swatch a toggle button named by its hex",
+        "keys": [
+          "As IconPicker"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "ColorPicker",
+        "value": "#3b82f6",
+        "colors": [
+          "#ef4444",
+          "#22c55e",
+          "#3b82f6",
+          "#a855f7"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe ColorPicker/<part>."
+    },
+    {
       "name": "DatePicker",
       "kind": "native",
       "group": "input",

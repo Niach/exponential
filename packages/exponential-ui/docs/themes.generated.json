@@ -3865,6 +3865,40 @@
       ]
     },
     {
+      "name": "IconPicker",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "none",
+        "scroll",
+        "grid",
+        "cell",
+        "glyph",
+        "trigger",
+        "placeholder"
+      ],
+      "props": [
+        "allowNone",
+        "selected",
+        "empty"
+      ]
+    },
+    {
+      "name": "ColorPicker",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "grid",
+        "swatch",
+        "fill",
+        "trigger",
+        "dot"
+      ],
+      "props": [
+        "selected"
+      ]
+    },
+    {
       "name": "DatePicker",
       "kind": "native",
       "parts": [

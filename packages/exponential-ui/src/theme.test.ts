@@ -65,7 +65,7 @@ describe(`recipe contract`, () => {
     expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
     expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])
-    expect(Object.keys(parts).length).toBe(104) // #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
+    expect(Object.keys(parts).length).toBe(106) // #EXP-1760: + IconPicker, ColorPicker; #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
     // Round 1: a template-built slot part (AlertDialog's footer) and painter-supplied discriminators.
     expect(parts.AlertDialog.parts).toEqual([`root`, `footer`, `cancel`, `confirm`])
     expect(parts.CodeBlock.props).toContain(`kind`)

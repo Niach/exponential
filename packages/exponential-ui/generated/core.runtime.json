@@ -4256,6 +4256,65 @@
         "key"
       ]
     },
+    "IconPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "icons": {
+          "type": "array",
+          "items": {
+            "type": "icon"
+          }
+        },
+        "color": {
+          "type": "string"
+        },
+        "allowNone": {
+          "type": "boolean",
+          "default": false
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "ColorPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
     "DatePicker": {
       "kind": "native",
       "group": "input",

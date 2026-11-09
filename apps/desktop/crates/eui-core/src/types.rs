@@ -390,7 +390,7 @@ pub struct MacroTemplate {
     #[serde(default, rename = "$any", skip_serializing_if = "Option::is_none")]
     pub any: Option<Vec<Value>>,
     #[serde(default, rename = "$each", skip_serializing_if = "Option::is_none")]
-    pub each: Option<String>,
+    pub each: Option<Value>,
     #[serde(default, rename = "$as", skip_serializing_if = "Option::is_none")]
     pub as_: Option<String>,
     #[serde(default, rename = "$on", skip_serializing_if = "Option::is_none")]

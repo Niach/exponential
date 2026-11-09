@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760) through the Solid painter.
+
 ## 0.21.0 (2026-11-09)
 
 - Input `variant: "row"` (#EXP-1629): a Group row (label inside, the value end-aligned at 70%); the exponential theme's row is the IDE's (14 px rem). Through the Solid painter.

@@ -34486,6 +34486,2497 @@
       }
     },
     {
+      "name": "IconPicker/example",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ]
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": true
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": true
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": true
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": false
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": false
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": false
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": "rocket"
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": false,
+                "empty": false
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.iconValue",
+                  "params": {
+                    "name": "rocket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "IconPicker/allowNone=true",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "allowNone": true
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "icon_picker.none",
+            "component": "Button",
+            "props": {
+              "label": "$string.noIcon",
+              "variant": "ghost",
+              "size": "sm"
+            },
+            "children": [],
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "none",
+              "props": {
+                "allowNone": true
+              }
+            }
+          },
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": true,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": true,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": true,
+                            "selected": true
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": true,
+                        "selected": true
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": true
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": true,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": true,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": true,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": true,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": false
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": true
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": true
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": "rocket"
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": true,
+                "empty": false
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.iconValue",
+                  "params": {
+                    "name": "rocket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "IconPicker/allowNone=false",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "allowNone": false
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": true
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": true
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": true
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": false
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": false
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": false
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": "rocket"
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": false,
+                "empty": false
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.iconValue",
+                  "params": {
+                    "name": "rocket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "IconPicker/open=true",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": true
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start",
+          "open": true
+        },
+        "children": [
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": true
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": true
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": true
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": false
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": false
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": false
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": "rocket"
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": false,
+                "empty": false
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.iconValue",
+                  "params": {
+                    "name": "rocket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "IconPicker/open=false",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": false
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start",
+          "open": false
+        },
+        "children": [
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": true
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": true
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": true
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": false
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": false
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": false
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": "rocket"
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": false,
+                "empty": false
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.iconValue",
+                  "params": {
+                    "name": "rocket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/example",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ]
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": true
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 258
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "color_picker.trigger.dot",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "dot",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.colorValue",
+                  "params": {
+                    "color": "#3b82f6"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/open=true",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": true
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start",
+          "open": true
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": true
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 258
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "color_picker.trigger.dot",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "dot",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.colorValue",
+                  "params": {
+                    "color": "#3b82f6"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/open=false",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": false
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start",
+          "open": false
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": true
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 258
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "color_picker.trigger.dot",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "dot",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.colorValue",
+                  "params": {
+                    "color": "#3b82f6"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "Row/example",
       "input": {
         "id": "row",
@@ -67743,6 +70234,1562 @@
           "part": "root",
           "props": {
             "recording": false
+          }
+        }
+      }
+    },
+    {
+      "name": "IconPicker/bound:value",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": {
+            "@path": "/value"
+          },
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ]
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": {
+                              "@call": "eq",
+                              "args": {
+                                "a": "code",
+                                "b": {
+                                  "@path": "/value"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": {
+                          "@call": "eq",
+                          "args": {
+                            "a": "code",
+                            "b": {
+                              "@path": "/value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "set",
+                          "args": {
+                            "path": "/value",
+                            "value": "code"
+                          }
+                        }
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": {
+                        "@call": "eq",
+                        "args": {
+                          "a": "code",
+                          "b": {
+                            "@path": "/value"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": {
+                              "@call": "eq",
+                              "args": {
+                                "a": "rocket",
+                                "b": {
+                                  "@path": "/value"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": {
+                          "@call": "eq",
+                          "args": {
+                            "a": "rocket",
+                            "b": {
+                              "@path": "/value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "set",
+                          "args": {
+                            "path": "/value",
+                            "value": "rocket"
+                          }
+                        }
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": {
+                        "@call": "eq",
+                        "args": {
+                          "a": "rocket",
+                          "b": {
+                            "@path": "/value"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": {
+                              "@call": "eq",
+                              "args": {
+                                "a": "star",
+                                "b": {
+                                  "@path": "/value"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": {
+                          "@call": "eq",
+                          "args": {
+                            "a": "star",
+                            "b": {
+                              "@path": "/value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "set",
+                          "args": {
+                            "path": "/value",
+                            "value": "star"
+                          }
+                        }
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": {
+                        "@call": "eq",
+                        "args": {
+                          "a": "star",
+                          "b": {
+                            "@path": "/value"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": {
+                              "@call": "eq",
+                              "args": {
+                                "a": "zap",
+                                "b": {
+                                  "@path": "/value"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": {
+                          "@call": "eq",
+                          "args": {
+                            "a": "zap",
+                            "b": {
+                              "@path": "/value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "set",
+                          "args": {
+                            "path": "/value",
+                            "value": "zap"
+                          }
+                        }
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": {
+                        "@call": "eq",
+                        "args": {
+                          "a": "zap",
+                          "b": {
+                            "@path": "/value"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": false
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": false
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": {
+                    "@path": "/value"
+                  }
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/value"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              },
+              {
+                "id": "icon_picker.trigger.placeholder",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-icon-placeholder"
+                },
+                "children": [],
+                "visible": {
+                  "@call": "not",
+                  "args": {
+                    "value": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/value"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  }
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "placeholder",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": false,
+                "empty": {
+                  "@call": "not",
+                  "args": {
+                    "value": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/value"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/value"
+                  },
+                  "then": {
+                    "@call": "fill",
+                    "args": {
+                      "template": "$string.iconValue",
+                      "params": {
+                        "name": {
+                          "@path": "/value"
+                        }
+                      }
+                    }
+                  },
+                  "else": "$string.pickIcon"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "IconPicker/bound:open",
+      "input": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": {
+            "@path": "/open"
+          }
+        }
+      },
+      "expected": {
+        "id": "icon_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start",
+          "open": {
+            "@path": "/open"
+          }
+        },
+        "children": [
+          {
+            "id": "icon_picker.scroll",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "icon_picker.scroll.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "icon_picker.scroll.grid.cell.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.0.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "code",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "code",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.1.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "rocket",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": true
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": true
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "rocket",
+                      "pressed": true
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.2.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "star",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "star",
+                      "pressed": false
+                    }
+                  },
+                  {
+                    "id": "icon_picker.scroll.grid.cell.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "icon_picker.scroll.grid.cell.3.glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "zap",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "IconPicker",
+                          "part": "glyph",
+                          "props": {
+                            "allowNone": false,
+                            "selected": false
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "borderRadius": "$radius.md",
+                      "borderWidth": "$border.hairline"
+                    },
+                    "recipe": {
+                      "macro": "IconPicker",
+                      "part": "cell",
+                      "props": {
+                        "allowNone": false,
+                        "selected": false
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "label": "zap",
+                      "pressed": false
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "maxWidth": 266
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "grid",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "maxHeight": 320,
+              "overflowY": "auto"
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "scroll",
+              "props": {
+                "allowNone": false
+              }
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "IconPicker",
+          "part": "root",
+          "props": {
+            "allowNone": false
+          }
+        },
+        "slots": {
+          "trigger": {
+            "id": "icon_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "icon_picker.trigger.glyph",
+                "component": "Icon",
+                "props": {
+                  "name": "rocket"
+                },
+                "children": [],
+                "style": {
+                  "color": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "glyph",
+                  "props": {
+                    "allowNone": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "IconPicker",
+              "part": "trigger",
+              "props": {
+                "allowNone": false,
+                "empty": false
+              }
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.iconValue",
+                  "params": {
+                    "name": "rocket"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/bound:value",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": {
+            "@path": "/value"
+          },
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ]
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": {
+                      "@call": "eq",
+                      "args": {
+                        "a": "#ef4444",
+                        "b": {
+                          "@path": "/value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "#ef4444"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": {
+                    "@call": "eq",
+                    "args": {
+                      "a": "#ef4444",
+                      "b": {
+                        "@path": "/value"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": {
+                      "@call": "eq",
+                      "args": {
+                        "a": "#22c55e",
+                        "b": {
+                          "@path": "/value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "#22c55e"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": {
+                    "@call": "eq",
+                    "args": {
+                      "a": "#22c55e",
+                      "b": {
+                        "@path": "/value"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": {
+                      "@call": "eq",
+                      "args": {
+                        "a": "#3b82f6",
+                        "b": {
+                          "@path": "/value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "#3b82f6"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": {
+                    "@call": "eq",
+                    "args": {
+                      "a": "#3b82f6",
+                      "b": {
+                        "@path": "/value"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": {
+                      "@call": "eq",
+                      "args": {
+                        "a": "#a855f7",
+                        "b": {
+                          "@path": "/value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "set",
+                      "args": {
+                        "path": "/value",
+                        "value": "#a855f7"
+                      }
+                    }
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": {
+                    "@call": "eq",
+                    "args": {
+                      "a": "#a855f7",
+                      "b": {
+                        "@path": "/value"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 258
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "color_picker.trigger.dot",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": {
+                    "@path": "/value"
+                  }
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "dot",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/value"
+                  },
+                  "then": {
+                    "@call": "fill",
+                    "args": {
+                      "template": "$string.colorValue",
+                      "params": {
+                        "color": {
+                          "@path": "/value"
+                        }
+                      }
+                    }
+                  },
+                  "else": "$string.pickColor"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/bound:open",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": {
+            "@path": "/open"
+          }
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start",
+          "open": {
+            "@path": "/open"
+          }
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": true
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "width": 24,
+                  "height": 24,
+                  "padding": 2,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.hairline"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 258
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "children": [
+              {
+                "id": "color_picker.trigger.dot",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "dot",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonSm",
+              "height": "$control.buttonSm",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.colorValue",
+                  "params": {
+                    "color": "#3b82f6"
+                  }
+                }
+              }
+            }
           }
         }
       }

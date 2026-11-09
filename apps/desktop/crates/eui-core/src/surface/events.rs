@@ -788,6 +788,16 @@ impl Surface {
                 out.extend(self.fire(&owner_id, event, payload));
             }
         }
+        // #EXP-1760: a pick in an IconPicker / ColorPicker grid (a cell, a
+        // swatch, the No icon row) closes the picker's popover, the macro's
+        // root, as the IDE's pickers do.
+        if event == "press" {
+            if let Some(root) = n.part_query.as_ref().and_then(|q| picker_root(&n.id, &q.component, &q.part)) {
+                if self.is_open_now(&root) {
+                    out.extend(self.set_open(&root, false));
+                }
+            }
+        }
         out
     }
 
@@ -1804,3 +1814,16 @@ impl Surface {
 
 /// What a Resizable event reads: sizes, limits, orientation, rtl, slot.
 type ResizableState = (Vec<f64>, Vec<crate::resizable::PanelLimits>, crate::resizable::Orientation, bool, u32);
+
+/// #EXP-1760: the root (the Popover) of the IconPicker / ColorPicker whose
+/// pick `id` is (`<root>.scroll.grid.cell.<i>`, `<root>.grid.swatch.<i>`,
+/// `<root>.none`), `None` for any other node.
+fn picker_root(id: &str, component: &str, part: &str) -> Option<String> {
+    let marker = match (component, part) {
+        ("IconPicker", "cell") => ".scroll.grid.cell.",
+        ("IconPicker", "none") => ".none",
+        ("ColorPicker", "swatch") => ".grid.swatch.",
+        _ => return None,
+    };
+    id.rfind(marker).map(|at| id[..at].to_string())
+}
