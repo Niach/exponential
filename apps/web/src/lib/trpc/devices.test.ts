@@ -3184,3 +3184,51 @@ describe(`clearDeviceKey`, () => {
     expect(h.endHostedSessions).not.toHaveBeenCalled()
   })
 })
+
+// GHSA-q84f-53jg-9ppm: /auth/device names the asking client from the
+// claimed `device_codes` row, never the URL.
+describe(`devices.pendingLogin`, () => {
+  const future = () => new Date(Date.now() + 60_000)
+
+  it(`names an allow-listed client of the caller's claimed, pending code`, async () => {
+    h.state.selectRows = [
+      { userCode: `ABCD1234`, clientId: `exponential-cli`, status: `pending`, expiresAt: future() },
+    ]
+    await expect(caller.pendingLogin({ userCode: `ABCD-1234` })).resolves.toEqual({
+      clientName: `Exponential desktop or CLI`,
+    })
+  })
+
+  it(`answers null for a client outside the allow-list`, async () => {
+    h.state.selectRows = [
+      { userCode: `ABCD1234`, clientId: `evil-client`, status: `pending`, expiresAt: future() },
+    ]
+    await expect(caller.pendingLogin({ userCode: `ABCD-1234` })).resolves.toEqual({
+      clientName: null,
+    })
+  })
+
+  it(`NOT_FOUND for an unclaimed, decided or expired code`, async () => {
+    h.state.selectRows = []
+    await expect(caller.pendingLogin({ userCode: `ABCD-1234` })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    h.state.selectRows = [
+      { userCode: `ABCD1234`, clientId: `exponential-cli`, status: `approved`, expiresAt: future() },
+    ]
+    await expect(caller.pendingLogin({ userCode: `ABCD-1234` })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    h.state.selectRows = [
+      {
+        userCode: `ABCD1234`,
+        clientId: `exponential-cli`,
+        status: `pending`,
+        expiresAt: new Date(Date.now() - 1000),
+      },
+    ]
+    await expect(caller.pendingLogin({ userCode: `ABCD-1234` })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+  })
+})

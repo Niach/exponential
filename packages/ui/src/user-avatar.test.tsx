@@ -1,6 +1,26 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { USER_AVATAR_SIZES, UserAvatar, type UserAvatarSize } from "./user-avatar"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { avatarHueIndex } from "@exponential_app/eui-react/primitives"
+import { USER_AVATAR_SIZES, UserAvatar, avatarHueKey, type UserAvatarSize } from "./user-avatar"
+
+const fixture = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `exponential-ui`, `fixtures`, `avatar.json`),
+    `utf8`
+  )
+) as {
+  keys: Array<{
+    case: string
+    id?: string
+    name?: string
+    email?: string
+    key: string | null
+    hue: number | null
+  }>
+}
 
 // EXP-887: every surface that draws a PERSON goes through this one component,
 // so the sizes it offers and the initials it falls back to are locked here —
@@ -79,5 +99,34 @@ describe(`UserAvatar`, () => {
     const glyph = disc.querySelector(`svg`)!
     expect(glyph.getAttribute(`class`)).toContain(USER_AVATAR_SIZES[28].glyph)
     expect(glyph.getAttribute(`style`)).toContain(`color`)
+  })
+
+  // #EXP-1754 (fixtures/avatar.json `keys`): the hue key is the id, else the
+  // name, else the email (trimmed; blank = absent); nothing = muted grey.
+  it(`replays the fixture's hue keys`, () => {
+    expect(fixture.keys.length).toBeGreaterThan(0)
+    for (const row of fixture.keys) {
+      expect(avatarHueKey(row.id, row.name, row.email) ?? null, row.case).toBe(row.key)
+      const { container, unmount } = render(
+        <UserAvatar user={{ id: row.id, name: row.name, email: row.email }} />
+      )
+      const node = fallback(container)
+      if (row.key === null) {
+        expect(node.getAttribute(`style`) ?? ``, row.case).not.toContain(`--avatar-`)
+        expect(node.className, row.case).toContain(`bg-muted`)
+      } else {
+        expect(avatarHueIndex(row.key), row.case).toBe(row.hue)
+        expect(node.getAttribute(`style`), row.case).toContain(`--avatar-${row.hue}`)
+      }
+      unmount()
+    }
+  })
+
+  it(`takes an explicit hue key over the user's fields`, () => {
+    const { container } = render(
+      <UserAvatar user={{ name: `Anonymous visitor` }} hueKey={null} />
+    )
+    expect(fallback(container).className).toContain(`bg-muted`)
+    expect(fallback(container).textContent).toBe(`AV`)
   })
 })

@@ -51,7 +51,7 @@ export const CHAT_ISSUE_IDENTIFIERS = {
 } as const
 
 /** The identifiers the catalog's desktop/native drives name by hand. */
-export const WANTED_IDENTIFIERS = [`APP-3`, `APP-5`, `APP-6`, `APP-14`] as const
+export const WANTED_IDENTIFIERS = [`APP-3`, `APP-5`, `APP-6`, `APP-14`, `APP-19`] as const
 
 const RESEED = `Run \`bun run seed:screenshots\` first.`
 

@@ -16,7 +16,7 @@ import XCTest
 ///
 ///   sg_sign-in ·
 ///   sg_board-empty ·
-///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
+///   sg_board-bulk-edit · sg_issue-comments · sg_issue-reporter-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_composer-menu · sg_chat-issues ·
 ///   sg_machine-settings · sg_settings-agents · sg_settings-team-agent · sg_settings-assistant · sg_chats ·
@@ -138,6 +138,9 @@ final class StyleguideScreenshots: XCTestCase {
     private static let coldStartChatTitle = "Reduce cold start below 800 ms"
     /// First comment on APP-5, plain text before any markdown decoration.
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
+    /// #EXP-1754: the widget-filed issue (APP-19) and its deleted member's note.
+    private static let widgetTitle = "Can't sign in on the iPad app"
+    private static let widgetCommentFragment = "Same spinner on an iPad Air here"
     /// Assigned to the demo user, so it is on My Issues.
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// APP-14: the seed's realPr issue (its open PR row).
@@ -389,6 +392,27 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_issue-comments", settle: 2)
 
         goBack(app)
+
+        // ── sg_issue-reporter-comments: APP-19, the widget-filed issue, at
+        // its comments (#EXP-1754): the reporter's reply in the hue of their
+        // name, a deleted member's note grey. A self-contained detour, skipped
+        // whole when a scoped `shots:` run did not ask for it.
+        if ScreenshotShots.isWanted("sg_issue-reporter-comments") {
+            expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
+            openIssue(app, title: Self.widgetTitle)
+            let widgetComments = app.staticTexts["comment-replies-header"]
+            expect(widgetComments, within: Wait.nav, "The widget issue did not open")
+            expect(
+                anyElement(app, containing: Self.widgetCommentFragment),
+                within: Wait.sync,
+                "The comments on APP-19 never synced"
+            )
+            scrollUntilVisible(app, widgetComments, attempts: 14)
+            for _ in 0..<6 { app.swipeUp() }
+            settle(1)
+            snapshot("sg_issue-reporter-comments", settle: 2)
+            goBack(app)
+        }
 
         // ── sg_issue-create: the new-issue page ─────────────────────────────
         // The compose button is only mounted on board routes (AppNavigator
