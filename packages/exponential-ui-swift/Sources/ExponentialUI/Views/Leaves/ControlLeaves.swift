@@ -25,7 +25,7 @@ struct TextFieldLeaf: View {
         let owner = cx.ownerProps
         if !multiline && InputRow.isRow(cx.props) {
             let look = cx.part("Input", "label")
-            let labelStyle = SelectTrigger.labelStyle(cx.textStyle, look)
+            let labelStyle = InputRow.labelStyle(cx.textStyle, look)
             let label = owner.str("label").isEmpty ? cx.props.str("label") : owner.str("label")
             let gap = label.isEmpty ? 0 : cx.style.gap
             let labelW = InputRow.labelWidth(label, labelStyle, width: cx.inner.width)
