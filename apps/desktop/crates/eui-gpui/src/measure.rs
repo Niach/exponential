@@ -1137,9 +1137,30 @@ impl<'a> GpuiMeasure<'a> {
         let ts = leaf.text_style;
         let text = str_prop(leaf.props, "text");
         let text = if text.is_empty() { str_prop(leaf.props, "placeholder") } else { text };
+        if leaf.component == "Select" {
+            return self.select_trigger(leaf, text);
+        }
         let gap = leaf.control.gap.max(spacing(self.theme, "sm"));
         let w = self.line(text, ts) + gap + 16.0;
         (w, ts.line_height, Some(self.line_baseline(ts)))
+    }
+
+    /// #EXP-1629: a Select trigger as `natives::select_trigger` paints it:
+    /// [label, gap] value, gap, chevron (the recipes' gap and glyph size).
+    fn select_trigger(&mut self, leaf: &LeafRequest, text: &str) -> Content {
+        let ts = leaf.text_style;
+        let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { spacing(self.theme, "sm") };
+        let chevron = self.part("Select", "chevron", leaf.props, &[]);
+        let glyph = px_prop(&chevron, "width").or_else(|| px_prop(&chevron, "height")).unwrap_or(16.0);
+        let mut w = self.line(text, ts) + gap + glyph;
+        let mut h = ts.line_height;
+        let label = str_prop(leaf.props, "label");
+        if str_prop(leaf.props, "triggerVariant") == "row" && !label.is_empty() {
+            let lts = self.part_text("Select", "label", leaf.props, ts);
+            w += self.line(label, &lts) + gap;
+            h = h.max(lts.line_height);
+        }
+        (w, h, Some(self.line_baseline(ts)))
     }
 
     /// One leaf at one border-box wrap width: `(width, height, baseline)`.

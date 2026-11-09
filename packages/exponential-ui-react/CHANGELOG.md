@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerVariant: row` (#EXP-1629): the label inside the trigger, the `value` part trailing, the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: `end`, 260 px); the open list scrolls to the chosen option (never the page); item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
 - Chart `valueFormat` (ticks, tooltip, value labels, summary) and `rows` + `categoryField` + series `field` (#FEED-205).
 - The icon list follows the app (#EXP-1733): `nav-threads` is now `nav-chats`, `thread-results` is now `chat-results`.
 - Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).

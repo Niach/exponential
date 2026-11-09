@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerVariant: row` (#EXP-1629), React's: the label inside the trigger, the `value` and `chevron` parts, `align` + `popupWidth`, the list scrolled to the chosen option, item `hover` = the cursor, `selected` = chosen only. Parity cases for the row and the open popup.
 - Chart `valueFormat` (ticks, tooltip, value labels, summary) and `rows` + `categoryField` + series `field` (#FEED-205).
 - The icon list follows the app (#EXP-1733): `nav-threads` is now `nav-chats`, `thread-results` is now `chat-results`.
 - Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).

@@ -133,6 +133,10 @@ extension SurfaceModel {
         case .chips:
             flushField(f, index: index, event: "submit")
             clearField(f)
+        case .search where node(index)?.ownerComponent == "Select" && node(index)?.owner.flatMap({ self.selectCursorIndex($0) }) != nil:
+            // #EXP-1629: Enter in a Select's search picks the cursor's option.
+            flushPending(index)
+            if let owner = node(index)?.owner, let c = selectCursorIndex(owner) { press(c) }
         case .search where node(index)?.component == "SearchList":
             // EXP-1259: Enter picks the search list's highlighted row.
             searchKey(index, "Enter")

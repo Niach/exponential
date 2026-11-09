@@ -449,7 +449,44 @@ fun SurfaceModel.pressUp(id: String) {
 
 /** Pointer hover on / off a node. */
 fun SurfaceModel.hover(id: String, hovered: Boolean) {
+    // #EXP-1629: over a Select option the pointer moves the popup's cursor (its one `hover`); leaving keeps it.
+    val n = indexOf(id)?.let { node(it) }
+    if (n != null && n.ownerComponent == "Select" && n.part == "item") {
+        if (hovered && !isDisabled(n.index)) n.owner?.let { setSelectCursor(it, id) }
+        return
+    }
     setInteraction(id) { it.copy(hover = hovered) }
+}
+
+/** #EXP-1629: move Select [owner]'s popup cursor to item [id] (null = none): the old item loses `hover`, the new one gets it. */
+fun SurfaceModel.setSelectCursor(owner: String, id: String?) {
+    val prev = selectCursors[owner]
+    if (prev == id) return
+    if (id == null) selectCursors.remove(owner) else selectCursors[owner] = id
+    prev?.let { p -> setInteraction(p) { it.copy(hover = false) } }
+    id?.let { c -> setInteraction(c) { it.copy(hover = true) } }
+}
+
+/**
+ * #EXP-1629: an open Select popup (the core's layer; the core scrolls its
+ * list to the first chosen option) puts its cursor on the FIRST chosen
+ * option, else the first enabled one and, opened from the keyboard,
+ * focuses it; a cursor whose option went (a search) starts over. A closed
+ * popup drops its cursor.
+ */
+private fun SurfaceModel.syncSelectCursors() {
+    val open = layers.filter { it.kind == "Select" }.map { it.owner }.toSet()
+    for (o in selectCursors.keys - open) setSelectCursor(o, null)
+    for (o in open) {
+        val cur = selectCursors[o]
+        if (cur != null && indexOf(cur) != null) continue
+        val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
+        val target = items.firstOrNull { it.selected } ?: items.firstOrNull { !isDisabled(it.index) } ?: continue
+        val opening = cur == null
+        setSelectCursor(o, target.id)
+        if (!opening) continue
+        if (keyboardFocus?.let { interaction[it]?.focusVisible } == true) focusRequest = target.id
+    }
 }
 
 /**
@@ -564,6 +601,7 @@ val SurfaceModel.modalLayers: List<LayerInfo> get() = layers.filter { it.isModal
 internal fun SurfaceModel.layersChanged() {
     val now = layers.map { it.owner }.toSet()
     layerReturn.keys.retainAll(now)
+    syncSelectCursors()
 }
 
 // controls

@@ -549,7 +549,7 @@
         "id" : "alert-dialog"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -10960,7 +10960,7 @@
         "id" : "dialog"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -11447,7 +11447,7 @@
         "id" : "dock-card.sheet"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -12453,7 +12453,7 @@
         "id" : "drawer"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -18667,7 +18667,7 @@
         "id" : "popover"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -23191,7 +23191,7 @@
         "id" : "record-table.confirm"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -24261,7 +24261,7 @@
         "id" : "record-table.editor"
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -27881,7 +27881,7 @@
     "height" : 114,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "SearchList",
         "frame" : [
@@ -28037,7 +28037,7 @@
     "height" : 114,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "SearchList",
         "frame" : [
@@ -28193,7 +28193,7 @@
     "height" : 114,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "SearchList",
         "frame" : [
@@ -29733,6 +29733,126 @@
       }
     ]
   },
+  "Select\/align=center" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/align=end" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/align=start" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
   "Select\/disabled=false" : {
     "height" : 60,
     "nodes" : [
@@ -30011,6 +30131,73 @@
         "id" : "select.trigger",
         "part" : "trigger",
         "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerVariant=field" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerVariant=row" : {
+    "height" : 44,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          44
+        ],
+        "id" : "select"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          44
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger"
       }
     ]
   },
@@ -38604,7 +38791,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -38618,7 +38805,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -38698,7 +38885,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -38712,7 +38899,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -38805,7 +38992,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -38819,7 +39006,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -38912,7 +39099,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -38931,7 +39118,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -38945,7 +39132,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -39038,7 +39225,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -39052,7 +39239,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -39145,7 +39332,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -39159,7 +39346,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -39252,7 +39439,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -39266,7 +39453,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -39359,7 +39546,7 @@
     "height" : 0,
     "nodes" : [
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Toast",
         "frame" : [
@@ -39373,7 +39560,7 @@
         "radius" : 16
       },
       {
-        "bg" : "#171717",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [

@@ -19,6 +19,7 @@ import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldText
 import at.exponential.ui.model.focus
+import at.exponential.ui.model.hover
 import at.exponential.ui.model.modalLayers
 import at.exponential.ui.model.press
 import at.exponential.ui.model.pressDown
@@ -358,6 +359,56 @@ class InteractionTest {
             assertEquals(name, expect["value"] ?: JsonValue.Null, m.data["v"] ?: JsonValue.Null)
             assertEquals(name, expect["shows"]?.string, m.node(m.idx("s.trigger"))?.props?.get("text")?.displayText)
         }
+    }
+
+    /**
+     * #EXP-1629: an open Select popup (the core's layer, painted overlays)
+     * puts its ONE `hover` (the cursor) on the first chosen option and
+     * scrolls the list to it; the pointer moves the cursor (leaving keeps
+     * it), `selected` stays the chosen option's, a reopen starts over.
+     */
+    @Test
+    fun selectPopupCursorStartsOnTheChosenOption() {
+        val options = (0 until 30).joinToString(",") { """{"label":"Option $it","value":"o$it"}""" }
+        val m = SurfaceModel("select-cursor", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+        m.fixedMeasure = true
+        m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Pick","name":"s","options":[$options],"value":"o20"}}]}""")
+        m.setViewport(390f, 800f)
+        val hovered = { m.nodes.filter { it.ownerComponent == "Select" && it.part == "item" && !it.hidden && "hover" in m.statesOf(it.id) }.map { it.id } }
+        m.press("s.trigger")
+        assertEquals(listOf("s.item.20"), hovered())
+        assertTrue(m.node(m.idx("s.item.20"))!!.selected)
+        val list = m.nodes.first { it.owner == "s" && it.part == "list" }
+        assertTrue("the list scrolled to the chosen option", (m.scrolls[list.index]?.offsetY ?: 0f) > 0f)
+        m.hover("s.item.3", true)
+        assertEquals(listOf("s.item.3"), hovered())
+        m.hover("s.item.3", false)
+        assertEquals(listOf("s.item.3"), hovered())
+        assertFalse(m.node(m.idx("s.item.3"))!!.selected)
+        assertTrue(m.escape())
+        assertTrue(m.layers.none { it.owner == "s" })
+        m.press("s.trigger")
+        assertEquals(listOf("s.item.20"), hovered())
+    }
+
+    /** #EXP-1629: the popup's cursor rules, alignment and width (a row: `end`, layout `selectRowPopupWidth`). */
+    @Test
+    fun selectPopupRules() {
+        val opts = listOf("a", "b", "c", "d").mapIndexed { i, v -> at.exponential.ui.compose.SelectOption(JsonValue.Str(v), v.uppercase(), null, i == 0 || i == 2) }
+        assertEquals(2, at.exponential.ui.compose.selectInitialCursor(opts, listOf("c", "d")))
+        assertEquals(1, at.exponential.ui.compose.selectInitialCursor(opts, emptyList()))
+        assertEquals(3, at.exponential.ui.compose.selectStep(opts, 1, 1))
+        assertEquals(3, at.exponential.ui.compose.selectStep(opts, 3, 1))
+        assertEquals(1, at.exponential.ui.compose.selectStep(opts, 3, -1))
+        val row = mapOf("triggerVariant" to JsonValue.Str("row"))
+        assertTrue(at.exponential.ui.compose.selectRowVariant(row))
+        assertFalse(at.exponential.ui.compose.selectRowVariant(emptyMap()))
+        assertEquals("end", at.exponential.ui.compose.selectPopupAlign(row, row = true))
+        assertEquals("start", at.exponential.ui.compose.selectPopupAlign(emptyMap(), row = false))
+        assertEquals("center", at.exponential.ui.compose.selectPopupAlign(mapOf("align" to JsonValue.Str("center")), row = true))
+        assertEquals(260f, at.exponential.ui.compose.selectPopupWidth(row, row = true))
+        assertNull(at.exponential.ui.compose.selectPopupWidth(emptyMap(), row = false))
+        assertEquals(300f, at.exponential.ui.compose.selectPopupWidth(mapOf("popupWidth" to JsonValue.Num(300.0)), row = false))
     }
 
     /**

@@ -8,13 +8,18 @@
 // refills the bound path on `search`, the async source), or from the host's
 // `optionSource(source, query)` when `source` names a host list. Local
 // filtering applies only to inline, unbound options. `emptyText` (default
-// `$string.noResults`) shows when nothing matches.
+// `$string.noResults`) shows when nothing matches. #EXP-1629: a `row`
+// `triggerVariant` is a Group row (the label inside the trigger, the
+// `value` trailing, the `Select.chevron` glyph); the popup aligns by `align`
+// and sizes by `popupWidth` (web/listbox.ts `selectPopupGeometry`), opens
+// scrolled to the first chosen option with the cursor on it; an item's
+// `hover` = the cursor, `selected` = chosen.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath } from "@exponential_app/eui/web"
+import { boundPath, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -83,6 +88,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
   const f = useField({ node, domId, props, value, focusRef: triggerRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
   const [open, setOpen] = useState(false)
+  const [cursor, setCursor] = useState<string | null>(null)
   const [query, setQuery] = useState(``)
   const source = str(props.source)
   const optionsBound = boundPath(node.props, `options`, scope) !== undefined
@@ -135,12 +141,17 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, ctx.host, searchable])
 
-  const label = <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
+  // #EXP-1629: a `row` trigger carries its label inside, leading.
+  const row = str(props.triggerVariant) === `row`
+  const label = row ? null : <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
+  const rowLabel = row ? <TextPart part={part(`label`)} text={props.label} /> : null
+  const chevronSlot = row ? `Select.chevron` : `Select.trigger`
   const triggerStates = (o: boolean) => [o && `open`, disabled && `disabled`, f.invalid && `invalid`] as const
 
   if (!multiple && !searchable) {
     const chosen = options.find((o) => o.value === value)
     const chosenLabel = chosen ? str(chosen.label) : ``
+    const geometry = selectPopupGeometry(props, `--radix-select-trigger-width`)
     return (
       <div ref={hasEmpty ? setPlainRoot : undefined} {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
         {label}
@@ -157,21 +168,26 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
           onValueChange={(v) => {
             const next = fromRadix(v)
             if (next !== value) commit(next)
-          }} disabled={disabled} open={open} onOpenChange={setOpen} name={str(props.name, node.id)} dir={ctx.direction}>
+          }} disabled={disabled} open={open} onOpenChange={(o) => {
+            setOpen(o)
+            if (!o) setCursor(null)
+          }} name={str(props.name, node.id)} dir={ctx.direction}>
           <SelectPrimitive.Trigger ref={triggerRef} id={id} {...(part(`trigger`, ...triggerStates(open)) as Record<string, string>)} aria-invalid={f.invalid || undefined} aria-describedby={f.describedBy}>
-            {/* Radix shows `placeholder` for its "no value" (`""`): the chosen
-                label either way. */}
-            <span>{chosen ? <SelectPrimitive.Value placeholder={chosenLabel}>{chosenLabel}</SelectPrimitive.Value> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
+            {rowLabel}
+            {/* #EXP-1629: the chosen label is the `value` part, Radix's
+                Select.Value's own span (it drops a className). */}
+            <span>{chosen ? <span {...(part(`value`) as Record<string, string>)} style={{ pointerEvents: `none` }}>{chosenLabel}</span> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
             <SelectPrimitive.Icon asChild>
-              <BuiltinIcon slot="Select.trigger" />
+              <BuiltinIcon slot={chevronSlot} part={part(`chevron`)} />
             </SelectPrimitive.Icon>
           </SelectPrimitive.Trigger>
           <SelectPrimitive.Portal container={ctx.portal ?? undefined}>
-            <SelectPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} position="popper" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Select" style={{ minWidth: `var(--radix-select-trigger-width)` }}>
+            <SelectPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} position="popper" align={geometry.align} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Select" style={{ minWidth: geometry.minWidth, width: geometry.width }}>
               <SelectPrimitive.Viewport>
                 {options.length === 0 ? <div {...(part(`empty`) as Record<string, string>)}>{str(props.emptyText) || ctx.t(`noResults`)}</div> : null}
                 {options.map((o) => (
-                  <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`) as Record<string, string>)}>
+                  // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
+                  <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
                     {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
                     <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
                     <SelectPrimitive.ItemIndicator {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>
@@ -190,7 +206,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
 
   return (
     <Combobox
-      {...{ node, props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, source }}
+      {...{ node, props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, chevronSlot, source }}
       localFilter={!optionsBound && !source}
       field={f}
     />
@@ -217,12 +233,14 @@ interface ComboboxProps {
   disabled: boolean
   triggerRef: { current: HTMLButtonElement | null }
   label: React.ReactNode
+  rowLabel: React.ReactNode
+  chevronSlot: string
   source: string
   localFilter: boolean
   field: ReturnType<typeof useField>
 }
 
-function Combobox({ props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, source, localFilter, field }: ComboboxProps) {
+function Combobox({ props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, chevronSlot, source, localFilter, field }: ComboboxProps) {
   const ctx = useSurfaceContext()
   const selected = multiple ? (value as string[]) : value ? [value as string] : []
   const chosen = options.filter((o) => selected.includes(o.value))
@@ -252,9 +270,11 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
   }, [query])
   const optionId = (i: number) => `${listId}-${i}`
   const activeId = nav.active >= 0 && nav.active < shown.length ? optionId(nav.active) : undefined
+  // #EXP-1629: the list (never the page) scrolls to the cursor, on open too.
   useEffect(() => {
-    if (activeId) listRef.current?.querySelector(`[id="${activeId}"]`)?.scrollIntoView?.({ block: `nearest` })
-  }, [activeId])
+    if (open && activeId) revealOption(listRef.current, listRef.current?.querySelector(`[id="${activeId}"]`))
+  }, [activeId, open])
+  const geometry = selectPopupGeometry(props, `--radix-popover-trigger-width`)
   return (
     <div {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
       {label}
@@ -277,18 +297,19 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
             }
           }}
         >
-          <span>{chosen.length ? chosen.map((o) => str(o.label)).join(`, `) : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
-          <BuiltinIcon slot="Select.trigger" />
+          {rowLabel}
+          <span>{chosen.length ? <span {...(part(`value`) as Record<string, string>)}>{chosen.map((o) => str(o.label)).join(`, `)}</span> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
+          <BuiltinIcon slot={chevronSlot} part={part(`chevron`)} />
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
           <PopoverPrimitive.Content
             {...(part(`content`, open && `open`) as Record<string, string>)}
             dir={ctx.direction}
-            align="start"
+            align={geometry.align}
             sideOffset={OVERLAY_OFFSET}
             collisionPadding={OVERLAY_PADDING}
             data-xui-overlay="Select"
-            style={{ minWidth: `var(--radix-popover-trigger-width)` }}
+            style={{ minWidth: geometry.minWidth, width: geometry.width }}
             onOpenAutoFocus={(e) => {
               if (!searchable) {
                 e.preventDefault()
@@ -338,7 +359,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     aria-selected={isSel}
                     aria-disabled={bool(o.disabled) || undefined}
                     data-active={isActive ? `` : undefined}
-                    {...(part(`item`, (isSel || isActive) && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
+                    {...(part(`item`, isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
                     onPointerMove={() => nav.setActive(i)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(i)}

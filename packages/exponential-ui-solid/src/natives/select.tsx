@@ -13,11 +13,12 @@
 // source), or from the host's `optionSource(source, query)` when `source`
 // names a host list. Local filtering applies only to inline, unbound
 // options. `emptyText` (default `$string.noResults`) shows when nothing
-// matches.
+// matches. #EXP-1629: React's `row` trigger, `align` / `popupWidth`, the
+// open-scrolled cursor, item `hover` = the cursor, `selected` = chosen.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { boundPath } from "@exponential_app/eui/web"
+import { boundPath, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, createField, type FieldState } from "../form"
@@ -60,6 +61,10 @@ interface SelectState {
   source: () => string
   localFilter: () => boolean
   field: FieldState
+  /** #EXP-1629: the `row` trigger's label (inside it), its glyph slot and the popup geometry. */
+  rowLabel: () => JSX.Element
+  chevronSlot: () => string
+  geometry: (triggerWidthVar: string) => ReturnType<typeof selectPopupGeometry>
 }
 
 export function SelectNative(props: NativeProps): JSX.Element {
@@ -125,10 +130,16 @@ export function SelectNative(props: NativeProps): JSX.Element {
     })
   )
 
-  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f }
+  const row = () => str(props.props.triggerVariant) === `row`
+  const rowLabel = () => (row() ? <TextPart part={part(`label`)} text={props.props.label} /> : null)
+  const chevronSlot = () => (row() ? `Select.chevron` : `Select.trigger`)
+  const geometry = (triggerWidthVar: string) => selectPopupGeometry(props.props, triggerWidthVar)
+  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, chevronSlot, geometry }
   return (
     <div {...props.rootProps} data-source={source() || undefined}>
-      <TextPart part={part(`label`)} text={props.props.label} as="label" htmlFor={id} />
+      <Show when={!row()}>
+        <TextPart part={part(`label`)} text={props.props.label} as="label" htmlFor={id} />
+      </Show>
       <Show when={!multiple() && !searchable()} fallback={<Combobox s={state} emptyText={str(props.props.emptyText)} />}>
         <PlainSelect s={state} name={str(props.props.name, props.node.id)} emptyText={str(props.props.emptyText)} />
       </Show>
@@ -206,10 +217,11 @@ function PlainSelect(props: { s: SelectState; name: string; emptyText: string })
           }
         }}
       >
+        {s.rowLabel()}
         <span>
-          {chosen() ? <span style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}
+          {chosen() ? <span {...part(`value`)} style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}
         </span>
-        <BuiltinIcon slot="Select.trigger" />
+        <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
       </button>
       <Show when={inForm() ? `${optionKey()}#` : false} keyed>
         {(_key) => <NativeSelect name={props.name} value={current()} disabled={s.disabled()} options={s.options()} onChange={(v) => s.commit(v)} />}
@@ -297,10 +309,11 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
     setTimeout(() => trigger?.focus({ preventScroll: true }))
   })
   dismissable({ layer: () => content, onDismiss: close, keepOnFocusOutside: true })
+  const geometry = untrack(() => s.geometry(`--radix-select-trigger-width`))
   const wrapper = popperWrapper({
     anchor: s.trigger,
     sideOffset: OVERLAY_OFFSET,
-    align: `start`,
+    align: geometry.align,
     collisionPadding: OVERLAY_PADDING,
     onPlaced: () => focusFirstOf([selectedNode(), content]),
     content: (placed, ref) => (
@@ -324,7 +337,8 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
           display: `flex`,
           flexDirection: `column`,
           outline: `none`,
-          minWidth: `var(--radix-select-trigger-width)`,
+          minWidth: geometry.minWidth,
+          width: geometry.width,
           "--radix-select-content-transform-origin": `var(--radix-popper-transform-origin)`,
           "--radix-select-content-available-width": `var(--radix-popper-available-width)`,
           "--radix-select-content-available-height": `var(--radix-popper-available-height)`,
@@ -366,7 +380,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                   aria-disabled={off() || undefined}
                   data-disabled={off() ? `` : undefined}
                   tabindex={off() ? undefined : -1}
-                  {...part(`item`, o.value === s.value() && `selected`, off() && `disabled`)}
+                  {...part(`item`, o.value === s.value() && `selected`, off() && `disabled`, isFocused() && `hover`)}
                   ref={(el) => (items[i()] = el)}
                   onFocus={() => setFocused(i())}
                   onBlur={() => setFocused((f) => (f === i() ? -1 : f))}
@@ -459,9 +473,10 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
   )
   const optionId = (i: number) => `${s.listId}-${i}`
   const activeId = () => (nav.active() >= 0 && nav.active() < shown().length ? optionId(nav.active()) : undefined)
+  // #EXP-1629: the list (never the page) scrolls to the cursor, on open too.
   createEffect(() => {
     const a = activeId()
-    if (a) listEl?.querySelector(`[id="${a}"]`)?.scrollIntoView?.({ block: `nearest` })
+    if (s.open() && a) revealOption(listEl, listEl?.querySelector(`[id="${a}"]`))
   })
   return (
     <>
@@ -486,8 +501,9 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
         }}
         onClick={() => s.setOpen(!s.open())}
       >
-        <span>{chosen().length ? chosen().map((o) => str(o.label)).join(`, `) : <span {...part(`placeholder`)}>{s.placeholder()}</span>}</span>
-        <BuiltinIcon slot="Select.trigger" />
+        {s.rowLabel()}
+        <span>{chosen().length ? <span {...part(`value`)}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}</span>
+        <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
       </button>
       <Show when={s.open()}>
         <ComboboxContent s={s} contentId={contentId} shown={shown} selected={selected} nav={nav} pick={pick} optionId={optionId} activeId={activeId} emptyText={props.emptyText} listRef={(el) => (listEl = el)} />
@@ -523,10 +539,11 @@ function ComboboxContent(props: {
     const trigger = s.trigger()
     if (!interactedOutside) setTimeout(() => trigger?.focus())
   })
+  const geometry = untrack(() => s.geometry(`--radix-popover-trigger-width`))
   const wrapper = popperWrapper({
     anchor: s.trigger,
     sideOffset: OVERLAY_OFFSET,
-    align: `start`,
+    align: geometry.align,
     collisionPadding: OVERLAY_PADDING,
     dir: () => undefined,
     content: (placed, ref) => (
@@ -545,7 +562,8 @@ function ComboboxContent(props: {
           ref(el)
         }}
         style={css({
-          minWidth: `var(--radix-popover-trigger-width)`,
+          minWidth: geometry.minWidth,
+          width: geometry.width,
           animation: placed().positioned ? undefined : `none`,
           "--radix-popover-content-transform-origin": `var(--radix-popper-transform-origin)`,
           "--radix-popover-content-available-width": `var(--radix-popper-available-width)`,
@@ -602,7 +620,7 @@ function ComboboxContent(props: {
                   aria-selected={isSel()}
                   aria-disabled={bool(o.disabled) || undefined}
                   data-active={isActive() ? `` : undefined}
-                  {...part(`item`, (isSel() || isActive()) && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
+                  {...part(`item`, isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
                   onPointerMove={() => props.nav.setActive(i())}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => props.pick(i())}

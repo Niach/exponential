@@ -244,8 +244,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-trigger,.xui-DatePicker-trigger,.xui-DateRangePicker-trigger,.xui-TimePicker-trigger{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:var(--xui-spacing-sm);width:100%;min-width:0;cursor:pointer;text-align:start;white-space:nowrap}
 .xui-Select-trigger>span,.xui-DatePicker-trigger>span,.xui-DateRangePicker-trigger>span,.xui-TimePicker-trigger>span{overflow:clip;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
 .xui-Select-trigger>svg,.xui-DatePicker-trigger>svg,.xui-DateRangePicker-trigger>svg,.xui-TimePicker-trigger>svg{width:16px;height:16px;flex-shrink:0;opacity:.6}
+.xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-label{flex:0 0 auto}
+.xui-Select-trigger[data-r-trigger-variant="row"]>span:not(.xui-Select-label){text-align:end}
 .xui-Select-search{display:flex;width:100%;min-width:0;margin:0 0 var(--xui-spacing-xs);padding:var(--xui-spacing-xs) var(--xui-spacing-sm);outline:none;border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
+.xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}
 .xui-Checkbox-box{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;cursor:pointer}
 .xui-Checkbox-check{display:inline-flex;align-items:center;justify-content:center}
 .xui-Checkbox-check>svg{width:100%;height:100%}
@@ -503,6 +506,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-searchbox>svg{width:16px;height:16px;opacity:.6;flex-shrink:0}
 .xui-Select-searchbox>.xui-Select-search{margin:0;border-bottom:0;padding-inline-start:0}
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}
+.xui-Select-content{gap:var(--xui-spacing-xs)}
+.xui-Select-listbox{max-height:256px}
 .xui-Select-empty{display:flex}
 .xui-TimePicker-list{min-width:var(--radix-popover-trigger-width)}
 [data-xui-c="Toast"].xui-el{flex-direction:row;align-items:flex-start;width:min(360px,calc(100vw - 32px));pointer-events:auto}

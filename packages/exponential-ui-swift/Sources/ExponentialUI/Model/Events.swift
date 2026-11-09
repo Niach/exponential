@@ -198,6 +198,12 @@ extension SurfaceModel {
     /// closes the overlay from the states (`hoverTimer` closes it late).
     public func setHover(id: String, _ hovered: Bool) {
         if hovered { pointerSeen() }
+        // #EXP-1629: the pointer moves a Select's cursor (one highlight;
+        // leaving keeps it where it is).
+        if let i = byId[id], nodes[i].part == "item", nodes[i].ownerComponent == "Select", let owner = nodes[i].owner {
+            if hovered && !isDisabled(i) { moveSelectCursor(owner, to: i) }
+            return
+        }
         if let i = byId[id], let target = nodes[i].triggerFor, opensOnHover(target) {
             hoverTrigger(id, target: target, hovered)
             return
@@ -353,6 +359,8 @@ extension SurfaceModel {
             if inside { target = layerReturn[o] }
         }
         openLayerKeys = now
+        for o in closed { selectClosed(o) }
+        for l in opened where node(id: l.owner)?.component == "Select" { selectOpened(l.owner) }
         let open = Set(layers.map(\.owner))
         for owner in Array(layerReturn.keys) where !open.contains(owner) {
             layerReturn[owner] = nil

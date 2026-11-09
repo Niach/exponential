@@ -427,7 +427,9 @@ impl SurfaceView {
         if let Some(s) = self.scrolls.get(&index).copied() {
             el = self.scroll_container(el, index, n, s, w, h, cx);
         }
-        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() {
+        // #EXP-1629: a Select option's cursor is its fill, never a ring.
+        let option = n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item");
+        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() && !option {
             let ring = theme_color(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "ring").unwrap_or(ink.opacity(0.5));
             el = el.child(rounded(div().absolute().top(px(-2.0)).left(px(-2.0)).w(px(w + 4.0)).h(px(h + 4.0)).border_2().border_color(ring), radii.map(|r| r + 2.0)));
         }
@@ -723,6 +725,9 @@ impl SurfaceView {
                 // gpui may repeat a hover: only a real enter fires.
                 let entered = *hovered && !this.interaction.get(&hid).is_some_and(|s| s.hover);
                 this.hover(&hid, *hovered, cx);
+                if *hovered {
+                    this.select_hover_focus(&hid, window, cx);
+                }
                 if box_hover && entered {
                     if let Some(i) = this.cache.index_of(&hid) {
                         this.fire(i, "hover", None, cx);
@@ -930,7 +935,11 @@ impl SurfaceView {
                 let text = lcx.str("text");
                 let ph = lcx.str("placeholder");
                 let is_placeholder = text.is_empty() || (!ph.is_empty() && text == ph && !has_value(n));
-                natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
+                if n.component == "Select" {
+                    natives::select_trigger(&lcx, if text.is_empty() { ph } else { text }, is_placeholder || lcx.bool("placeholder"), lcx.str("icon"))
+                } else {
+                    natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
+                }
             }
             ("Text", _) => self.paint_text(&lcx, window, cx),
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
@@ -1198,7 +1207,11 @@ impl SurfaceView {
             ("Select", Some("item")) => {
                 let check = lcx.str("check");
                 let selected = NodeFlags::of(n).selected || lcx.bool("selected");
-                row = row.child(div().flex_none().size(px(16.0)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, 16.0, lcx.ink))));
+                // #EXP-1629: the `check` part's recipe size and colour.
+                let cp = lcx.part_props("Select", "check", &[]);
+                let size = px_prop(&cp, "width").or_else(|| px_prop(&cp, "height")).unwrap_or(16.0) * lcx.scale;
+                let ink = lcx.part("Select", "check", &[]).color.unwrap_or(lcx.ink);
+                row = row.child(div().flex_none().size(px(size)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, size, ink))));
             }
             ("Table", Some("headerCell")) => {
                 let icon = lcx.str("sortIcon");

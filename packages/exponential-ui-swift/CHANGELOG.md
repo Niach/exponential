@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` + the IDE popup (#EXP-1629): `triggerVariant: row` paints the trigger as a Group row (the `label` part leading inside it, the `value` part trailing and truncating at its recipe opacity, the `Select.chevron` glyph as the `chevron` part); the field trigger's text and glyph are the `value` / `chevron` parts too (`SelectTrigger`, measured alike). The popup opens with the cursor on the first chosen option (else the first enabled one) scrolled into view; the cursor is the ONE option reporting `hover` (the pointer and ↑/↓ move it, from a searchable Select's field too; Enter / Space pick it), `selected` stays the chosen one; the check is the `check` part's size and ink. Snapshot re-recorded.
 - Tabs `swipeable` (#FEED-200): a horizontal touch drag on the panels pages them (iOS; a mouse never pages): `swipe {phase, offset, velocity}` to the core, which draws the pages and the header `thumb` and settles. A touch starting inside something that scrolls, pans or drags sideways keeps it (`SurfaceModel.swipeBlocked`); the axis waits for the slop (`swipeAxis`). `SurfaceModel.isSwipeContent`, `tabSwipe`. Replays `fixtures/swipe.json` through the FFI (`swipeLock`, `swipeOffset`, `swipeSettle`, `swipeBlocks`).
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
 - An anchored overlay closes once its anchor scrolls, moves or leaves the tree (#EXP-1739, through the core).
