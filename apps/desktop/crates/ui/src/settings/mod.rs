@@ -74,7 +74,7 @@ pub(crate) mod voice_prefs;
 pub(crate) mod prompts;
 // #EXP-1660: Settings › Skills (the list + one skill's page).
 pub(crate) mod skills;
-mod board_detail;
+pub(crate) mod board_detail;
 pub(crate) mod repositories;
 pub(crate) mod sessions;
 pub(crate) mod storage;

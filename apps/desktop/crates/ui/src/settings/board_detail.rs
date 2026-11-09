@@ -79,7 +79,20 @@ pub struct BoardDetailPane {
     branches: Option<(String, crate::board_form::BranchLoad)>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
+    /// The bench's state (headless has no board, team or server).
+    #[cfg(test)]
+    shot: Option<BoardShot>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct BoardShot {
+    pub board: domain::rows::Board,
+    /// The team's repositories (`repositories.list` rows); `None` = loading.
+    pub repos: Option<serde_json::Value>,
+    /// The list failed to load.
+    pub failed: bool,
 }
 
 impl BoardDetailPane {
@@ -118,8 +131,37 @@ impl BoardDetailPane {
             relisted_unknown: None,
             branches: None,
             generation: 0,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = crate::navigation::nav_for_window(window, cx);
+        let shared = crate::sidebar::rail_shared_for_window(window, cx);
+        Self::new(nav, shared, window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: BoardShot, cx: &mut gpui::Context<Self>) {
+        self.repos = match (&shot.repos, shot.failed) {
+            (_, true) => RepoLoad::Failed,
+            (None, false) => RepoLoad::Loading,
+            (Some(rows), false) => RepoLoad::Ready(serde_json::from_value(rows.clone()).expect("repository rows")),
+        };
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The pane's board (the bench's, under test).
+    fn board(&self, cx: &gpui::App) -> Option<domain::rows::Board> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return Some(shot.board.clone());
+        }
+        self.selected_board_id(cx).and_then(|id| Store::global(cx).collections().boards.read(cx).get(&id).cloned())
     }
 
     /// The selected board id from the shared settings selection.
@@ -183,6 +225,10 @@ impl BoardDetailPane {
     /// first shown or the team / account changed (render-time — a hidden
     /// pane never fetches; mirror of the Repositories pane).
     fn ensure_repos(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         let account_id = Store::global(cx)
             .session(cx)
             .account_id()
@@ -614,9 +660,7 @@ impl Render for BoardDetailPane {
         if let Some(team_id) = team_id.as_deref() {
             self.ensure_repos(team_id, cx);
         }
-        let board = self.selected_board_id(cx).and_then(|id| {
-            Store::global(cx).collections().boards.read(cx).get(&id).cloned()
-        });
+        let board = self.board(cx);
         // The nav clamps a stale Board(id) selection away before this pane
         // shows, so a missing row is only a transient frame.
         let Some(board) = board else {

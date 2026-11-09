@@ -20,6 +20,7 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -577,4 +578,60 @@ fn settings_voice_apps() {
 #[ignore]
 fn settings_voice_apps_open() {
     voice_clicked("voice-apps-open", voice_apps_settings(), &[]);
+}
+
+fn board(repository: Option<&str>, branch: Option<&str>) -> domain::rows::Board {
+    serde_json::from_value(serde_json::json!({
+        "id": "board-web", "team_id": "team-acme", "name": "Web app", "prefix": "WEB", "color": "#3b82f6", "icon": "rocket",
+        "repository_id": repository, "default_branch": branch,
+    }))
+    .expect("a board")
+}
+
+fn board_repos() -> serde_json::Value {
+    serde_json::json!([
+        {"id": "r1", "fullName": "acme/web", "defaultBranch": "main", "githubDefaultBranch": "main", "private": true},
+        {"id": "r2", "fullName": "acme/api", "defaultBranch": "develop", "private": false},
+    ])
+}
+
+fn board_detail(name: &str, shot: BoardShot) {
+    shoot_pane(name, BoardDetailPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_board_unlinked() {
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_linked() {
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_pinned() {
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_loading() {
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_unavailable() {
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_failed_plain() {
+    let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
 }
