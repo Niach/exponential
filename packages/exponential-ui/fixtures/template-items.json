@@ -3971,6 +3971,89 @@
       }
     },
     {
+      "name": "macro-template-kbdgroup-bound",
+      "nested": {
+        "id": "chord",
+        "component": "KbdGroup",
+        "props": {
+          "keys": {
+            "@path": "/keys"
+          }
+        }
+      },
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "expected": {
+        "root": {
+          "id": "chord",
+          "component": "Box",
+          "props": {},
+          "children": [],
+          "style": {
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": "$spacing.xs",
+            "alignSelf": "flex-start"
+          },
+          "recipe": {
+            "macro": "KbdGroup",
+            "part": "root",
+            "props": {}
+          },
+          "accessibility": {
+            "role": "group"
+          },
+          "template": {
+            "component": "chord.key",
+            "path": "/keys"
+          }
+        },
+        "issues": [],
+        "templates": {
+          "chord.key": {
+            "id": "chord.key",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "chord.key.label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": ""
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Kbd",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "height": "$control.badge",
+              "minWidth": "$control.badge",
+              "paddingHorizontal": "$spacing.xs",
+              "borderRadius": "$radius.sm",
+              "alignSelf": "flex-start"
+            },
+            "recipe": {
+              "macro": "Kbd",
+              "part": "root",
+              "props": {}
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "macro-template-meter-bound",
       "nested": {
         "id": "disk",

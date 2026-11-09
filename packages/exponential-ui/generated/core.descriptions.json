@@ -451,6 +451,20 @@
         "keys": "⌘K"
       }
     },
+    "KbdGroup": {
+      "props": {
+        "keys": {
+          "description": "The keys in order (`⌘`, `K`)."
+        }
+      },
+      "description": "A key chord: one Kbd cap per key.",
+      "example": {
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      }
+    },
     "Label": {
       "props": {
         "text": {

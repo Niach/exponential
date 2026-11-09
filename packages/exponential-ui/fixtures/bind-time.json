@@ -6658,6 +6658,139 @@
       ]
     },
     {
+      "name": "KbdGroup/bound:keys",
+      "input": {
+        "id": "kbd-group",
+        "component": "KbdGroup",
+        "props": {
+          "keys": {
+            "@path": "/keys"
+          }
+        }
+      },
+      "expanded": {
+        "id": "kbd-group",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "alignSelf": "flex-start"
+        },
+        "recipe": {
+          "macro": "KbdGroup",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group"
+        },
+        "template": {
+          "component": "kbd-group.key",
+          "path": "/keys"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "keys": [
+              "⌘",
+              "K"
+            ]
+          },
+          "bound": {
+            "id": "kbd-group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd-group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "keys": []
+          },
+          "bound": {
+            "id": "kbd-group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd-group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "kbd-group",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "alignSelf": "flex-start"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "kbd-group.key",
+              "path": "/keys"
+            },
+            "recipe": {
+              "macro": "KbdGroup",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Label/bound:text",
       "input": {
         "id": "label",

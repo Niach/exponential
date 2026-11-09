@@ -9,7 +9,7 @@
         "fixtures/catalog-components.json"
       ],
       "unit": "case",
-      "cases": 700,
+      "cases": 701,
       "check": "Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted."
     },
     {
@@ -18,7 +18,7 @@
         "fixtures/catalog-macros.json"
       ],
       "unit": "case",
-      "cases": 416,
+      "cases": 417,
       "check": "Expand the case: the tree equals `expanded` (JSON-equal, recipes included)."
     },
     {
@@ -154,7 +154,7 @@
         "fixtures/bind-time.json"
       ],
       "unit": "case",
-      "cases": 105,
+      "cases": 106,
       "check": "Expand the input; for every dataset run the bind pass: the bound tree, every `set` press and the per-row slot cells equal the fixture (reducer `issues` too for `extra`)."
     },
     {
@@ -190,7 +190,7 @@
         "fixtures/template-items.json"
       ],
       "unit": "case",
-      "cases": 30,
+      "cases": 31,
       "check": "Key the items / rows, list the template instances (path, key, accumulated suffix), reduce the surfaces (templates lifted): equal to `expected`."
     },
     {

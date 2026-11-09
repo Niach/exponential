@@ -11740,7 +11740,7 @@
                     "component": "Text",
                     "props": {
                       "text": "⌘S",
-                      "variant": "code",
+                      "variant": "caption",
                       "lines": 1
                     },
                     "children": [],
@@ -11755,7 +11755,9 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
+                  "justifyContent": "center",
                   "height": "$control.badge",
+                  "minWidth": "$control.badge",
                   "paddingHorizontal": "$spacing.xs",
                   "borderRadius": "$radius.sm",
                   "alignSelf": "flex-start"
@@ -11764,6 +11766,142 @@
                   "macro": "Kbd",
                   "part": "root",
                   "props": {}
+                }
+              },
+              {
+                "id": "nf_kbd_group",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "nf_kbd_group.key.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "nf_kbd_group.key.0.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "⌘",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "height": "$control.badge",
+                      "minWidth": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "nf_kbd_group.key.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "nf_kbd_group.key.1.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "⇧",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "height": "$control.badge",
+                      "minWidth": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "nf_kbd_group.key.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "nf_kbd_group.key.2.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "S",
+                          "variant": "caption",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "height": "$control.badge",
+                      "minWidth": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
+                },
+                "recipe": {
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 }
               }
             ],

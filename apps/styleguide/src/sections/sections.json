@@ -55,7 +55,8 @@
         "timeline",
         "record-form",
         "record-table",
-        "settings-row"
+        "settings-row",
+        "kbd-group"
       ]
     },
     {
@@ -157,6 +158,7 @@
     "record-form": "VAPP-217",
     "record-table": "VAPP-217",
     "settings-row": "VAPP-280",
+    "kbd-group": "EXP-1629",
     "mosaic": "EXP-1495",
     "window": "VAPP-290",
     "zoomable-image": "EXP-1586",

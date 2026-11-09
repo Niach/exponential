@@ -2191,6 +2191,30 @@
         "keys": "⌘K"
       }
     },
+    "KbdGroup": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "description": "A key chord: one Kbd cap per key.",
+      "props": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "The keys in order (`⌘`, `K`)."
+        }
+      },
+      "example": {
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      }
+    },
     "Label": {
       "kind": "macro",
       "group": "text",
