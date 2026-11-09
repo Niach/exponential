@@ -29,6 +29,7 @@ struct Frame {
 
 impl Render for Frame {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Frame").entered();
         div().size_full().bg(cx.theme().background).p(px(24.)).child(self.pane.clone())
     }
 }

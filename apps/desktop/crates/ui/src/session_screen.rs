@@ -449,6 +449,7 @@ impl Focusable for SessionScreenView {
 
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SessionScreenView").entered();
         // EXP-1323: the session on screen is read (its own agent replies).
         crate::session_data::mark_read_if_unread(&self.session_id, false, cx);
         let header = self.render_header(window, cx);

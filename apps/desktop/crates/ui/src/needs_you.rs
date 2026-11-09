@@ -465,6 +465,7 @@ impl NeedsYouView {
 
 impl Render for NeedsYouView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "NeedsYouView").entered();
         let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         let column: AnyElement = if ready {
             let rows = active_team_id(&self.nav, cx).map(|team_id| rows_in_team(&team_id, cx)).unwrap_or_default();

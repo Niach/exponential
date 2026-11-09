@@ -229,6 +229,7 @@ impl ToolsPane {
 
 impl Render for ToolsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ToolsPane").entered();
         let dirty = self.dirty(cx);
 
         let card = section(cx)

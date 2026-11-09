@@ -29,6 +29,9 @@ sha2 = "0.10"
 # rustls already builds, no new crate.
 ring = "0.17"
 url = "2.5"
+# #LOGS-2: spans around the host calls (a host without a subscriber pays
+# nothing; the Engine never installs one).
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # `sqlite`: SqliteRecordStore (VAPP-261), the app-records table elocal owns (#EDE-55).
 rusqlite = { workspace = true, optional = true }

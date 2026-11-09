@@ -2261,6 +2261,7 @@ mod tests {
 
 impl Render for MachinesSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MachinesSection").entered();
         self.ensure_latest_loaded(cx);
         // First frame: the observer only fires on a DELTA, so the derivation
         // has to happen here once.

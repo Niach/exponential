@@ -238,6 +238,7 @@ impl DeviceSettingsDemo {
 
 impl Render for DeviceSettingsDemo {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DeviceSettingsDemo").entered();
         let muted = cx.theme().muted_foreground;
         let identity_row = surface::glass_row_shell()
             .gap_2()
