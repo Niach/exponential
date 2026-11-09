@@ -751,12 +751,12 @@ internal fun chatStateWord(rootId: String, tree: List<com.exponential.app.data.d
         },
     )
 
-/** The word's tone (#EXP-1688, web `ChatHeaderTitle`): needs input = amber,
- *  working = the foreground, else null (the muted default). */
+/** session-screen.json TONE ×4: needs input = amber, working or queued =
+ *  the foreground, else null (the muted default). */
 @Composable
 internal fun chatStateTone(word: String): Color? = when (word) {
     SessionScreen.Copy.Status.NEEDS_INPUT -> com.exponential.app.ui.issue.NeedsInputAmber
-    SessionScreen.Copy.Status.WORKING -> MaterialTheme.colorScheme.onSurface
+    SessionScreen.Copy.Status.WORKING, SessionScreen.Copy.Status.QUEUED -> MaterialTheme.colorScheme.onSurface
     else -> null
 }
 
