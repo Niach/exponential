@@ -66,6 +66,8 @@ name: record-compose-fixtures
 # Avatar, CallSurface and kitchen-sink goldens.
 # EXP-1629 (2026-11-09, after #2446): the mdpi kitchen-sink goldens with
 # the seeded avatars.
+# EXP-1629 (2026-11-09, #2441 after the KeyRecorder merge): re-recorded for
+# the new Kbd look and KbdGroup (`Kbd.png`, `KbdGroup.png`, `components.json`).
 on:
   workflow_dispatch: {}
   push:

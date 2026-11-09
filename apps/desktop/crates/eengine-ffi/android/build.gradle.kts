@@ -11,7 +11,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     id("maven-publish")
     id("signing")
 }
@@ -23,7 +22,7 @@ version = (findProperty("engineVersion") as String?) ?: "0.1.0"
 
 android {
     namespace = "at.exponential.engine"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 26

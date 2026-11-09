@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -16,9 +17,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.DetailChrome
 import com.exponential.app.ui.theme.GlassTokens
+import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 
 // EXP-1162: the detail chrome's EDGE STRIPS (`DetailChrome`, the contract
@@ -56,17 +59,22 @@ fun Modifier.detailHazeSource(): Modifier {
  * The page [color] at `scrim` alpha over the blurred content behind, faded by
  * [mask] (null = solid). Without a [state] the scrim draws alone.
  */
+@Composable
 private fun Modifier.edgeBackdrop(state: HazeState?, color: Color, mask: Brush?): Modifier {
     val scrim = color.copy(alpha = DetailChrome.SCRIM)
     if (state == null) return background(scrim)
-    return hazeEffect(state) {
-        backgroundColor = color
-        tints = listOf(HazeTint(scrim))
-        fallbackTint = HazeTint(scrim)
-        blurRadius = DetailChrome.EDGE_BLUR.dp
-        noiseFactor = 0f
-        this.mask = mask
+    // Haze 2 styles compare by identity: one per (color, mask), not one per frame.
+    val style = remember(color, mask) {
+        HazeBlurStyle {
+            backgroundColor(color)
+            colorEffects(listOf(HazeColorEffect.tint(scrim)))
+            fallbackColorEffect(HazeColorEffect.tint(scrim))
+            blurRadius(DetailChrome.EDGE_BLUR.dp)
+            noiseFactor(0f)
+            mask(mask)
+        }
     }
+    return hazeBlur(HazeInput.Sources(state), style)
 }
 
 /** Which edge a strip hangs from: full strength there, nothing opposite. */

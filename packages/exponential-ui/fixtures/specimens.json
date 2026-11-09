@@ -2846,6 +2846,53 @@
       }
     },
     {
+      "id": "exponential-ui-kbd-group",
+      "component": "KbdGroup",
+      "title": "KbdGroup",
+      "node": {
+        "id": "specimen_kbd_group",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_kbd_group_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_kbd_group_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_kbd_group",
+                "component": "KbdGroup",
+                "props": {
+                  "keys": [
+                    "⌘",
+                    "K"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-label",
       "component": "Label",
       "title": "Label",

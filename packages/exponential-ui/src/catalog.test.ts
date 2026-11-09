@@ -89,16 +89,18 @@ describe(`components`, () => {
     const frame = [`Window`]
     // #EXP-1629: the generic shortcut recorder (the grammar stays host-side).
     const recorder = [`KeyRecorder`]
+    // EXP-1629: a chord as one cap per key.
+    const chord = [`KbdGroup`]
     // #EDE-65: a sandboxed nested surface (agent cards inside a host).
     const embed = [`Embed`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom, ...motion, ...canvas, ...records, ...settings, ...round7, ...frame, ...recorder, ...embed]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom, ...motion, ...canvas, ...records, ...settings, ...round7, ...frame, ...recorder, ...chord, ...embed]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + embed.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + embed.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + chord.length + embed.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + chord.length + embed.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {

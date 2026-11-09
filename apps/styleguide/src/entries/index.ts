@@ -85,6 +85,7 @@ import { entry as tree } from "./tree.tsx"
 import { entry as recordForm } from "./record-form.tsx"
 import { entry as recordTable } from "./record-table.tsx"
 import { entry as settingsRow } from "./settings-row.tsx"
+import { entry as kbdGroup } from "./kbd-group.tsx"
 import { entry as keyRecorder } from "./key-recorder.tsx"
 import { entry as embed } from "./embed.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
@@ -147,6 +148,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   recordForm,
   recordTable,
   settingsRow,
+  kbdGroup,
   keyRecorder,
   embed,
   composerDialog,
