@@ -21,29 +21,26 @@
 //! the local token-store copy, otherwise `ensure_personal_key` would keep
 //! handing the dead key to coding sessions until a confusing 401.
 
-use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, ClipboardItem, Entity, FontWeight,
-    IntoElement, ParentElement, Render, SharedString, Styled, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariant},
-    h_flex,
-    input::InputState,
-    v_flex, ActiveTheme as _, Disableable as _,
-};
+use std::rc::Rc;
+
+use gpui::{div, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Window};
+use gpui_component::{button::ButtonVariant, h_flex, input::InputState, v_flex, ActiveTheme as _};
+use serde_json::{json, Value};
+
+use eui_gpui::binding::Binding;
+use eui_gpui::view::SurfaceView;
 
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
 use crate::controls::{glass_input, WebControl as _};
 use crate::scope_picker::{ScopePicker, ScopeSelection, ScopeTeam};
-use crate::surface::{glass_pill_button, PillSize};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::queries;
 use crate::session::AuthContext;
 
+use super::doc::{and, failed_state, hex, mount, not, path, skeleton, IdeToasts, Ink, SM, XS};
 use super::storage::format_created_date;
-use super::{section, settings_skeleton};
 
 /// The `Device: ` name prefix `api::users::device_key_name` mints with —
 /// rows carrying it belong to a signed-in desktop/CLI, not a script.
@@ -103,11 +100,57 @@ pub struct ApiKeysPane {
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on entry or after a write fails quietly.
     retry_pressed: bool,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
 }
+
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
 
 impl ApiKeysPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Personal key"));
+        // The actions leave the binding for the pane: Create and Revoke
+        // confirm in a native alert, Copy writes the clipboard.
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["create", "revoke", "copy", "done", "retry"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let theme = cx.theme();
+        let chrome = Chrome {
+            radius: f32::from(theme.radius),
+            stroke: hex(super::row_stroke(cx)),
+            primary_stroke: premultiplied_hex(theme.primary.opacity(0.4)),
+            primary_wash: premultiplied_hex(theme.primary.opacity(0.05)),
+            danger: hex(theme.danger),
+            button_fg: hex(theme.button_foreground),
+            // The wash's 3% alpha has no exact byte: [`premultiplied_hex`];
+            // the stroke is the token's own byte.
+            button_fill: premultiplied_hex(theme.input_background()),
+            button_stroke: hex(theme.input),
+            button_fill_disabled: premultiplied_hex(theme.input_background().opacity(0.5)),
+            button_stroke_disabled: hex(theme.input.opacity(0.5)),
+            button_fg_disabled: hex(theme.muted_foreground.opacity(0.5)),
+            terminal: theme::terminal::FONT_FAMILY.to_string(),
+        };
+        let view = mount("settings-api-keys", document(&Ink::of(cx), &chrome), &binding, window, cx);
         Self {
             load: Load::Idle,
             account_id: None,
@@ -116,7 +159,84 @@ impl ApiKeysPane {
             minted: None,
             name_input,
             retry_pressed: false,
+            binding,
+            view,
         }
+    }
+
+    /// A document action (`create`, `revoke` on the key `key`, `copy`,
+    /// `done`, `retry`).
+    fn action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match name {
+            "create" if !self.busy && matches!(self.load, Load::Ready(_)) => self.open_mint_dialog(window, cx),
+            "revoke" if !self.busy => {
+                let Load::Ready(Loaded { list: Ok(rows), device_key_id }) = &self.load else { return };
+                let Some(row) = rows.iter().find(|row| row.id == key).cloned() else { return };
+                let this_device = device_key_id.as_deref() == Some(row.id.as_str());
+                self.confirm_revoke(&row, this_device, window, cx);
+            }
+            "copy" => {
+                if let Some(minted) = &self.minted {
+                    cx.write_to_clipboard(ClipboardItem::new_string(minted.key.clone()));
+                }
+            }
+            "done" => {
+                self.minted = None;
+                cx.notify();
+            }
+            "retry" => self.retry_load(cx),
+            _ => {}
+        }
+    }
+
+    /// The pane's state as the document reads it.
+    fn project(&self) -> Value {
+        let mut out = json!({"loading": false, "failed": false, "ready": false, "busy": self.busy, "createDisabled": self.busy || !matches!(self.load, Load::Ready(_)),
+            "minted": self.minted.is_some(), "key": self.minted.as_ref().map(|m| m.key.clone()).unwrap_or_default(),
+            "sessions": [], "keys": [], "noSessions": false, "noKeys": false});
+        match &self.load {
+            Load::Idle | Load::Loading => out["loading"] = json!(true),
+            Load::Ready(Loaded { list: Err(_), .. }) => out["failed"] = json!(true),
+            Load::Ready(Loaded { list: Ok(rows), device_key_id }) => {
+                out["ready"] = json!(true);
+                let row = |row: &PersonalKeyMeta| {
+                    let device_row = is_device_row(row);
+                    json!({
+                        "key": row.id,
+                        "name": if device_row { device_name(row) } else { display_name(row) },
+                        "thisDevice": device_key_id.as_deref() == Some(row.id.as_str()),
+                        "subline": row_subline(row, device_row),
+                        "hasScope": !device_row,
+                        "scope": if device_row { String::new() } else { api::users::scope_caption(row.scope.as_ref()) },
+                        "action": if device_row { "Disconnect" } else { "Revoke" },
+                        "danger": !device_row,
+                    })
+                };
+                let (device_rows, key_rows): (Vec<_>, Vec<_>) = rows.iter().partition(|row| is_device_row(row));
+                out["noSessions"] = json!(device_rows.is_empty());
+                out["noKeys"] = json!(key_rows.is_empty());
+                out["sessions"] = Value::Array(device_rows.into_iter().map(row).collect());
+                out["keys"] = Value::Array(key_rows.into_iter().map(row).collect());
+            }
+        }
+        out
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(window, cx)
+    }
+
+    /// The pane in a pinned state (the headless store syncs none).
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, load: ShotLoad, minted: Option<MintedPersonalKey>, cx: &mut gpui::Context<Self>) {
+        self.account_id = sync::Store::global(cx).session(cx).account_id().map(str::to_string);
+        self.load = Load::Ready(match load {
+            ShotLoad::Ready(rows, device_key_id) => Loaded { list: Ok(rows), device_key_id },
+            ShotLoad::Failed => Loaded { list: Err("offline".into()), device_key_id: None },
+        });
+        self.minted = minted;
+        cx.notify();
     }
 
     /// Server read — refetch on every pane entry, and drop the one-time
@@ -441,170 +561,6 @@ impl ApiKeysPane {
             });
         open_alert(window, cx, spec);
     }
-
-    /// The one-time reveal block after a mint: raw key + copy + dismiss.
-    fn render_minted(
-        &self,
-        minted: &MintedPersonalKey,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let key = minted.key.clone();
-        v_flex()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(cx.theme().primary.opacity(0.4))
-            .bg(cx.theme().primary.opacity(0.05))
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Copy your API key"),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(
-                        "This is the only time the full key is shown. Store it \
-                         somewhere safe \u{2014} only a hash stays on the server.",
-                    ),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .px_2()
-                            .py_1()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(super::row_stroke(cx))
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_xs()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(key.clone())),
-                    )
-                    .child(
-                        glass_pill_button("api-key-copy", PillSize::Sm, cx)
-                            .label("Copy")
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(key.clone()));
-                            }),
-                    )
-                    .child(
-                        glass_pill_button("api-key-dismiss", PillSize::Sm, cx)
-                            .label("Done")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.minted = None;
-                                cx.notify();
-                            })),
-                    ),
-            )
-    }
-
-    /// One row. An API key: name (its FEED-76 scope caption beneath), key
-    /// prefix, created, last used, Revoke. A login session (EXP-1054):
-    /// hostname (+ "This device" badge), signed in, last active, Disconnect
-    /// — never its token.
-    fn render_row(
-        &self,
-        row: &PersonalKeyMeta,
-        this_device: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let muted = cx.theme().muted_foreground;
-        let row_for_revoke = row.clone();
-        let device_row = is_device_row(row);
-        let name = if device_row {
-            device_name(row)
-        } else {
-            display_name(row)
-        };
-        // Web parity: ONE subline instead of fixed columns —
-        // "Signed in … · last active …" / "<prefix>… · created … · last used …".
-        let subline: SharedString = row_subline(row, device_row).into();
-        // FEED-76: "All teams" / "Scoped to …" under an API key's subline; a
-        // login session's hidden key is always unscoped, so it wears none.
-        let scope: Option<SharedString> =
-            (!device_row).then(|| api::users::scope_caption(row.scope.as_ref()).into());
-        let caption = |text: SharedString| {
-            div()
-                .min_w_0()
-                .text_xs()
-                .text_color(muted)
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(text)
-        };
-
-        // EXP-862: a FLAT list row (web `ListRow`) — no card, no hairline
-        // group; the rows stack straight under the section band.
-        crate::surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2p5()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        h_flex()
-                            .min_w_0()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .whitespace_nowrap()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .child(SharedString::from(name)),
-                            )
-                            .when(this_device, |this| {
-                                this.child(
-                                    crate::surface::glass_pill(
-                                        SharedString::from(format!("api-key-this-device-{}", row.id)),
-                                        PillSize::Sm,
-                                        crate::surface::PillMode::Readonly,
-                                        cx,
-                                    )
-                                    .child("This device"),
-                                )
-                            }),
-                    )
-                    .child(caption(subline))
-                    .children(scope.map(caption)),
-            )
-            .child(
-                // Web: a radius-10 OUTLINE button, Revoke in the danger tint.
-                Button::new(SharedString::from(format!("api-key-revoke-{}", row.id)))
-                    .outline()
-                    .cursor_pointer()
-                    .web_sm()
-                    .when(!device_row, |button| button.text_color(cx.theme().danger))
-                    .label(if device_row { "Disconnect" } else { "Revoke" })
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_revoke(&row_for_revoke, this_device, window, cx);
-                    })),
-            )
-    }
 }
 
 /// The row's subline (web `api-keys-section.tsx`, string for string): a
@@ -632,112 +588,162 @@ fn row_subline(row: &PersonalKeyMeta, device_row: bool) -> String {
     }
 }
 
-impl ApiKeysPane {
-    /// EXP-994: one hairline-divided ladder — a hairline between rows,
-    /// nothing around them. `device_key_id` marks THIS device's own row.
-    fn render_ladder(
-        &self,
-        rows: Vec<&PersonalKeyMeta>,
-        device_key_id: Option<&str>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let list = rows.into_iter().map(|row| {
-            let this_device = device_key_id == Some(row.id.as_str());
-            crate::surface::list_row(self.render_row(row, this_device, cx))
-        });
-        v_flex().w_full().min_w_0().children(list)
-    }
+/// The colours and radii the document needs beyond [`Ink`]: gpui-component's
+/// `theme.radius`, the rows' hairline, the reveal block's primary wash, and
+/// the outline `Button`'s fills (normal and disabled).
+struct Chrome {
+    radius: f32,
+    stroke: String,
+    primary_stroke: String,
+    primary_wash: String,
+    danger: String,
+    button_fg: String,
+    button_fill: String,
+    button_stroke: String,
+    button_fill_disabled: String,
+    button_stroke_disabled: String,
+    button_fg_disabled: String,
+    terminal: String,
+}
+
+/// `#rrggbbaa` of a faint translucent colour that paints like the exact
+/// one: the alpha rounds to its byte and the channels absorb the rounding,
+/// so colour × alpha (what the quad adds over its ground) stays exact; at
+/// a few percent alpha one channel step is a thirtieth of a pixel level.
+fn premultiplied_hex(color: gpui::Hsla) -> String {
+    let c = color.to_rgb();
+    let alpha = (c.a.clamp(0., 1.) * 255.).round().max(1.);
+    let channel = |v: f32| ((v * c.a * 255. / alpha) * 255.).round().clamp(0., 255.) as u8;
+    format!("#{:02x}{:02x}{:02x}{:02x}", channel(c.r), channel(c.g), channel(c.b), alpha as u8)
+}
+
+/// A run of text cut to one line with an ellipsis.
+fn one_line(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
+    let mut t = ink.text(id, text, rems, color);
+    t["props"]["lines"] = json!(1);
+    t["style"]["minWidth"] = json!(0);
+    t["style"]["flexShrink"] = json!(1);
+    t
+}
+
+/// The web's radius-10 outline `Button` at `web_sm` (gpui-component's
+/// outline Default: the input wash and stroke, 32px tall, `px 12`, its
+/// `text_sm` label at line height 1, which gpui centres half a point lower
+/// than the flex centre: `paddingTop: 1`), in the danger tint where `danger`;
+/// disabled = the half wash, the half stroke, the faded muted label (the
+/// tint stays: it is the caller's own style).
+fn outline_button(ink: &Ink, chrome: &Chrome, id: &str, disabled: Value) -> [Value; 2] {
+    let draw = |dim: bool| {
+        let id = if dim { format!("{id}_dim") } else { id.to_string() };
+        let size = ink.r(SM);
+        let label = |color: &str, suffix: &str, visible: Value| json!({"id": format!("{id}_label{suffix}"), "component": "Text", "visible": visible, "props": {"text": path("action"), "lines": 1}, "style": {"fontSize": size, "lineHeight": size, "paddingTop": 1, "color": color, "flexShrink": 0}});
+        let plain = if dim { &chrome.button_fg_disabled } else { &chrome.button_fg };
+        let mut button = json!({"id": id, "component": "Box", "visible": if dim { disabled.clone() } else { not(disabled.clone()) },
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12,
+                "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": if dim { &chrome.button_stroke_disabled } else { &chrome.button_stroke }, "backgroundColor": if dim { &chrome.button_fill_disabled } else { &chrome.button_fill }},
+            "children": [label(&chrome.danger, "_danger", path("danger")), label(plain, "", not(path("danger")))]});
+        if !dim {
+            button["props"] = json!({"pressable": true});
+            button["accessibility"] = json!({"label": path("action")});
+            button["on"] = json!({"press": {"event": {"name": "revoke", "context": {"key": path("key")}}}});
+            button["style"]["cursor"] = json!("pointer");
+        }
+        button
+    };
+    [draw(false), draw(true)]
+}
+
+/// One list (`sessions` or `keys`): EXP-862 flat rows (`px_3` / `py_2p5`,
+/// `gap_3`) under the band, no hairline between them (EXP-1320).
+fn ladder(ink: &Ink, chrome: &Chrome, list: &str, visible: Value) -> Value {
+    let mut name = one_line(ink, &format!("{list}_name"), path("name"), SM, &ink.foreground);
+    name["style"]["fontWeight"] = json!(500);
+    let mut badge = ink.pill(&format!("{list}_device"), json!("This device"), false, None);
+    badge["visible"] = path("thisDevice");
+    let mut scope = one_line(ink, &format!("{list}_scope"), path("scope"), XS, &ink.muted);
+    scope["visible"] = path("hasScope");
+    let [button, button_dim] = outline_button(ink, chrome, &format!("{list}_action"), path("/pane/busy"));
+    let row = json!({"id": format!("{list}_row"), "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.625), "borderRadius": ink.radius_md},
+        "children": [
+            {"id": format!("{list}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
+                "children": [
+                    {"id": format!("{list}_head"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "gap": ink.r(0.5)}, "children": [name, badge]},
+                    one_line(ink, &format!("{list}_subline"), path("subline"), XS, &ink.muted),
+                    scope,
+                ]},
+            button,
+            button_dim,
+        ]});
+    json!({"id": format!("{list}_rows"), "component": "List", "visible": visible, "props": {"gap": "none"},
+        "template": {"component": format!("{list}_wrap"), "path": format!("/pane/{list}"), "key": "key"},
+        "children": [{"id": format!("{list}_wrap"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]})
+}
+
+/// The one-time reveal after a mint (`px_3` / `py_2`, `gap_2`, the theme
+/// radius in a 40% primary stroke over a 5% primary wash).
+fn reveal(ink: &Ink, chrome: &Chrome) -> Value {
+    let mut title = ink.text("reveal_title", json!("Copy your API key"), SM, &ink.foreground);
+    title["style"]["fontWeight"] = json!(500);
+    let note = ink.text("reveal_note", json!("This is the only time the full key is shown. Store it somewhere safe \u{2014} only a hash stays on the server."), XS, &ink.muted);
+    let mut key = one_line(ink, "reveal_key_text", path("/pane/key"), XS, &ink.foreground);
+    key["style"]["fontFamily"] = json!(chrome.terminal);
+    let [copy, _] = ink.pill_button("reveal_copy", None, json!("Copy"), json!(false), json!({"name": "copy"}));
+    let [done, _] = ink.pill_button("reveal_done", None, json!("Done"), json!(false), json!({"name": "done"}));
+    json!({"id": "reveal", "component": "Box", "visible": path("/pane/minted"),
+        "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.primary_stroke, "backgroundColor": chrome.primary_wash},
+        "children": [title, note,
+            {"id": "reveal_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.5)},
+                "children": [
+                    {"id": "reveal_key", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.25), "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.stroke}, "children": [key]},
+                    copy, done,
+                ]}]})
+}
+
+/// The pane's tree: Login sessions over API keys (EXP-1054), each a band
+/// over its flat list, the Create pill in the keys band (EXP-771), the
+/// one-time reveal under it; skeletons while loading; a failed load = the
+/// empty sessions line and the keys' Retry state (FEED-79).
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let empty = |id: &str, text: &str, visible: Value| {
+        let mut t = ink.text(id, json!(text), SM, &ink.muted);
+        t["visible"] = visible;
+        t
+    };
+    let section = |id: &str, children: Vec<Value>| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": children});
+    let sessions = section("sessions", vec![
+        ink.band("sessions_band", "Login sessions", None),
+        skeleton("sessions_skeleton", path("/pane/loading")),
+        empty("sessions_empty", "No signed-in devices.", json!({"@call": "or", "args": {"values": [path("/pane/failed"), and(path("/pane/ready"), path("/pane/noSessions"))]}})),
+        ladder(ink, chrome, "sessions", and(path("/pane/ready"), not(path("/pane/noSessions")))),
+    ]);
+    let create = ink.pill_button("create", None, json!("Create key"), path("/pane/createDisabled"), json!({"name": "create"}));
+    let create = json!({"id": "create_slot", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "flexShrink": 0}, "children": create});
+    let keys = section("keys", vec![
+        ink.band("keys_band", "API keys", Some(create)),
+        reveal(ink, chrome),
+        skeleton("keys_skeleton", path("/pane/loading")),
+        failed_state(ink, "keys_failed", "settings-api", "No API keys", path("/pane/failed")),
+        empty("keys_empty", "No API keys.", and(path("/pane/ready"), path("/pane/noKeys"))),
+        ladder(ink, chrome, "keys", and(path("/pane/ready"), not(path("/pane/noKeys")))),
+    ]);
+    // The pane: `v_flex().gap_6()`.
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%"}, "children": [sessions, keys]})
 }
 
 impl Render for ApiKeysPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
-
-        // EXP-720: the header pair are Sm pills like every other pane's
-        // header action (worktrees' Refresh, the machines band's Add device).
-        // EXP-771: they ride the header's TRAILING slot (web
-        // `GlassSectionHeader` + `Pill mode="action"`) instead of a row of
-        // their own under it, and the "N keys" line above the list is gone —
-        // no header counts anywhere since EXP-698.
-        let new_key = glass_pill_button("api-key-new", PillSize::Sm, cx)
-            .label("Create key")
-            .disabled(self.busy || !matches!(self.load, Load::Ready(_)))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.open_mint_dialog(window, cx);
-            }));
-        // EXP-862: no Refresh pill (web parity); the list re-reads after
-        // every mint and revoke on its own.
-        let header_actions = h_flex()
-            .items_center()
-            .gap_2()
-            .child(new_key)
-            .into_any_element();
-
-        // EXP-1054: two lists on one page — Login sessions (the signed-in
-        // devices) over API keys (for scripts and MCP clients). No caption
-        // under either band.
-        let mut sessions = section(cx).child(crate::surface::glass_section_header(
-            "Login sessions",
-            None,
-            cx,
-        ));
-        let mut keys = section(cx).child(crate::surface::glass_section_header(
-            "API keys",
-            Some(header_actions),
-            cx,
-        ));
-
-        if let Some(minted) = self.minted.clone() {
-            keys = keys.child(self.render_minted(&minted, cx));
-        }
-
-        let empty = |text: &'static str, cx: &App| {
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(text)
-        };
-
-        match &self.load {
-            Load::Idle | Load::Loading => {
-                sessions = sessions.child(settings_skeleton("api-sessions-skeleton", cx));
-                keys = keys.child(settings_skeleton("api-keys-skeleton", cx));
-            }
-            // A failed load (FEED-79): the empty lists, Retry under the
-            // keys, no toast.
-            Load::Ready(Loaded { list: Err(_), .. }) => {
-                sessions = sessions.child(empty("No signed-in devices.", cx));
-                keys = keys.child(crate::action_error::load_failed_state(
-                    "api-keys-retry",
-                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_API),
-                    "No API keys",
-                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                    cx,
-                ));
-            }
-            Load::Ready(Loaded {
-                list: Ok(rows),
-                device_key_id,
-            }) => {
-                let (device_rows, key_rows): (Vec<_>, Vec<_>) =
-                    rows.iter().partition(|row| is_device_row(row));
-                let sessions_list = (!device_rows.is_empty())
-                    .then(|| self.render_ladder(device_rows, device_key_id.as_deref(), cx));
-                let keys_list = (!key_rows.is_empty())
-                    .then(|| self.render_ladder(key_rows, device_key_id.as_deref(), cx));
-                sessions = match sessions_list {
-                    Some(list) => sessions.child(list),
-                    None => sessions.child(empty("No signed-in devices.", cx)),
-                };
-                keys = match keys_list {
-                    Some(list) => keys.child(list),
-                    None => keys.child(empty("No API keys.", cx)),
-                };
-            }
-        }
-
-        v_flex().gap_6().child(sessions).child(keys)
+        let projection = self.project();
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
+}
+
+#[cfg(test)]
+pub(crate) enum ShotLoad {
+    Ready(Vec<PersonalKeyMeta>, Option<String>),
+    Failed,
 }
 
 /// The row's display name — unnamed keys read generically instead of blank.
