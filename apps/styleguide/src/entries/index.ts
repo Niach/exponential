@@ -78,6 +78,7 @@ import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
+import { entry as avatar } from "./avatar.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
 import { entry as outline } from "./outline.tsx"
 import { entry as tree } from "./tree.tsx"
@@ -126,6 +127,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   feedbackStates,
   trace,
   codeBlock,
+  avatar,
   qrCode,
   qrScanner,
   navRail,

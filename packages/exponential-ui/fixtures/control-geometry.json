@@ -799,6 +799,16 @@
               "height": 40,
               "borderRadius": 9999
             }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
+              "borderRadius": 9999
+            }
           }
         }
       },
@@ -2161,6 +2171,16 @@
             "geometry": {
               "width": 40,
               "height": 40,
+              "borderRadius": 9999
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
               "borderRadius": 9999
             }
           }
@@ -3530,6 +3550,16 @@
               "height": 40,
               "borderRadius": 18
             }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
+              "borderRadius": 18
+            }
           }
         }
       },
@@ -4892,6 +4922,16 @@
             "geometry": {
               "width": 40,
               "height": 40,
+              "borderRadius": 9999
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
               "borderRadius": 9999
             }
           }

@@ -198,7 +198,7 @@ struct ServerDetailView: View {
             // Web's account header: the avatar + name + email on the page,
             // on no card.
             HStack(spacing: 12) {
-                UserAvatar(user: identityUser, id: account?.userId, size: 44)
+                UserAvatar(user: identityUser, id: account?.userId, size: 48)
                 VStack(alignment: .leading, spacing: 2) {
                     let name = memberDisplayName(identityUser, id: account?.userId)
                     // Web's 16 / 14.

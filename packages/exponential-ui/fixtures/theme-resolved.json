@@ -305,6 +305,7 @@
           "avatarSm": 24,
           "avatarMd": 32,
           "avatarLg": 40,
+          "avatarXl": 48,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -755,6 +756,24 @@
                 "width": "$control.avatarLg",
                 "height": "$control.avatarLg"
               }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.avatarXl",
+                "height": "$control.avatarXl"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.full"
+              }
             }
           ],
           "fallback": [
@@ -762,9 +781,33 @@
               "style": {
                 "backgroundColor": "$color.muted",
                 "color": "$color.mutedForeground",
-                "fontSize": "$type.size.sm",
-                "fontWeight": "$type.weight.medium",
+                "fontSize": "$type.size.base",
+                "fontWeight": "$type.weight.regular",
                 "fontFamily": "$type.family.sans"
+              }
+            },
+            {
+              "when": {
+                "size": "sm"
+              },
+              "style": {
+                "fontSize": "$type.size.xs"
+              }
+            },
+            {
+              "when": {
+                "size": "lg"
+              },
+              "style": {
+                "fontSize": "$type.size.xl"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "fontSize": "$type.size.xl2"
               }
             }
           ]
@@ -8064,6 +8107,7 @@
           "avatarSm": 24,
           "avatarMd": 32,
           "avatarLg": 40,
+          "avatarXl": 48,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -8854,6 +8898,24 @@
                 "width": "$control.avatarLg",
                 "height": "$control.avatarLg"
               }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.avatarXl",
+                "height": "$control.avatarXl"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.full"
+              }
             }
           ],
           "fallback": [
@@ -8861,9 +8923,33 @@
               "style": {
                 "backgroundColor": "$color.muted",
                 "color": "$color.mutedForeground",
-                "fontSize": "$type.size.sm",
-                "fontWeight": "$type.weight.medium",
+                "fontSize": "$type.size.base",
+                "fontWeight": "$type.weight.regular",
                 "fontFamily": "$type.family.sans"
+              }
+            },
+            {
+              "when": {
+                "size": "sm"
+              },
+              "style": {
+                "fontSize": "$type.size.xs"
+              }
+            },
+            {
+              "when": {
+                "size": "lg"
+              },
+              "style": {
+                "fontSize": "$type.size.xl"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "fontSize": "$type.size.xl2"
               }
             }
           ]
@@ -16623,6 +16709,7 @@
           "avatarSm": 24,
           "avatarMd": 32,
           "avatarLg": 40,
+          "avatarXl": 48,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -17115,8 +17202,26 @@
               }
             },
             {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.avatarXl",
+                "height": "$control.avatarXl"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.lg"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.full"
               }
             }
           ],
@@ -17125,9 +17230,33 @@
               "style": {
                 "backgroundColor": "$color.muted",
                 "color": "$color.mutedForeground",
-                "fontSize": "$type.size.sm",
-                "fontWeight": "$type.weight.medium",
+                "fontSize": "$type.size.base",
+                "fontWeight": "$type.weight.regular",
                 "fontFamily": "$type.family.sans"
+              }
+            },
+            {
+              "when": {
+                "size": "sm"
+              },
+              "style": {
+                "fontSize": "$type.size.xs"
+              }
+            },
+            {
+              "when": {
+                "size": "lg"
+              },
+              "style": {
+                "fontSize": "$type.size.xl"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "fontSize": "$type.size.xl2"
               }
             },
             {
@@ -25094,6 +25223,7 @@
           "avatarSm": 24,
           "avatarMd": 32,
           "avatarLg": 40,
+          "avatarXl": 48,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -25884,6 +26014,24 @@
                 "width": "$control.avatarLg",
                 "height": "$control.avatarLg"
               }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.avatarXl",
+                "height": "$control.avatarXl"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.full"
+              }
             }
           ],
           "fallback": [
@@ -25891,9 +26039,33 @@
               "style": {
                 "backgroundColor": "$color.muted",
                 "color": "$color.mutedForeground",
-                "fontSize": "$type.size.sm",
-                "fontWeight": "$type.weight.medium",
+                "fontSize": "$type.size.base",
+                "fontWeight": "$type.weight.regular",
                 "fontFamily": "$type.family.sans"
+              }
+            },
+            {
+              "when": {
+                "size": "sm"
+              },
+              "style": {
+                "fontSize": "$type.size.xs"
+              }
+            },
+            {
+              "when": {
+                "size": "lg"
+              },
+              "style": {
+                "fontSize": "$type.size.xl"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "fontSize": "$type.size.xl2"
               }
             }
           ]
