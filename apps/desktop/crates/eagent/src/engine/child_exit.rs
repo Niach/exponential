@@ -133,7 +133,7 @@ pub fn dropped_lines_note(dropped: u64) -> String {
 /// (EXP-746 review E1). On the child's edge the exit code gets
 /// [`CHILD_EXIT_GRACE`] to land so the run ends as `exit:<code>`.
 pub async fn until_either_closes(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Client>,
     exit: &ChildExitLink,
     child_gone: impl std::future::Future<Output = ()>,
 ) {

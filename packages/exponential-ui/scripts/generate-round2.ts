@@ -259,13 +259,13 @@ const LIFT_NESTED: NestedNode = {
 }
 
 const LIFT_FLAT: FlatComponent[] = [
-  { id: `root`, component: `Box`, children: [`list`, `item`, `ghost-list`] },
+  { id: `root`, component: `Box`, children: [`list`, `item`, `ghost_list`] },
   { id: `list`, component: `List`, children: { componentId: `item`, path: `/items`, key: `id` } },
   { id: `item`, component: `Box`, children: [`label`, `sub`] },
   { id: `label`, component: `Text`, text: { "@path": `name` } },
   { id: `sub`, component: `List`, children: { componentId: `tag`, path: `tags` } },
   { id: `tag`, component: `Badge`, text: { "@path": `` } },
-  { id: `ghost-list`, component: `List`, children: { componentId: `nowhere`, path: `/x` } },
+  { id: `ghost_list`, component: `List`, children: { componentId: `nowhere`, path: `/x` } },
 ]
 
 /** Templates that would instantiate themselves: reported, never lifted. */
@@ -318,6 +318,7 @@ const MACRO_TEMPLATE_CASES: { name: string; nested: NestedNode }[] = [
   { name: `macro-template-calendar-month`, nested: { id: `cal`, component: `Calendar`, props: { source: `/leave`, labelField: `label` }, on: { select: { event: { name: `day` } }, open: { event: { name: `open` } } } } },
   { name: `macro-template-calendar-week`, nested: { id: `week`, component: `Calendar`, props: { source: `/week`, view: `week` } } },
   { name: `macro-template-kbdgroup-bound`, nested: { id: `chord`, component: `KbdGroup`, props: { keys: { "@path": `/keys` } } } },
+  { name: `macro-template-keyrecorder-bound`, nested: { id: `ptt`, component: `KeyRecorder`, props: { label: `Push to talk`, value: { "@path": `/ptt/value` }, pending: { "@path": `/ptt/pending` }, recording: { "@path": `/ptt/recording` } }, on: { start: { event: { name: `pause` } }, stop: { event: { name: `resume` } }, key: { event: { name: `key` } } } } },
   { name: `macro-template-meter-bound`, nested: { id: `disk`, component: `Meter`, props: { segments: { "@path": `/disk` }, max: 100, label: `Disk` } } },
   { name: `macro-template-timeline`, nested: { id: `tl`, component: `Timeline`, props: { source: `/road`, rowTitle: `Workstream`, showCount: true }, on: { open: { event: { name: `open` } } } } },
 ]
@@ -367,17 +368,17 @@ const DIRECTION_TREE: NestedNode = {
     { id: `plain`, component: `Text`, props: { text: `Hello!` } },
     { id: `end`, component: `Text`, props: { text: `Total`, align: `end` } },
     { id: `center`, component: `Text`, props: { text: `Mid`, align: `center` } },
-    { id: `style-wins`, component: `Text`, props: { text: `x`, align: `start` }, style: { textAlign: `end` } },
+    { id: `style_wins`, component: `Text`, props: { text: `x`, align: `start` }, style: { textAlign: `end` } },
     { id: `physical`, component: `Text`, props: { text: `x` }, style: { textAlign: `left` } },
     {
-      id: `rtl-box`,
+      id: `rtl_box`,
       component: `Box`,
       style: { direction: `rtl` },
       children: [
-        { id: `rtl-plain`, component: `Text`, props: { text: `مرحبا` } },
-        { id: `rtl-end`, component: `Text`, props: { text: `x`, align: `end` } },
-        { id: `ltr-island`, component: `Box`, style: { direction: `ltr` }, children: [{ id: `island-text`, component: `Text`, props: { text: `code()` } }] },
-        { id: `rtl-heading`, component: `Heading`, props: { text: `عنوان`, level: `h2` } },
+        { id: `rtl_plain`, component: `Text`, props: { text: `مرحبا` } },
+        { id: `rtl_end`, component: `Text`, props: { text: `x`, align: `end` } },
+        { id: `ltr_island`, component: `Box`, style: { direction: `ltr` }, children: [{ id: `island_text`, component: `Text`, props: { text: `code()` } }] },
+        { id: `rtl_heading`, component: `Heading`, props: { text: `عنوان`, level: `h2` } },
       ],
     },
   ],

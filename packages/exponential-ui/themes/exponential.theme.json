@@ -85,7 +85,7 @@
         "foreground": "#fafafa",
         "card": "#ffffff0f",
         "cardForeground": "#fafafa",
-        "popover": "#171717",
+        "popover": "#252525",
         "popoverForeground": "#fafafa",
         "primary": "#e5e5e5",
         "primaryForeground": "#171717",
@@ -228,6 +228,7 @@
       "avatarSm": 24,
       "avatarMd": 32,
       "avatarLg": 40,
+      "avatarXl": 48,
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
@@ -733,6 +734,69 @@
             "borderColor": "$color.input",
             "boxShadow": "$shadow.none"
           }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "triggerVariant": "row"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
+          }
+        }
+      ],
+      "content": [
+        {
+          "style": {
+            "padding": "$spacing.xs",
+            "borderRadius": "$radius.lg",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "search": [
+        {
+          "style": {
+            "height": 40,
+            "gap": "$spacing.sm"
+          }
+        }
+      ],
+      "item": [
+        {
+          "style": {
+            "height": "$control.row",
+            "borderRadius": "$radius.md"
+          }
+        },
+        {
+          "when": {
+            "state": "selected",
+            "multiple": false
+          },
+          "style": {
+            "backgroundColor": "#00000000",
+            "color": "$color.popoverForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "multiple": false
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "multiple": true
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
         }
       ]
     },
@@ -1141,6 +1205,49 @@
         {
           "style": {
             "backgroundColor": "$color.card"
+          }
+        }
+      ]
+    },
+    "KeyRecorder": {
+      "field": [
+        {
+          "style": {
+            "paddingHorizontal": 7,
+            "paddingVertical": 3.5,
+            "borderRadius": 5.25
+          }
+        }
+      ],
+      "none": [
+        {
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "ellipsis": [
+        {
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": 13,
+            "lineHeight": 20
           }
         }
       ]

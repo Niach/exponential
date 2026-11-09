@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_client_protocol::schema::v1::{SessionNotification, StopReason};
+use agent_client_protocol::v1::schema::{SessionNotification, StopReason};
 use engine::{MapOut, Mapper, MapperConfig};
 use serde_json::{json, Value};
 
@@ -349,7 +349,7 @@ fn settles_and_edit_diffs_ride_the_wire_as_tool_updates() {
 /// never rides at all; an edit that changed nothing sends no diff.
 #[test]
 fn a_long_edit_diff_is_truncated_on_line_boundaries_and_non_edits_send_none() {
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         Diff, SessionId, SessionNotification, SessionUpdate, ToolCall, ToolCallContent,
         ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
     };
@@ -410,7 +410,7 @@ fn a_long_edit_diff_is_truncated_on_line_boundaries_and_non_edits_send_none() {
 /// last-section-wins wire made a five-file patch read `1 file edited`.
 #[test]
 fn a_multi_file_edit_publishes_every_section_in_one_patch() {
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         Diff, SessionId, SessionNotification, SessionUpdate, ToolCall, ToolCallContent,
         ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
     };
@@ -513,9 +513,9 @@ fn a_terminal_tool_call_binds_locally_and_never_reaches_the_wire() {
 /// `<ask>#submit` with BOTH absent — that absence is the submit marker (D3).
 fn form_request(
     message: &str,
-    properties: Vec<(&str, agent_client_protocol::schema::v1::ElicitationPropertySchema)>,
-) -> agent_client_protocol::schema::v1::CreateElicitationRequest {
-    use agent_client_protocol::schema::v1::{
+    properties: Vec<(&str, agent_client_protocol::v1::schema::ElicitationPropertySchema)>,
+) -> agent_client_protocol::v1::schema::CreateElicitationRequest {
+    use agent_client_protocol::v1::schema::{
         CreateElicitationRequest, ElicitationFormMode, ElicitationSchema, ElicitationSessionScope,
         SessionId,
     };
@@ -529,8 +529,8 @@ fn form_request(
     )
 }
 
-fn choice(title: &str) -> agent_client_protocol::schema::v1::ElicitationPropertySchema {
-    use agent_client_protocol::schema::v1::{ElicitationPropertySchema, StringPropertySchema};
+fn choice(title: &str) -> agent_client_protocol::v1::schema::ElicitationPropertySchema {
+    use agent_client_protocol::v1::schema::{ElicitationPropertySchema, StringPropertySchema};
     ElicitationPropertySchema::String(
         StringPropertySchema::new()
             .title(title)
@@ -705,7 +705,7 @@ fn an_earlier_step_can_be_re_answered_until_the_form_submits() {
 /// with nothing typed answers nothing — never the literal row key.
 #[test]
 fn a_choice_with_a_custom_sibling_is_one_card_with_a_free_text_row() {
-    use agent_client_protocol::schema::v1::{ElicitationPropertySchema, EnumOption, StringPropertySchema};
+    use agent_client_protocol::v1::schema::{ElicitationPropertySchema, EnumOption, StringPropertySchema};
     let form = || {
         form_request(
             "Which color do you prefer?",
@@ -779,7 +779,7 @@ fn a_choice_with_a_custom_sibling_is_one_card_with_a_free_text_row() {
 /// union), so nothing may exceed the caps — in UTF-8 bytes.
 #[test]
 fn every_wire_string_is_capped() {
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         ContentBlock, ContentChunk, SessionId, SessionNotification, SessionUpdate, TextContent,
         ToolCall, ToolCallId, ToolKind,
     };
@@ -880,7 +880,7 @@ fn agent_commands_never_publish_and_an_unchanged_snapshot_is_not_republished() {
 /// `expu_` key would otherwise land in the database verbatim.
 #[test]
 fn an_agent_title_is_redacted_before_it_is_normalised() {
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate,
     };
     let mut mapper = mapper();

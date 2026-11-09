@@ -40,7 +40,7 @@ use gpui::{
     EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hitbox,
     HitboxBehavior, Hsla, ImageId, InputHandler, InspectorElementId, InteractiveElement, IntoElement,
     KeyBinding, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    NoAction, ParentElement, Pixels, Point as PixelPoint, Render, RenderImage, ScrollWheelEvent,
+    NoAction, ParentElement, Pixels, Point as PixelPoint, Render, RenderImage, ScrollEvent,
     ShapedLine, SharedString, StrikethroughStyle, Style, Styled, Task, TextAlign, TextRun,
     UTF16Selection, UnderlineStyle, Window,
 };
@@ -554,7 +554,7 @@ impl TerminalView {
     /// screen — shift always forces local scrollback.
     fn scroll_wheel(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         geometry: &GridGeometry,
         cx: &mut Context<Self>,
     ) {
@@ -1851,7 +1851,7 @@ impl Element for TerminalElement {
 
         let view = self.view.clone();
         let hitbox = layout.hitbox.clone();
-        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+        window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                 return;
             }

@@ -4,4 +4,4 @@
 # pin at the rev); pinning is required because the gpui git rev tracks a specific
 # compiler surface.
 [toolchain]
-channel = "1.96.0"
+channel = "1.98.1"

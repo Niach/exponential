@@ -1903,7 +1903,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         {
           "name": "src",
@@ -1915,7 +1915,7 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "sm | default | lg | xl",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -1926,9 +1926,9 @@
           "name": "seed",
           "type": "string",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
-          "description": "Hashes the fallback hue; default the name."
+          "description": "A user id: the palette hue; none = muted."
         }
       ],
       "accessibility": {
@@ -1940,6 +1940,7 @@
         "id": "example",
         "component": "Avatar",
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       },
       "macro": null
@@ -4356,6 +4357,14 @@
           "description": "Picture URL."
         },
         {
+          "name": "seed",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Their id: the avatar hue."
+        },
+        {
           "name": "state",
           "type": "ringing | connecting | talking | ended",
           "required": false,
@@ -4435,6 +4444,7 @@
         "id": "example",
         "component": "CallSurface",
         "name": "Assistant",
+        "seed": "agent-assistant",
         "state": "talking",
         "activity": "speaking",
         "level": 0.6,
@@ -6396,6 +6406,31 @@
           "description": "Shown when the search matches nothing."
         },
         {
+          "name": "triggerVariant",
+          "type": "field | row",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "field",
+          "description": "`row` = a Group row: label, value, chevron."
+        },
+        {
+          "name": "align",
+          "type": "start | center | end",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        {
+          "name": "popupWidth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Popup width in px (`row`: 260)."
+        },
+        {
           "name": "disabled",
           "type": "boolean",
           "required": false,
@@ -6662,6 +6697,91 @@
         ]
       },
       "macro": null
+    },
+    {
+      "name": "KeyRecorder",
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-key-recorder",
+      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "start",
+        "stop",
+        "key"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The accessible name."
+        },
+        {
+          "name": "value",
+          "type": "[string]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The recorded keys, one cap each."
+        },
+        {
+          "name": "recording",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Listening for keys; bind it."
+        },
+        {
+          "name": "pending",
+          "type": "[string]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The held modifiers while recording."
+        },
+        {
+          "name": "placeholder",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Shown while recording with no key held."
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "An error under the field."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "field = button named `label`, aria-pressed while recording; the error line is an alert",
+        "keys": [
+          "Enter, Space: start recording",
+          "While recording every key, modifier change and mouse button 3-5 goes to `key`; Tab and Escape included (the host decides)"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "KeyRecorder",
+        "label": "Push to talk",
+        "value": [
+          "Ctrl",
+          "Space"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KeyRecorder/<part>."
     },
     {
       "name": "DatePicker",

@@ -38,7 +38,7 @@ use std::time::Duration;
 use gpui::{
     canvas, deferred, div, px, AnyElement, App, AppContext as _, Bounds, Entity, Global,
     IntoElement,
-    MouseDownEvent, MouseMoveEvent, ParentElement as _, Pixels, Render, ScrollWheelEvent,
+    MouseDownEvent, MouseMoveEvent, ParentElement as _, Pixels, Render, ScrollEvent,
     SharedString, Styled, Task, Window, WindowId,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Sizable as _};
@@ -511,7 +511,7 @@ impl Render for IssuePreviewHost {
                     pressed.update(cx, |this, cx| this.dismiss(cx));
                 });
                 let scrolled = entity.clone();
-                window.on_mouse_event(move |_: &ScrollWheelEvent, phase, _, cx| {
+                window.on_mouse_event(move |_: &ScrollEvent, phase, _, cx| {
                     if phase.bubble() {
                         scrolled.update(cx, |this, cx| this.dismiss(cx));
                     }

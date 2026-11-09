@@ -12,7 +12,7 @@ use std::time::Duration;
 use eui_core::NestedNode;
 use eui_gpui::host::{ActionEvent, HostPlugin, UploadEvent};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
-use gpui::{div, prelude::*, px, App, Entity, Modifiers, MouseButton, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext, Window};
+use gpui::{div, prelude::*, px, App, Entity, Modifiers, MouseButton, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext, Window};
 use serde_json::{json, Value};
 
 #[derive(Default)]
@@ -390,12 +390,12 @@ fn scroll_containers_scroll_their_content_and_draw_it_translated(cx: &mut TestAp
     let before = y(&view, cx, "row3");
     assert_eq!(before, 20.0 + 120.0);
     let pane = view.read_with(cx, |v, _| v.painted_bounds("pane").unwrap());
-    cx.simulate_event(ScrollWheelEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-50.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-50.0))), ..Default::default() });
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.surface().scroll_offset("pane")), (0.0, 50.0), "the wheel moved the core's offset");
     assert_eq!(y(&view, cx, "row3"), before - 50.0, "the content is drawn translated");
     for _ in 0..20 {
-        cx.simulate_event(ScrollWheelEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-100.0))), ..Default::default() });
+        cx.simulate_event(ScrollEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-100.0))), ..Default::default() });
     }
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.surface().scroll_offset("pane").1), 12.0 * 40.0 - 120.0, "clamped at the end");
@@ -652,7 +652,7 @@ fn a_tall_dialog_scrolls_its_body(cx: &mut TestAppContext) {
     draw(cx);
     let (content, window_h) = view.read_with(cx, |v, _| (v.painted_bounds("long.content").expect("the dialog painted"), v.visible_region().height));
     assert!(f32::from(content.size.height) <= window_h, "the dialog fits the viewport ({} > {window_h})", f32::from(content.size.height));
-    cx.simulate_event(ScrollWheelEvent { position: content.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-200.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: content.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-200.0))), ..Default::default() });
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.surface().scroll_offset("long.body").1), 200.0, "its body scrolled");
 }
@@ -1408,7 +1408,7 @@ fn a_wheel_over_the_anchors_container_closes_its_popover(cx: &mut TestAppContext
     let list = view.read_with(cx, |v, _| v.painted_bounds("list").expect("the container painted"));
     // Low in the container, clear of the Popover hanging under the anchor.
     let at = list.bottom_left() + gpui::point(px(10.0), px(-10.0));
-    cx.simulate_event(ScrollWheelEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-40.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-40.0))), ..Default::default() });
     draw(cx);
     assert!(view.read_with(cx, |v, _| v.surface().scroll_offset("list").1) > 0.0, "the wheel scrolled the container");
     assert!(!open(&view, cx), "the Popover closed with its anchor's scroll");
@@ -1446,4 +1446,96 @@ fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
         assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}");
     }
     }
+}
+
+/// #EXP-1629 (interactions-round1.json keyRecorder): every case with real
+/// input: a click on the field, key downs/ups through the window (the
+/// interceptor beats Tab and Escape), modifier changes, mouse buttons over
+/// the field, the window's focus taken away, and host writes.
+#[gpui::test]
+fn a_key_recorder_captures_like_the_fixture(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let k = &f["keyRecorder"];
+    let mods = |m: &Value| {
+        let held = |x: &str| m.as_array().is_some_and(|a| a.iter().any(|v| v == x));
+        Modifiers { control: held("ctrl"), alt: held("alt"), shift: held("shift"), platform: held("meta"), function: false }
+    };
+    let keystroke = |key: &str, m: &Value| {
+        let mut s = String::new();
+        for (flag, prefix) in [("ctrl", "ctrl-"), ("alt", "alt-"), ("shift", "shift-"), ("meta", "cmd-")] {
+            if m.as_array().is_some_and(|a| a.iter().any(|v| v == flag)) {
+                s.push_str(prefix);
+            }
+        }
+        s.push_str(key);
+        gpui::Keystroke::parse(Box::leak(s.into_boxed_str())).unwrap()
+    };
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [k["surface"].clone()]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let border = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext| view.read_with(vcx, |v, _| v.surface().visual(v.index_of("ptt.field").unwrap()).and_then(|s| s.border_color.clone()));
+        let idle_border = border(&view, vcx);
+        for step in c["steps"].as_array().unwrap() {
+            let (kind, value) = step.as_object().unwrap().iter().next().unwrap();
+            let b = view.read_with(vcx, |v, _| v.painted_bounds("ptt.field")).unwrap_or_else(|| panic!("{name}: the field painted"));
+            match kind.as_str() {
+                "press" => {
+                    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+                }
+                "down" => vcx.simulate_event(gpui::KeyDownEvent { keystroke: keystroke(value.as_str().unwrap(), &step["mods"]), is_held: false, prefer_character_input: false }),
+                "up" => vcx.simulate_event(gpui::KeyUpEvent { keystroke: keystroke(value.as_str().unwrap(), &step["mods"]) }),
+                "modifiers" => vcx.simulate_modifiers_change(mods(value)),
+                "mouse" => {
+                    let button = match value.as_u64().unwrap() {
+                        1 => MouseButton::Left,
+                        2 => MouseButton::Right,
+                        3 => MouseButton::Middle,
+                        4 => MouseButton::Navigate(gpui::NavigationDirection::Back),
+                        _ => MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                    };
+                    vcx.simulate_mouse_down(b.center(), button, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), button, Modifiers::default());
+                }
+                "blur" => vcx.update(|window, cx| window.blur(cx)),
+                "hostWrite" => view.update(vcx, |v, cx| v.set_data(value["path"].as_str().unwrap(), Some(value["value"].clone()), cx).unwrap()),
+                other => panic!("{name}: step {other}"),
+            }
+            draw(vcx);
+            if kind == "press" {
+                assert_eq!(focused(&view, vcx).as_deref(), Some("ptt.field"), "{name}: the field takes the focus");
+            }
+        }
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}: events");
+        let recording = view.read_with(vcx, |v, _| v.surface().get_data("/recording").cloned()).unwrap_or(Value::Null);
+        assert_eq!(recording, c["recording"], "{name}: /recording");
+        if recording == json!(true) {
+            assert_ne!(border(&view, vcx), idle_border, "{name}: the recording ring paints");
+        }
+    }
+}
+
+/// #EXP-1629: a key repeat while recording sends nothing; a shifted
+/// character sends its physical key with shift.
+#[gpui::test]
+fn a_key_recorder_drops_repeats_and_unshifts(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [f["keyRecorder"]["surface"].clone()]}), false);
+    view.update(vcx, |v, _| v.record_bounds(true));
+    draw(vcx);
+    let b = view.read_with(vcx, |v, _| v.painted_bounds("ptt.field")).unwrap();
+    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+    draw(vcx);
+    let down = |key: &'static str, held: bool| gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse(key).unwrap(), is_held: held, prefer_character_input: false };
+    vcx.simulate_event(down("k", false));
+    vcx.simulate_event(down("k", true));
+    vcx.simulate_event(down("shift-!", false));
+    vcx.simulate_event(down("home", false));
+    draw(vcx);
+    let keys: Vec<Value> = log.0.borrow().actions.iter().filter(|a| a.name == "key").map(|a| json!([a.context["key"], a.context["shift"]])).collect();
+    assert_eq!(keys, vec![json!(["k", false]), json!(["1", true]), json!(["home", false])], "the repeat is dropped, `!` is shift+1");
 }

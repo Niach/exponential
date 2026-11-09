@@ -32,7 +32,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, point, prelude::FluentBuilder as _, px, Animation, AnyElement, App, Bounds,
+    canvas, deferred, div, point, prelude::FluentBuilder as _, px, Animation, AnyElement, App, Bounds,
     ContentMask, Div, ElementId, Global, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, Pixels, SharedString, Styled, Window,
 };
@@ -203,19 +203,19 @@ pub(crate) fn arc_spinner_colored(size: f32, color: Hsla, _cx: &App) -> AnyEleme
     use gpui::{percentage, Transformation};
     div()
         .flex_shrink_0()
-        .child(
-            Icon::new(crate::icons::registry::UI_LOADING)
-                .size(px(size))
-                .text_color(color)
-                .with_stepped_animation(
-                    "arc-spinner",
-                    Animation::new(Duration::from_millis(800))
-                        .repeat()
-                        .with_easing(gpui::ease_in_out),
-                    SMOOTH_STEP,
-                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
-                ),
-        )
+        .child(eui_gpui::controls::stepped_glyph(
+            "arc-spinner",
+            gpui::size(px(size), px(size)),
+            Animation::new(Duration::from_millis(800)).repeat().with_easing(gpui::ease_in_out),
+            SMOOTH_STEP,
+            move |delta, _, _| {
+                Icon::new(crate::icons::registry::UI_LOADING)
+                    .size(px(size))
+                    .text_color(color)
+                    .transform(Transformation::rotate(percentage(delta)))
+                    .into_any_element()
+            },
+        ))
         .into_any_element()
 }
 
@@ -254,20 +254,33 @@ impl gpui_component::Sizable for Spinner {
 }
 
 impl gpui::RenderOnce for Spinner {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
         use gpui::{percentage, Transformation};
-        use gpui_component::Sizable as _;
-        div().child(
-            self.icon
-                .with_size(self.size)
-                .when_some(self.color, |icon, color| icon.text_color(color))
-                .with_stepped_animation(
-                    "circle",
-                    Animation::new(Duration::from_millis(800)).repeat().with_easing(gpui::ease_in_out),
-                    SMOOTH_STEP,
-                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
-                ),
-        )
+        use gpui_component::{Sizable as _, Size};
+        // gpui-component's icon sizes (`Icon::into_svg`), for the glyph's box.
+        let rem = window.rem_size();
+        let side = match self.size {
+            Size::Size(side) => side,
+            Size::XSmall => rem * 0.75,
+            Size::Small => rem * 0.875,
+            Size::Medium => rem,
+            Size::Large => rem * 1.5,
+        };
+        let (icon, size, color) = (self.icon, self.size, self.color);
+        // #LOGS-4: a stepped glyph (the glyph layer repaints it alone).
+        div().child(eui_gpui::controls::stepped_glyph(
+            "circle",
+            gpui::size(side, side),
+            Animation::new(Duration::from_millis(800)).repeat().with_easing(gpui::ease_in_out),
+            SMOOTH_STEP,
+            move |delta, _, _| {
+                icon.clone()
+                    .with_size(size)
+                    .when_some(color, |icon, color| icon.text_color(color))
+                    .transform(Transformation::rotate(percentage(delta)))
+                    .into_any_element()
+            },
+        ))
     }
 }
 
@@ -610,9 +623,9 @@ pub(crate) fn mark(id: impl Into<ElementId>, size: f32, ground: Hsla, cx: &App) 
     div()
         .flex_none()
         .size(px(size))
-        .with_stepped_animation(id, Animation::new(MARK_LOOP).repeat(), SMOOTH_STEP, move |slot, delta| {
-            slot.child(mark_canvas(size, ink, ground, Some(delta as f64)))
-        })
+        .child(eui_gpui::controls::stepped_glyph(id, gpui::size(px(size), px(size)), Animation::new(MARK_LOOP).repeat(), SMOOTH_STEP, move |delta, _, _| {
+            mark_canvas(size, ink, ground, Some(delta as f64)).into_any_element()
+        }))
         .into_any_element()
 }
 
@@ -722,8 +735,16 @@ impl Blocking {
     }
 
     /// The overlay to paint over a window root, if a wait is in flight.
+    ///
+    /// Deferred one above the toasts, so it still paints over them and
+    /// gpui-component's sheets and dialogs (which `Root` mounts after the
+    /// window content).
     pub(crate) fn overlay(cx: &App) -> Option<AnyElement> {
-        Self::line(cx).map(|line| blocking_overlay(line, cx))
+        Self::line(cx).map(|line| {
+            deferred(blocking_overlay(line, cx))
+                .with_priority(crate::toast::LAYER_PRIORITY + 1)
+                .into_any_element()
+        })
     }
 }
 

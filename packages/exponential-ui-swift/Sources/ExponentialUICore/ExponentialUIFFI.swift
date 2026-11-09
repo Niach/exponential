@@ -39,6 +39,52 @@ fileprivate extension ForeignBytes {
     init(bufferPointer: UnsafeBufferPointer<UInt8>) {
         self.init(len: Int32(bufferPointer.count), data: bufferPointer.baseAddress)
     }
+
+    init(rawBufferPointer: UnsafeRawBufferPointer) {
+        self.init(
+            len: Int32(rawBufferPointer.count),
+            data: rawBufferPointer.baseAddress?.assumingMemoryBound(to: UInt8.self)
+        )
+    }
+}
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Conforms to `FfiConverter` so the compiler enforces the full converter
+// method set. Only the scope-bound `lower(_:_body:)` overload is sound —
+// zero-copy byte buffers only flow foreign -> Rust, and only in argument
+// position. The four protocol-witness methods (`lift`, `lower`, `read`,
+// `write`) `fatalError` at runtime if anyone reaches them.
+//
+// The scope-bound `lower` takes a closure because the `ForeignBytes`
+// pointer is only guaranteed valid for the duration of
+// `Data.withUnsafeBytes`. Callers must run the full FFI call inside
+// the closure body.
+fileprivate enum FfiConverterByRefBytes: FfiConverter {
+    typealias SwiftType = Data
+    typealias FfiType = ForeignBytes
+
+    static func lower<R>(_ value: Data, _ body: (ForeignBytes) throws -> R) rethrows -> R {
+        return try value.withUnsafeBytes { rawBuf in
+            try body(ForeignBytes(rawBufferPointer: rawBuf))
+        }
+    }
+
+    static func lower(_ value: Data) -> ForeignBytes {
+        fatalError("ByRef bytes cannot use the plain lower: returning ForeignBytes escapes the Data.withUnsafeBytes scope. Use the scope-bound lower(_:_body:) overload instead.")
+    }
+
+    static func lift(_ value: ForeignBytes) throws -> Data {
+        fatalError("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+    }
+
+    static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        fatalError("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
+
+    static func write(_ value: Data, into buf: inout [UInt8]) {
+        fatalError("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
 }
 
 // For every type used in the interface, we provide helper methods for conveniently
@@ -581,7 +627,11 @@ fileprivate struct FfiConverterString: FfiConverter {
             return String()
         }
         let bytes = UnsafeBufferPointer<UInt8>(start: value.data!, count: Int(value.len))
-        return String(bytes: bytes, encoding: String.Encoding.utf8)!
+        // Use Swift's native UTF-8 decoder; `String(bytes:encoding:.utf8)` goes
+        // through Foundation's NSString and silently strips a leading U+FEFF BOM.
+        // Invalid UTF-8 substitutes U+FFFD instead of trapping (unreachable
+        // given Rust's `String` invariant).
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     public static func lower(_ value: String) -> RustBuffer {
@@ -714,8 +764,9 @@ open class CanvasPlayer: CanvasPlayerProtocol, @unchecked Sendable {
 public convenience init(canvasJson: String)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_canvasplayer_new(
-        FfiConverterString.lower(canvasJson),$0
+        FfiConverterString.lower(canvasJson),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -738,9 +789,10 @@ public convenience init(canvasJson: String)throws  {
      */
 open func sample(slotsJson: String) -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_canvasplayer_sample(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(slotsJson),$0
+        FfiConverterString.lower(slotsJson),uniffiCallStatus
     )
 })
 }
@@ -750,8 +802,9 @@ open func sample(slotsJson: String) -> [Float]  {
      */
 open func size() -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_canvasplayer_size(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -761,8 +814,9 @@ open func size() -> [Float]  {
      */
 open func slotIds() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_canvasplayer_slot_ids(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -956,8 +1010,9 @@ open class HostCalls: HostCallsProtocol, @unchecked Sendable {
 public convenience init(agent: Bool) {
     let handle =
         try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(
-        FfiConverterBool.lower(agent),$0
+        FfiConverterBool.lower(agent),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -979,10 +1034,11 @@ public convenience init(agent: Bool) {
      * A surface resolves its reactive calls here.
      */
 open func attachSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(surfaceId),
-        FfiConverterTypeSurface_lower(surface),$0
+        FfiConverterTypeSurface_lower(surface),uniffiCallStatus
     )
 }
 }
@@ -991,10 +1047,11 @@ open func attachSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
      * The answer to an `ask` effect.
      */
 open func consent(ticket: UInt64, allowed: Bool)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(
             self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(ticket),
-        FfiConverterBool.lower(allowed),$0
+        FfiConverterBool.lower(allowed),uniffiCallStatus
     )
 }
 }
@@ -1004,10 +1061,11 @@ open func consent(ticket: UInt64, allowed: Bool)  {try! rustCall() {
      */
 open func dataModelMetadataJson(messageJson: String, dataJson: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(messageJson),
-        FfiConverterString.lower(dataJson),$0
+        FfiConverterString.lower(dataJson),uniffiCallStatus
     )
 })
 }
@@ -1017,8 +1075,9 @@ open func dataModelMetadataJson(messageJson: String, dataJson: String)throws  ->
      */
 open func expireJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1027,10 +1086,11 @@ open func expireJson() -> String  {
      * After a layout: the surface's issues and failures go to the outbox.
      */
 open func flushSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(surfaceId),
-        FfiConverterTypeSurface_lower(surface),$0
+        FfiConverterTypeSurface_lower(surface),uniffiCallStatus
     )
 }
 }
@@ -1041,18 +1101,20 @@ open func flushSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
      */
 open func hasAgent(surfaceId: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(surfaceId),$0
+        FfiConverterString.lower(surfaceId),uniffiCallStatus
     )
 })
 }
     
 open func localFailed(surfaceId: String, message: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(surfaceId),
-        FfiConverterString.lower(message),$0
+        FfiConverterString.lower(message),uniffiCallStatus
     )
 }
 }
@@ -1062,8 +1124,9 @@ open func localFailed(surfaceId: String, message: String)  {try! rustCall() {
      */
 open func nextDeadlineMs() -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_next_deadline_ms(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1074,10 +1137,11 @@ open func nextDeadlineMs() -> Double?  {
      */
 open func observeJson(opsJson: String, router: HostRouter)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(opsJson),
-        FfiConverterTypeHostRouter_lower(router),$0
+        FfiConverterTypeHostRouter_lower(router),uniffiCallStatus
     )
 })
 }
@@ -1088,13 +1152,14 @@ open func observeJson(opsJson: String, router: HostRouter)throws  -> String  {
      */
 open func pressJson(surfaceId: String, name: String, catalogId: String?, argsJson: String, consent: Bool?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(name),
         FfiConverterOptionString.lower(catalogId),
         FfiConverterString.lower(argsJson),
-        FfiConverterOptionBool.lower(consent),$0
+        FfiConverterOptionBool.lower(consent),uniffiCallStatus
     )
 })
 }
@@ -1103,17 +1168,19 @@ open func pressJson(surfaceId: String, name: String, catalogId: String?, argsJso
      * The host's function policy (`FunctionPolicy` JSON; `None` = allow).
      */
 open func setPolicyJson(policyJson: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(
             self.uniffiCloneHandle(),
-        FfiConverterOptionString.lower(policyJson),$0
+        FfiConverterOptionString.lower(policyJson),uniffiCallStatus
     )
 }
 }
     
 open func setRegistered(names: [String])  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceString.lower(names),$0
+        FfiConverterSequenceString.lower(names),uniffiCallStatus
     )
 }
 }
@@ -1122,11 +1189,12 @@ open func setRegistered(names: [String])  {try! rustCall() {
      * The answer to a `runLocal` effect: its value JSON, or its error.
      */
 open func settleLocal(ticket: UInt64, valueJson: String?, error: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(
             self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(ticket),
         FfiConverterOptionString.lower(valueJson),
-        FfiConverterOptionString.lower(error),$0
+        FfiConverterOptionString.lower(error),uniffiCallStatus
     )
 }
 }
@@ -1136,8 +1204,9 @@ open func settleLocal(ticket: UInt64, valueJson: String?, error: String?)throws 
      */
 open func takeDirty() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_take_dirty(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1147,8 +1216,9 @@ open func takeDirty() -> [String]  {
      */
 open func takeEffectsJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_take_effects_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1158,8 +1228,9 @@ open func takeEffectsJson() -> String  {
      */
 open func takeOutboxJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostcalls_take_outbox_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1322,8 +1393,9 @@ open class HostFormatterImpl: HostFormatter, @unchecked Sendable {
      */
 open func locale() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_locale(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1334,11 +1406,12 @@ open func locale() -> String  {
      */
 open func number(value: Double, decimals: UInt32?, grouping: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_number(
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(value),
         FfiConverterOptionUInt32.lower(decimals),
-        FfiConverterBool.lower(grouping),$0
+        FfiConverterBool.lower(grouping),uniffiCallStatus
     )
 })
 }
@@ -1348,12 +1421,13 @@ open func number(value: Double, decimals: UInt32?, grouping: Bool) -> String  {
      */
 open func currency(value: Double, code: String, decimals: UInt32?, grouping: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(value),
         FfiConverterString.lower(code),
         FfiConverterOptionUInt32.lower(decimals),
-        FfiConverterBool.lower(grouping),$0
+        FfiConverterBool.lower(grouping),uniffiCallStatus
     )
 })
 }
@@ -1363,10 +1437,11 @@ open func currency(value: Double, code: String, decimals: UInt32?, grouping: Boo
      */
 open func percent(value: Double, decimals: UInt32?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(value),
-        FfiConverterOptionUInt32.lower(decimals),$0
+        FfiConverterOptionUInt32.lower(decimals),uniffiCallStatus
     )
 })
 }
@@ -1379,13 +1454,14 @@ open func percent(value: Double, decimals: UInt32?) -> String  {
      */
 open func date(epochMs: Double, dateOnly: Bool, format: String?, style: String?, time: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_date(
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(epochMs),
         FfiConverterBool.lower(dateOnly),
         FfiConverterOptionString.lower(format),
         FfiConverterOptionString.lower(style),
-        FfiConverterBool.lower(time),$0
+        FfiConverterBool.lower(time),uniffiCallStatus
     )
 })
 }
@@ -1396,10 +1472,11 @@ open func date(epochMs: Double, dateOnly: Bool, format: String?, style: String?,
      */
 open func relativeTime(value: Int64, unit: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(
             self.uniffiCloneHandle(),
         FfiConverterInt64.lower(value),
-        FfiConverterString.lower(unit),$0
+        FfiConverterString.lower(unit),uniffiCallStatus
     )
 })
 }
@@ -1409,9 +1486,10 @@ open func relativeTime(value: Int64, unit: String) -> String  {
      */
 open func plural(value: Double) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(
             self.uniffiCloneHandle(),
-        FfiConverterDouble.lower(value),$0
+        FfiConverterDouble.lower(value),uniffiCallStatus
     )
 })
 }
@@ -1423,10 +1501,11 @@ open func plural(value: Double) -> String  {
      */
 open func bytes(value: Double, unit: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(value),
-        FfiConverterString.lower(unit),$0
+        FfiConverterString.lower(unit),uniffiCallStatus
     )
 })
 }
@@ -1443,9 +1522,8 @@ fileprivate struct UniffiCallbackInterfaceHostFormatter {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceHostFormatter] = [UniffiVTableCallbackInterfaceHostFormatter(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceHostFormatter = UniffiVTableCallbackInterfaceHostFormatter(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeHostFormatter.handleMap.remove(handle: uniffiHandle)
@@ -1674,11 +1752,23 @@ fileprivate struct UniffiCallbackInterfaceHostFormatter {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceHostFormatter> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceHostFormatter>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitHostFormatter() {
-    uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(UniffiCallbackInterfaceHostFormatter.vtable)
+    uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(UniffiCallbackInterfaceHostFormatter.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -1843,8 +1933,9 @@ open class HostRouter: HostRouterProtocol, @unchecked Sendable {
 public convenience init(extensionIds: [String]) {
     let handle =
         try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(
-        FfiConverterSequenceString.lower(extensionIds),$0
+        FfiConverterSequenceString.lower(extensionIds),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -1867,8 +1958,9 @@ public convenience init(extensionIds: [String]) {
      */
 open func availableCatalogIds() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1879,9 +1971,10 @@ open func availableCatalogIds() -> [String]  {
      */
 open func installPackage(packageJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(packageJson),$0
+        FfiConverterString.lower(packageJson),uniffiCallStatus
     )
 })
 }
@@ -1892,9 +1985,10 @@ open func installPackage(packageJson: String)throws  -> String  {
      */
 open func mintSurfaceId(base: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(base),$0
+        FfiConverterString.lower(base),uniffiCallStatus
     )
 })
 }
@@ -1904,17 +1998,19 @@ open func mintSurfaceId(base: String) -> String  {
      */
 open func packageIdOf(surfaceId: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(surfaceId),$0
+        FfiConverterString.lower(surfaceId),uniffiCallStatus
     )
 })
 }
     
 open func registerExtension(id: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 }
 }
@@ -1923,19 +2019,21 @@ open func registerExtension(id: String)  {try! rustCall() {
      * Round 9 §10: an inline catalog id joins the available set.
      */
 open func registerInlineCatalog(id: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 }
 }
     
 open func routeJson(messageJson: String, trusted: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(messageJson),
-        FfiConverterBool.lower(trusted),$0
+        FfiConverterBool.lower(trusted),uniffiCallStatus
     )
 })
 }
@@ -1950,19 +2048,21 @@ open func routeJson(messageJson: String, trusted: Bool) -> String  {
      */
 open func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(messageJson),
         FfiConverterBool.lower(trusted),
-        FfiConverterBool.lower(acceptV09),$0
+        FfiConverterBool.lower(acceptV09),uniffiCallStatus
     )
 })
 }
     
 open func supportedCatalogIds() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1972,8 +2072,9 @@ open func supportedCatalogIds() -> [String]  {
      */
 open func surfaceIds() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2116,9 +2217,10 @@ open class HostZoneImpl: HostZone, @unchecked Sendable {
      */
 open func offsetMinutes(epochMs: Double) -> Int32  {
     return try!  FfiConverterInt32.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(
             self.uniffiCloneHandle(),
-        FfiConverterDouble.lower(epochMs),$0
+        FfiConverterDouble.lower(epochMs),uniffiCallStatus
     )
 })
 }
@@ -2135,9 +2237,8 @@ fileprivate struct UniffiCallbackInterfaceHostZone {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceHostZone] = [UniffiVTableCallbackInterfaceHostZone(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceHostZone = UniffiVTableCallbackInterfaceHostZone(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeHostZone.handleMap.remove(handle: uniffiHandle)
@@ -2176,11 +2277,23 @@ fileprivate struct UniffiCallbackInterfaceHostZone {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceHostZone> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceHostZone>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitHostZone() {
-    uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(UniffiCallbackInterfaceHostZone.vtable)
+    uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(UniffiCallbackInterfaceHostZone.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -2292,7 +2405,8 @@ open class JsonlDecoder: JsonlDecoderProtocol, @unchecked Sendable {
 public convenience init() {
     let handle =
         try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_constructor_jsonldecoder_new($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_jsonldecoder_new(uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -2312,17 +2426,19 @@ public convenience init() {
     
 open func end() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_jsonldecoder_end(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func push(chunk: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_jsonldecoder_push(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(chunk),$0
+        FfiConverterString.lower(chunk),uniffiCallStatus
     )
 })
 }
@@ -2457,27 +2573,30 @@ open class MeasurerImpl: Measurer, @unchecked Sendable {
      */
 open func measureId() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_measurer_measure_id(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func measureIntrinsics(leaves: [FfiLeaf]) -> [FfiIntrinsics]  {
     return try!  FfiConverterSequenceTypeFfiIntrinsics.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_measurer_measure_intrinsics(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceTypeFfiLeaf.lower(leaves),$0
+        FfiConverterSequenceTypeFfiLeaf.lower(leaves),uniffiCallStatus
     )
 })
 }
     
 open func measureHeights(leaves: [FfiLeaf], requests: [FfiHeightRequest]) -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_measurer_measure_heights(
             self.uniffiCloneHandle(),
         FfiConverterSequenceTypeFfiLeaf.lower(leaves),
-        FfiConverterSequenceTypeFfiHeightRequest.lower(requests),$0
+        FfiConverterSequenceTypeFfiHeightRequest.lower(requests),uniffiCallStatus
     )
 })
 }
@@ -2494,9 +2613,8 @@ fileprivate struct UniffiCallbackInterfaceMeasurer {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceMeasurer] = [UniffiVTableCallbackInterfaceMeasurer(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceMeasurer = UniffiVTableCallbackInterfaceMeasurer(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeMeasurer.handleMap.remove(handle: uniffiHandle)
@@ -2583,11 +2701,23 @@ fileprivate struct UniffiCallbackInterfaceMeasurer {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceMeasurer> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceMeasurer>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitMeasurer() {
-    uniffi_exponential_ui_ffi_fn_init_callback_vtable_measurer(UniffiCallbackInterfaceMeasurer.vtable)
+    uniffi_exponential_ui_ffi_fn_init_callback_vtable_measurer(UniffiCallbackInterfaceMeasurer.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -2761,9 +2891,10 @@ open class MotionPlayer: MotionPlayerProtocol, @unchecked Sendable {
 public convenience init(lottieJson: String, slotsJson: String)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(
         FfiConverterString.lower(lottieJson),
-        FfiConverterString.lower(slotsJson),$0
+        FfiConverterString.lower(slotsJson),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -2785,10 +2916,11 @@ public convenience init(lottieJson: String, slotsJson: String)throws  {
      * Register a font (TTF/OTF bytes) for text layers without glyphs.
      */
 open func addFont(family: String, data: Data)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(family),
-        FfiConverterData.lower(data),$0
+        FfiConverterData.lower(data),uniffiCallStatus
     )
 }
 }
@@ -2798,8 +2930,9 @@ open func addFont(family: String, data: Data)  {try! rustCall() {
      */
 open func images() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_images(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2809,8 +2942,9 @@ open func images() -> [String]  {
      */
 open func posterFrame() -> Double  {
     return try!  FfiConverterDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_poster_frame(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2820,9 +2954,10 @@ open func posterFrame() -> Double  {
      */
 open func progressFrame(progress: Double) -> Double  {
     return try!  FfiConverterDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(
             self.uniffiCloneHandle(),
-        FfiConverterDouble.lower(progress),$0
+        FfiConverterDouble.lower(progress),uniffiCallStatus
     )
 })
 }
@@ -2832,9 +2967,10 @@ open func progressFrame(progress: Double) -> Double  {
      */
 open func sample(frame: Double) -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(
             self.uniffiCloneHandle(),
-        FfiConverterDouble.lower(frame),$0
+        FfiConverterDouble.lower(frame),uniffiCallStatus
     )
 })
 }
@@ -2843,9 +2979,10 @@ open func sample(frame: Double) -> [Float]  {
      * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
      */
 open func setPlayback(playbackJson: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(playbackJson),$0
+        FfiConverterString.lower(playbackJson),uniffiCallStatus
     )
 }
 }
@@ -2856,9 +2993,10 @@ open func setPlayback(playbackJson: String)  {try! rustCall() {
      */
 open func setStateMachine(json: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(json),$0
+        FfiConverterString.lower(json),uniffiCallStatus
     )
 })
 }
@@ -2868,8 +3006,9 @@ open func setStateMachine(json: String) -> Bool  {
      */
 open func size() -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_size(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2881,10 +3020,11 @@ open func size() -> [Float]  {
      */
 open func smPost(kind: String, layer: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(kind),
-        FfiConverterString.lower(layer),$0
+        FfiConverterString.lower(layer),uniffiCallStatus
     )
 })
 }
@@ -2894,9 +3034,10 @@ open func smPost(kind: String, layer: String) -> Bool  {
      */
 open func smSetInputs(json: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(json),$0
+        FfiConverterString.lower(json),uniffiCallStatus
     )
 })
 }
@@ -2906,8 +3047,9 @@ open func smSetInputs(json: String) -> Bool  {
      */
 open func smStatus() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2917,9 +3059,10 @@ open func smStatus() -> String  {
      */
 open func tick(elapsedMs: Double) -> MotionTick  {
     return try!  FfiConverterTypeMotionTick_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(
             self.uniffiCloneHandle(),
-        FfiConverterDouble.lower(elapsedMs),$0
+        FfiConverterDouble.lower(elapsedMs),uniffiCallStatus
     )
 })
 }
@@ -3052,7 +3195,8 @@ open class RecordStore: RecordStoreProtocol, @unchecked Sendable {
 public convenience init() {
     let handle =
         try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_constructor_recordstore_new($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_recordstore_new(uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -3073,7 +3217,8 @@ public convenience init() {
      */
 public static func newestFirst() -> RecordStore  {
     return try!  FfiConverterTypeRecordStore_lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_constructor_recordstore_newest_first($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_recordstore_newest_first(uniffiCallStatus
     )
 })
 }
@@ -3085,9 +3230,10 @@ public static func newestFirst() -> RecordStore  {
      * that changed; deletes apply first.
      */
 open func applyJson(deltaJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_recordstore_apply_json(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(deltaJson),$0
+        FfiConverterString.lower(deltaJson),uniffiCallStatus
     )
 }
 }
@@ -3097,8 +3243,9 @@ open func applyJson(deltaJson: String)throws   {try rustCallWithError(FfiConvert
      */
 open func count() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_recordstore_count(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3114,11 +3261,12 @@ open func count() -> UInt64  {
      */
 open func valueJson(queryJson: String, contextJson: String, overlayJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_recordstore_value_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(queryJson),
         FfiConverterString.lower(contextJson),
-        FfiConverterOptionString.lower(overlayJson),$0
+        FfiConverterOptionString.lower(overlayJson),uniffiCallStatus
     )
 })
 }
@@ -3230,7 +3378,8 @@ open class SseDecoder: SseDecoderProtocol, @unchecked Sendable {
 public convenience init() {
     let handle =
         try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_new($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_new(uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -3250,17 +3399,19 @@ public convenience init() {
     
 open func end() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_ssedecoder_end(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func push(chunk: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_ssedecoder_push(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(chunk),$0
+        FfiConverterString.lower(chunk),uniffiCallStatus
     )
 })
 }
@@ -3710,11 +3861,12 @@ open class Surface: SurfaceProtocol, @unchecked Sendable {
 public convenience init(surfaceId: String, catalogId: String, themeId: String?, mode: String)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_surface_new(
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(catalogId),
         FfiConverterOptionString.lower(themeId),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -3735,11 +3887,12 @@ public convenience init(surfaceId: String, catalogId: String, themeId: String?, 
      */
 public static func withTheme(surfaceId: String, catalogId: String, theme: Theme?, mode: String)throws  -> Surface  {
     return try  FfiConverterTypeSurface_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(catalogId),
         FfiConverterOptionTypeTheme.lower(theme),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 })
 }
@@ -3751,9 +3904,10 @@ public static func withTheme(surfaceId: String, catalogId: String, theme: Theme?
      */
 open func apply(messageJson: String)throws  -> FfiApplyOutcome  {
     return try  FfiConverterTypeFfiApplyOutcome_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_apply(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(messageJson),$0
+        FfiConverterString.lower(messageJson),uniffiCallStatus
     )
 })
 }
@@ -3764,10 +3918,11 @@ open func apply(messageJson: String)throws  -> FfiApplyOutcome  {
      * `path` adopts the value. A refused write bumps nothing.
      */
 open func assignData(path: String, valueJson: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_assign_data(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(path),
-        FfiConverterOptionString.lower(valueJson),$0
+        FfiConverterOptionString.lower(valueJson),uniffiCallStatus
     )
 }
 }
@@ -3779,17 +3934,19 @@ open func assignData(path: String, valueJson: String?)throws   {try rustCallWith
      */
 open func commandJson(commandJson: String)throws  -> [FfiEvent]  {
     return try  FfiConverterSequenceTypeFfiEvent.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_command_json(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(commandJson),$0
+        FfiConverterString.lower(commandJson),uniffiCallStatus
     )
 })
 }
     
 open func dataJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_data_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3799,9 +3956,10 @@ open func dataJson() -> String  {
      */
 open func dismissToast(id: String) -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -3816,8 +3974,9 @@ open func dismissToast(id: String) -> [FfiEvent]  {
      */
 open func effectiveTheme() -> Theme?  {
     return try!  FfiConverterOptionTypeTheme.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_effective_theme(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3827,8 +3986,9 @@ open func effectiveTheme() -> Theme?  {
      */
 open func effectiveThemeJson() -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3839,20 +3999,22 @@ open func effectiveThemeJson() -> String?  {
      */
 open func event(index: UInt32, name: String, payloadJson: String?)throws  -> [FfiEvent]  {
     return try  FfiConverterSequenceTypeFfiEvent.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_event(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(index),
         FfiConverterString.lower(name),
-        FfiConverterOptionString.lower(payloadJson),$0
+        FfiConverterOptionString.lower(payloadJson),uniffiCallStatus
     )
 })
 }
     
 open func failingChecks(id: String) -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -3863,9 +4025,10 @@ open func failingChecks(id: String) -> [String]  {
      */
 open func fieldChecksJson(id: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -3881,10 +4044,11 @@ open func fieldChecksJson(id: String) -> String  {
      */
 open func hold(index: UInt32, inputJson: String)throws  -> [FfiEvent]  {
     return try  FfiConverterSequenceTypeFfiEvent.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_hold(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(index),
-        FfiConverterString.lower(inputJson),$0
+        FfiConverterString.lower(inputJson),uniffiCallStatus
     )
 })
 }
@@ -3895,25 +4059,28 @@ open func hold(index: UInt32, inputJson: String)throws  -> [FfiEvent]  {
      */
 open func hoverTimeout(owner: String) -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(owner),$0
+        FfiConverterString.lower(owner),uniffiCallStatus
     )
 })
 }
     
 open func indexOf(id: String) -> UInt32?  {
     return try!  FfiConverterOptionUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_index_of(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
     
 open func invalidateMeasures()  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_invalidate_measures(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -3923,17 +4090,19 @@ open func invalidateMeasures()  {try! rustCall() {
      */
 open func isHeld(id: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_is_held(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
     
 open func issuesJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_issues_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3944,9 +4113,10 @@ open func issuesJson() -> String  {
      */
 open func layout(measurer: Measurer) -> FfiLayout  {
     return try!  FfiConverterTypeFfiLayout_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_layout(
             self.uniffiCloneHandle(),
-        FfiConverterTypeMeasurer_lower(measurer),$0
+        FfiConverterTypeMeasurer_lower(measurer),uniffiCallStatus
     )
 })
 }
@@ -3957,19 +4127,21 @@ open func layout(measurer: Measurer) -> FfiLayout  {
      */
 open func layoutFixed(sizesJson: String?, wrap: Bool)throws  -> FfiLayout  {
     return try  FfiConverterTypeFfiLayout_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_layout_fixed(
             self.uniffiCloneHandle(),
         FfiConverterOptionString.lower(sizesJson),
-        FfiConverterBool.lower(wrap),$0
+        FfiConverterBool.lower(wrap),uniffiCallStatus
     )
 })
 }
     
 open func markDirty(index: UInt32) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(
             self.uniffiCloneHandle(),
-        FfiConverterUInt32.lower(index),$0
+        FfiConverterUInt32.lower(index),uniffiCallStatus
     )
 })
 }
@@ -3979,8 +4151,9 @@ open func markDirty(index: UInt32) -> Bool  {
      */
 open func mode() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_mode(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3993,16 +4166,18 @@ open func mode() -> String  {
      */
 open func needsFlush() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func nodeCount() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_node_count(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4013,8 +4188,9 @@ open func nodeCount() -> UInt32  {
      */
 open func nodes() -> [FfiNode]  {
     return try!  FfiConverterSequenceTypeFfiNode.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_nodes(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4024,9 +4200,10 @@ open func nodes() -> [FfiNode]  {
      */
 open func nodesAt(indices: [UInt32]) -> [FfiNode]  {
     return try!  FfiConverterSequenceTypeFfiNode.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceUInt32.lower(indices),$0
+        FfiConverterSequenceUInt32.lower(indices),uniffiCallStatus
     )
 })
 }
@@ -4038,9 +4215,10 @@ open func nodesAt(indices: [UInt32]) -> [FfiNode]  {
      */
 open func paintAt(indices: [UInt32]) -> [FfiPaint]  {
     return try!  FfiConverterSequenceTypeFfiPaint.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_paint_at(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceUInt32.lower(indices),$0
+        FfiConverterSequenceUInt32.lower(indices),uniffiCallStatus
     )
 })
 }
@@ -4049,8 +4227,9 @@ open func paintAt(indices: [UInt32]) -> [FfiPaint]  {
      * Round 9 §6.5: a routed value settled; the next layout binds again.
      */
 open func rebind()  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_rebind(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -4059,9 +4238,10 @@ open func rebind()  {try! rustCall() {
      * Register an extension catalog (its JSON definition), validated.
      */
 open func registerExtension(extensionJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_register_extension(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(extensionJson),$0
+        FfiConverterString.lower(extensionJson),uniffiCallStatus
     )
 }
 }
@@ -4072,21 +4252,23 @@ open func registerExtension(extensionJson: String)throws   {try rustCallWithErro
      */
 open func scroll(listId: String, offset: Float) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_scroll(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(listId),
-        FfiConverterFloat.lower(offset),$0
+        FfiConverterFloat.lower(offset),uniffiCallStatus
     )
 })
 }
     
 open func scrollTo(id: String, x: Float, y: Float) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),
         FfiConverterFloat.lower(x),
-        FfiConverterFloat.lower(y),$0
+        FfiConverterFloat.lower(y),uniffiCallStatus
     )
 })
 }
@@ -4097,19 +4279,21 @@ open func scrollTo(id: String, x: Float, y: Float) -> Bool  {
      */
 open func scrollToIndex(id: String, index: UInt32, align: String?) -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),
         FfiConverterUInt32.lower(index),
-        FfiConverterOptionString.lower(align),$0
+        FfiConverterOptionString.lower(align),uniffiCallStatus
     )
 })
 }
     
 open func setBuiltinTheme(id: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 }
 }
@@ -4119,9 +4303,10 @@ open func setBuiltinTheme(id: String)throws   {try rustCallWithError(FfiConverte
      * wall clock).
      */
 open func setClock(nowMs: Double?)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_clock(
             self.uniffiCloneHandle(),
-        FfiConverterOptionDouble.lower(nowMs),$0
+        FfiConverterOptionDouble.lower(nowMs),uniffiCallStatus
     )
 }
 }
@@ -4131,18 +4316,20 @@ open func setClock(nowMs: Double?)  {try! rustCall() {
      */
 open func setComponents(componentsJson: String)throws  -> FfiApplyOutcome  {
     return try  FfiConverterTypeFfiApplyOutcome_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_components(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(componentsJson),$0
+        FfiConverterString.lower(componentsJson),uniffiCallStatus
     )
 })
 }
     
 open func setContrast(contrast: String, systemHigh: Bool)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(contrast),
-        FfiConverterBool.lower(systemHigh),$0
+        FfiConverterBool.lower(systemHigh),uniffiCallStatus
     )
 }
 }
@@ -4151,18 +4338,20 @@ open func setContrast(contrast: String, systemHigh: Bool)throws   {try rustCallW
      * Write at a JSON pointer (`value_json` null/None removes).
      */
 open func setData(path: String, valueJson: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_data(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(path),
-        FfiConverterOptionString.lower(valueJson),$0
+        FfiConverterOptionString.lower(valueJson),uniffiCallStatus
     )
 }
 }
     
 open func setDensity(density: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_density(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(density),$0
+        FfiConverterString.lower(density),uniffiCallStatus
     )
 }
 }
@@ -4174,9 +4363,10 @@ open func setDensity(density: String)throws   {try rustCallWithError(FfiConverte
      * Called with the surface locked: never call the surface from it.
      */
 open func setFallbackZone(zone: HostZone?)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(
             self.uniffiCloneHandle(),
-        FfiConverterOptionTypeHostZone.lower(zone),$0
+        FfiConverterOptionTypeHostZone.lower(zone),uniffiCallStatus
     )
 }
 }
@@ -4185,9 +4375,10 @@ open func setFallbackZone(zone: HostZone?)  {try! rustCall() {
      * Dynamic Type / font scale (1 = the theme's sizes).
      */
 open func setFontScale(scale: Float)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(
             self.uniffiCloneHandle(),
-        FfiConverterFloat.lower(scale),$0
+        FfiConverterFloat.lower(scale),uniffiCallStatus
     )
 }
 }
@@ -4199,9 +4390,10 @@ open func setFontScale(scale: Float)  {try! rustCall() {
      * must not call back into the surface.
      */
 open func setFormatter(formatter: HostFormatter?)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(
             self.uniffiCloneHandle(),
-        FfiConverterOptionTypeHostFormatter.lower(formatter),$0
+        FfiConverterOptionTypeHostFormatter.lower(formatter),uniffiCallStatus
     )
 }
 }
@@ -4211,10 +4403,11 @@ open func setFormatter(formatter: HostFormatter?)  {try! rustCall() {
      */
 open func setHover(id: String, hovered: Bool) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_hover(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),
-        FfiConverterBool.lower(hovered),$0
+        FfiConverterBool.lower(hovered),uniffiCallStatus
     )
 })
 }
@@ -4226,9 +4419,10 @@ open func setHover(id: String, hovered: Bool) -> Bool  {
      */
 open func setHovered(ids: [String]) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceString.lower(ids),$0
+        FfiConverterSequenceString.lower(ids),uniffiCallStatus
     )
 })
 }
@@ -4237,12 +4431,13 @@ open func setHovered(ids: [String]) -> Bool  {
      * Safe-area insets layers keep clear of.
      */
 open func setInsets(top: Float, right: Float, bottom: Float, left: Float)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_insets(
             self.uniffiCloneHandle(),
         FfiConverterFloat.lower(top),
         FfiConverterFloat.lower(right),
         FfiConverterFloat.lower(bottom),
-        FfiConverterFloat.lower(left),$0
+        FfiConverterFloat.lower(left),uniffiCallStatus
     )
 }
 }
@@ -4254,18 +4449,20 @@ open func setInsets(top: Float, right: Float, bottom: Float, left: Float)  {try!
      */
 open func setLayerViewport(width: Float, height: Float) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(
             self.uniffiCloneHandle(),
         FfiConverterFloat.lower(width),
-        FfiConverterFloat.lower(height),$0
+        FfiConverterFloat.lower(height),uniffiCallStatus
     )
 })
 }
     
 open func setLocale(locale: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_locale(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(locale),$0
+        FfiConverterString.lower(locale),uniffiCallStatus
     )
 }
 }
@@ -4275,18 +4472,20 @@ open func setLocale(locale: String)  {try! rustCall() {
      * current preference; call again when it changes).
      */
 open func setMode(mode: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_mode(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 }
 }
     
 open func setModeSetting(mode: String, systemDark: Bool)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(mode),
-        FfiConverterBool.lower(systemDark),$0
+        FfiConverterBool.lower(systemDark),uniffiCallStatus
     )
 }
 }
@@ -4296,19 +4495,21 @@ open func setModeSetting(mode: String, systemDark: Bool)throws   {try rustCallWi
      */
 open func setNested(nestedJson: String)throws  -> FfiApplyOutcome  {
     return try  FfiConverterTypeFfiApplyOutcome_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_nested(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(nestedJson),$0
+        FfiConverterString.lower(nestedJson),uniffiCallStatus
     )
 })
 }
     
 open func setOpen(id: String, `open`: Bool) -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_open(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),
-        FfiConverterBool.lower(`open`),$0
+        FfiConverterBool.lower(`open`),uniffiCallStatus
     )
 })
 }
@@ -4317,19 +4518,21 @@ open func setOpen(id: String, `open`: Bool) -> [FfiEvent]  {
      * A hover-capable pointer, the reduced-motion preference.
      */
 open func setPointer(hover: Bool, reducedMotion: Bool)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(
             self.uniffiCloneHandle(),
         FfiConverterBool.lower(hover),
-        FfiConverterBool.lower(reducedMotion),$0
+        FfiConverterBool.lower(reducedMotion),uniffiCallStatus
     )
 }
 }
     
 open func setPressed(ids: [String]) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceString.lower(ids),$0
+        FfiConverterSequenceString.lower(ids),uniffiCallStatus
     )
 })
 }
@@ -4338,9 +4541,10 @@ open func setPressed(ids: [String]) -> Bool  {
      * Off = fractional frames (the default; Android rounds once itself).
      */
 open func setRounding(on: Bool)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(
             self.uniffiCloneHandle(),
-        FfiConverterBool.lower(on),$0
+        FfiConverterBool.lower(on),uniffiCallStatus
     )
 }
 }
@@ -4349,19 +4553,21 @@ open func setRounding(on: Bool)  {try! rustCall() {
      * Every setting at once (what changed takes effect on the next layout).
      */
 open func setSettings(settings: FfiSettings)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_settings(
             self.uniffiCloneHandle(),
-        FfiConverterTypeFfiSettings_lower(settings),$0
+        FfiConverterTypeFfiSettings_lower(settings),uniffiCallStatus
     )
 }
 }
     
 open func setStates(id: String, states: [String]) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_states(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),
-        FfiConverterSequenceString.lower(states),$0
+        FfiConverterSequenceString.lower(states),uniffiCallStatus
     )
 })
 }
@@ -4370,9 +4576,10 @@ open func setStates(id: String, states: [String]) -> Bool  {
      * Built-in string overrides `{id: text}`.
      */
 open func setStringsJson(stringsJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(stringsJson),$0
+        FfiConverterString.lower(stringsJson),uniffiCallStatus
     )
 }
 }
@@ -4384,10 +4591,11 @@ open func setStringsJson(stringsJson: String)throws   {try rustCallWithError(Ffi
      */
 open func setSurfaceScroll(x: Float, y: Float) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(
             self.uniffiCloneHandle(),
         FfiConverterFloat.lower(x),
-        FfiConverterFloat.lower(y),$0
+        FfiConverterFloat.lower(y),uniffiCallStatus
     )
 })
 }
@@ -4396,9 +4604,10 @@ open func setSurfaceScroll(x: Float, y: Float) -> Bool  {
      * Paint with this `Theme` object from the next pass on.
      */
 open func setTheme(theme: Theme)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_theme(
             self.uniffiCloneHandle(),
-        FfiConverterTypeTheme_lower(theme),$0
+        FfiConverterTypeTheme_lower(theme),uniffiCallStatus
     )
 }
 }
@@ -4407,9 +4616,10 @@ open func setTheme(theme: Theme)  {try! rustCall() {
      * Load a theme file (JSON; `extends` may name a built-in) and use it.
      */
 open func setThemeJson(themeJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(themeJson),$0
+        FfiConverterString.lower(themeJson),uniffiCallStatus
     )
 }
 }
@@ -4419,19 +4629,21 @@ open func setThemeJson(themeJson: String)throws   {try rustCallWithError(FfiConv
      */
 open func setViewport(width: Float, height: Float, maxHeight: Float?) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_set_viewport(
             self.uniffiCloneHandle(),
         FfiConverterFloat.lower(width),
         FfiConverterFloat.lower(height),
-        FfiConverterOptionFloat.lower(maxHeight),$0
+        FfiConverterOptionFloat.lower(maxHeight),uniffiCallStatus
     )
 })
 }
     
 open func settings() -> FfiSettings  {
     return try!  FfiConverterTypeFfiSettings_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_settings(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4441,16 +4653,18 @@ open func settings() -> FfiSettings  {
      */
 open func stringsJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_strings_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func structureVersion() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_structure_version(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4460,9 +4674,10 @@ open func structureVersion() -> UInt64  {
      */
 open func submitForm(id: String) -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_submit_form(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -4473,25 +4688,28 @@ open func submitForm(id: String) -> [FfiEvent]  {
      */
 open func takeEvents() -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_take_events(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func takeFailuresJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func textStyle(index: UInt32) -> FfiTextStyle?  {
     return try!  FfiConverterOptionTypeFfiTextStyle.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_text_style(
             self.uniffiCloneHandle(),
-        FfiConverterUInt32.lower(index),$0
+        FfiConverterUInt32.lower(index),uniffiCallStatus
     )
 })
 }
@@ -4501,8 +4719,9 @@ open func textStyle(index: UInt32) -> FfiTextStyle?  {
      */
 open func theme() -> Theme?  {
     return try!  FfiConverterOptionTypeTheme.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_theme(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4512,8 +4731,9 @@ open func theme() -> Theme?  {
      * shows a `formatRelativeTime` without `now`).
      */
 open func tick()  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_tick(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -4526,25 +4746,28 @@ open func tick()  {try! rustCall() {
      */
 open func usesClock() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_uses_clock(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func visual(index: UInt32) -> FfiVisual?  {
     return try!  FfiConverterOptionTypeFfiVisual.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_visual(
             self.uniffiCloneHandle(),
-        FfiConverterUInt32.lower(index),$0
+        FfiConverterUInt32.lower(index),uniffiCallStatus
     )
 })
 }
     
 open func visuals() -> [FfiVisual]  {
     return try!  FfiConverterSequenceTypeFfiVisual.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_visuals(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4556,8 +4779,9 @@ open func visuals() -> [FfiVisual]  {
      */
 open func writeEpoch() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4732,8 +4956,9 @@ open class Theme: ThemeProtocol, @unchecked Sendable {
      */
 public static func builtin(id: String)throws  -> Theme  {
     return try  FfiConverterTypeTheme_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_theme_builtin(
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -4743,9 +4968,10 @@ public static func builtin(id: String)throws  -> Theme  {
      */
 public static func load(themeJson: String, parentsJson: String?)throws  -> Theme  {
     return try  FfiConverterTypeTheme_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_constructor_theme_load(
         FfiConverterString.lower(themeJson),
-        FfiConverterOptionString.lower(parentsJson),$0
+        FfiConverterOptionString.lower(parentsJson),uniffiCallStatus
     )
 })
 }
@@ -4757,10 +4983,11 @@ public static func load(themeJson: String, parentsJson: String?)throws  -> Theme
      */
 open func color(name: String, mode: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_color(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(name),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 })
 }
@@ -4770,9 +4997,10 @@ open func color(name: String, mode: String) -> String?  {
      */
 open func colorsJson(mode: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_colors_json(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 })
 }
@@ -4782,9 +5010,10 @@ open func colorsJson(mode: String) -> String  {
      */
 open func control(name: String) -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_control(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
@@ -4794,10 +5023,11 @@ open func control(name: String) -> Double?  {
      */
 open func controlGeometry(component: String, propsJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_control_geometry(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(component),
-        FfiConverterString.lower(propsJson),$0
+        FfiConverterString.lower(propsJson),uniffiCallStatus
     )
 })
 }
@@ -4807,9 +5037,10 @@ open func controlGeometry(component: String, propsJson: String)throws  -> String
      */
 open func fontFamily(kind: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_font_family(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(kind),$0
+        FfiConverterString.lower(kind),uniffiCallStatus
     )
 })
 }
@@ -4819,51 +5050,57 @@ open func fontFamily(kind: String) -> String?  {
      */
 open func fontsJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_fonts_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func id() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_id(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func lineHeight(name: String) -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_line_height(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
     
 open func name() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_name(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func opacity(name: String) -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_opacity(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
     
 open func radius(name: String) -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_radius(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
@@ -4874,13 +5111,14 @@ open func radius(name: String) -> Double?  {
      */
 open func resolvePart(ownerComponent: String, part: String, ownerPropsJson: String, states: [String], mode: String)throws  -> FfiPartStyle  {
     return try  FfiConverterTypeFfiPartStyle_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_resolve_part(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(ownerComponent),
         FfiConverterString.lower(part),
         FfiConverterString.lower(ownerPropsJson),
         FfiConverterSequenceString.lower(states),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 })
 }
@@ -4890,26 +5128,29 @@ open func resolvePart(ownerComponent: String, part: String, ownerPropsJson: Stri
      */
 open func resolvedJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_resolved_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func spacing(name: String) -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_spacing(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
     
 open func typeSize(name: String) -> Double?  {
     return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_theme_type_size(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
@@ -7193,8 +7434,7 @@ public func FfiConverterTypeMotionTick_lower(_ value: MotionTick) -> RustBuffer 
     return FfiConverterTypeMotionTick.lower(value)
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * What a whole image's bytes say before any decode (VAPP-103, the core's
  * `image_header`): the natives' media loaders apply the one pixel × frame
@@ -7284,7 +7524,8 @@ public func FfiConverterTypeFfiImageHeader_lower(_ value: FfiImageHeader) -> Rus
 
 
 
-public enum UiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum UiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -8199,7 +8440,8 @@ fileprivate struct FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer {
  */
 public func a2uiVersion() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_a2ui_version($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffiCallStatus
     )
 })
 }
@@ -8208,7 +8450,8 @@ public func a2uiVersion() -> String  {
  */
 public func acceptV09() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_accept_v09($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffiCallStatus
     )
 })
 }
@@ -8218,13 +8461,14 @@ public func acceptV09() -> Bool  {
  */
 public func actionMessageJson(surfaceId: String, componentId: String, name: String, contextJson: String, payloadJson: String?, timestamp: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_action_message_json(
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(componentId),
         FfiConverterString.lower(name),
         FfiConverterString.lower(contextJson),
         FfiConverterOptionString.lower(payloadJson),
-        FfiConverterString.lower(timestamp),$0
+        FfiConverterString.lower(timestamp),uniffiCallStatus
     )
 })
 }
@@ -8233,6 +8477,7 @@ public func actionMessageJson(surfaceId: String, componentId: String, name: Stri
  */
 public func actionMessageWithUserMessageJson(surfaceId: String, componentId: String, name: String, contextJson: String, payloadJson: String?, timestamp: String, userMessage: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(componentId),
@@ -8240,7 +8485,7 @@ public func actionMessageWithUserMessageJson(surfaceId: String, componentId: Str
         FfiConverterString.lower(contextJson),
         FfiConverterOptionString.lower(payloadJson),
         FfiConverterString.lower(timestamp),
-        FfiConverterOptionString.lower(userMessage),$0
+        FfiConverterOptionString.lower(userMessage),uniffiCallStatus
     )
 })
 }
@@ -8251,11 +8496,12 @@ public func actionMessageWithUserMessageJson(surfaceId: String, componentId: Str
  */
 public func animationFrameJson(name: String, timingJson: String, elapsedMs: Double, reducedMotion: Bool)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_animation_frame_json(
         FfiConverterString.lower(name),
         FfiConverterString.lower(timingJson),
         FfiConverterDouble.lower(elapsedMs),
-        FfiConverterBool.lower(reducedMotion),$0
+        FfiConverterBool.lower(reducedMotion),uniffiCallStatus
     )
 })
 }
@@ -8269,19 +8515,21 @@ public func animationFrameJson(name: String, timingJson: String, elapsedMs: Doub
  */
 public func applyRecordBatchJson(rowsJson: String, writesJson: String, recordsJson: String, me: String?, now: String, newIdsJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(
         FfiConverterString.lower(rowsJson),
         FfiConverterString.lower(writesJson),
         FfiConverterString.lower(recordsJson),
         FfiConverterOptionString.lower(me),
         FfiConverterString.lower(now),
-        FfiConverterString.lower(newIdsJson),$0
+        FfiConverterString.lower(newIdsJson),uniffiCallStatus
     )
 })
 }
 public func basicCatalogId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_basic_catalog_id($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(uniffiCallStatus
     )
 })
 }
@@ -8290,8 +8538,9 @@ public func basicCatalogId() -> String  {
  */
 public func benchTreeJson(n: UInt32) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_bench_tree_json(
-        FfiConverterUInt32.lower(n),$0
+        FfiConverterUInt32.lower(n),uniffiCallStatus
     )
 })
 }
@@ -8304,6 +8553,7 @@ public func benchTreeJson(n: UInt32) -> String  {
  */
 public func bindRowSlotJson(slotJson: String, rowsPropJson: String, rowsJson: String, index: UInt32, dataJson: String, optionsJson: String?, formatter: HostFormatter? = nil)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(
         FfiConverterString.lower(slotJson),
         FfiConverterString.lower(rowsPropJson),
@@ -8311,7 +8561,7 @@ public func bindRowSlotJson(slotJson: String, rowsPropJson: String, rowsJson: St
         FfiConverterUInt32.lower(index),
         FfiConverterString.lower(dataJson),
         FfiConverterOptionString.lower(optionsJson),
-        FfiConverterOptionTypeHostFormatter.lower(formatter),$0
+        FfiConverterOptionTypeHostFormatter.lower(formatter),uniffiCallStatus
     )
 })
 }
@@ -8323,13 +8573,14 @@ public func bindRowSlotJson(slotJson: String, rowsPropJson: String, rowsJson: St
  */
 public func bindSectionHeaderJson(slotJson: String, sectionJson: String, index: UInt32, dataJson: String, optionsJson: String?, formatter: HostFormatter? = nil)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(
         FfiConverterString.lower(slotJson),
         FfiConverterString.lower(sectionJson),
         FfiConverterUInt32.lower(index),
         FfiConverterString.lower(dataJson),
         FfiConverterOptionString.lower(optionsJson),
-        FfiConverterOptionTypeHostFormatter.lower(formatter),$0
+        FfiConverterOptionTypeHostFormatter.lower(formatter),uniffiCallStatus
     )
 })
 }
@@ -8341,17 +8592,19 @@ public func bindSectionHeaderJson(slotJson: String, sectionJson: String, index: 
  */
 public func bindTreeJson(nodeJson: String, dataJson: String, scope: String, stringsJson: String?)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_bind_tree_json(
         FfiConverterString.lower(nodeJson),
         FfiConverterString.lower(dataJson),
         FfiConverterString.lower(scope),
-        FfiConverterOptionString.lower(stringsJson),$0
+        FfiConverterOptionString.lower(stringsJson),uniffiCallStatus
     )
 })
 }
 public func builtinThemeIds() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffiCallStatus
     )
 })
 }
@@ -8360,8 +8613,9 @@ public func builtinThemeIds() -> [String]  {
  */
 public func builtinThemeJson(id: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -8370,12 +8624,13 @@ public func builtinThemeJson(id: String) -> String?  {
  */
 public func callAgentFunctionMessageJson(surfaceId: String, functionCallId: String, name: String, catalogId: String, argsJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(functionCallId),
         FfiConverterString.lower(name),
         FfiConverterString.lower(catalogId),
-        FfiConverterString.lower(argsJson),$0
+        FfiConverterString.lower(argsJson),uniffiCallStatus
     )
 })
 }
@@ -8385,9 +8640,10 @@ public func callAgentFunctionMessageJson(surfaceId: String, functionCallId: Stri
  */
 public func cardV10Json(cardJson: String, acceptV09: Bool)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_card_v10_json(
         FfiConverterString.lower(cardJson),
-        FfiConverterBool.lower(acceptV09),$0
+        FfiConverterBool.lower(acceptV09),uniffiCallStatus
     )
 })
 }
@@ -8396,11 +8652,12 @@ public func cardV10Json(cardJson: String, acceptV09: Bool)throws  -> String  {
  */
 public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max: Double?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_chart_extent_json(
         FfiConverterString.lower(kind),
         FfiConverterString.lower(seriesJson),
         FfiConverterOptionDouble.lower(min),
-        FfiConverterOptionDouble.lower(max),$0
+        FfiConverterOptionDouble.lower(max),uniffiCallStatus
     )
 })
 }
@@ -8411,9 +8668,10 @@ public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max:
  */
 public func checkExpressionJson(expr: String, typesJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_check_expression_json(
         FfiConverterString.lower(expr),
-        FfiConverterString.lower(typesJson),$0
+        FfiConverterString.lower(typesJson),uniffiCallStatus
     )
 })
 }
@@ -8422,9 +8680,10 @@ public func checkExpressionJson(expr: String, typesJson: String)throws  -> Strin
  */
 public func codeText(code: String, language: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_code_text(
         FfiConverterString.lower(code),
-        FfiConverterString.lower(language),$0
+        FfiConverterString.lower(language),uniffiCallStatus
     )
 })
 }
@@ -8433,9 +8692,10 @@ public func codeText(code: String, language: String) -> String  {
  */
 public func combineDecisions(a: String, b: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_combine_decisions(
         FfiConverterString.lower(a),
-        FfiConverterString.lower(b),$0
+        FfiConverterString.lower(b),uniffiCallStatus
     )
 })
 }
@@ -8444,8 +8704,9 @@ public func combineDecisions(a: String, b: String)throws  -> String  {
  */
 public func componentA11yJson(component: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_component_a11y_json(
-        FfiConverterString.lower(component),$0
+        FfiConverterString.lower(component),uniffiCallStatus
     )
 })
 }
@@ -8454,16 +8715,18 @@ public func componentA11yJson(component: String) -> String?  {
  */
 public func controlGeometryJson(themeJson: String, component: String, propsJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_control_geometry_json(
         FfiConverterString.lower(themeJson),
         FfiConverterString.lower(component),
-        FfiConverterString.lower(propsJson),$0
+        FfiConverterString.lower(propsJson),uniffiCallStatus
     )
 })
 }
 public func coreCatalogId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_core_catalog_id($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_core_catalog_id(uniffiCallStatus
     )
 })
 }
@@ -8475,9 +8738,10 @@ public func coreCatalogId() -> String  {
  */
 public func dateBucket(date: String, bucket: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_date_bucket(
         FfiConverterString.lower(date),
-        FfiConverterString.lower(bucket),$0
+        FfiConverterString.lower(bucket),uniffiCallStatus
     )
 })
 }
@@ -8487,10 +8751,11 @@ public func dateBucket(date: String, bucket: String) -> String?  {
  */
 public func decideFunction(policyJson: String?, name: String, registered: Bool)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_decide_function(
         FfiConverterOptionString.lower(policyJson),
         FfiConverterString.lower(name),
-        FfiConverterBool.lower(registered),$0
+        FfiConverterBool.lower(registered),uniffiCallStatus
     )
 })
 }
@@ -8500,9 +8765,10 @@ public func decideFunction(policyJson: String?, name: String, registered: Bool)t
  */
 public func decideUrlJson(policyJson: String?, url: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_decide_url_json(
         FfiConverterOptionString.lower(policyJson),
-        FfiConverterString.lower(url),$0
+        FfiConverterString.lower(url),uniffiCallStatus
     )
 })
 }
@@ -8512,14 +8778,16 @@ public func decideUrlJson(policyJson: String?, url: String)throws  -> String  {
  */
 public func decodeJsonlJson(text: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_decode_jsonl_json(
-        FfiConverterString.lower(text),$0
+        FfiConverterString.lower(text),uniffiCallStatus
     )
 })
 }
 public func defaultThemeId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_default_theme_id($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffiCallStatus
     )
 })
 }
@@ -8529,8 +8797,9 @@ public func defaultThemeId() -> String  {
  */
 public func displayStringJson(valueJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_display_string_json(
-        FfiConverterString.lower(valueJson),$0
+        FfiConverterString.lower(valueJson),uniffiCallStatus
     )
 })
 }
@@ -8539,11 +8808,12 @@ public func displayStringJson(valueJson: String)throws  -> String  {
  */
 public func errorMessageJson(code: String, surfaceId: String, message: String, path: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_error_message_json(
         FfiConverterString.lower(code),
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(message),
-        FfiConverterOptionString.lower(path),$0
+        FfiConverterOptionString.lower(path),uniffiCallStatus
     )
 })
 }
@@ -8556,12 +8826,13 @@ public func errorMessageJson(code: String, surfaceId: String, message: String, p
  */
 public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(
         FfiConverterString.lower(expr),
         FfiConverterString.lower(varsJson),
         FfiConverterOptionDouble.lower(nowMs),
         FfiConverterOptionTypeHostZone.lower(zone),
-        FfiConverterOptionUInt32.lower(maxSteps),$0
+        FfiConverterOptionUInt32.lower(maxSteps),uniffiCallStatus
     )
 })
 }
@@ -8570,8 +8841,9 @@ public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double
  */
 public func extensionErrors(extensionJson: String)throws  -> [String]  {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_extension_errors(
-        FfiConverterString.lower(extensionJson),$0
+        FfiConverterString.lower(extensionJson),uniffiCallStatus
     )
 })
 }
@@ -8582,11 +8854,12 @@ public func extensionErrors(extensionJson: String)throws  -> [String]  {
  */
 public func formatCallJson(callJson: String, formatter: HostFormatter?, now: Double?, offsetMinutes: Int32? = nil)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_format_call_json(
         FfiConverterString.lower(callJson),
         FfiConverterOptionTypeHostFormatter.lower(formatter),
         FfiConverterOptionDouble.lower(now),
-        FfiConverterOptionInt32.lower(offsetMinutes),$0
+        FfiConverterOptionInt32.lower(offsetMinutes),uniffiCallStatus
     )
 })
 }
@@ -8598,10 +8871,11 @@ public func formatCallJson(callJson: String, formatter: HostFormatter?, now: Dou
  */
 public func formatPatternJson(pattern: String, fieldsJson: String, namesJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_format_pattern_json(
         FfiConverterString.lower(pattern),
         FfiConverterString.lower(fieldsJson),
-        FfiConverterOptionString.lower(namesJson),$0
+        FfiConverterOptionString.lower(namesJson),uniffiCallStatus
     )
 })
 }
@@ -8610,9 +8884,10 @@ public func formatPatternJson(pattern: String, fieldsJson: String, namesJson: St
  */
 public func formatString(template: String, paramsJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_format_string(
         FfiConverterString.lower(template),
-        FfiConverterString.lower(paramsJson),$0
+        FfiConverterString.lower(paramsJson),uniffiCallStatus
     )
 })
 }
@@ -8622,8 +8897,9 @@ public func formatString(template: String, paramsJson: String)throws  -> String 
  */
 public func functionEffect(name: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_function_effect(
-        FfiConverterString.lower(name),$0
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
@@ -8632,11 +8908,12 @@ public func functionEffect(name: String) -> String  {
  */
 public func functionErrorMessageJson(code: String, functionCallId: String, message: String, path: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_function_error_message_json(
         FfiConverterString.lower(code),
         FfiConverterString.lower(functionCallId),
         FfiConverterString.lower(message),
-        FfiConverterOptionString.lower(path),$0
+        FfiConverterOptionString.lower(path),uniffiCallStatus
     )
 })
 }
@@ -8645,7 +8922,8 @@ public func functionErrorMessageJson(code: String, functionCallId: String, messa
  */
 public func hostContractJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_host_contract_json($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffiCallStatus
     )
 })
 }
@@ -8654,8 +8932,9 @@ public func hostContractJson() -> String  {
  */
 public func isIdentifier(id: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_is_identifier(
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -8664,9 +8943,10 @@ public func isIdentifier(id: String) -> Bool  {
  */
 public func jsonDiff(a: String, b: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_json_diff(
         FfiConverterString.lower(a),
-        FfiConverterString.lower(b),$0
+        FfiConverterString.lower(b),uniffiCallStatus
     )
 })
 }
@@ -8676,9 +8956,10 @@ public func jsonDiff(a: String, b: String) -> String  {
  */
 public func jsonEqual(a: String, b: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_json_equal(
         FfiConverterString.lower(a),
-        FfiConverterString.lower(b),$0
+        FfiConverterString.lower(b),uniffiCallStatus
     )
 })
 }
@@ -8695,8 +8976,9 @@ public func jsonEqual(a: String, b: String) -> Bool  {
  */
 public func listJson(requestJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_list_json(
-        FfiConverterString.lower(requestJson),$0
+        FfiConverterString.lower(requestJson),uniffiCallStatus
     )
 })
 }
@@ -8706,9 +8988,10 @@ public func listJson(requestJson: String)throws  -> String  {
  */
 public func loadThemeJson(themeJson: String, parentsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_load_theme_json(
         FfiConverterString.lower(themeJson),
-        FfiConverterOptionString.lower(parentsJson),$0
+        FfiConverterOptionString.lower(parentsJson),uniffiCallStatus
     )
 })
 }
@@ -8717,8 +9000,9 @@ public func loadThemeJson(themeJson: String, parentsJson: String?)throws  -> Str
  */
 public func mangleId(id: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_mangle_id(
-        FfiConverterString.lower(id),$0
+        FfiConverterString.lower(id),uniffiCallStatus
     )
 })
 }
@@ -8728,10 +9012,11 @@ public func mangleId(id: String) -> String  {
  */
 public func mcpActionCallJson(messageJson: String, tool: String?, metadataJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(
         FfiConverterString.lower(messageJson),
         FfiConverterOptionString.lower(tool),
-        FfiConverterOptionString.lower(metadataJson),$0
+        FfiConverterOptionString.lower(metadataJson),uniffiCallStatus
     )
 })
 }
@@ -8741,8 +9026,9 @@ public func mcpActionCallJson(messageJson: String, tool: String?, metadataJson: 
  */
 public func mediaImageHeader(bytes: Data) -> FfiImageHeader  {
     return try!  FfiConverterTypeFfiImageHeader_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_media_image_header(
-        FfiConverterData.lower(bytes),$0
+        FfiConverterData.lower(bytes),uniffiCallStatus
     )
 })
 }
@@ -8752,9 +9038,10 @@ public func mediaImageHeader(bytes: Data) -> FfiImageHeader  {
  */
 public func mediaRequestJson(url: String, optionsJson: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_media_request_json(
         FfiConverterString.lower(url),
-        FfiConverterString.lower(optionsJson),$0
+        FfiConverterString.lower(optionsJson),uniffiCallStatus
     )
 })
 }
@@ -8763,8 +9050,9 @@ public func mediaRequestJson(url: String, optionsJson: String)throws  -> String?
  */
 public func messagesFromMcpResultJson(resultJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(
-        FfiConverterString.lower(resultJson),$0
+        FfiConverterString.lower(resultJson),uniffiCallStatus
     )
 })
 }
@@ -8775,12 +9063,13 @@ public func messagesFromMcpResultJson(resultJson: String)throws  -> String  {
  */
 public func migrateRecordJson(packageJson: String, version: String, kind: String, dataJson: String, now: Double)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_migrate_record_json(
         FfiConverterString.lower(packageJson),
         FfiConverterString.lower(version),
         FfiConverterString.lower(kind),
         FfiConverterString.lower(dataJson),
-        FfiConverterDouble.lower(now),$0
+        FfiConverterDouble.lower(now),uniffiCallStatus
     )
 })
 }
@@ -8790,9 +9079,10 @@ public func migrateRecordJson(packageJson: String, version: String, kind: String
  */
 public func migrationRefusalJson(beforeJson: String, afterJson: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(
         FfiConverterString.lower(beforeJson),
-        FfiConverterString.lower(afterJson),$0
+        FfiConverterString.lower(afterJson),uniffiCallStatus
     )
 })
 }
@@ -8802,9 +9092,10 @@ public func migrationRefusalJson(beforeJson: String, afterJson: String)throws  -
  */
 public func navigateTargetJson(packageJson: String, argsJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_navigate_target_json(
         FfiConverterString.lower(packageJson),
-        FfiConverterString.lower(argsJson),$0
+        FfiConverterString.lower(argsJson),uniffiCallStatus
     )
 })
 }
@@ -8813,10 +9104,11 @@ public func navigateTargetJson(packageJson: String, argsJson: String)throws  -> 
  */
 public func niceTicksJson(min: Double, max: Double, target: UInt32) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(
         FfiConverterDouble.lower(min),
         FfiConverterDouble.lower(max),
-        FfiConverterUInt32.lower(target),$0
+        FfiConverterUInt32.lower(target),uniffiCallStatus
     )
 })
 }
@@ -8825,8 +9117,9 @@ public func niceTicksJson(min: Double, max: Double, target: UInt32) -> String  {
  */
 public func packagePolicyJson(functionsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_package_policy_json(
-        FfiConverterOptionString.lower(functionsJson),$0
+        FfiConverterOptionString.lower(functionsJson),uniffiCallStatus
     )
 })
 }
@@ -8836,8 +9129,9 @@ public func packagePolicyJson(functionsJson: String?)throws  -> String  {
  */
 public func parseDateValueJson(valueJson: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
-        FfiConverterString.lower(valueJson),$0
+        FfiConverterString.lower(valueJson),uniffiCallStatus
     )
 })
 }
@@ -8848,9 +9142,10 @@ public func parseDateValueJson(valueJson: String)throws  -> String?  {
  */
 public func parseRecordsJson(queryJson: String, kind: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_parse_records_json(
         FfiConverterString.lower(queryJson),
-        FfiConverterOptionString.lower(kind),$0
+        FfiConverterOptionString.lower(kind),uniffiCallStatus
     )
 })
 }
@@ -8862,9 +9157,10 @@ public func parseRecordsJson(queryJson: String, kind: String?)throws  -> String 
  */
 public func parseRecordsQueryJson(paramsJson: String, kind: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(
         FfiConverterString.lower(paramsJson),
-        FfiConverterOptionString.lower(kind),$0
+        FfiConverterOptionString.lower(kind),uniffiCallStatus
     )
 })
 }
@@ -8874,8 +9170,9 @@ public func parseRecordsQueryJson(paramsJson: String, kind: String?)throws  -> S
  */
 public func parseRecordsSourceJson(source: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(
-        FfiConverterString.lower(source),$0
+        FfiConverterString.lower(source),uniffiCallStatus
     )
 })
 }
@@ -8885,8 +9182,9 @@ public func parseRecordsSourceJson(source: String) -> String?  {
  */
 public func parseSourceJson(uri: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_parse_source_json(
-        FfiConverterString.lower(uri),$0
+        FfiConverterString.lower(uri),uniffiCallStatus
     )
 })
 }
@@ -8895,6 +9193,7 @@ public func parseSourceJson(uri: String) -> String?  {
  */
 public func placeOverlay(anchorX: Double, anchorY: Double, anchorW: Double, anchorH: Double, sizeW: Double, sizeH: Double, viewportW: Double, viewportH: Double, side: String)throws  -> FfiPlacement  {
     return try  FfiConverterTypeFfiPlacement_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_place_overlay(
         FfiConverterDouble.lower(anchorX),
         FfiConverterDouble.lower(anchorY),
@@ -8904,7 +9203,7 @@ public func placeOverlay(anchorX: Double, anchorY: Double, anchorW: Double, anch
         FfiConverterDouble.lower(sizeH),
         FfiConverterDouble.lower(viewportW),
         FfiConverterDouble.lower(viewportH),
-        FfiConverterString.lower(side),$0
+        FfiConverterString.lower(side),uniffiCallStatus
     )
 })
 }
@@ -8914,6 +9213,7 @@ public func placeOverlay(anchorX: Double, anchorY: Double, anchorW: Double, anch
  */
 public func placeOverlayAligned(anchorX: Double, anchorY: Double, anchorW: Double, anchorH: Double, sizeW: Double, sizeH: Double, viewportW: Double, viewportH: Double, side: String, align: String)throws  -> FfiPlacement  {
     return try  FfiConverterTypeFfiPlacement_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(
         FfiConverterDouble.lower(anchorX),
         FfiConverterDouble.lower(anchorY),
@@ -8924,7 +9224,7 @@ public func placeOverlayAligned(anchorX: Double, anchorY: Double, anchorW: Doubl
         FfiConverterDouble.lower(viewportW),
         FfiConverterDouble.lower(viewportH),
         FfiConverterString.lower(side),
-        FfiConverterString.lower(align),$0
+        FfiConverterString.lower(align),uniffiCallStatus
     )
 })
 }
@@ -8937,9 +9237,10 @@ public func placeOverlayAligned(anchorX: Double, anchorY: Double, anchorW: Doubl
  */
 public func qrMatrixJson(value: String, level: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(
         FfiConverterString.lower(value),
-        FfiConverterString.lower(level),$0
+        FfiConverterString.lower(level),uniffiCallStatus
     )
 })
 }
@@ -8948,10 +9249,11 @@ public func qrMatrixJson(value: String, level: String) -> String  {
  */
 public func reduceNestedJson(nestedJson: String, catalogId: String, extensionsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(
         FfiConverterString.lower(nestedJson),
         FfiConverterString.lower(catalogId),
-        FfiConverterOptionString.lower(extensionsJson),$0
+        FfiConverterOptionString.lower(extensionsJson),uniffiCallStatus
     )
 })
 }
@@ -8960,10 +9262,11 @@ public func reduceNestedJson(nestedJson: String, catalogId: String, extensionsJs
  */
 public func reduceSurfaceJson(componentsJson: String, catalogId: String, extensionsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(
         FfiConverterString.lower(componentsJson),
         FfiConverterString.lower(catalogId),
-        FfiConverterOptionString.lower(extensionsJson),$0
+        FfiConverterOptionString.lower(extensionsJson),uniffiCallStatus
     )
 })
 }
@@ -8973,8 +9276,9 @@ public func reduceSurfaceJson(componentsJson: String, catalogId: String, extensi
  */
 public func relativeTimeUnitJson(deltaMs: Double) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(
-        FfiConverterDouble.lower(deltaMs),$0
+        FfiConverterDouble.lower(deltaMs),uniffiCallStatus
     )
 })
 }
@@ -8984,9 +9288,10 @@ public func relativeTimeUnitJson(deltaMs: Double) -> String  {
  */
 public func rendererCapabilitiesJson(extensionIds: [String], inlineCatalogsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(
         FfiConverterSequenceString.lower(extensionIds),
-        FfiConverterOptionString.lower(inlineCatalogsJson),$0
+        FfiConverterOptionString.lower(inlineCatalogsJson),uniffiCallStatus
     )
 })
 }
@@ -8995,10 +9300,11 @@ public func rendererCapabilitiesJson(extensionIds: [String], inlineCatalogsJson:
  */
 public func rendererFunctionErrorJson(functionCallId: String, code: String, message: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(
         FfiConverterString.lower(functionCallId),
         FfiConverterString.lower(code),
-        FfiConverterString.lower(message),$0
+        FfiConverterString.lower(message),uniffiCallStatus
     )
 })
 }
@@ -9007,9 +9313,10 @@ public func rendererFunctionErrorJson(functionCallId: String, code: String, mess
  */
 public func rendererFunctionValueJson(functionCallId: String, valueJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(
         FfiConverterString.lower(functionCallId),
-        FfiConverterOptionString.lower(valueJson),$0
+        FfiConverterOptionString.lower(valueJson),uniffiCallStatus
     )
 })
 }
@@ -9025,8 +9332,9 @@ public func rendererFunctionValueJson(functionCallId: String, valueJson: String?
  */
 public func resizableJson(requestJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_resizable_json(
-        FfiConverterString.lower(requestJson),$0
+        FfiConverterString.lower(requestJson),uniffiCallStatus
     )
 })
 }
@@ -9036,9 +9344,10 @@ public func resizableJson(requestJson: String)throws  -> String  {
  */
 public func resolveConditionsJson(styleJson: String, contextJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(
         FfiConverterString.lower(styleJson),
-        FfiConverterString.lower(contextJson),$0
+        FfiConverterString.lower(contextJson),uniffiCallStatus
     )
 })
 }
@@ -9047,10 +9356,11 @@ public func resolveConditionsJson(styleJson: String, contextJson: String)throws 
  */
 public func resolveDynamicJson(valueJson: String, dataJson: String, scope: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(
         FfiConverterString.lower(valueJson),
         FfiConverterString.lower(dataJson),
-        FfiConverterString.lower(scope),$0
+        FfiConverterString.lower(scope),uniffiCallStatus
     )
 })
 }
@@ -9060,13 +9370,14 @@ public func resolveDynamicJson(valueJson: String, dataJson: String, scope: Strin
  */
 public func resolveRecipeJson(themeJson: String, component: String, part: String, propsJson: String, states: [String], mode: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(
         FfiConverterString.lower(themeJson),
         FfiConverterString.lower(component),
         FfiConverterString.lower(part),
         FfiConverterString.lower(propsJson),
         FfiConverterSequenceString.lower(states),
-        FfiConverterString.lower(mode),$0
+        FfiConverterString.lower(mode),uniffiCallStatus
     )
 })
 }
@@ -9079,10 +9390,11 @@ public func resolveRecipeJson(themeJson: String, component: String, part: String
  */
 public func resolveScreenJson(packageJson: String, screen: String?, paramsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(
         FfiConverterString.lower(packageJson),
         FfiConverterOptionString.lower(screen),
-        FfiConverterOptionString.lower(paramsJson),$0
+        FfiConverterOptionString.lower(paramsJson),uniffiCallStatus
     )
 })
 }
@@ -9092,11 +9404,12 @@ public func resolveScreenJson(packageJson: String, screen: String?, paramsJson: 
  */
 public func runActionJson(actionJson: String, dataJson: String, scope: String, stringsJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_run_action_json(
         FfiConverterString.lower(actionJson),
         FfiConverterString.lower(dataJson),
         FfiConverterString.lower(scope),
-        FfiConverterOptionString.lower(stringsJson),$0
+        FfiConverterOptionString.lower(stringsJson),uniffiCallStatus
     )
 })
 }
@@ -9116,6 +9429,7 @@ public func runActionJson(actionJson: String, dataJson: String, scope: String, s
  */
 public func runPackageActionJson(packageJson: String, name: String, paramsJson: String, dataJson: String, me: String?, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil, resultsJson: String? = nil)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
         FfiConverterString.lower(packageJson),
         FfiConverterString.lower(name),
@@ -9125,7 +9439,7 @@ public func runPackageActionJson(packageJson: String, name: String, paramsJson: 
         FfiConverterOptionDouble.lower(nowMs),
         FfiConverterOptionTypeHostZone.lower(zone),
         FfiConverterOptionUInt32.lower(maxSteps),
-        FfiConverterOptionString.lower(resultsJson),$0
+        FfiConverterOptionString.lower(resultsJson),uniffiCallStatus
     )
 })
 }
@@ -9137,8 +9451,9 @@ public func runPackageActionJson(packageJson: String, name: String, paramsJson: 
  */
 public func runPackageTestsJson(packageJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(
-        FfiConverterString.lower(packageJson),$0
+        FfiConverterString.lower(packageJson),uniffiCallStatus
     )
 })
 }
@@ -9148,8 +9463,9 @@ public func runPackageTestsJson(packageJson: String)throws  -> String  {
  */
 public func segmentedBadgeText(count: Double?) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(
-        FfiConverterOptionDouble.lower(count),$0
+        FfiConverterOptionDouble.lower(count),uniffiCallStatus
     )
 })
 }
@@ -9159,9 +9475,10 @@ public func segmentedBadgeText(count: Double?) -> String?  {
  */
 public func sourceWithParamsJson(source: String, paramsJson: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_source_with_params_json(
         FfiConverterString.lower(source),
-        FfiConverterOptionString.lower(paramsJson),$0
+        FfiConverterOptionString.lower(paramsJson),uniffiCallStatus
     )
 })
 }
@@ -9170,8 +9487,9 @@ public func sourceWithParamsJson(source: String, paramsJson: String?) -> String 
  */
 public func stringTableJson(overridesJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_string_table_json(
-        FfiConverterOptionString.lower(overridesJson),$0
+        FfiConverterOptionString.lower(overridesJson),uniffiCallStatus
     )
 })
 }
@@ -9180,8 +9498,9 @@ public func stringTableJson(overridesJson: String?)throws  -> String  {
  */
 public func supportedCatalogIdsFor(extensionIds: [String]) -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(
-        FfiConverterSequenceString.lower(extensionIds),$0
+        FfiConverterSequenceString.lower(extensionIds),uniffiCallStatus
     )
 })
 }
@@ -9192,10 +9511,11 @@ public func supportedCatalogIdsFor(extensionIds: [String]) -> [String]  {
  */
 public func swipeBlocks(component: String, direction: String?, overflowX: String?) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_swipe_blocks(
         FfiConverterString.lower(component),
         FfiConverterOptionString.lower(direction),
-        FfiConverterOptionString.lower(overflowX),$0
+        FfiConverterOptionString.lower(overflowX),uniffiCallStatus
     )
 })
 }
@@ -9205,9 +9525,10 @@ public func swipeBlocks(component: String, direction: String?, overflowX: String
  */
 public func swipeLock(dx: Double, dy: Double) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_swipe_lock(
         FfiConverterDouble.lower(dx),
-        FfiConverterDouble.lower(dy),$0
+        FfiConverterDouble.lower(dy),uniffiCallStatus
     )
 })
 }
@@ -9217,12 +9538,13 @@ public func swipeLock(dx: Double, dy: Double) -> String  {
  */
 public func swipeOffset(index: UInt32, count: UInt32, offset: Double, width: Double, rtl: Bool) -> Double  {
     return try!  FfiConverterDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_swipe_offset(
         FfiConverterUInt32.lower(index),
         FfiConverterUInt32.lower(count),
         FfiConverterDouble.lower(offset),
         FfiConverterDouble.lower(width),
-        FfiConverterBool.lower(rtl),$0
+        FfiConverterBool.lower(rtl),uniffiCallStatus
     )
 })
 }
@@ -9232,13 +9554,14 @@ public func swipeOffset(index: UInt32, count: UInt32, offset: Double, width: Dou
  */
 public func swipeSettle(index: UInt32, count: UInt32, offset: Double, velocity: Double, width: Double, rtl: Bool) -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_swipe_settle(
         FfiConverterUInt32.lower(index),
         FfiConverterUInt32.lower(count),
         FfiConverterDouble.lower(offset),
         FfiConverterDouble.lower(velocity),
         FfiConverterDouble.lower(width),
-        FfiConverterBool.lower(rtl),$0
+        FfiConverterBool.lower(rtl),uniffiCallStatus
     )
 })
 }
@@ -9248,11 +9571,12 @@ public func swipeSettle(index: UInt32, count: UInt32, offset: Double, velocity: 
  */
 public func templateMessagesJson(packageJson: String, templateId: String, surfaceId: String, dataJson: String?)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_template_messages_json(
         FfiConverterString.lower(packageJson),
         FfiConverterString.lower(templateId),
         FfiConverterString.lower(surfaceId),
-        FfiConverterOptionString.lower(dataJson),$0
+        FfiConverterOptionString.lower(dataJson),uniffiCallStatus
     )
 })
 }
@@ -9261,8 +9585,9 @@ public func templateMessagesJson(packageJson: String, templateId: String, surfac
  */
 public func textDirection(locale: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_text_direction(
-        FfiConverterString.lower(locale),$0
+        FfiConverterString.lower(locale),uniffiCallStatus
     )
 })
 }
@@ -9272,9 +9597,10 @@ public func textDirection(locale: String) -> String  {
  */
 public func textShimmerJson(color: String, dark: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(
         FfiConverterString.lower(color),
-        FfiConverterBool.lower(dark),$0
+        FfiConverterBool.lower(dark),uniffiCallStatus
     )
 })
 }
@@ -9283,9 +9609,10 @@ public func textShimmerJson(color: String, dark: Bool) -> String  {
  */
 public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_theme_issues_json(
         FfiConverterString.lower(themeJson),
-        FfiConverterOptionString.lower(parentsJson),$0
+        FfiConverterOptionString.lower(parentsJson),uniffiCallStatus
     )
 })
 }
@@ -9294,9 +9621,10 @@ public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  
  */
 public func tokenizeCodeJson(code: String, language: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(
         FfiConverterString.lower(code),
-        FfiConverterString.lower(language),$0
+        FfiConverterString.lower(language),uniffiCallStatus
     )
 })
 }
@@ -9310,12 +9638,13 @@ public func tokenizeCodeJson(code: String, language: String) -> String  {
  */
 public func transitionRefusalJson(kindJson: String, beforeJson: String?, afterJson: String, viewerJson: String, rowJson: String?)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(
         FfiConverterString.lower(kindJson),
         FfiConverterOptionString.lower(beforeJson),
         FfiConverterString.lower(afterJson),
         FfiConverterString.lower(viewerJson),
-        FfiConverterOptionString.lower(rowJson),$0
+        FfiConverterOptionString.lower(rowJson),uniffiCallStatus
     )
 })
 }
@@ -9326,11 +9655,12 @@ public func transitionRefusalJson(kindJson: String, beforeJson: String?, afterJs
  */
 public func transitionsFromJson(kindJson: String, recordJson: String?, viewerJson: String?, rowJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_transitions_from_json(
         FfiConverterString.lower(kindJson),
         FfiConverterOptionString.lower(recordJson),
         FfiConverterOptionString.lower(viewerJson),
-        FfiConverterOptionString.lower(rowJson),$0
+        FfiConverterOptionString.lower(rowJson),uniffiCallStatus
     )
 })
 }
@@ -9340,8 +9670,9 @@ public func transitionsFromJson(kindJson: String, recordJson: String?, viewerJso
  */
 public func upgrade09Json(requestJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
-        FfiConverterString.lower(requestJson),$0
+        FfiConverterString.lower(requestJson),uniffiCallStatus
     )
 })
 }
@@ -9351,8 +9682,9 @@ public func upgrade09Json(requestJson: String)throws  -> String  {
  */
 public func upgradeCard09(cardJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
-        FfiConverterString.lower(cardJson),$0
+        FfiConverterString.lower(cardJson),uniffiCallStatus
     )
 })
 }
@@ -9362,9 +9694,10 @@ public func upgradeCard09(cardJson: String)throws  -> String  {
  */
 public func validatePackageJson(packageJson: String, catalogIds: [String]?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_validate_package_json(
         FfiConverterString.lower(packageJson),
-        FfiConverterOptionSequenceString.lower(catalogIds),$0
+        FfiConverterOptionSequenceString.lower(catalogIds),uniffiCallStatus
     )
 })
 }
@@ -9374,9 +9707,10 @@ public func validatePackageJson(packageJson: String, catalogIds: [String]?)throw
  */
 public func validateRecordJson(schemaJson: String, dataJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_validate_record_json(
         FfiConverterString.lower(schemaJson),
-        FfiConverterString.lower(dataJson),$0
+        FfiConverterString.lower(dataJson),uniffiCallStatus
     )
 })
 }
@@ -9386,10 +9720,11 @@ public func validateRecordJson(schemaJson: String, dataJson: String)throws  -> S
  */
 public func validateRecordTransitionsJson(kindJson: String, at: String, kindName: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(
         FfiConverterString.lower(kindJson),
         FfiConverterString.lower(at),
-        FfiConverterString.lower(kindName),$0
+        FfiConverterString.lower(kindName),uniffiCallStatus
     )
 })
 }
@@ -9398,9 +9733,10 @@ public func validateRecordTransitionsJson(kindJson: String, at: String, kindName
  */
 public func validateStyleJson(styleJson: String, root: Bool?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_validate_style_json(
         FfiConverterString.lower(styleJson),
-        FfiConverterOptionBool.lower(root),$0
+        FfiConverterOptionBool.lower(root),uniffiCallStatus
     )
 })
 }
@@ -9409,7 +9745,8 @@ public func validateStyleJson(styleJson: String, root: Bool?)throws  -> String  
  */
 public func version() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_version($0
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_version(uniffiCallStatus
     )
 })
 }
@@ -9421,8 +9758,9 @@ public func version() -> String  {
  */
 public func voiceWaveBarsJson(inputJson: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_voice_wave_bars_json(
-        FfiConverterString.lower(inputJson),$0
+        FfiConverterString.lower(inputJson),uniffiCallStatus
     )
 })
 }
@@ -9433,8 +9771,9 @@ public func voiceWaveBarsJson(inputJson: String) -> String  {
  */
 public func voiceWaveJson(inputJson: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_voice_wave_json(
-        FfiConverterString.lower(inputJson),$0
+        FfiConverterString.lower(inputJson),uniffiCallStatus
     )
 })
 }
@@ -9443,8 +9782,9 @@ public func voiceWaveJson(inputJson: String) -> String  {
  */
 public func weekStart(locale: String) -> UInt8  {
     return try!  FfiConverterUInt8.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_week_start(
-        FfiConverterString.lower(locale),$0
+        FfiConverterString.lower(locale),uniffiCallStatus
     )
 })
 }
@@ -9457,8 +9797,9 @@ public func weekStart(locale: String) -> UInt8  {
  */
 public func zoomJson(requestJson: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_zoom_json(
-        FfiConverterString.lower(requestJson),$0
+        FfiConverterString.lower(requestJson),uniffiCallStatus
     )
 })
 }
@@ -9470,6 +9811,7 @@ public func zoomJson(requestJson: String) -> String  {
  */
 public func canvasToDrawing(x: Double, y: Double, width: Double, height: Double, boxWidth: Double, boxHeight: Double, fit: String) -> [Double]  {
     return try!  FfiConverterSequenceDouble.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_canvas_to_drawing(
         FfiConverterDouble.lower(x),
         FfiConverterDouble.lower(y),
@@ -9477,7 +9819,7 @@ public func canvasToDrawing(x: Double, y: Double, width: Double, height: Double,
         FfiConverterDouble.lower(height),
         FfiConverterDouble.lower(boxWidth),
         FfiConverterDouble.lower(boxHeight),
-        FfiConverterString.lower(fit),$0
+        FfiConverterString.lower(fit),uniffiCallStatus
     )
 })
 }
@@ -9488,8 +9830,9 @@ public func canvasToDrawing(x: Double, y: Double, width: Double, height: Double,
  */
 public func motionCompile(dialectJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_motion_compile(
-        FfiConverterString.lower(dialectJson),$0
+        FfiConverterString.lower(dialectJson),uniffiCallStatus
     )
 })
 }
@@ -9498,8 +9841,9 @@ public func motionCompile(dialectJson: String)throws  -> String  {
  */
 public func motionReadDotlottie(data: Data)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
-        FfiConverterData.lower(data),$0
+        FfiConverterData.lower(data),uniffiCallStatus
     )
 })
 }
@@ -9509,8 +9853,9 @@ public func motionReadDotlottie(data: Data)throws  -> String  {
  */
 public func motionReadDotlottieMachine(data: Data)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(
-        FfiConverterData.lower(data),$0
+        FfiConverterData.lower(data),uniffiCallStatus
     )
 })
 }
@@ -9530,790 +9875,790 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_a2ui_version() != 6318) {
+    if (uniffi_exponential_ui_ffi_checksum_func_a2ui_version() != 53224) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_accept_v09() != 4937) {
+    if (uniffi_exponential_ui_ffi_checksum_func_accept_v09() != 35319) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 29932) {
+    if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 8082) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json() != 53812) {
+    if (uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json() != 52367) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 34139) {
+    if (uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 6210) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json() != 50033) {
+    if (uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json() != 62617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30075) {
+    if (uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30923) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 31910) {
+    if (uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 28761) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json() != 45227) {
+    if (uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json() != 46460) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json() != 42416) {
+    if (uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json() != 34241) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 42404) {
+    if (uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 651) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids() != 16938) {
+    if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids() != 8840) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746) {
+    if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 9620) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json() != 55829) {
+    if (uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json() != 31746) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_card_v10_json() != 42496) {
+    if (uniffi_exponential_ui_ffi_checksum_func_card_v10_json() != 44997) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
+    if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 10264) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_check_expression_json() != 35251) {
+    if (uniffi_exponential_ui_ffi_checksum_func_check_expression_json() != 9480) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_code_text() != 23100) {
+    if (uniffi_exponential_ui_ffi_checksum_func_code_text() != 5421) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 28171) {
+    if (uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 52000) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_component_a11y_json() != 31430) {
+    if (uniffi_exponential_ui_ffi_checksum_func_component_a11y_json() != 20968) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_control_geometry_json() != 60105) {
+    if (uniffi_exponential_ui_ffi_checksum_func_control_geometry_json() != 29218) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_core_catalog_id() != 35263) {
+    if (uniffi_exponential_ui_ffi_checksum_func_core_catalog_id() != 37824) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_date_bucket() != 2027) {
+    if (uniffi_exponential_ui_ffi_checksum_func_date_bucket() != 1628) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_decide_function() != 53224) {
+    if (uniffi_exponential_ui_ffi_checksum_func_decide_function() != 30140) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_decide_url_json() != 6103) {
+    if (uniffi_exponential_ui_ffi_checksum_func_decide_url_json() != 42586) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json() != 63269) {
+    if (uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json() != 25834) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 10974) {
+    if (uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 14423) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_display_string_json() != 16203) {
+    if (uniffi_exponential_ui_ffi_checksum_func_display_string_json() != 50355) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 13121) {
+    if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 19351) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 50260) {
+    if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 24948) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {
+    if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 12274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_format_call_json() != 40402) {
+    if (uniffi_exponential_ui_ffi_checksum_func_format_call_json() != 63511) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_format_pattern_json() != 12110) {
+    if (uniffi_exponential_ui_ffi_checksum_func_format_pattern_json() != 58503) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957) {
+    if (uniffi_exponential_ui_ffi_checksum_func_format_string() != 42054) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_function_effect() != 49184) {
+    if (uniffi_exponential_ui_ffi_checksum_func_function_effect() != 50186) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_function_error_message_json() != 30559) {
+    if (uniffi_exponential_ui_ffi_checksum_func_function_error_message_json() != 22129) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 18735) {
+    if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 51131) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_is_identifier() != 36117) {
+    if (uniffi_exponential_ui_ffi_checksum_func_is_identifier() != 50261) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474) {
+    if (uniffi_exponential_ui_ffi_checksum_func_json_diff() != 6548) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_json_equal() != 25552) {
+    if (uniffi_exponential_ui_ffi_checksum_func_json_equal() != 18840) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_list_json() != 2952) {
+    if (uniffi_exponential_ui_ffi_checksum_func_list_json() != 48366) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667) {
+    if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 573) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_mangle_id() != 15380) {
+    if (uniffi_exponential_ui_ffi_checksum_func_mangle_id() != 3689) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 50369) {
+    if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 34869) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_media_image_header() != 16289) {
+    if (uniffi_exponential_ui_ffi_checksum_func_media_image_header() != 55004) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_media_request_json() != 38964) {
+    if (uniffi_exponential_ui_ffi_checksum_func_media_request_json() != 62057) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json() != 8649) {
+    if (uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json() != 4900) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_migrate_record_json() != 46396) {
+    if (uniffi_exponential_ui_ffi_checksum_func_migrate_record_json() != 26496) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json() != 56997) {
+    if (uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json() != 35145) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_navigate_target_json() != 35729) {
+    if (uniffi_exponential_ui_ffi_checksum_func_navigate_target_json() != 52036) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 40785) {
+    if (uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 48026) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_package_policy_json() != 10529) {
+    if (uniffi_exponential_ui_ffi_checksum_func_package_policy_json() != 11187) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626) {
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 21393) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_json() != 4777) {
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_json() != 47706) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 33933) {
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 20011) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json() != 14491) {
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json() != 12337) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 38003) {
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 17003) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395) {
+    if (uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 25865) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned() != 13167) {
+    if (uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned() != 18406) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {
+    if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 47329) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 7405) {
+    if (uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 34312) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 59777) {
+    if (uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 35125) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 52328) {
+    if (uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 12012) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json() != 8055) {
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json() != 56379) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json() != 50596) {
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json() != 61747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json() != 36396) {
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json() != 32444) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 39983) {
+    if (uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 52879) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 9038) {
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 61131) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json() != 12682) {
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json() != 42734) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 7595) {
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 37844) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json() != 40364) {
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json() != 35252) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {
+    if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 25718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_run_package_action_json() != 47504) {
+    if (uniffi_exponential_ui_ffi_checksum_func_run_package_action_json() != 50669) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json() != 35878) {
+    if (uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json() != 1686) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text() != 31695) {
+    if (uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text() != 12615) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_source_with_params_json() != 2808) {
+    if (uniffi_exponential_ui_ffi_checksum_func_source_with_params_json() != 39049) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 50623) {
+    if (uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 52550) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for() != 9150) {
+    if (uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for() != 54807) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_swipe_blocks() != 10430) {
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_blocks() != 31689) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_swipe_lock() != 21594) {
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_lock() != 4623) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_swipe_offset() != 58703) {
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_offset() != 12542) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_swipe_settle() != 23994) {
+    if (uniffi_exponential_ui_ffi_checksum_func_swipe_settle() != 48973) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_template_messages_json() != 21577) {
+    if (uniffi_exponential_ui_ffi_checksum_func_template_messages_json() != 20486) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_text_direction() != 32593) {
+    if (uniffi_exponential_ui_ffi_checksum_func_text_direction() != 15483) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json() != 7457) {
+    if (uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json() != 39527) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537) {
+    if (uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 17540) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json() != 16111) {
+    if (uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json() != 44082) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json() != 50941) {
+    if (uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json() != 55050) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_transitions_from_json() != 49075) {
+    if (uniffi_exponential_ui_ffi_checksum_func_transitions_from_json() != 58360) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_upgrade09_json() != 32506) {
+    if (uniffi_exponential_ui_ffi_checksum_func_upgrade09_json() != 50067) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_upgrade_card09() != 22075) {
+    if (uniffi_exponential_ui_ffi_checksum_func_upgrade_card09() != 62477) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412) {
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 18070) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_json() != 49853) {
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_json() != 36263) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_transitions_json() != 42224) {
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_transitions_json() != 26046) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628) {
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34685) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_version() != 37022) {
+    if (uniffi_exponential_ui_ffi_checksum_func_version() != 8639) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_voice_wave_bars_json() != 38122) {
+    if (uniffi_exponential_ui_ffi_checksum_func_voice_wave_bars_json() != 33481) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_voice_wave_json() != 6478) {
+    if (uniffi_exponential_ui_ffi_checksum_func_voice_wave_json() != 16779) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637) {
+    if (uniffi_exponential_ui_ffi_checksum_func_week_start() != 56484) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_zoom_json() != 60442) {
+    if (uniffi_exponential_ui_ffi_checksum_func_zoom_json() != 44405) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_canvas_to_drawing() != 9519) {
+    if (uniffi_exponential_ui_ffi_checksum_func_canvas_to_drawing() != 38576) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_motion_compile() != 7142) {
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_compile() != 20521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie() != 13234) {
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie() != 38484) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine() != 23083) {
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine() != 64825) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface() != 44372) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface() != 7511) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_consent() != 32576) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_consent() != 40049) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_data_model_metadata_json() != 22883) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_data_model_metadata_json() != 32391) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_expire_json() != 31520) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_expire_json() != 57280) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface() != 14236) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface() != 56125) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent() != 53060) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent() != 33754) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed() != 9166) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed() != 24574) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_next_deadline_ms() != 9101) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_next_deadline_ms() != 57487) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_observe_json() != 48633) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_observe_json() != 56152) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_press_json() != 52259) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_press_json() != 21472) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_policy_json() != 9684) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_policy_json() != 45746) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_registered() != 11375) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_registered() != 48355) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_settle_local() != 47886) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_settle_local() != 60848) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_dirty() != 13950) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_dirty() != 42173) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_effects_json() != 13066) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_effects_json() != 16335) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_outbox_json() != 57808) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_outbox_json() != 54071) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 61936) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_number() != 35282) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_number() != 16499) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency() != 28224) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency() != 16603) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent() != 54520) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent() != 18090) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_date() != 10148) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_date() != 5488) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time() != 19375) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time() != 28942) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural() != 18062) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural() != 13193) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes() != 58182) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes() != 18270) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids() != 7641) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids() != 9709) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 53902) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 49126) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id() != 35666) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id() != 40228) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of() != 10640) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of() != 38446) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension() != 46286) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension() != 53166) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog() != 54377) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog() != 19816) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 19619) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 5313) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json() != 51307) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json() != 57545) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 37235) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 26004) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids() != 45773) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids() != 45451) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes() != 22212) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes() != 38607) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end() != 43219) {
+    if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end() != 63491) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_push() != 9759) {
+    if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_push() != 11025) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id() != 47158) {
+    if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id() != 39236) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_intrinsics() != 2340) {
+    if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_intrinsics() != 6592) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights() != 22303) {
+    if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights() != 43081) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_apply_json() != 22726) {
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_apply_json() != 63471) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_count() != 25) {
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_count() != 49725) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json() != 24006) {
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json() != 47407) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end() != 33049) {
+    if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end() != 33798) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push() != 38769) {
+    if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push() != 10396) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 45837) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_assign_data() != 62677) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_assign_data() != 39799) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 27523) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 52512) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 48232) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 63766) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 60544) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 9518) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme() != 34484) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme() != 26768) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 59305) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 10125) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_event() != 18560) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_event() != 42448) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks() != 25004) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks() != 22332) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json() != 55782) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json() != 24616) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_hold() != 13037) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_hold() != 27849) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout() != 3003) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout() != 419) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_index_of() != 6030) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_index_of() != 30706) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_invalidate_measures() != 22083) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_invalidate_measures() != 989) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_is_held() != 7625) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_is_held() != 5651) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_issues_json() != 12552) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_issues_json() != 17429) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 59309) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 45973) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed() != 38533) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed() != 15728) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty() != 26385) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty() != 15768) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_mode() != 14752) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_mode() != 56120) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush() != 28279) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush() != 24332) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 36648) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 4838) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 41866) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at() != 51362) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at() != 546) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_paint_at() != 18421) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_paint_at() != 34827) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 64287) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 22344) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 3068) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 2061) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 20964) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 16099) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 55707) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index() != 44001) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index() != 41489) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 56744) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 6536) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_clock() != 29426) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_clock() != 10545) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 46659) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 4742) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast() != 9302) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast() != 32682) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_data() != 29980) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_data() != 25292) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 26135) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 49633) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone() != 58767) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone() != 41801) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 25889) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 9647) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter() != 35944) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter() != 61684) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_hover() != 19545) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_hover() != 34934) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered() != 21550) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered() != 15087) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 7841) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport() != 58085) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport() != 33408) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_locale() != 43927) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_locale() != 52383) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 40915) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 24969) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting() != 7979) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting() != 43433) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_nested() != 14592) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_nested() != 16162) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_open() != 30902) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_open() != 34862) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer() != 58287) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer() != 33301) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed() != 9582) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed() != 58518) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding() != 56260) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding() != 18724) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_settings() != 54680) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_settings() != 55920) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_states() != 56941) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_states() != 25194) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 27566) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 29889) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll() != 60657) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll() != 3197) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_theme() != 2832) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_theme() != 49692) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json() != 36009) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json() != 58582) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport() != 36786) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport() != 11214) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_settings() != 47099) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_settings() != 584) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_strings_json() != 14666) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_strings_json() != 32069) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_structure_version() != 30765) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_structure_version() != 29472) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_submit_form() != 27583) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_submit_form() != 15467) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5811) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5463) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json() != 45416) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json() != 37501) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 3961) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 28276) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_theme() != 51512) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_theme() != 25879) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_tick() != 40589) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_tick() != 34085) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock() != 32081) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock() != 45815) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_visual() != 1946) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_visual() != 7900) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_visuals() != 48935) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_visuals() != 30831) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch() != 6275) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch() != 50591) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_color() != 46286) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_color() != 3101) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_colors_json() != 55774) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_colors_json() != 29920) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_control() != 55429) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_control() != 29270) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_control_geometry() != 40611) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_control_geometry() != 59842) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_font_family() != 927) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_font_family() != 21262) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_fonts_json() != 23830) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_fonts_json() != 39066) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_id() != 22448) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_id() != 51114) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_line_height() != 27673) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_line_height() != 11359) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_name() != 36856) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_name() != 16036) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_opacity() != 50625) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_opacity() != 47591) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_radius() != 47519) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_radius() != 29594) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_resolve_part() != 25979) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_resolve_part() != 46122) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_resolved_json() != 2959) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_resolved_json() != 43005) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_spacing() != 47885) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_spacing() != 11355) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_theme_type_size() != 27563) {
+    if (uniffi_exponential_ui_ffi_checksum_method_theme_type_size() != 28674) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_sample() != 7316) {
+    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_sample() != 6954) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_size() != 16901) {
+    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_size() != 25012) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_slot_ids() != 17144) {
+    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_slot_ids() != 28499) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font() != 11928) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font() != 45122) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_images() != 63847) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_images() != 19793) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_poster_frame() != 38500) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_poster_frame() != 3457) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_progress_frame() != 4864) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_progress_frame() != 49221) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample() != 55236) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample() != 5134) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback() != 62187) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback() != 10170) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_state_machine() != 50084) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_state_machine() != 10678) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_size() != 53058) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_size() != 50213) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_post() != 57413) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_post() != 13632) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_set_inputs() != 55562) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_set_inputs() != 12325) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status() != 22305) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status() != 27123) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick() != 12132) {
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick() != 40839) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new() != 24711) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new() != 38197) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new() != 1496) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new() != 56030) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new() != 47547) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new() != 23505) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_recordstore_new() != 54869) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_recordstore_new() != 9128) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_recordstore_newest_first() != 13404) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_recordstore_newest_first() != 3963) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new() != 2920) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new() != 18044) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_surface_new() != 63721) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_surface_new() != 15339) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme() != 19728) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme() != 32223) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 49233) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 55388) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 15267) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_canvasplayer_new() != 60256) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_canvasplayer_new() != 65325) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new() != 47836) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new() != 29393) {
         return InitializationResult.apiChecksumMismatch
     }
 

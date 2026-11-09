@@ -134,6 +134,7 @@ fun PropertiesSheet(
                                 user = assignee,
                                 nameOrEmail = userDisplayName(assignee, issue.assigneeId),
                                 size = 16.dp,
+                                userId = issue.assigneeId,
                             )
                         } else {
                             Icon(

@@ -1,6 +1,6 @@
 # `eengine-ffi`: the Engine for Swift and Kotlin
 
-The UniFFI 0.31 facade over [`eengine`](../eengine) for iOS, macOS and
+The UniFFI 0.32 facade over [`eengine`](../eengine) for iOS, macOS and
 Android (#VAPP-263), coarse like genUI's
 [`exponential-ui-ffi`](../exponential-ui-ffi): an xcframework / an Android
 `.so` plus the generated bindings. Swift and Kotlin never re-implement the

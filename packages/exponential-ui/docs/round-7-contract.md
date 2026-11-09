@@ -555,3 +555,48 @@ are never hosted.
 - [x] element: through Solid.
 - [x] gpui: the hook, the element, the dismiss; test (heard, not painted in-surface, a click in the host's window routes back, dismissed).
 - [x] SwiftUI, Compose: the hooks; tests.
+
+## KeyRecorder: the generic shortcut field (#EXP-1629)
+
+A macro (group input, not lite) over Box, Text and Kbd. Danny chose GENERIC:
+the component captures and shows; which keys make a binding (a grammar,
+canonical order, bare keys, Escape cancels) stays with the HOST.
+
+**Props.** `label` (required, the field's accessible name), `value` (string
+array, bindable: one cap per entry), `recording` (boolean, bindable),
+`pending` (string array, bindable: the held modifiers while recording),
+`placeholder` (default `$string.keyRecorderPlaceholder` = `Press any key or
+combination…`), `error`. **Events.** `start`, `stop`, `key`.
+
+**Parts.** `root` (column, items at the start, gap xs) → `field` (a pressable
+Box row, gap xs, padding sm × xs, radius md, hairline border; role button,
+`aria-pressed` = recording) holding `none` (muted `$string.keyRecorderNone`,
+idle with no value), `value` (the value caps: `$each` over a literal array, a
+data template over a bound one), `placeholder` (recording, nothing held),
+`held` (recording: the pending caps + the muted `ellipsis` `…`); then
+`error` (role alert). Recipe prop `recording` (every part): neutral = a
+transparent border, `$color.ring` while recording; `error` destructive, sm.
+The `exponential` theme takes the IDE's numbers (gpui-component at a 14 px
+rem): padding 7 × 3.5, radius 5.25, the muted texts 12.25 / 19.82, the error
+13 / 20.
+
+**Capture** (`fixtures/interactions-round1.json` `keyRecorder`, replayed by
+the core and the five painters). The field's `$on` routes `press` → `start`
+(+ the set recording true), `blur` → `stop` (+ the set false) and the
+painter-only event `record` → `key`, whose payload becomes the context:
+`{type: down|up|modifiers|mouse, key?, button?, ctrl, alt, shift, meta}`.
+A press counts only while idle; `record` and `blur` only while recording
+(the core guards the natives, the web Box itself). While recording the field
+holds the focus (taken when recording turns true, whoever wrote it) and
+swallows EVERY key, Tab and Escape included; repeats send nothing; mouse
+buttons 3 (middle), 4 (back), 5 (forward) send `mouse`, 1 and 2 nothing. `key`
+is the canonical name of the PHYSICAL key: a-z, 0-9, f1-f24, space, enter,
+tab, escape, backspace, delete, insert, home, end, pageup, pagedown, up,
+down, left, right and the US punctuation `- = [ ] \ ; ' , . / ``; any other
+key sends nothing. A modifier key alone = `modifiers` with the flags after
+it. The host stops by writing recording false (no `stop`).
+
+- [x] Catalog, macro, strings, a11y, neutral + exponential recipes; regenerated tables, specimens, skills.
+- [x] Core: the guards; `interactions_fixture.rs` replay.
+- [x] Web: `@exponential_app/eui/web` key-recorder helpers; React + Solid Box.
+- [x] gpui, SwiftUI, Compose: capture + replays.

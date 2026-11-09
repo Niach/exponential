@@ -13,6 +13,6 @@ pub(crate) const ID: &str = "window";
 pub(crate) const OWNER: &str = "VAPP-290";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-window", "specimen-window").expect("the Window specimen");
+    let tree = specimen_node("exponential-ui-window", "specimen_window").expect("the Window specimen");
     div().w_full().child(styleguide_surface("sg-window", tree, window, cx))
 }

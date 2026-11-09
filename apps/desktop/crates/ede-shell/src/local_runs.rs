@@ -69,8 +69,20 @@ impl LocalChat {
     /// names the CLI it runs (#EDE-65 J5: the agent's own, else this
     /// desktop's first installed one), so the session row records it.
     pub fn send_to(&mut self, text: &str, agent_id: Option<&str>) -> Result<(), String> {
+        self.send_with(text, agent_id, Vec::new())
+    }
+
+    /// #EDE-65 lane L: one staged attachment into the desktop's blob store,
+    /// answered as an upload (`/api/attachments/{id}`).
+    pub fn attach(&self, filename: &str, content_type: &str, bytes: &[u8]) -> anyhow::Result<api::attachment_upload::UploadedImage> {
+        let row = self.desktop.executor.attachment_create(filename, content_type, bytes, None).map_err(anyhow::Error::msg)?;
+        Ok(serde_json::from_value(Value::Object(row))?)
+    }
+
+    /// [`Self::send_to`] with the attachments' ids (their lines join the body, local-parity.json).
+    pub fn send_with(&mut self, text: &str, agent_id: Option<&str>, attachment_ids: Vec<String>) -> Result<(), String> {
         let text = text.trim();
-        if text.is_empty() {
+        if text.is_empty() && attachment_ids.is_empty() {
             return Ok(());
         }
         let client = self.desktop.client();
@@ -88,7 +100,8 @@ impl LocalChat {
                 input.agent_id = agent.map(|a| a.id);
             }
         }
-        input.text = Some(text.to_string());
+        input.text = (!text.is_empty()).then(|| text.to_string());
+        input.attachment_ids = Some(attachment_ids).filter(|ids| !ids.is_empty());
         let out = api::sessions::send(&client, &input).map_err(|e| e.user_message())?;
         self.session_id = Some(out.session_id);
         Ok(())

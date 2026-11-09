@@ -2868,6 +2868,206 @@
         ]
       }
     },
+    "KeyRecorder": {
+      "recipeProps": [
+        "recording"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "children": [
+          {
+            "part": "field",
+            "component": "Box",
+            "$a11y": {
+              "role": "button",
+              "label": "{props.label}",
+              "pressed": "{props.recording|false}"
+            },
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "$on": {
+              "press": "start",
+              "blur": "stop",
+              "record": "key"
+            },
+            "$set": {
+              "press": {
+                "prop": "recording",
+                "value": true
+              },
+              "blur": {
+                "prop": "recording",
+                "value": false
+              }
+            },
+            "children": [
+              {
+                "part": "none",
+                "component": "Text",
+                "$if": [
+                  {
+                    "$not": "props.recording"
+                  },
+                  {
+                    "$eq": [
+                      "{len(props.value)}",
+                      0
+                    ]
+                  }
+                ],
+                "props": {
+                  "text": "$string.keyRecorderNone",
+                  "variant": "muted",
+                  "lines": 1
+                }
+              },
+              {
+                "part": "value",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "$template": {
+                  "path": "{props.value.@path}",
+                  "item": {
+                    "part": "key",
+                    "component": "Kbd",
+                    "props": {
+                      "keys": {
+                        "@path": ""
+                      }
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "part": "key",
+                    "component": "Kbd",
+                    "$each": "props.value",
+                    "$as": "key",
+                    "props": {
+                      "keys": "{key}"
+                    }
+                  }
+                ],
+                "$if": [
+                  {
+                    "$not": "props.recording"
+                  },
+                  {
+                    "$lt": [
+                      0,
+                      "{len(props.value)}"
+                    ]
+                  }
+                ]
+              },
+              {
+                "part": "placeholder",
+                "component": "Text",
+                "$if": [
+                  "props.recording",
+                  {
+                    "$eq": [
+                      "{len(props.pending)}",
+                      0
+                    ]
+                  }
+                ],
+                "props": {
+                  "text": "{props.placeholder|$string.keyRecorderPlaceholder}",
+                  "variant": "muted",
+                  "lines": 1
+                }
+              },
+              {
+                "part": "held",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "$template": {
+                  "path": "{props.pending.@path}",
+                  "item": {
+                    "part": "key",
+                    "component": "Kbd",
+                    "props": {
+                      "keys": {
+                        "@path": ""
+                      }
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "part": "key",
+                    "component": "Kbd",
+                    "$each": "props.pending",
+                    "$as": "key",
+                    "props": {
+                      "keys": "{key}"
+                    }
+                  },
+                  {
+                    "part": "ellipsis",
+                    "component": "Text",
+                    "props": {
+                      "text": "…",
+                      "variant": "muted",
+                      "lines": 1
+                    }
+                  }
+                ],
+                "$if": [
+                  "props.recording",
+                  {
+                    "$lt": [
+                      0,
+                      "{len(props.pending)}"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "part": "error",
+            "component": "Text",
+            "$if": "props.error",
+            "$a11y": {
+              "role": "alert"
+            },
+            "props": {
+              "text": "{props.error}"
+            }
+          }
+        ]
+      }
+    },
     "Label": {
       "recipeProps": [
         "required"
@@ -4881,6 +5081,7 @@
                     "props": {
                       "name": "{props.name}",
                       "src": "{props.avatar}",
+                      "seed": "{props.seed}",
                       "size": "lg"
                     }
                   }

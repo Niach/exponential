@@ -6,7 +6,7 @@
 members = ["crates/*"]
 # #EXP-1484 / #EXP-1620: the vendored, patched iroh and gpui-component (see
 # the [patch] sections below) are third-party crates, not ours.
-exclude = ["vendor/iroh", "vendor/gpui-component"]
+exclude = ["vendor/iroh", "vendor/gpui-component", "vendor/gpui-pre-wgpu"]
 resolver = "2"
 
 [workspace.package]
@@ -18,58 +18,47 @@ version = "0.14.143"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# gpui + backend selector + macros pinned to gpui-component's EXACT zed rev (LD-7,
-# masterplan-v3 §3.1). Since EXP-519 the pin lives in Cargo.lock, NOT here: upstream
-# gpui-component now FLOATS its zed git deps (their Cargo.lock is their only pin),
-# and cargo refuses both a rev mismatch (two gpui package ids splitting every gpui
-# type) and a same-URL [patch] — so these declarations float too, and the committed
-# Cargo.lock pins the exact commit. On every gpui-component bump: read the zed rev
-# out of THEIR Cargo.lock at the chosen rev, then
-#   cargo update gpui --precise <that zed rev>
-# (one git source = one rev for all zed crates). `pinned_revs.rs` in crates/app
-# gates the lock against drift; NEVER plain `cargo update`, it would float this to
-# zed main HEAD. Current pin: gpui-component da4f9369 → zed cc053a4a (2026-08-07).
-# EXP-1429: the same bump moves the consumer policy table (crates/eui-gpui/
-# README.md "gpui revisions") and the gpui guide app; `test.yml` runs
-# packages/exponential-ui/release/check-gpui-revs.ts against all of them.
-# Crate versions at this rev: gpui 0.2.2, gpui_platform 0.1.0, gpui_macros 0.1.0.
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+# gpui comes from the `gpui-pre-*` crates.io snapshots of zed's crates, at the
+# EXACT snapshot gpui-kit's gpui-component release is built against (gpui-kit
+# pins `=` versions; any snapshot may change gpui's API). The dependency keys
+# keep the crate names (`gpui`, `gpui_platform`, `gpui_macros`), so no source
+# changes with the package rename. On a gpui-component bump: read the snapshot
+# out of gpui-kit's workspace Cargo.toml at the release tag and move every
+# `gpui-pre*` requirement together. `pinned_revs.rs` (crates/app) and
+# packages/exponential-ui/release/check-gpui-revs.ts gate the versions in every
+# consumer (crates/eui-gpui/README.md "gpui revisions" is the table).
+# Current: gpui-component 0.9.0 → gpui-pre 0.3.11 (zed f816e1f, 2026-11-01).
+# `stacker` grows the stack for deep element trees; zed made it opt-in
+# (#63187) after our previous pin, where it was always on.
+gpui = { package = "gpui-pre", version = "=0.3.11", features = ["stacker"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = [
     "font-kit",
     "x11",
     "wayland",
     "runtime_shaders",
 ] }
-gpui_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed" }
-# gpui-component is pinned by GIT REV, never by crates.io version. WARNING: crates.io
-# hosts an unrelated/older registry `gpui 0.2.2` and a `gpui-component 0.5.1` that
-# depends on it — resolving either would pull a SECOND gpui package id alongside the
-# git-pinned gpui above and split every gpui type in the tree (0.5.2 exists only in
-# git; it is not published). Never use the registry versions.
-# NB: gpui-component's own workspace carries a `[patch.crates-io]` for psm/stacker —
-# that patch is WASM-only tooling and is NOT needed here (confirmed by building this
-# workspace without it); cargo does not apply a git dependency's patch sections anyway.
-# `tree-sitter-languages` (the §7.8 diff-view grammar pack) is declared HERE,
-# not on the ui crate: gpui-component reaches the graph through two paths (ui,
-# and theme via terminal), and a feature requested by only one of them makes
-# per-crate selections (`cargo test -p coding` etc.) resolve a SECOND,
-# featureless gpui-component — a full duplicate ~126MB rlib per target dir
-# (EXP-76). One workspace-level feature set ⇒ one build variant everywhere.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8", features = ["tree-sitter-languages"] }
-# EXP-521: the window-level TextSelection layer lives in the new gpui-base
-# crate (gpui-component #2730) and is NOT re-exported by gpui-component —
-# MarkdownView registers as a selection participant directly. Same rev, same
-# workspace upstream; adds no new tree weight (already a gpui-component dep).
-gpui-base = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
-# Ships the 99 SVG icons gpui-component's `IconName` enum is generated from —
-# already a regular dependency of gpui-component itself (its build.rs publishes
-# the icons dir for the icon_named! macro), so this adds no new tree weight.
-# The app's AssetSource delegates icon lookups to it (§3.6 with_assets).
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
-# The `icon_named!` proc macro (same pinned rev) — generates the project-local
-# `ExpIcon` enum from `apps/desktop/assets/icons/` (masterplan-v3 §4.7: several
-# Lucide glyphs the option tables need are not in the bundled IconName set).
-gpui-component-macros = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
+gpui_macros = { package = "gpui-pre-macros", version = "=0.3.11" }
+# Linux/FreeBSD text system (eui-gpui's conformance dev-dependency; vendored
+# with the colour-emoji shaping fix, see [patch.crates-io] below).
+gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.11" }
+# gpui-component (longbridge/gpui-kit) from crates.io, exact version: it pins
+# the gpui-pre snapshot above. `tree-sitter-languages` (the §7.8 diff-view
+# grammar pack) is declared HERE, not on the ui crate: gpui-component reaches
+# the graph through two paths (ui, and theme via terminal), and a feature
+# requested by only one of them makes per-crate selections (`cargo test -p
+# coding` etc.) resolve a SECOND, featureless gpui-component — a full duplicate
+# rlib per target dir (EXP-76). One workspace-level feature set ⇒ one variant.
+gpui-component = { version = "=0.9.0", features = ["tree-sitter-languages"] }
+# EXP-521: the window-level TextSelection layer (and, since 0.8, `Root`) lives
+# in gpui-base; MarkdownView registers as a selection participant directly.
+gpui-base = "=0.9.0"
+# The SVG icons gpui-component's `IconName` enum is generated from (published
+# as gpui-kit-assets since 0.6; the key keeps the old crate name). The app's
+# AssetSource delegates icon lookups to it (§3.6 with_assets).
+gpui-component-assets = { package = "gpui-kit-assets", version = "=0.9.0" }
+# The `icon_named!` proc macro — generates the project-local `ExpIcon` enum
+# from `apps/desktop/assets/icons/` (masterplan-v3 §4.7).
+gpui-component-macros = "=0.9.0"
 
 # EXP-636: the emulator is rio-vt (MIT) — Rio's embeddable VT core, chosen for
 # its sixel/kitty/iTerm2 graphics pipeline (alacritty_terminal has none and its
@@ -79,7 +68,7 @@ rio-vt = { version = "=0.5.29", default-features = false, features = ["graphics"
 rio-graphics = { version = "=0.5.29", default-features = false }        # GraphicData/ColorType/texture keys the terminal crate names
 image = { version = "0.25", default-features = false }                 # RenderImage frames for inline images; already in the tree via gpui
 portable-pty = "0.9"                                                   # resolves 0.9.0
-rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
+rusqlite = { version = "0.41", features = ["bundled", "serde_json"] }  # feature set matches §5.1
 # THE HTTP client for the whole desktop app (EXP-304). It replaced `ureq`
 # outright — one stack, not two. ureq is HTTP/1.1-only, which meant the 15
 # Electric shape threads each held their own connection: every launch fired 15
@@ -94,14 +83,22 @@ rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature
 # what ureq used and keeping OpenSSL off the Linux build. hyper/h2/rustls/tokio
 # were already compiled into the binary via zed-reqwest and crates/steer, so the
 # marginal tree weight is roughly what dropping ureq gives back.
-reqwest = { version = "0.12", default-features = false, features = [
+#
+# 0.13: `rustls-no-provider` (the ring provider `rustls` below, installed as
+# the process default by crates/exp-http, which every client is built
+# through: its test fails a client built any other way); the
+# roots are the OS trust store (rustls-platform-verifier), 0.13's only rustls
+# verifier, no longer the bundled webpki roots.
+reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "http2",
-    "rustls-tls",
+    "rustls-no-provider",
     "gzip",
     "charset",
 ] }
-rustls = "0.23"
+# Ring only: reqwest's `rustls` feature would turn on aws-lc-rs for EVERY
+# rustls user (a C build, and two providers make rustls refuse to pick).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flume = "0.11"
@@ -110,7 +107,7 @@ rust-embed = "8"    # embeds assets/ (Inter TTFs, future icons) into the binary 
 dirs = "6"          # per-user state dir for the DockAreaState layout persistence (§3.3)
 open = "5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 # Steer publisher stream/sink combinators (§8) — already a transitive of
 # tokio-tungstenite at this exact minor version; adds no new tree weight.
 futures-util = "0.3"
@@ -133,25 +130,14 @@ tar = { version = "0.4", default-features = false }
 # `crates/engine` links it — the adapters speak ACP in-process to the user's
 # unmodified agent CLI, so it must stay gpui-free; the crate itself carries zero
 # non-dev tokio dependencies and is driven on steer's existing runtime.
-# Pinned EXACTLY (`=2.1.0`): the 2.x line pins its own `-schema`/`-derive`
-# companions to exact versions, and the role/builder API moved between 2.0 and
-# 2.1 — a caret range would silently resolve a surface this code does not
-# compile against. Everything used is stable protocol v1 except
-# `CompactionUpdate`, which lives behind `unstable_session_compaction`.
-agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_compaction"] }
-
-# EXP-222: zed's `ztracing`/`ztracing_macro` (and `zlog`, reachable only through
-# ztracing) are GPL-3.0-or-later — statically linking them would put the shipped
-# binary as a whole under GPL-3.0 terms, which we do not distribute under. The
-# rest of the pinned zed/gpui-component stack is Apache-2.0 or permissive.
-# These clean-room no-op shims replace the whole consumed API surface
-# (only `sum_tree`'s `#[instrument]` in practice — the workspace never sets
-# `--cfg ztracing`, so upstream is inert no-ops in our builds anyway). Do NOT fix
-# by bumping the gpui rev instead: ztracing is GPL on zed main too. Guarded by
-# `cargo deny check licenses` (deny.toml) in build-desktop.yml.
-[patch."https://github.com/zed-industries/zed"]
-ztracing = { path = "crates/ztracing" }
-ztracing_macro = { path = "crates/ztracing_macro" }
+# Pinned EXACTLY (`=5.0.0`): the SDK pins its own `-schema`/`-derive`
+# companions to exact versions, and its unstable surface may move in a minor —
+# a caret range would silently resolve a surface this code does not compile
+# against. The wire stays protocol v1 (`Client.v1()`/`Agent.v1()`, the
+# `v1::schema` types); `CompactionUpdate` is stable since schema 1.11, so no
+# unstable feature. No features: since 3.0 the native transports (`process`,
+# `stdio`) and `schemars` are opt-in, and the adapters connect in-process.
+agent-client-protocol = "=5.0.0"
 
 # #EXP-1484: iroh 1.4.1 keeps a closed connection's direct path selected while
 # another connection to the same peer stays open (a restarted peer redialing),
@@ -160,18 +146,19 @@ ztracing_macro = { path = "crates/ztracing_macro" }
 # (vendor/iroh/PATCHES.md). Drop it once an iroh release carries the fix.
 [patch.crates-io]
 iroh = { path = "vendor/iroh" }
-
-# #EXP-1620: gpui-component's `PopupMenu` submenu row has no trailing value
-# slot (web/iOS/Android THE Menu `value`: `Checks   1 failing  ›`).
-# vendor/gpui-component = the `gpui-component` crate at the pinned rev above
-# plus `PopupMenu::submenu_with_value` (vendor/gpui-component/PATCHES.md); its
-# sibling crates (gpui-base, -assets, -macros) stay on the git pin. Drop it
-# once an upstream release carries the slot.
-[patch."https://github.com/longbridge/gpui-component"]
+# #EXP-1620 / #EXP-1739: gpui-component 0.9.0 (gpui-kit's `crates/component`)
+# plus the submenu row's trailing value, overlays closing when their anchor is
+# lost, a public `PopupMenu::close` and the `test-support` hit-test skip
+# (vendor/gpui-component/PATCHES.md). Its siblings (gpui-base, gpui-kit-assets,
+# gpui-component-macros) come from crates.io unpatched.
 gpui-component = { path = "vendor/gpui-component" }
+# #EDE-65: gpui-pre-wgpu 0.3.11 (zed's `crates/gpui_wgpu`, the Linux/FreeBSD
+# text system) plus shaping that prefers the colour emoji face for emoji-
+# presentation clusters (vendor/gpui-pre-wgpu/PATCHES.md). Upstream still takes
+# the first face covering a codepoint, so a monochrome symbol face wins.
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
 
-# #EXP-1460: etalk-gpui takes eUI and ePilot through their release tags (one
-# copy for a git consumer); inside this workspace they ARE the local crates.
+
 [patch."https://github.com/Niach/exponential"]
 eui-core = { path = "crates/eui-core" }
 eui-gpui = { path = "crates/eui-gpui" }

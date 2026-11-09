@@ -48,6 +48,7 @@ mod chat_actions;
 mod chat_list;
 mod chat_transcript;
 mod chat_screen;
+mod dawn_mark;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.
 mod coding_readiness;
@@ -277,7 +278,7 @@ pub use shell::Shell;
 pub use window_hooks::{resident_device, set_open_shell_window_hook, set_resident_device, set_window_opened_hook};
 
 use gpui::{App, AppContext as _};
-use gpui_component::dock::register_panel;
+use gpui_component::dock::{panel_handle, register_panel};
 
 /// Register the panel-name → constructor registry entries (§3.3:
 /// "`DockArea::load(state)` reconstructs panels by name") and the App-global
@@ -285,6 +286,8 @@ use gpui_component::dock::register_panel;
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
     eui_gpui::view::init(cx);
+    // #LOGS-5: Home is the landing screen; its dawn mark rasters meanwhile.
+    chat_screen::warm_dawn(cx);
     // Session 58cb32df: every motion token honours the OS's Reduce Motion.
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
@@ -329,8 +332,8 @@ pub fn init(cx: &mut App) {
     // §4.2 accept-invite fallback: "Join team…" in the footer account
     // menu (the exponential://invite/<token> deep link routes through oauth.rs).
     join_team::init(cx);
-    register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
+    register_panel(cx, screens::PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
     });
     // Session bar (EXP-769): the cmd-t/cmd-w/ctrl-tab keybindings scoped to
     // the terminal screen.
@@ -338,8 +341,8 @@ pub fn init(cx: &mut App) {
     // EXP-71: shadow Root's window-wide tab/shift-tab focus-cycle bindings
     // inside the terminal so they reach the PTY (shift+tab = Claude modes).
     terminal::init(cx);
-    register_panel(cx, debug_board::PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| debug_board::DebugBoardPanel::new(window, cx)))
+    register_panel(cx, debug_board::PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| debug_board::DebugBoardPanel::new(window, cx)))
     });
 }
 

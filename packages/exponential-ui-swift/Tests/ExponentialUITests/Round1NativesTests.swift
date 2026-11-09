@@ -117,25 +117,25 @@ final class Round1NativesTests: XCTestCase {
         try m.setNested(json: try XCTUnwrap(spec["node"]).json)
         let painted = paint(m)
         XCTAssertNil(m.nodes.first { $0.component == "Unknown" })
-        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.trigger" })
+        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0_dock_card.trigger" })
         XCTAssertTrue(painted.contains(trigger.index), "the collapsed card paints")
         XCTAssertEqual(trigger.layer, 0)
         let drawer = try XCTUnwrap(m.layers.first { $0.kind == "Drawer" }, "the open card's sheet is a Drawer layer")
-        XCTAssertEqual(drawer.owner, "c0-dock-card.sheet")
+        XCTAssertEqual(drawer.owner, "c0_dock_card.sheet")
         XCTAssertEqual(drawer.position, "bottom")
         // The `footer` slot lands in the Drawer's own footer part.
-        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.sheet.footer" })
+        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0_dock_card.sheet.footer" })
         XCTAssertEqual(footerPart.part, "footer")
-        XCTAssertEqual(m.nodes.first { $0.id == "c0-footer" }?.parent, footerPart.index)
+        XCTAssertEqual(m.nodes.first { $0.id == "c0_footer" }?.parent, footerPart.index)
         XCTAssertTrue(drawer.modal)
-        for id in ["c0-p", "c0-no", "c0-yes"] {
+        for id in ["c0_p", "c0_no", "c0_yes"] {
             let n = try XCTUnwrap(m.nodes.first { $0.id == id }, id)
             XCTAssertGreaterThan(n.layer, 0, "\(id) rides the sheet")
             XCTAssertTrue(painted.contains(n.index), "\(id) paints")
         }
         // The footer sits under the body inside the sheet.
-        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0-p" })
-        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0-yes" })
+        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0_p" })
+        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0_yes" })
         XCTAssertGreaterThan(m.frame(yes.index).minY, m.frame(body.index).minY)
         XCTAssertGreaterThanOrEqual(m.frame(yes.index).minY, drawer.frame.minY)
     }
@@ -419,6 +419,60 @@ final class Round1NativesTests: XCTestCase {
         m.flushPending(search)
         XCTAssertEqual(m.liveParts("sel", "item").map { $0.props.str("text") }, ["Sprint"])
         paint(m)
+    }
+
+    /// #EXP-1629: a `row` Select carries its label into the trigger and
+    /// measures label + gap + value + gap + chevron; opening puts the cursor
+    /// (the ONE `hover`) on the chosen option; the pointer and the arrows
+    /// move it, `selected` stays the chosen one; ↑/↓ in a searchable
+    /// Select's field move it too and Enter picks it.
+    func testSelectRowTriggerAndTheCursor() throws {
+        let options: JSONValue = .array(["Monday", "Tuesday", "Sunday"].map { .object(["label": .string($0), "value": .string($0.lowercased())]) })
+        let m = try surface(node("week", "Select", ["label": .string("Week starts on"), "triggerVariant": .string("row"), "value": .string("tuesday"), "options": options]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.index(of: "week.trigger"))
+        let props = m.node(trigger)!.props
+        XCTAssertTrue(SelectTrigger.isRow(props, owner: m.ownerProps(trigger)))
+        XCTAssertEqual(SelectTrigger.label(props, owner: m.ownerProps(trigger)), "Week starts on")
+        let chevron = m.part("Select", "chevron", props: m.ownerProps(trigger))
+        XCTAssertEqual(SelectTrigger.glyphSize(chevron), 16)
+        XCTAssertEqual(chevron.style.opacity ?? 1, 0.7, accuracy: 0.001)
+        XCTAssertEqual(m.part("Select", "value", props: m.ownerProps(trigger)).style.opacity ?? 1, 0.7, accuracy: 0.001)
+        XCTAssertNil(m.part("Select", "chevron", props: [:]).style.opacity, "the field glyph keeps its look")
+        let measurer = SurfaceMeasurer(theme: m.theme, mode: m.mode, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+        let ts = TextStyle.body
+        let rowProps: Props = ["text": .string("Tuesday"), "label": .string("Week"), "triggerVariant": .string("row")]
+        let measured = measurer.measureLeaf(LeafRequest(component: "Select", part: "trigger", props: rowProps, textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(measured.width, TextShaper.width("Week", ts) + 12 + TextShaper.width("Tuesday", ts) + 12 + 16, accuracy: 0.01)
+
+        m.setOpen("week", true)
+        paint(m)
+        let hovered = { m.liveParts("week", "item").filter { m.states(of: $0.id).contains("hover") }.map(\.id) }
+        XCTAssertEqual(hovered(), ["week.item.1"], "the cursor starts on the chosen option")
+        m.setHover(id: "week.item.2", true)
+        XCTAssertEqual(hovered(), ["week.item.2"], "the pointer moves the one cursor")
+        m.setHover(id: "week.item.2", false)
+        XCTAssertEqual(hovered(), ["week.item.2"])
+        XCTAssertEqual(m.liveParts("week", "item").filter(\.selected).map(\.id), ["week.item.1"], "the cursor is never `selected`")
+        m.requestFocus("week.item.1", keyboard: true)
+        m.handleKey(key: "up")
+        XCTAssertEqual(hovered(), ["week.item.1"], "the arrows step from the cursor")
+        m.handleKey(key: "enter")
+        XCTAssertFalse(m.layers.contains { $0.owner == "week" })
+
+        let zones: JSONValue = .array(["Europe/Berlin", "Europe/London", "Europe/Vienna", "UTC"].map { .object(["label": .string($0), "value": .string($0)]) })
+        let s = try surface(node("tz", "Select", ["label": .string("Timezone"), "triggerVariant": .string("row"), "searchable": .bool(true), "value": .string("Europe/Vienna"), "options": zones]))
+        s.setOpen("tz", true)
+        paint(s)
+        let tzHovered = { s.liveParts("tz", "item").filter { s.states(of: $0.id).contains("hover") }.map(\.id) }
+        XCTAssertEqual(tzHovered(), ["tz.item.2"])
+        let search = try XCTUnwrap(s.index(of: "tz.search"))
+        XCTAssertTrue(s.fieldKey(search, key: "down"))
+        XCTAssertEqual(tzHovered(), ["tz.item.3"])
+        s.fieldKey(search, key: "down")
+        XCTAssertEqual(tzHovered(), ["tz.item.3"], "no wrap")
+        s.fieldCommitted(search)
+        XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
     }
 
     func testDateRangePickerSelectsInTwoSteps() throws {

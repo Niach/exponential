@@ -634,7 +634,7 @@
     "Avatar": {
       "props": {
         "name": {
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         "src": {
           "description": "Picture URL."
@@ -643,12 +643,13 @@
           "description": "Diameter class."
         },
         "seed": {
-          "description": "Hashes the fallback hue; default the name."
+          "description": "A user id: the palette hue; none = muted."
         }
       },
       "description": "Round user picture; falls back to initials on a stable hue.",
       "example": {
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       }
     },
@@ -1529,6 +1530,9 @@
         "avatar": {
           "description": "Picture URL."
         },
+        "seed": {
+          "description": "Their id: the avatar hue."
+        },
         "state": {
           "description": "ringing: Cancel only."
         },
@@ -1557,6 +1561,7 @@
       "description": "Voice call screen: wave, avatar, name, status, caption, call buttons.",
       "example": {
         "name": "Assistant",
+        "seed": "agent-assistant",
         "state": "talking",
         "activity": "speaking",
         "level": 0.6,
@@ -2268,6 +2273,15 @@
         "emptyText": {
           "description": "Shown when the search matches nothing."
         },
+        "triggerVariant": {
+          "description": "`row` = a Group row: label, value, chevron."
+        },
+        "align": {
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        "popupWidth": {
+          "description": "Popup width in px (`row`: 260)."
+        },
         "disabled": {
           "description": "Shows it inert."
         },
@@ -2372,6 +2386,36 @@
         "values": [
           "bug",
           "ios"
+        ]
+      }
+    },
+    "KeyRecorder": {
+      "props": {
+        "label": {
+          "description": "The accessible name."
+        },
+        "value": {
+          "description": "The recorded keys, one cap each."
+        },
+        "recording": {
+          "description": "Listening for keys; bind it."
+        },
+        "pending": {
+          "description": "The held modifiers while recording."
+        },
+        "placeholder": {
+          "description": "Shown while recording with no key held."
+        },
+        "error": {
+          "description": "An error under the field."
+        }
+      },
+      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "example": {
+        "label": "Push to talk",
+        "value": [
+          "Ctrl",
+          "Space"
         ]
       }
     },

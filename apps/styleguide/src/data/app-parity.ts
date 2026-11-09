@@ -660,37 +660,6 @@ export const APP_PARITY: readonly AppParity[] = [
     }
   },
   {
-    "id": "avatar",
-    "title": "Avatar",
-    "blurb": "Picture first: a circle filled edge to edge by the person's image. Without one the initials sit on THEIR hue — one of eight token colours picked by fnv1a32(utf8(userId)) % 8 — as a 20% fill under the glyph at full strength, no stroke. The hash is byte-identical on all four clients, so one person is one colour everywhere; a subject with no id at all (a bot, an unresolved reporter) keeps the muted fallback.",
-    "components": [
-      "Avatar"
-    ],
-    "status": {
-      "web": {
-        "status": "ok",
-        "symbol": "UserAvatar",
-        "file": "packages/ui/src/user-avatar.tsx",
-        "note": "AvatarFallback (./avatar.tsx) paints the hue; UserAvatar is the composition every site renders."
-      },
-      "desktop": {
-        "status": "ok",
-        "symbol": "user_avatar::avatar_element",
-        "file": "apps/desktop/crates/ui/src/user_avatar.rs"
-      },
-      "ios": {
-        "status": "ok",
-        "symbol": "UserAvatar",
-        "file": "apps/ios/ExpUI/Sources/UserAvatar.swift"
-      },
-      "android": {
-        "status": "ok",
-        "symbol": "UserAvatar",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Avatars.kt"
-      }
-    }
-  },
-  {
     "id": "text-field",
     "title": "Text field",
     "blurb": "36 tall, padding 0/12, radius 12, card fill under a card stroke; focus swaps the stroke to active — no ring. Placeholder at 50%.",

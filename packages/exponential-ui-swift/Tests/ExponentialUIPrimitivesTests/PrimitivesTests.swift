@@ -71,8 +71,15 @@ final class MarkdownParseTests: XCTestCase {
         XCTAssertEqual(Markdown.parseInline("[a [b] c](u)").first?.text, "a [b] c")
         let blocks = Markdown.parse("![i](javascript:alert(3))")
         XCTAssertEqual(blocks.map(\.kind), [.image(src: "javascript:alert(3)", alt: "i")])
-        // Inside a line an image paints its alt text.
+        // The inline parser paints an image as its alt text.
         XCTAssertEqual(Markdown.plain(Markdown.parseInline("x ![pic](https://a/(b)) y")), "x pic y")
+        // #FEED-208: an image directly in a paragraph's text splits it (edges trimmed).
+        let split = Markdown.parse("x ![pic](https://a/(b)) y")
+        XCTAssertEqual(split.map(\.kind), [.paragraph, .image(src: "https://a/(b)", alt: "pic"), .paragraph])
+        XCTAssertEqual([split[0], split[2]].map { Markdown.plain($0.inlines) }, ["x", "y"])
+        // Inside a span or a list item it stays its alt text.
+        XCTAssertEqual(Markdown.parse("**bold ![x](1.png)**").map { Markdown.plain($0.inlines) }, ["bold x"])
+        XCTAssertEqual(Markdown.parse("- item ![x](1.png)").map { Markdown.plain($0.inlines) }, ["item x"])
     }
 
     func testNestedListsAndTasks() {
@@ -101,11 +108,33 @@ final class MarkdownParseTests: XCTestCase {
         XCTAssertEqual(Markdown.plain(linked[0].inlines), "a b")
     }
 
-    func testAvatarRule() {
-        XCTAssertEqual(AvatarFallback.initials("Alex Chen"), "AC")
-        XCTAssertEqual(AvatarFallback.initials("ada lovelace byron"), "AL")
-        XCTAssertEqual(AvatarFallback.seedHue("Alex Chen"), AvatarFallback.seedHue("Alex Chen"))
-        XCTAssertLessThan(AvatarFallback.seedHue("x"), 360)
+    /// #EXP-1629: `fixtures/avatar.json` replayed: the palette, the fill
+    /// alpha, the FNV-1a hue per seed and the initials per name.
+    func testAvatarRule() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // Tests/ExponentialUIPrimitivesTests/
+            .deletingLastPathComponent()  // Tests/
+            .deletingLastPathComponent()  // packages/exponential-ui-swift/
+            .deletingLastPathComponent()  // packages/
+            .appendingPathComponent("exponential-ui/fixtures/avatar.json")
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        let palette = try XCTUnwrap(json["palette"] as? [String])
+        XCTAssertEqual(AvatarFallback.palette, palette.map { RGBA(hex: $0)! })
+        XCTAssertEqual(AvatarFallback.fillAlpha, try XCTUnwrap(json["fillAlpha"] as? Double))
+        let hues = try XCTUnwrap(json["hues"] as? [[Any]])
+        XCTAssertFalse(hues.isEmpty)
+        for row in hues {
+            let seed = try XCTUnwrap(row[0] as? String), want = try XCTUnwrap(row[1] as? Int)
+            XCTAssertEqual(AvatarFallback.hueIndex(seed), want, "hue of `\(seed)`")
+            let tint = AvatarFallback.tint(seed: seed)
+            XCTAssertEqual(tint.ink, AvatarFallback.palette[want])
+            XCTAssertEqual(tint.fill.a, AvatarFallback.fillAlpha)
+        }
+        let initials = try XCTUnwrap(json["initials"] as? [[String]])
+        XCTAssertFalse(initials.isEmpty)
+        for row in initials {
+            XCTAssertEqual(AvatarFallback.initials(row[0]), row[1], "initials of `\(row[0])`")
+        }
         XCTAssertEqual(RGBA(hex: "#ff0000")?.r, 1)
         XCTAssertEqual(RGBA(hex: "#0f0")?.g, 1)
         XCTAssertNil(RGBA(hex: "red"))

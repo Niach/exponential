@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
     ClientSessionCapabilities, CompactionCapabilities, ContentBlock, CreateElicitationRequest,
     CreateElicitationResponse, CreateTerminalRequest, CreateTerminalResponse,
@@ -1868,7 +1868,7 @@ where
     let main_ctx = ctx.clone();
 
     Client
-        .builder()
+        .v1()
         .name("exponential")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -2311,7 +2311,7 @@ fn mirror_mode(mapper: &mut Mapper, mode_id: &str, out: &mut MapOut) {
 
 /// Returns `false` when the loop must stop.
 fn handle_command(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     turns: &Arc<TurnGate>,
@@ -2660,7 +2660,7 @@ fn handle_command(
 /// refuses a row ([`SessionCtx::enqueue_prompt`]); the forget below covers a
 /// poisoned queue lock only.
 fn gate_or_start(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     announce: String,
@@ -2794,7 +2794,7 @@ fn open_question<'a>(
 /// next turn, codex's steer, a full bar) and on its replay when it waits in
 /// the bar as `sent`.
 fn send_prompt(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     announce: String,
@@ -2820,7 +2820,7 @@ fn send_prompt(
 /// closed mid-turn — claude's auto-compaction does) stays in the bar under
 /// its id, now `sent`, until the agent's replay closes it.
 fn drain_queue(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     turns: &Arc<TurnGate>,
@@ -2893,7 +2893,7 @@ fn drain_queue(
 /// card open (`needs_input` gates the watchdog) and no terminal writing (its
 /// bytes would have reset the clock), so nothing of value is lost there.
 fn cancel_turn(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     cancel_queued: bool,
@@ -3009,7 +3009,7 @@ pub(crate) enum TurnPrompt {
 /// prompt registers inside its task, once the agent's text is known — still
 /// ahead of the send, so the replay can never outrun it.
 fn start_turn(
-    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
+    cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
     session_id: &SessionId,
     prompt: TurnPrompt,
@@ -3206,7 +3206,7 @@ fn start_turn(
 
 /// EXP-1532: the agent refused the turn because its login is gone.
 fn is_auth_required(err: &Error) -> bool {
-    matches!(err.code, agent_client_protocol::schema::v1::ErrorCode::AuthRequired)
+    err.code == agent_client_protocol::v1::schema::ErrorCode::AuthRequired
 }
 
 /// Publish what the host is about to send as the user's own message (the
@@ -3238,7 +3238,7 @@ fn blocks_text(blocks: &[ContentBlock]) -> String {
 /// A session scope with no tool call has nothing to name and falls
 /// through to the synthetic id.
 fn elicitation_id(request: &CreateElicitationRequest) -> String {
-    use agent_client_protocol::schema::v1::{ElicitationMode, ElicitationScope};
+    use agent_client_protocol::v1::schema::{ElicitationMode, ElicitationScope};
     let scope = match &request.mode {
         ElicitationMode::Form(form) => Some(&form.scope),
         ElicitationMode::Url(url) => Some(&url.scope),
@@ -4172,7 +4172,7 @@ mod tests {
     /// `<id>#<n>` stepper correlates with that tool's own card.
     #[test]
     fn a_session_scoped_elicitation_is_named_by_its_tool_call() {
-        use agent_client_protocol::schema::v1::{ElicitationSessionScope, ToolCallId};
+        use agent_client_protocol::v1::schema::{ElicitationSessionScope, ToolCallId};
         let request = form_elicitation(
             ElicitationSessionScope::new(SessionId::new("acp-1"))
                 .tool_call_id(ToolCallId::new("toolu_01ask")),
@@ -4184,7 +4184,7 @@ mod tests {
     /// synthetic id from the message instead.
     #[test]
     fn a_session_elicitation_without_a_tool_call_has_no_id() {
-        use agent_client_protocol::schema::v1::ElicitationSessionScope;
+        use agent_client_protocol::v1::schema::ElicitationSessionScope;
         let request = form_elicitation(ElicitationSessionScope::new(SessionId::new("acp-1")));
         assert_eq!(elicitation_id(&request), "");
     }
@@ -4193,7 +4193,7 @@ mod tests {
     /// carries the WIRE id, never its `Debug` spelling.
     #[test]
     fn a_request_scoped_elicitation_carries_the_wire_request_id() {
-        use agent_client_protocol::schema::v1::{ElicitationRequestScope, RequestId};
+        use agent_client_protocol::v1::schema::{ElicitationRequestScope, RequestId};
         assert_eq!(
             elicitation_id(&form_elicitation(ElicitationRequestScope::new(
                 RequestId::Number(3)
@@ -4209,9 +4209,9 @@ mod tests {
     }
 
     fn form_elicitation(
-        scope: impl Into<agent_client_protocol::schema::v1::ElicitationScope>,
+        scope: impl Into<agent_client_protocol::v1::schema::ElicitationScope>,
     ) -> CreateElicitationRequest {
-        use agent_client_protocol::schema::v1::{ElicitationFormMode, ElicitationSchema};
+        use agent_client_protocol::v1::schema::{ElicitationFormMode, ElicitationSchema};
         CreateElicitationRequest::new(
             ElicitationFormMode::new(scope, ElicitationSchema::new()),
             "Which approach?",
@@ -4231,7 +4231,7 @@ mod tests {
     }
 
     fn advertise(mapper: &mut Mapper, current: &str, ids: &[&str]) {
-        use agent_client_protocol::schema::v1::{SessionMode, SessionModeState};
+        use agent_client_protocol::v1::schema::{SessionMode, SessionModeState};
         let modes = SessionModeState::new(
             SessionModeId::new(current),
             ids.iter()

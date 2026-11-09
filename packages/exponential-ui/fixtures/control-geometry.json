@@ -589,13 +589,43 @@
             "props": {
               "multiple": false,
               "searchable": false,
-              "disabled": false
+              "disabled": false,
+              "triggerVariant": "field"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
               "borderWidth": 1,
               "borderRadius": 8
+            }
+          },
+          "triggerVariant=field": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 8
+            }
+          },
+          "triggerVariant=row": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "row"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "gap": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -767,6 +797,16 @@
             "geometry": {
               "width": 40,
               "height": 40,
+              "borderRadius": 9999
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
               "borderRadius": 9999
             }
           }
@@ -1923,13 +1963,43 @@
             "props": {
               "multiple": false,
               "searchable": false,
-              "disabled": false
+              "disabled": false,
+              "triggerVariant": "field"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "triggerVariant=field": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
+          },
+          "triggerVariant=row": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "row"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "gap": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -2101,6 +2171,16 @@
             "geometry": {
               "width": 40,
               "height": 40,
+              "borderRadius": 9999
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
               "borderRadius": 9999
             }
           }
@@ -3257,13 +3337,43 @@
             "props": {
               "multiple": false,
               "searchable": false,
-              "disabled": false
+              "disabled": false,
+              "triggerVariant": "field"
             },
             "geometry": {
               "height": 44,
               "paddingHorizontal": 16,
               "borderWidth": 3,
               "borderRadius": 9999
+            }
+          },
+          "triggerVariant=field": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "field"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "borderWidth": 3,
+              "borderRadius": 9999
+            }
+          },
+          "triggerVariant=row": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "row"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "gap": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -3438,6 +3548,16 @@
             "geometry": {
               "width": 40,
               "height": 40,
+              "borderRadius": 18
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
               "borderRadius": 18
             }
           }
@@ -4594,13 +4714,43 @@
             "props": {
               "multiple": false,
               "searchable": false,
-              "disabled": false
+              "disabled": false,
+              "triggerVariant": "field"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "triggerVariant=field": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
+          },
+          "triggerVariant=row": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "row"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "gap": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -4772,6 +4922,16 @@
             "geometry": {
               "width": 40,
               "height": 40,
+              "borderRadius": 9999
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 48,
+              "height": 48,
               "borderRadius": 9999
             }
           }

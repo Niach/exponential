@@ -78,6 +78,7 @@ import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
+import { entry as avatar } from "./avatar.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
 import { entry as outline } from "./outline.tsx"
 import { entry as tree } from "./tree.tsx"
@@ -85,6 +86,7 @@ import { entry as recordForm } from "./record-form.tsx"
 import { entry as recordTable } from "./record-table.tsx"
 import { entry as settingsRow } from "./settings-row.tsx"
 import { entry as kbdGroup } from "./kbd-group.tsx"
+import { entry as keyRecorder } from "./key-recorder.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
 import { entry as windowFrame } from "./window.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
@@ -126,6 +128,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   feedbackStates,
   trace,
   codeBlock,
+  avatar,
   qrCode,
   qrScanner,
   navRail,
@@ -145,6 +148,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   recordTable,
   settingsRow,
   kbdGroup,
+  keyRecorder,
   composerDialog,
   issueContextMenu,
   sessionRow,

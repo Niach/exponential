@@ -1571,7 +1571,7 @@ impl RelayLink {
             return true;
         };
         let frame = serde_json::json!({ "t": "sealed", "data": data }).to_string();
-        self.ws.send(tokio_tungstenite::tungstenite::Message::Text(frame)).await.is_ok()
+        self.ws.send(tokio_tungstenite::tungstenite::Message::text(frame)).await.is_ok()
     }
 
     async fn close(mut self) {

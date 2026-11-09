@@ -2,7 +2,7 @@ use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, DismissEvent, Edges, ElementId, Entity,
     EventEmitter, FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, Length,
     MouseDownEvent, ParentElement, Pixels, Render, RenderOnce, SharedString,
-    StatefulInteractiveElement, StyleRefinement, Styled, Window, anchored, deferred, div,
+    StatefulInteractiveElement, StyleRefinement, Styled, Window, deferred, div,
     prelude::FluentBuilder, px, rems,
 };
 
@@ -20,6 +20,7 @@ use crate::{
         SearchableListAdapter, SearchableListChange, SearchableListDelegate, SearchableListItem,
         SearchableListState,
     },
+    sizing::DROPDOWN_LIST_PADDING,
     v_flex,
 };
 use gpui_base::{Combobox as BaseCombobox, GlobalState};
@@ -180,8 +181,10 @@ where
 
                         let changes = Self::selection_changes(multiple, &selection, ix, &item);
 
-                        let before_indices: Vec<IndexPath> =
-                            selection.iter().map(|(ix, _)| *ix).collect();
+                        let before_values: Vec<_> = selection
+                            .iter()
+                            .map(|(_, item)| item.value().clone())
+                            .collect();
 
                         // on_will_change is called directly — entity-handle access would
                         // re-enter the ListState lock that defer_in holds for this callback.
@@ -190,10 +193,16 @@ where
                             .delegate
                             .on_will_change(&mut selection, &changes);
 
-                        let after_indices: Vec<IndexPath> =
-                            selection.iter().map(|(ix, _)| *ix).collect();
-                        let changed = before_indices != after_indices;
-                        let should_close = changed && !multiple;
+                        let after_values: Vec<_> = selection
+                            .iter()
+                            .map(|(_, item)| item.value().clone())
+                            .collect();
+                        let changed = before_values != after_values;
+                        let should_close = !multiple
+                            && (changed
+                                || selection
+                                    .iter()
+                                    .any(|(_, selected)| selected.value() == item.value()));
 
                         let new_selection = weak_confirm.update(cx, |this, cx| {
                             this.state.selection = selection;
@@ -234,6 +243,11 @@ where
                     let weak_cancel = weak_cancel.clone();
                     move |_list_state, window, cx| {
                         _ = weak_cancel.update(cx, |this, cx| {
+                            // Cancel propagates to the BaseCombobox, which may already
+                            // have confirmed and closed before this deferred callback.
+                            if !this.state.open {
+                                return;
+                            }
                             cx.emit(ComboboxEvent::Confirm(this.selected_values()));
                             this.set_open(false, cx);
                             this.focus(window, cx);
@@ -317,6 +331,8 @@ where
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.state.clear_query(window, cx);
+
         let selected_indices = {
             let list = self.state.list.read(cx);
             let delegate = &list.delegate().delegate;
@@ -449,7 +465,10 @@ where
         let changes = Self::selection_changes(self.multiple, &self.state.selection, ix, &item);
 
         let mut selection = self.state.selection.clone();
-        let before_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
+        let before_values: Vec<_> = selection
+            .iter()
+            .map(|(_, item)| item.value().clone())
+            .collect();
 
         self.state.list.update(cx, |list, _cx| {
             list.delegate_mut()
@@ -457,9 +476,16 @@ where
                 .on_will_change(&mut selection, &changes);
         });
 
-        let after_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
-        let changed = before_indices != after_indices;
-        let should_close = changed && !self.multiple;
+        let after_values: Vec<_> = selection
+            .iter()
+            .map(|(_, item)| item.value().clone())
+            .collect();
+        let changed = before_values != after_values;
+        let should_close = !self.multiple
+            && (changed
+                || selection
+                    .iter()
+                    .any(|(_, selected)| selected.value() == item.value()));
 
         self.state.selection = selection;
         self.state.sync_snapshot(cx);
@@ -527,12 +553,7 @@ where
 
     fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
         self.state.open = open;
-
-        if self.state.open {
-            GlobalState::register_deferred_popover(&self.state.focus_handle, cx)
-        } else {
-            GlobalState::unregister_deferred_popover(&self.state.focus_handle, cx)
-        }
+        self.state.deferred_context = open.then(|| GlobalState::register_deferred_popover(cx));
 
         cx.notify();
     }
@@ -661,52 +682,52 @@ where
                 None
             };
 
-        let prepaint_handler: Box<dyn Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static> = {
-            let state = cx.entity();
-            Box::new(move |bounds, _, cx| state.update(cx, |r, _| r.state.bounds = bounds))
-        };
-
         let footer_el = self.footer.as_ref().map(|f| f(window, cx));
 
         let dismiss_handler: Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static> =
             Box::new(cx.listener(Self::dismiss));
 
-        div()
-            .size_full()
-            .relative()
-            .child(render_trigger_container(
-                disabled,
-                self.state.appearance,
-                self.focus_ring_enabled,
-                self.state.size,
-                &self.state.style,
-                bg,
-                fg,
-                outline_visible,
-                allow_open,
-                trigger_body,
-                trailing,
-                toggle_handler,
-                prepaint_handler,
-                window,
-                cx,
-            ))
-            .when(self.state.open, |this| {
-                this.child(
-                    deferred(render_popup_shell(
-                        &self.state.list,
-                        self.state.menu_width,
-                        self.state.search_placeholder.clone(),
-                        self.state.size,
-                        self.state.menu_max_h,
-                        bounds,
-                        footer_el,
-                        dismiss_handler,
-                        cx,
-                    ))
-                    .with_priority(gpui_base::POPUP_PRIORITY),
-                )
-            })
+        div().size_full().relative().child(
+            div()
+                .relative()
+                .on_prepaint({
+                    let state = cx.entity();
+                    move |bounds, _, cx| state.update(cx, |r, _| r.state.bounds = bounds)
+                })
+                .child(render_trigger_container(
+                    disabled,
+                    self.state.appearance,
+                    self.focus_ring_enabled,
+                    self.state.size,
+                    &self.state.style,
+                    bg,
+                    fg,
+                    outline_visible,
+                    allow_open,
+                    trigger_body,
+                    trailing,
+                    toggle_handler,
+                    window,
+                    cx,
+                ))
+                .when(self.state.open, |this| {
+                    this.child(
+                        deferred(render_popup_shell(
+                            ("combobox-popup", cx.entity_id()),
+                            &self.state.list,
+                            self.state.menu_width,
+                            self.state.search_placeholder.clone(),
+                            self.state.size,
+                            self.state.menu_max_h,
+                            bounds,
+                            footer_el,
+                            dismiss_handler,
+                            cx,
+                        ))
+                        .with_priority(gpui_base::POPUP_PRIORITY),
+                    )
+                }),
+        )
     }
 }
 
@@ -972,7 +993,6 @@ fn render_trigger_container(
     trigger_body: AnyElement,
     trailing: AnyElement,
     toggle_handler: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
-    prepaint_handler: Box<dyn Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static>,
     window: &Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -1008,19 +1028,28 @@ fn render_trigger_container(
             h_flex()
                 .id("inner")
                 .w_full()
+                .min_w_0()
                 .overflow_hidden()
+                .whitespace_nowrap()
                 .items_center()
                 .justify_between()
                 .gap_1()
-                .child(trigger_body)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .child(trigger_body),
+                )
                 .child(trailing),
         )
-        .on_prepaint(prepaint_handler)
 }
 
 /// Renders the deferred anchored popup shell containing the searchable list and optional footer.
 #[allow(clippy::too_many_arguments)]
 fn render_popup_shell<D: SearchableListDelegate + 'static>(
+    id: impl Into<ElementId>,
     list: &Entity<ListState<SearchableListAdapter<D>>>,
     menu_width: Length,
     search_placeholder: Option<SharedString>,
@@ -1032,48 +1061,39 @@ fn render_popup_shell<D: SearchableListDelegate + 'static>(
     cx: &mut App,
 ) -> AnyElement {
     let has_footer = footer_el.is_some();
-    let popup_radius = cx.theme().radius.min(px(8.));
 
-    anchored()
-        .snap_to_window_with_margin(px(8.))
-        .child(
-            div()
-                .occlude()
-                .map(|this| match menu_width {
-                    Length::Auto => this.w(bounds.size.width + px(2.)),
-                    Length::Definite(w) => this.w(w),
-                })
-                .child(
-                    v_flex()
-                        .occlude()
-                        .mt_1p5()
-                        .bg(cx.theme().tokens.popover)
-                        .border_1()
+    crate::popover::dropdown_popup(
+        id,
+        bounds,
+        v_flex()
+            .occlude()
+            .map(|this| match menu_width {
+                Length::Auto => this.w(bounds.size.width),
+                Length::Definite(w) => this.w(w),
+            })
+            .popover_style(cx)
+            .child(
+                List::new(list)
+                    .when_some(search_placeholder, |this, placeholder| {
+                        this.search_placeholder(placeholder)
+                    })
+                    .with_size(size)
+                    .max_h(menu_max_h)
+                    .paddings(Edges::all(DROPDOWN_LIST_PADDING)),
+            )
+            .when(has_footer, |this| {
+                this.child(
+                    div()
+                        .border_t_1()
                         .border_color(cx.theme().border)
-                        .rounded(popup_radius)
-                        .shadow_md()
-                        .child(
-                            List::new(list)
-                                .when_some(search_placeholder, |this, placeholder| {
-                                    this.search_placeholder(placeholder)
-                                })
-                                .with_size(size)
-                                .max_h(menu_max_h)
-                                .paddings(Edges::all(px(4.))),
-                        )
-                        .when(has_footer, |this| {
-                            this.child(
-                                div()
-                                    .border_t_1()
-                                    .border_color(cx.theme().border)
-                                    .p_1()
-                                    .when_some(footer_el, |this, el| this.child(el)),
-                            )
-                        }),
+                        .p_1()
+                        .when_some(footer_el, |this, el| this.child(el)),
                 )
-                .on_mouse_down_out(dismiss_handler),
-        )
-        .into_any_element()
+            })
+            .on_mouse_down_out(dismiss_handler),
+        cx,
+    )
+    .into_any_element()
 }
 
 // MARK: Tests
@@ -1293,6 +1313,44 @@ mod tests {
                         .delegate()
                         .selection_snapshot
                         .is_empty()
+                );
+            });
+        });
+    }
+
+    /// A value projected in from outside is not a position in the filtered view,
+    /// so an active search must not decide which values can be selected.
+    #[gpui::test]
+    fn test_combo_box_set_selected_values_keeps_values_hidden_by_the_search(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            let items = SearchableVec::new(vec!["React", "Vue", "Angular"]);
+            let state = cx.new(|cx| ComboboxState::new(items, vec![], window, cx).multiple(true));
+
+            state.update(cx, |state, cx| {
+                state.set_selected_values(&["React", "Vue"], window, cx);
+                state.state.list.update(cx, |list, cx| {
+                    list.set_query("Angular", window, cx);
+                });
+
+                state.set_selected_values(&["React", "Vue", "Angular"], window, cx);
+
+                assert_eq!(
+                    state.selected_values(),
+                    vec!["React", "Vue", "Angular"],
+                    "a value the search had hidden must survive being reapplied"
+                );
+                assert_eq!(
+                    state
+                        .selection()
+                        .iter()
+                        .map(|(index, _)| *index)
+                        .collect::<Vec<_>>(),
+                    vec![IndexPath::new(0), IndexPath::new(1), IndexPath::new(2)],
+                    "clearing the query puts every selected item back in view"
                 );
             });
         });
@@ -1544,6 +1602,94 @@ mod tests {
         });
     }
 
+    struct RedirectDelegate {
+        items: SearchableVec<&'static str>,
+        confirmations: Rc<Cell<usize>>,
+    }
+
+    impl SearchableListDelegate for RedirectDelegate {
+        type Item = &'static str;
+
+        fn items_count(&self, section: usize) -> usize {
+            self.items.items_count(section)
+        }
+
+        fn item(&self, ix: IndexPath) -> Option<&&'static str> {
+            self.items.item(ix)
+        }
+
+        fn position<V>(&self, value: &V) -> Option<IndexPath>
+        where
+            &'static str: SearchableListItem<Value = V>,
+            V: PartialEq,
+        {
+            self.items.position(value)
+        }
+
+        fn on_will_change(
+            &mut self,
+            selection: &mut Vec<(IndexPath, &'static str)>,
+            _: &[SearchableListChange],
+        ) {
+            *selection = vec![(IndexPath::new(2), "C++")];
+        }
+
+        fn on_confirm(&mut self, selection: &[(IndexPath, &'static str)]) {
+            assert_eq!(selection[0].1, "C++");
+            self.confirmations.set(self.confirmations.get() + 1);
+        }
+    }
+
+    #[gpui::test]
+    fn single_select_confirms_delegate_replacement(cx: &mut TestAppContext) {
+        use crate::list::ListDelegate as _;
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        for through_list in [false, true] {
+            let confirmations = Rc::new(Cell::new(0));
+            let state = cx.update(|window, cx| {
+                cx.new(|cx| {
+                    ComboboxState::new(
+                        RedirectDelegate {
+                            items: SearchableVec::new(vec!["Rust", "Go", "C++"]),
+                            confirmations: confirmations.clone(),
+                        },
+                        vec![IndexPath::new(0)],
+                        window,
+                        cx,
+                    )
+                })
+            });
+            let events = Rc::new(Cell::new(0));
+            let event_count = events.clone();
+            let _subscription = cx.update(|_, cx| {
+                cx.subscribe(&state, move |_, _: &ComboboxEvent<RedirectDelegate>, _| {
+                    event_count.set(event_count.get() + 1);
+                })
+            });
+            cx.update(|window, cx| {
+                state.update(cx, |state, cx| {
+                    state.set_open(true, cx);
+                    if through_list {
+                        state.state.list.update(cx, |list, cx| {
+                            list.set_selected_index(Some(IndexPath::new(1)), window, cx);
+                            list.delegate_mut().confirm(false, window, cx);
+                        });
+                    } else {
+                        state.handle_item_select(IndexPath::new(1), window, cx);
+                    }
+                });
+            });
+            cx.run_until_parked();
+            cx.update(|_, cx| {
+                assert_eq!(state.read(cx).selected_values(), vec!["C++"]);
+                assert!(!state.read(cx).state.open);
+                assert_eq!(confirmations.get(), 1);
+                assert_eq!(events.get(), 2, "one Change and one Confirm");
+            });
+        }
+    }
+
     fn left_press(position: Point<Pixels>) -> MouseDownEvent {
         MouseDownEvent {
             button: MouseButton::Left,
@@ -1606,5 +1752,175 @@ mod tests {
     where
         <D::Item as SearchableListItem>::Value: PartialEq + Clone,
     {
+    }
+    fn assert_filtered_row_replacement(cx: &mut TestAppContext, through_list: bool) {
+        use crate::list::ListDelegate as _;
+
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let state = cx.update(|window, cx| {
+            cx.new(|cx| {
+                ComboboxState::new(
+                    SearchableVec::new(vec!["React", "Vue"]),
+                    vec![IndexPath::new(0)],
+                    window,
+                    cx,
+                )
+                .searchable(true)
+            })
+        });
+        let collector = cx.update(|_, cx| cx.new(|cx| TestComboboxEventCollector::new(&state, cx)));
+
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_open(true, cx);
+                state.state.list.update(cx, |list, cx| {
+                    let _ = list
+                        .delegate_mut()
+                        .delegate
+                        .perform_search("Vue", window, cx);
+                    list.set_selected_index(Some(IndexPath::new(0)), window, cx);
+                });
+                assert_eq!(state.selected_values(), vec!["React"]);
+                assert_eq!(
+                    state
+                        .state
+                        .list
+                        .read(cx)
+                        .delegate()
+                        .delegate
+                        .item(IndexPath::new(0)),
+                    Some(&"Vue"),
+                );
+                if through_list {
+                    state.state.list.update(cx, |list, cx| {
+                        list.delegate_mut().confirm(false, window, cx);
+                    });
+                } else {
+                    state.handle_item_select(IndexPath::new(0), window, cx);
+                }
+            });
+        });
+
+        cx.update(|_, cx| {
+            assert_eq!(state.read(cx).selected_values(), vec!["Vue"]);
+            assert!(
+                !state.read(cx).state.open,
+                "single selection must close the popover"
+            );
+            assert_eq!(collector.read(cx).event_count.get(), 2);
+        });
+    }
+
+    #[gpui::test]
+    fn test_filtered_row_replacement_direct(cx: &mut TestAppContext) {
+        assert_filtered_row_replacement(cx, false);
+    }
+
+    #[gpui::test]
+    fn test_filtered_row_replacement_list_confirm(cx: &mut TestAppContext) {
+        assert_filtered_row_replacement(cx, true);
+    }
+
+    #[gpui::test]
+    fn current_item_acceptance_closes_without_change(cx: &mut TestAppContext) {
+        use crate::list::ListDelegate as _;
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        for through_list in [false, true] {
+            let state = cx.update(|window, cx| {
+                cx.new(|cx| {
+                    ComboboxState::new(
+                        SearchableVec::new(vec!["React", "Vue"]),
+                        vec![IndexPath::new(0)],
+                        window,
+                        cx,
+                    )
+                })
+            });
+            let collector =
+                cx.update(|_, cx| cx.new(|cx| TestComboboxEventCollector::new(&state, cx)));
+            cx.update(|window, cx| {
+                state.update(cx, |state, cx| {
+                    state.set_open(true, cx);
+                    if through_list {
+                        state.state.list.update(cx, |list, cx| {
+                            list.delegate_mut().confirm(false, window, cx)
+                        });
+                    } else {
+                        state.handle_item_select(IndexPath::new(0), window, cx);
+                    }
+                })
+            });
+            cx.run_until_parked();
+            cx.update(|_, cx| {
+                assert!(!state.read(cx).state.open);
+                assert_eq!(state.read(cx).selected_values(), vec!["React"]);
+                assert_eq!(
+                    collector.read(cx).event_count.get(),
+                    1,
+                    "only Confirm, no Change"
+                );
+            });
+        }
+    }
+
+    /// A page holding a combobox under retained views.
+    #[cfg(feature = "gpui-fast")]
+    mod retained {
+        use std::{cell::Cell, rc::Rc};
+
+        use gpui::{
+            AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
+            TestAppContext, Window, div, px,
+        };
+
+        use crate::{
+            combobox::{Combobox, ComboboxState},
+            searchable_list::SearchableVec,
+        };
+
+        /// A page that shows a combobox and what it selected, counting its
+        /// renders.
+        struct Page {
+            state: Entity<ComboboxState<SearchableVec<&'static str>>>,
+            renders: Rc<Cell<usize>>,
+        }
+
+        impl Render for Page {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                self.renders.set(self.renders.get() + 1);
+                let selected = self.state.read(cx).selected_values();
+                div()
+                    .w(px(240.))
+                    .child(Combobox::new(&self.state))
+                    .child(format!("{selected:?}"))
+            }
+        }
+
+        /// Drawing a combobox again changes nothing in it: the page around
+        /// it, which reads its selection, is not built again for it.
+        #[gpui::test]
+        fn drawing_a_combobox_again_leaves_the_page_around_it_retained(cx: &mut TestAppContext) {
+            cx.update(crate::init);
+            let renders = Rc::new(Cell::new(0));
+            let (_, cx) = cx.add_window_view({
+                let renders = renders.clone();
+                move |window, cx| {
+                    let items = SearchableVec::new(vec!["Rust", "Go", "C++"]);
+                    Page {
+                        state: cx.new(|cx| ComboboxState::new(items, vec![], window, cx)),
+                        renders,
+                    }
+                }
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let rendered = renders.get();
+            for _ in 0..3 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            assert_eq!(renders.get(), rendered, "the page was built again");
+        }
     }
 }

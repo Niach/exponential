@@ -38,6 +38,7 @@
         "feedback-states",
         "trace",
         "code-block",
+        "avatar",
         "qr-code",
         "qr-scanner",
         "nav-rail",
@@ -56,7 +57,8 @@
         "record-form",
         "record-table",
         "settings-row",
-        "kbd-group"
+        "kbd-group",
+        "key-recorder"
       ]
     },
     {
@@ -148,6 +150,7 @@
     "entity-chip": "EXP-1674",
     "trace": "EXP-1324",
     "code-block": "EXP-1324",
+    "avatar": "EXP-1629",
     "qr-code": "VAPP-162",
     "qr-scanner": "VAPP-162",
     "nav-rail": "VAPP-162",
@@ -159,6 +162,7 @@
     "record-table": "VAPP-217",
     "settings-row": "VAPP-280",
     "kbd-group": "EXP-1629",
+    "key-recorder": "EXP-1629",
     "mosaic": "EXP-1495",
     "window": "VAPP-290",
     "zoomable-image": "EXP-1586",

@@ -682,7 +682,7 @@
           "children": [
             "list",
             "item",
-            "ghost-list"
+            "ghost_list"
           ]
         },
         {
@@ -725,7 +725,7 @@
           }
         },
         {
-          "id": "ghost-list",
+          "id": "ghost_list",
           "component": "List",
           "children": {
             "componentId": "nowhere",
@@ -751,7 +751,7 @@
               }
             },
             {
-              "id": "ghost-list",
+              "id": "ghost_list",
               "component": "List",
               "props": {},
               "children": [],
@@ -4017,6 +4017,430 @@
             "children": [
               {
                 "id": "chord.key.label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": ""
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Kbd",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "height": "$control.badge",
+              "minWidth": "$control.badge",
+              "paddingHorizontal": "$spacing.xs",
+              "borderRadius": "$radius.sm",
+              "alignSelf": "flex-start"
+            },
+            "recipe": {
+              "macro": "Kbd",
+              "part": "root",
+              "props": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "macro-template-keyrecorder-bound",
+      "nested": {
+        "id": "ptt",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": {
+            "@path": "/ptt/value"
+          },
+          "pending": {
+            "@path": "/ptt/pending"
+          },
+          "recording": {
+            "@path": "/ptt/recording"
+          }
+        },
+        "on": {
+          "start": {
+            "event": {
+              "name": "pause"
+            }
+          },
+          "stop": {
+            "event": {
+              "name": "resume"
+            }
+          },
+          "key": {
+            "event": {
+              "name": "key"
+            }
+          }
+        }
+      },
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "expected": {
+        "root": {
+          "id": "ptt",
+          "component": "Box",
+          "props": {},
+          "children": [
+            {
+              "id": "ptt.field",
+              "component": "Box",
+              "props": {
+                "pressable": true
+              },
+              "children": [
+                {
+                  "id": "ptt.field.none",
+                  "component": "Text",
+                  "props": {
+                    "text": "$string.keyRecorderNone",
+                    "variant": "muted",
+                    "lines": 1
+                  },
+                  "children": [],
+                  "visible": {
+                    "@call": "and",
+                    "args": {
+                      "values": [
+                        {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@path": "/ptt/recording"
+                            }
+                          }
+                        },
+                        {
+                          "@call": "eq",
+                          "args": {
+                            "a": {
+                              "@call": "len",
+                              "args": {
+                                "value": {
+                                  "@path": "/ptt/value"
+                                }
+                              }
+                            },
+                            "b": 0
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "recipe": {
+                    "macro": "KeyRecorder",
+                    "part": "none",
+                    "props": {
+                      "recording": {
+                        "@path": "/ptt/recording"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "ptt.field.value",
+                  "component": "Box",
+                  "props": {},
+                  "children": [],
+                  "style": {
+                    "display": "flex",
+                    "flexDirection": "row",
+                    "alignItems": "center",
+                    "gap": "$spacing.xs"
+                  },
+                  "visible": {
+                    "@call": "and",
+                    "args": {
+                      "values": [
+                        {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@path": "/ptt/recording"
+                            }
+                          }
+                        },
+                        {
+                          "@call": "lt",
+                          "args": {
+                            "a": 0,
+                            "b": {
+                              "@call": "len",
+                              "args": {
+                                "value": {
+                                  "@path": "/ptt/value"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "recipe": {
+                    "macro": "KeyRecorder",
+                    "part": "value",
+                    "props": {
+                      "recording": {
+                        "@path": "/ptt/recording"
+                      }
+                    }
+                  },
+                  "template": {
+                    "component": "ptt.field.value.key",
+                    "path": "/ptt/value"
+                  }
+                },
+                {
+                  "id": "ptt.field.placeholder",
+                  "component": "Text",
+                  "props": {
+                    "text": "$string.keyRecorderPlaceholder",
+                    "variant": "muted",
+                    "lines": 1
+                  },
+                  "children": [],
+                  "visible": {
+                    "@call": "and",
+                    "args": {
+                      "values": [
+                        {
+                          "@path": "/ptt/recording"
+                        },
+                        {
+                          "@call": "eq",
+                          "args": {
+                            "a": {
+                              "@call": "len",
+                              "args": {
+                                "value": {
+                                  "@path": "/ptt/pending"
+                                }
+                              }
+                            },
+                            "b": 0
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "recipe": {
+                    "macro": "KeyRecorder",
+                    "part": "placeholder",
+                    "props": {
+                      "recording": {
+                        "@path": "/ptt/recording"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "ptt.field.held",
+                  "component": "Box",
+                  "props": {},
+                  "children": [
+                    {
+                      "id": "ptt.field.held.ellipsis",
+                      "component": "Text",
+                      "props": {
+                        "text": "…",
+                        "variant": "muted",
+                        "lines": 1
+                      },
+                      "children": [],
+                      "recipe": {
+                        "macro": "KeyRecorder",
+                        "part": "ellipsis",
+                        "props": {
+                          "recording": {
+                            "@path": "/ptt/recording"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "style": {
+                    "display": "flex",
+                    "flexDirection": "row",
+                    "alignItems": "center",
+                    "gap": "$spacing.xs"
+                  },
+                  "visible": {
+                    "@call": "and",
+                    "args": {
+                      "values": [
+                        {
+                          "@path": "/ptt/recording"
+                        },
+                        {
+                          "@call": "lt",
+                          "args": {
+                            "a": 0,
+                            "b": {
+                              "@call": "len",
+                              "args": {
+                                "value": {
+                                  "@path": "/ptt/pending"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "recipe": {
+                    "macro": "KeyRecorder",
+                    "part": "held",
+                    "props": {
+                      "recording": {
+                        "@path": "/ptt/recording"
+                      }
+                    }
+                  },
+                  "template": {
+                    "component": "ptt.field.held.key",
+                    "path": "/ptt/pending"
+                  }
+                }
+              ],
+              "style": {
+                "display": "flex",
+                "flexDirection": "row",
+                "alignItems": "center",
+                "gap": "$spacing.xs",
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": "$spacing.xs",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline"
+              },
+              "recipe": {
+                "macro": "KeyRecorder",
+                "part": "field",
+                "props": {
+                  "recording": {
+                    "@path": "/ptt/recording"
+                  }
+                }
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "pause"
+                  },
+                  "functionCall": {
+                    "@call": "set",
+                    "args": {
+                      "path": "/ptt/recording",
+                      "value": true
+                    }
+                  }
+                },
+                "blur": {
+                  "event": {
+                    "name": "resume"
+                  },
+                  "functionCall": {
+                    "@call": "set",
+                    "args": {
+                      "path": "/ptt/recording",
+                      "value": false
+                    }
+                  }
+                },
+                "record": {
+                  "event": {
+                    "name": "key"
+                  }
+                }
+              },
+              "accessibility": {
+                "role": "button",
+                "label": "Push to talk",
+                "pressed": {
+                  "@path": "/ptt/recording"
+                }
+              }
+            }
+          ],
+          "style": {
+            "display": "flex",
+            "flexDirection": "column",
+            "alignItems": "flex-start",
+            "gap": "$spacing.xs"
+          },
+          "recipe": {
+            "macro": "KeyRecorder",
+            "part": "root",
+            "props": {
+              "recording": {
+                "@path": "/ptt/recording"
+              }
+            }
+          }
+        },
+        "issues": [],
+        "templates": {
+          "ptt.field.value.key": {
+            "id": "ptt.field.value.key",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "ptt.field.value.key.label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": ""
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Kbd",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "height": "$control.badge",
+              "minWidth": "$control.badge",
+              "paddingHorizontal": "$spacing.xs",
+              "borderRadius": "$radius.sm",
+              "alignSelf": "flex-start"
+            },
+            "recipe": {
+              "macro": "Kbd",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "ptt.field.held.key": {
+            "id": "ptt.field.held.key",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "ptt.field.held.key.label",
                 "component": "Text",
                 "props": {
                   "text": {

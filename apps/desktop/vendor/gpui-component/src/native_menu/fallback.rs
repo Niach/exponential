@@ -1,20 +1,20 @@
 //! Fallback popup menu for platforms without an OS-native popup (e.g. Linux).
 //!
 //! It renders gpui-component's drawn [`PopupMenu`] through an overlay held by
-//! [`Root`]. Unlike a real native menu it is clipped to the window, but it keeps
+//! [`crate::Root`]. Unlike a real native menu it is clipped to the window, but it keeps
 //! the [`super::NativeMenu`] API working on every platform.
 
+use crate::root::WindowState;
 use gpui::{
     App, Context, DismissEvent, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Pixels,
     Point, Render, Subscription, Window, anchored, deferred, div, px,
 };
 
 use crate::menu::{PopupMenu, PopupMenuItem};
-use crate::root::Root;
 
 use super::NativeMenuItem;
 
-/// Overlay held by [`Root`] that renders the active fallback popup menu, if any.
+/// Overlay held by [`crate::Root`] that renders the active fallback popup menu, if any.
 pub(crate) struct FallbackMenuOverlay {
     active: Option<ActiveMenu>,
 }
@@ -23,7 +23,7 @@ struct ActiveMenu {
     menu: Entity<PopupMenu>,
     position: Point<Pixels>,
     _subscription: Subscription,
-    /// #EXP-1739: closes the menu when what it was opened on moves or goes.
+    /// Exponential patch (#EXP-1739): closes the menu when what it was opened on moves or goes.
     _anchor: Option<crate::overlay_anchor::AnchorGuard>,
 }
 
@@ -53,7 +53,7 @@ impl FallbackMenuOverlay {
         });
         menu.focus_handle(cx).focus(window, cx);
 
-        // #EXP-1739: the menu follows what it was opened on (the text under
+        // Exponential patch (#EXP-1739): the menu follows what it was opened on (the text under
         // the pointer); with nothing under it there is nothing to follow.
         let anchor = crate::overlay_anchor::anchor_at(position, window, cx).and_then(|anchor| {
             let menu = menu.downgrade();
@@ -106,7 +106,12 @@ fn build_popup(
                     checked,
                     icon: None,
                     action: Some(action),
-                } => menu.menu_with_check_and_disabled(label, checked, action, disabled),
+                } => menu.item(
+                    PopupMenuItem::new(label)
+                        .action(action)
+                        .disabled(disabled)
+                        .checked(checked),
+                ),
                 NativeMenuItem::Item { action: None, .. } => menu,
                 NativeMenuItem::Submenu {
                     label,
@@ -140,7 +145,7 @@ impl Render for FallbackMenuOverlay {
     }
 }
 
-/// Show the fallback popup menu through [`Root`]'s overlay.
+/// Show the fallback popup menu through [`crate::Root`]'s overlay.
 #[allow(dead_code)] // Only called where the native menu falls back (e.g. Linux).
 pub(super) fn show(
     items: Vec<NativeMenuItem>,
@@ -149,7 +154,7 @@ pub(super) fn show(
     cx: &mut App,
 ) {
     let action_context = window.focused(cx);
-    let Some(overlay) = Root::native_menu_overlay(window, cx) else {
+    let Some(overlay) = WindowState::native_menu_overlay(window, cx) else {
         return;
     };
     overlay.update(cx, |overlay, cx| {

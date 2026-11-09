@@ -118,7 +118,8 @@ fn sessions_send() {
     let who = identity(&team["identity"]);
     for c in f["sessions"]["send"]["cases"].as_array().unwrap() {
         let existing = c.get("existing").and_then(|e| e.as_object()).map(|e| (obj(&e["session"]), obj(&e["conversation"])));
-        let ctx = SendContext { team_id: team["teamId"].as_str().unwrap(), identity: &who, device_id: f["sessions"]["deviceId"].as_str().unwrap(), existing, now: c["now"].as_str().unwrap() };
+        let attachments = c.get("attachments").and_then(Value::as_array).map(|rows| rows.iter().map(obj).collect()).unwrap_or_default();
+        let ctx = SendContext { team_id: team["teamId"].as_str().unwrap(), identity: &who, device_id: f["sessions"]["deviceId"].as_str().unwrap(), existing, attachments, now: c["now"].as_str().unwrap() };
         let mut next = ids(&c["ids"]);
         let (rows, (session_id, message_id)) = send_rows(&obj(&c["input"]), &ctx, &mut next);
         if let Some(expected) = c.get("expected") {

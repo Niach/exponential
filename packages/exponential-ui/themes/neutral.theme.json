@@ -296,6 +296,7 @@
       "avatarSm": 24,
       "avatarMd": 32,
       "avatarLg": 40,
+      "avatarXl": 48,
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
@@ -746,6 +747,24 @@
             "width": "$control.avatarLg",
             "height": "$control.avatarLg"
           }
+        },
+        {
+          "when": {
+            "size": "xl"
+          },
+          "style": {
+            "width": "$control.avatarXl",
+            "height": "$control.avatarXl"
+          }
+        }
+      ],
+      "image": [
+        {
+          "style": {
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.full"
+          }
         }
       ],
       "fallback": [
@@ -753,9 +772,33 @@
           "style": {
             "backgroundColor": "$color.muted",
             "color": "$color.mutedForeground",
-            "fontSize": "$type.size.sm",
-            "fontWeight": "$type.weight.medium",
+            "fontSize": "$type.size.base",
+            "fontWeight": "$type.weight.regular",
             "fontFamily": "$type.family.sans"
+          }
+        },
+        {
+          "when": {
+            "size": "sm"
+          },
+          "style": {
+            "fontSize": "$type.size.xs"
+          }
+        },
+        {
+          "when": {
+            "size": "lg"
+          },
+          "style": {
+            "fontSize": "$type.size.xl"
+          }
+        },
+        {
+          "when": {
+            "size": "xl"
+          },
+          "style": {
+            "fontSize": "$type.size.xl2"
           }
         }
       ]
@@ -3296,6 +3339,20 @@
           "style": {
             "borderColor": "$color.destructive"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "height": 44,
+            "paddingHorizontal": "$spacing.lg",
+            "gap": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "label": [
@@ -3305,6 +3362,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontWeight": "$type.weight.medium",
             "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontWeight": "$type.weight.regular"
           }
         }
       ],
@@ -3419,6 +3484,32 @@
           },
           "style": {
             "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "value": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 0.7
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 0.7
           }
         }
       ]
@@ -6528,6 +6619,34 @@
           "style": {
             "color": "$color.mutedForeground",
             "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "KeyRecorder": {
+      "field": [
+        {
+          "style": {
+            "borderColor": "#00000000",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "recording": true
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.destructive"
           }
         }
       ]

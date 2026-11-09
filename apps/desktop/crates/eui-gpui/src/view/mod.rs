@@ -14,6 +14,7 @@
 
 mod events;
 mod input;
+mod key_recorder;
 mod motion;
 mod motion_leaf;
 mod canvas_leaf;
@@ -350,6 +351,8 @@ pub struct SurfaceView {
     /// The last focus move came from the keyboard.
     keyboard: bool,
     pending_focus: Option<String>,
+    /// #EXP-1629: the KeyRecorder field recording now (focus + capture).
+    recording: Option<key_recorder::KeyRecording>,
     /// The hover-opened trigger keyboard focus sits in.
     focus_trigger: Option<String>,
     fields: HashMap<String, Field>,
@@ -417,6 +420,9 @@ pub struct SurfaceView {
     copy_resets: HashMap<String, Task<()>>,
     /// Segmented roving item (`group id` → item index).
     group_focus: HashMap<String, usize>,
+    /// #EXP-1629: each open Select's cursor (owner id → option id): the ONE
+    /// option painted `hover`, moved by the keyboard focus and the pointer.
+    pub(crate) select_cursor: HashMap<String, String>,
     /// A calendar day to focus once its month is built (keyboard paging).
     pending_day: Option<(String, String)>,
     /// The category / slice under the pointer, per Chart.
@@ -610,6 +616,7 @@ impl SurfaceView {
             focused: None,
             keyboard: false,
             pending_focus: None,
+            recording: None,
             focus_trigger: None,
             fields: HashMap::new(),
             zooms: HashMap::new(),
@@ -650,6 +657,7 @@ impl SurfaceView {
             announcement: None,
             copy_resets: HashMap::new(),
             group_focus: HashMap::new(),
+            select_cursor: HashMap::new(),
             pending_day: None,
             chart_hover: HashMap::new(),
             markdown: RefCell::new(HashMap::new()),
@@ -1352,6 +1360,7 @@ impl SurfaceView {
         if let Some(id) = self.pending_focus.take() {
             self.focus_id(&id, window, cx);
         }
+        self.sync_key_recorder(window, cx);
         // Only a rebuilt or changed slot can hold other text.
         if self.md_selection.is_some_and(|sel| (all || changed.contains(&sel.node)) && self.md_text_key(sel.node) != self.md_selection_key) {
             self.md_selection = None;
@@ -1671,6 +1680,7 @@ impl SurfaceView {
         if self.layers_lifted() != self.pass_lifted {
             self.pass(window, cx);
         }
+        self.check_key_recorder_focus(window, cx);
         let now = self.clock();
         self.motion.now = Some(now);
         self.exiting.retain(|g| now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 < g.duration_ms);
@@ -1859,7 +1869,7 @@ impl Element for SurfaceElement {
         // FEED-200 (`swipe.rs`): registered before the nodes, so a wheel
         // event's capture pass starts with no blocker under the pointer.
         let hits = self.view.read(cx).swipe_hits.clone();
-        window.on_mouse_event(move |_: &gpui::ScrollWheelEvent, phase, _, _| {
+        window.on_mouse_event(move |_: &gpui::ScrollEvent, phase, _, _| {
             if phase == gpui::DispatchPhase::Capture {
                 hits.borrow_mut().clear();
             }

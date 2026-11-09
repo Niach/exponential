@@ -113,6 +113,12 @@
       "default",
       "lg"
     ],
+    "avatarSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -364,6 +370,10 @@
       "never",
       "auto",
       "always"
+    ],
+    "selectTrigger": [
+      "field",
+      "row"
     ]
   },
   "defs": {
@@ -1376,6 +1386,7 @@
     "Select.trigger": "ui-selector",
     "Select.search": "search",
     "Select.check": "ui-check",
+    "Select.chevron": "ui-chevron-right",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -2488,7 +2499,7 @@
           "type": "string",
           "required": true,
           "bindable": true,
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         "src": {
           "type": "url",
@@ -2497,17 +2508,19 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "avatarSize",
           "default": "default",
           "description": "Diameter class."
         },
         "seed": {
           "type": "string",
-          "description": "Hashes the fallback hue; default the name."
+          "bindable": true,
+          "description": "A user id: the palette hue; none = muted."
         }
       },
       "example": {
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       }
     },
@@ -3996,6 +4009,11 @@
           "bindable": true,
           "description": "Picture URL."
         },
+        "seed": {
+          "type": "string",
+          "bindable": true,
+          "description": "Their id: the avatar hue."
+        },
         "state": {
           "type": "enum",
           "enum": "callState",
@@ -4052,6 +4070,7 @@
       ],
       "example": {
         "name": "Assistant",
+        "seed": "agent-assistant",
         "state": "talking",
         "activity": "speaking",
         "level": 0.6,
@@ -5281,6 +5300,21 @@
           "default": "$string.noResults",
           "description": "Shown when the search matches nothing."
         },
+        "triggerVariant": {
+          "type": "enum",
+          "enum": "selectTrigger",
+          "default": "field",
+          "description": "`row` = a Group row: label, value, chevron."
+        },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign",
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        "popupWidth": {
+          "type": "number",
+          "description": "Popup width in px (`row`: 260)."
+        },
         "disabled": {
           "type": "boolean",
           "default": false,
@@ -5457,6 +5491,62 @@
         "values": [
           "bug",
           "ios"
+        ]
+      }
+    },
+    "KeyRecorder": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "The accessible name."
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true,
+          "description": "The recorded keys, one cap each."
+        },
+        "recording": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Listening for keys; bind it."
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true,
+          "description": "The held modifiers while recording."
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Shown while recording with no key held."
+        },
+        "error": {
+          "type": "string",
+          "description": "An error under the field."
+        }
+      },
+      "events": [
+        "start",
+        "stop",
+        "key"
+      ],
+      "example": {
+        "label": "Push to talk",
+        "value": [
+          "Ctrl",
+          "Space"
         ]
       }
     },

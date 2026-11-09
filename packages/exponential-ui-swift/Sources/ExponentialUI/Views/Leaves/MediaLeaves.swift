@@ -33,29 +33,50 @@ struct IconLeaf: View {
     }
 }
 
-/// `Avatar`: the image when the host resolves one, else tinted initials.
+/// `Avatar`: the image when the host resolves one (wearing the
+/// `Avatar/image` ring), else initials (fixtures/avatar.json, #EXP-1629):
+/// a `seed` tints them from the palette, none paints the `Avatar/fallback`
+/// recipe's muted colours; the letters' size and weight are the recipe's.
 struct AvatarLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let name = cx.props.str("name")
-        let seed = cx.props.str("seed").isEmpty ? name : cx.props.str("seed")
+        let seed = cx.props.str("seed")
         let fallback = cx.part("Avatar", "fallback")
+        let image = cx.part("Avatar", "image")
         let size = min(cx.size.width, cx.size.height)
-        let fs = fallback.px("fontSize")
+        let fs = fallback.px("fontSize") ?? (size / 2).rounded()
+        let font = Font(TextFonts.font(family: fallback.fontFamily, weight: fallback.style.fontWeight ?? 400, size: fs) as CTFont)
+        let fill = seed.isEmpty ? fallback.style.background : nil
+        let ink = seed.isEmpty ? fallback.color : nil
         let src = cx.props.str("src")
         let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         Group {
             if let request {
-                AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs) {
-                    MediaImage(request: request, options: cx.model.mediaPolicy, appFile: cx.model.appFile) { image in
-                        image.resizable().scaledToFill()
+                // The ring only once the picture paints: the loading /
+                // failed placeholder is the plain initials.
+                let ring = image.style.borderColor
+                let ringWidth = image.style.borderWidth
+                AvatarView(name: name, seed: seed, size: size, dark: cx.dark, font: font) {
+                    MediaImage(request: request, options: cx.model.mediaPolicy, appFile: cx.model.appFile) { picture in
+                        // The IDE's gpui-component Avatar: the picture sits
+                        // inside the ring, so a translucent `$color.border`
+                        // reads as a hairline over the ground.
+                        let inset = ring == nil ? 0 : max(ringWidth, 0)
+                        picture.resizable().scaledToFill()
+                            .frame(width: max(size - 2 * inset, 0), height: max(size - 2 * inset, 0))
+                            .clipShape(Circle())
+                            .frame(width: size, height: size)
+                            .overlay {
+                                if let ring, inset > 0 { Circle().strokeBorder(ring, lineWidth: inset) }
+                            }
                     } placeholder: {
-                        AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fontSize: fs)
+                        AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: fill, ink: ink, font: font)
                     }
                 }
             } else {
-                AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs)
+                AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: fill, ink: ink, font: font)
             }
         }
         .frame(width: cx.size.width, height: cx.size.height)

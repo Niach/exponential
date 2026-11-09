@@ -89,7 +89,7 @@ describe(`catalog-macros.json`, () => {
     const withHandler = { ...emptyState.input, props: { ...emptyState.input.props, actionLabel: `Retry` }, on: { press: { event: { name: `retry` } } } }
     const root = reduceNested(withHandler, { catalogId: CORE_CATALOG_ID }).root
     expect(root.on).toBeUndefined()
-    const action = root.children.find((n) => n.id === `empty-state.action`)!
+    const action = root.children.find((n) => n.id === `empty_state.action`)!
     expect(action.on?.press).toEqual({ event: { name: `retry` } })
 
     const pagination = cases.find((c) => c.name === `Pagination/example`)!
@@ -163,7 +163,9 @@ describe(`kitchen-sink.json`, () => {
     // model the kitchen sink has not); they join it with the next web
     // baseline rewrite (a browser run). template-items.json `macro-template-*`
     // locks their expansion meanwhile.
-    const later = [`Calendar`, `Timeline`]
+    // #EXP-1629: KeyRecorder (Kbd caps in Boxes, natives the sink has) joins
+    // with that rewrite too; catalog-macros.json + template-items.json lock it.
+    const later = [`Calendar`, `Timeline`, `KeyRecorder`]
     // VAPP-217: a macro the HOST fills (RecordForm, RecordTable: props marked
     // `host`) paints only once filled; its catalog specimen shows it (the
     // styleguide entries) and it expands into natives the sink already has.

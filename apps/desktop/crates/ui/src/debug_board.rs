@@ -16,7 +16,7 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    dock::{Panel, PanelControl, PanelEvent},
+    dock::{BasePanel, Panel, PanelControl, PanelEvent},
     h_flex, v_flex, ActiveTheme as _,
 };
 use sync::{ShapeSyncPhase, Store};
@@ -179,13 +179,9 @@ impl DebugBoardPanel {
     }
 }
 
-impl Panel for DebugBoardPanel {
+impl BasePanel for DebugBoardPanel {
     fn panel_name(&self) -> &'static str {
         PANEL_NAME
-    }
-
-    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        "Board (debug)"
     }
 
     /// Phase 3 made the screens panel the center default; the debug board is
@@ -194,7 +190,17 @@ impl Panel for DebugBoardPanel {
         true
     }
 
-    fn zoomable(&self, _cx: &App) -> Option<PanelControl> {
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl Panel for DebugBoardPanel {
+    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        "Board (debug)"
+    }
+
+    fn zoom_control(&self, _cx: &App) -> Option<PanelControl> {
         None
     }
 }

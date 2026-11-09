@@ -32,7 +32,7 @@
             }
           },
           {
-            "id": "style-wins",
+            "id": "style_wins",
             "component": "Text",
             "props": {
               "text": "x",
@@ -53,21 +53,21 @@
             }
           },
           {
-            "id": "rtl-box",
+            "id": "rtl_box",
             "component": "Box",
             "style": {
               "direction": "rtl"
             },
             "children": [
               {
-                "id": "rtl-plain",
+                "id": "rtl_plain",
                 "component": "Text",
                 "props": {
                   "text": "مرحبا"
                 }
               },
               {
-                "id": "rtl-end",
+                "id": "rtl_end",
                 "component": "Text",
                 "props": {
                   "text": "x",
@@ -75,14 +75,14 @@
                 }
               },
               {
-                "id": "ltr-island",
+                "id": "ltr_island",
                 "component": "Box",
                 "style": {
                   "direction": "ltr"
                 },
                 "children": [
                   {
-                    "id": "island-text",
+                    "id": "island_text",
                     "component": "Text",
                     "props": {
                       "text": "code()"
@@ -91,7 +91,7 @@
                 ]
               },
               {
-                "id": "rtl-heading",
+                "id": "rtl_heading",
                 "component": "Heading",
                 "props": {
                   "text": "عنوان",
@@ -119,7 +119,7 @@
           "direction": "ltr",
           "textAlign": "center"
         },
-        "style-wins": {
+        "style_wins": {
           "direction": "ltr",
           "textAlign": "right"
         },
@@ -127,27 +127,27 @@
           "direction": "ltr",
           "textAlign": "left"
         },
-        "rtl-box": {
+        "rtl_box": {
           "direction": "rtl",
           "textAlign": "right"
         },
-        "rtl-plain": {
+        "rtl_plain": {
           "direction": "rtl",
           "textAlign": "right"
         },
-        "rtl-end": {
+        "rtl_end": {
           "direction": "rtl",
           "textAlign": "left"
         },
-        "ltr-island": {
+        "ltr_island": {
           "direction": "ltr",
           "textAlign": "left"
         },
-        "island-text": {
+        "island_text": {
           "direction": "ltr",
           "textAlign": "left"
         },
-        "rtl-heading": {
+        "rtl_heading": {
           "direction": "rtl",
           "textAlign": "right"
         }
@@ -184,7 +184,7 @@
             }
           },
           {
-            "id": "style-wins",
+            "id": "style_wins",
             "component": "Text",
             "props": {
               "text": "x",
@@ -205,21 +205,21 @@
             }
           },
           {
-            "id": "rtl-box",
+            "id": "rtl_box",
             "component": "Box",
             "style": {
               "direction": "rtl"
             },
             "children": [
               {
-                "id": "rtl-plain",
+                "id": "rtl_plain",
                 "component": "Text",
                 "props": {
                   "text": "مرحبا"
                 }
               },
               {
-                "id": "rtl-end",
+                "id": "rtl_end",
                 "component": "Text",
                 "props": {
                   "text": "x",
@@ -227,14 +227,14 @@
                 }
               },
               {
-                "id": "ltr-island",
+                "id": "ltr_island",
                 "component": "Box",
                 "style": {
                   "direction": "ltr"
                 },
                 "children": [
                   {
-                    "id": "island-text",
+                    "id": "island_text",
                     "component": "Text",
                     "props": {
                       "text": "code()"
@@ -243,7 +243,7 @@
                 ]
               },
               {
-                "id": "rtl-heading",
+                "id": "rtl_heading",
                 "component": "Heading",
                 "props": {
                   "text": "عنوان",
@@ -271,7 +271,7 @@
           "direction": "rtl",
           "textAlign": "center"
         },
-        "style-wins": {
+        "style_wins": {
           "direction": "rtl",
           "textAlign": "left"
         },
@@ -279,27 +279,27 @@
           "direction": "rtl",
           "textAlign": "left"
         },
-        "rtl-box": {
+        "rtl_box": {
           "direction": "rtl",
           "textAlign": "right"
         },
-        "rtl-plain": {
+        "rtl_plain": {
           "direction": "rtl",
           "textAlign": "right"
         },
-        "rtl-end": {
+        "rtl_end": {
           "direction": "rtl",
           "textAlign": "left"
         },
-        "ltr-island": {
+        "ltr_island": {
           "direction": "ltr",
           "textAlign": "left"
         },
-        "island-text": {
+        "island_text": {
           "direction": "ltr",
           "textAlign": "left"
         },
-        "rtl-heading": {
+        "rtl_heading": {
           "direction": "rtl",
           "textAlign": "right"
         }
