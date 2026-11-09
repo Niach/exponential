@@ -66,7 +66,7 @@ mod local_repos;
 mod members;
 mod all_boards;
 mod change_email_dialog;
-mod sign_in_methods;
+pub(crate) mod sign_in_methods;
 pub(crate) mod notifications_prefs;
 // NEW-67: Settings → Personal → Voice (`fixtures/voice.json`).
 pub(crate) mod voice_prefs;

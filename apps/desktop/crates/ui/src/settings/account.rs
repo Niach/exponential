@@ -55,7 +55,7 @@ pub struct AccountPane {
 }
 
 impl AccountPane {
-    pub fn new(nav: Entity<Navigation>, _window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let users = sync::Store::global(cx).collections().users.clone();
         let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
         let subscriptions = vec![
@@ -64,7 +64,7 @@ impl AccountPane {
             cx.observe(&users, |_, _, cx| cx.notify()),
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
         ];
-        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav.clone(), cx));
+        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav.clone(), window, cx));
         Self {
             nav,
             timezone: Timezone::Idle,
