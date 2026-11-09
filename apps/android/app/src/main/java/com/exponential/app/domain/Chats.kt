@@ -317,7 +317,8 @@ object Chats {
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path
      *  with the typed lines). */
-    /** EXP-1686 (`agentChat`): an agent's chat, the conversation only. */
+    /** EXP-1686 (`agentChat`): an agent chat's copy (#EXP-1732: its tabs are
+     *  THE session screen's, `SessionScreen`). */
     object AgentChat {
         const val SUBTITLE = "Agent"
         const val SUBTITLE_MODEL_SEPARATOR = " · "
@@ -325,14 +326,6 @@ object Chats {
 
         /** The composer's placeholder before the first message. */
         fun emptyPlaceholder(name: String): String = EMPTY_PLACEHOLDER.replace("{name}", name)
-
-        /** AGENT CHAT (`tabCases`): the tabs: the conversation, plus the plan
-         *  tab while it holds a plan. */
-        fun tabs(holdsPlan: Boolean): List<String> = if (holdsPlan) listOf("conversation", "plan") else listOf("conversation")
-
-        /** AGENT CHAT (`pageCases`): what a selection shows: only a page of
-         *  its tabs survives. */
-        fun page(selected: String, holdsPlan: Boolean): String = if (selected in tabs(holdsPlan)) selected else "conversation"
     }
 
     object Sends {

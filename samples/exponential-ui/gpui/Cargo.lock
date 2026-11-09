@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "eui-core"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "indexmap",
  "libc",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "eui-gpui"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "eui-core",
  "eui-motion",

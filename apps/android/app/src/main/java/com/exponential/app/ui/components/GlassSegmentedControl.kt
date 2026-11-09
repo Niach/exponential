@@ -70,6 +70,10 @@ fun <T> GlassSegmentedControl(
     // (the Work tabs' Run mark), drawn as given: it owns its own gap. Unlike
     // [leadingIcon] it may be absent per segment. null = unchanged.
     leading: ((T) -> (@Composable () -> Unit)?)? = null,
+    // #EXP-1732 (session-screen.json TAB SIZING): each segment sized to its
+    // label (+ count) instead of equal widths; the caller scrolls the strip
+    // sideways when it overflows. false = unchanged (equal, full width).
+    hug: Boolean = false,
 ) {
     // SLOP-18 / VAPP-89: the strip is the SDK's `SegmentedControl`; this
     // composable maps the glass chrome and the per-segment slots onto it.
@@ -129,7 +133,8 @@ fun <T> GlassSegmentedControl(
         style = GlassSegmentedControlDefaults.segmentedStyle(
             embedded = embedded,
             textStyle = textStyle ?: MaterialTheme.typography.labelLarge,
-        ),
+        ).let { style -> if (hug) style.copy(horizontalPadding = GlassSegmentedControlDefaults.HugPadding) else style },
+        fill = !hug,
     )
 }
 
@@ -165,6 +170,9 @@ object GlassSegmentedControlDefaults {
      * track.
      */
     val ContainerPadding: Dp = 3.dp
+
+    /** A HUGGING segment's padding around its label (#EXP-1732 tabs). */
+    val HugPadding: Dp = 14.dp
 
     /** Segments TOUCH — the active fill is the only thing separating them. */
     val SegmentSpacing: Dp = 0.dp

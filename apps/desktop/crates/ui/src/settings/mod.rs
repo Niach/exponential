@@ -37,7 +37,7 @@
 pub(crate) mod about;
 // #EXP-1629: what the panes' eUI documents share.
 mod doc;
-mod account;
+pub(crate) mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.

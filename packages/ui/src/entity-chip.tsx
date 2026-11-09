@@ -32,8 +32,7 @@ const UiCloseIcon = conceptIcon(`ui-close`)
  *  this class, whatever kind it draws. */
 export const CHIP_GLYPH_CLASS = `!h-[0.875em] !w-[0.875em] shrink-0`
 
-/** EXP-1316: THE strip tab box (the chat header's Conversation / Guide
- *  tabs, `ChatTabs`) — the tab size of a chip wears it too, so every chip
+/** EXP-1316: THE strip tab box (the work tab strip's chips) — the tab size of a chip wears it too, so every chip
  *  in a strip is one height. Utilities only (no `issue-chip` paint), so the
  *  active wash wins. */
 export const STRIP_TAB_CLASS = `inline-flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-md border px-2.5 text-sm font-normal`

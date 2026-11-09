@@ -483,24 +483,14 @@ class ChatsTest {
 
     @Test
     fun `the agent chat equals the fixture`() {
+        // #EXP-1732: the tabs (`tabs`, `planTabs`, `tabCases`, `pageCases`)
+        // are THE session screen's now (SessionScreenTest); the copy stays.
         val block = fixture.getValue("agentChat").jsonObject
-        assertEquals(listOf("conversation"), block.getValue("tabs").jsonArray.map { it.jsonPrimitive.content })
         assertEquals(block.str("subtitle"), Chats.AgentChat.SUBTITLE)
         assertEquals(block.str("subtitleModelSeparator"), Chats.AgentChat.SUBTITLE_MODEL_SEPARATOR)
         assertEquals(block.str("emptyPlaceholder")!!.replace("{name}", "Bro"), Chats.AgentChat.emptyPlaceholder("Bro"))
         assertEquals("Agent", SessionTree.agentChatSubtitle(null))
         assertEquals("Agent · Opus", SessionTree.agentChatSubtitle("Opus"))
-        fun strings(element: JsonElement) = element.jsonArray.map { it.jsonPrimitive.content }
-        assertEquals(strings(block.getValue("tabs")), Chats.AgentChat.tabs(false))
-        assertEquals(strings(block.getValue("planTabs")), Chats.AgentChat.tabs(true))
-        for (case in block.getValue("tabCases").jsonArray.map { it.jsonObject }) {
-            val holdsPlan = case.getValue("holdsPlan").jsonPrimitive.boolean
-            assertEquals(case.str("name"), strings(case.getValue("expected")), Chats.AgentChat.tabs(holdsPlan))
-        }
-        for (case in block.getValue("pageCases").jsonArray.map { it.jsonObject }) {
-            val holdsPlan = case.getValue("holdsPlan").jsonPrimitive.boolean
-            assertEquals(case.str("name"), case.str("expected"), Chats.AgentChat.page(case.str("selected")!!, holdsPlan))
-        }
     }
 
     @Test

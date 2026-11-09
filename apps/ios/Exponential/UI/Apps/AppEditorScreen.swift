@@ -4,15 +4,14 @@ import GRDB
 import ExponentialUI
 import SwiftUI
 
-/// VAPP-110 / VAPP-177 (fixtures/apps.json `editorTabs`): THE EDITOR on a
-/// phone. #EXP-1729 (`editorHeader`): the header IS THE chat header: back ·
-/// the lead disc with the app's glyph · the app's name over its `status ·
-/// device` subtitle in its tone, then the
+/// VAPP-110 / VAPP-177 / #EXP-1732 (session-screen.json kind `app`): THE
+/// EDITOR on a phone = THE session screen (`ChatScreen` with an editor
+/// slot). Header = the app's glyph + name + the version pill over the
+/// subtitle, then THE gear (the app's settings page, an opened item) and the
 /// trailing `…` (`app-editor-menu`, THE Menu in its sheet presentation):
-/// Versions (the count as trailing meta) · Settings · Export (once the app
-/// has a version) · Delete app (destructive; the creator or an owner).
-/// Under the header THE segmented control Chat | Preview | Data and ONE
-/// pane:
+/// Publish · Export (once the app has a version) · Delete app (destructive;
+/// the creator or an owner). Under the header THE tabs Chat · Preview · Data
+/// · Versions · Sessions · Results:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
 ///   `user_id` = me) as THE chat screen's channel (`ChatScreen` with an
@@ -34,8 +33,8 @@ import SwiftUI
 ///   (`AppDataTab`): the kind picker + Add record, one grouped list, the
 ///   form as a sheet.
 ///
-/// The menu's Versions and Settings open the wide clients' TAB bodies as
-/// sheets titled by the item (`AppVersionsSheet`, `AppSettingsSheet`).
+/// * Versions = the versions list (`AppVersionsList`); Settings = the
+///   gear's page (`AppSettingsPage`).
 ///
 /// VAPP-176 a DRAFT (no version yet, New app's "Untitled app") opens on
 /// Chat; while its chat is empty the page-size empty state
@@ -62,7 +61,7 @@ struct AppEditorScreen: View {
     @State private var model = AppEditorModel()
     /// VAPP-234: the draft's "Start from a template" = the import sheet.
     @State private var importing = false
-    @State private var tab: Tab = .chat
+    @State private var tab: SessionScreen.Tab = .chat
     /// The version shown in the Preview instead of the head (nil = head).
     @State private var viewing: Int?
     @State private var viewingPackage: String?
@@ -73,13 +72,11 @@ struct AppEditorScreen: View {
     @State private var menuOpen = false
     /// The menu's (or a sheet's) pick, run once its sheet has dismissed.
     @State private var pendingMenu: AppMenuSheet.Action?
-    /// #VAPP-256: the rollback the prompt asks about, and one waiting for the
-    /// Versions sheet to go (one presentation at a time).
+    /// #VAPP-256: the rollback the prompt asks about.
     @State private var rollbackOpen = false
     @State private var rollbackTarget = 0
-    @State private var pendingRollback: Int?
-    /// VAPP-177: the menu's Versions / Settings sheet.
-    @State private var editorSheet: EditorSheet?
+    /// #EXP-1732: the gear's settings page on an editor with no session yet.
+    @State private var settingsOpen = false
     /// VAPP-121: the Export sheet.
     @State private var exportOpen = false
     /// The delete confirm prompt.
@@ -99,26 +96,6 @@ struct AppEditorScreen: View {
     /// The link's screen is applied once (a pop back here keeps the tab).
     @State private var screenLinkApplied = false
 
-    /// The phones' tabs (`editorTabs.phone`).
-    enum Tab: Hashable, CaseIterable {
-        case chat, preview, data
-
-        var label: String {
-            switch self {
-            case .chat: Apps.Copy.Tabs.chat
-            case .preview: Apps.Copy.Tabs.preview
-            case .data: Apps.Copy.Tabs.data
-            }
-        }
-    }
-
-    /// The menu items that open a tab body as a sheet.
-    enum EditorSheet: String, Identifiable {
-        case versions, settings
-
-        var id: String { rawValue }
-    }
-
     var body: some View {
         Group {
             if let app = model.app {
@@ -126,9 +103,20 @@ struct AppEditorScreen: View {
                     ChatScreen(rootId: rootId, editor: slot(app))
                         .id(rootId)
                 } else {
-                    AppEditorShell(title: title(app), band: band(app), pane: pane(app), trailing: menuButton(app)) {
+                    AppEditorShell(
+                        title: title(app, status: SessionScreen.status([])),
+                        tab: tab,
+                        onSelect: { tab = $0 },
+                        pane: tab == .chat ? nil : pane(app, tab),
+                        trailing: menuButton(app),
+                        onGear: {
+                            UIApplication.endEditing()
+                            settingsOpen = true
+                        }
+                    ) {
                         chatEmpty(app)
                     }
+                    .navigationDestination(isPresented: $settingsOpen) { settingsPage }
                 }
             } else if model.missing {
                 ZStack {
@@ -190,33 +178,10 @@ struct AppEditorScreen: View {
                             title: app.name,
                             canPublish: model.canWrite && Apps.canPublish(app.versions),
                             canExport: app.headVersion > 0,
-                            canManage: model.canManage(userId: deps.auth.userId),
-                            versionsCount: model.versions.count
+                            canManage: model.canManage(userId: deps.auth.userId)
                         ) { action in
                             pendingMenu = action
                             menuOpen = false
-                        }
-                    }
-                }
-        }
-        .background {
-            Color.clear
-                .sheet(item: $editorSheet, onDismiss: runPendingMenu) { sheet in
-                    switch sheet {
-                    case .versions:
-                        AppVersionsSheet(
-                            model: model,
-                            publishing: publishing,
-                            canWrite: model.canWrite,
-                            onPreview: { number in previewVersion(number) },
-                            onPublish: { number in
-                                if let app = model.app { requestPublish(app, number: number, fromSheet: true) }
-                            }
-                        )
-                    case .settings:
-                        AppSettingsSheet(model: model) { action in
-                            pendingMenu = action
-                            editorSheet = nil
                         }
                     }
                 }
@@ -279,7 +244,11 @@ struct AppEditorScreen: View {
 
     private func slot(_ app: AppListEntry) -> ChatEditorSlot {
         ChatEditorSlot(
-            title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: menuButton(app),
+            title: { status in AnyView(title(app, status: status)) },
+            tab: $tab,
+            pane: { tab in pane(app, tab) },
+            settings: AnyView(settingsPage),
+            trailing: menuButton(app),
             device: model.deviceMenu, appMove: model.deviceAppMove, picks: picks
         )
     }
@@ -297,9 +266,9 @@ struct AppEditorScreen: View {
         )
     }
 
-    /// VAPP-177: the header's trailing `…` (`app-editor-menu`), THE chat
-    /// header's ghost button (#EXP-1729), THE Menu in its sheet presentation
-    /// (the Apps row's `…` alike); VAPP-235's pending-writes glyph before it.
+    /// VAPP-177: the header's trailing `…` (`app-editor-menu`, THE chat
+    /// header's ghost button), THE Menu in its sheet presentation (the Apps
+    /// row's `…` alike); VAPP-235's pending-writes glyph before it.
     private func menuButton(_ app: AppListEntry) -> AnyView? {
         AnyView(
             HStack(spacing: 4) {
@@ -312,10 +281,21 @@ struct AppEditorScreen: View {
         )
     }
 
-    /// #EXP-1729 (apps.json `editorHeader`): THE chat header's title block:
-    /// the lead disc with the app's glyph, the name over `status · device`
-    /// in its tone (the version pill left the phone header).
-    private func title(_ app: AppListEntry) -> some View {
+    /// #EXP-1732: the gear's opened item = the app's settings page; its
+    /// Export / Delete hand back once the page has popped.
+    private var settingsPage: some View {
+        AppSettingsPage(model: model) { action in
+            pendingMenu = action
+            runPendingMenu()
+        }
+    }
+
+    /// #EXP-1732 / #EXP-1729 (apps.json `editorHeader`): THE chat header's
+    /// title block for an app: the BoardGlyph IN the lead disc, the name and
+    /// the version pill right after it, over ONE subtitle line = the TREE's
+    /// word (`SessionScreen.status`, never dropped) · `editorHeader`'s device
+    /// part, in its tone.
+    private func title(_ app: AppListEntry, status: String) -> some View {
         let header = model.header
         let tone: ChatHeaderTitle.Tone = switch header.tone {
         case .attention: .needsYou
@@ -324,49 +304,39 @@ struct AppEditorScreen: View {
         }
         return ChatHeaderTitle(
             title: app.name,
-            subtitle: header.subtitle,
+            subtitle: SessionScreen.subtitle(status: status, device: model.headerDevice, trigger: nil),
             subtitleTone: tone,
-            agentIcon: app.glyph,
-            agentColor: app.color ?? AppGlyph.neutralColor
+            agentIcon: BoardTypeDisplay.iconName(for: app.glyph) ?? SessionTree.ListCopy.agentDefaultIcon,
+            agentColor: app.color ?? AppGlyph.neutralColor,
+            titleAccessory: AnyView(AppVersionPill(app: app))
         )
     }
 
-    private func band(_ app: AppListEntry) -> some View {
-        GlassSegmentedControl(
-            options: Tab.allCases,
-            selection: tab,
-            label: \.label,
-            identifier: { "\(Apps.TestIds.tabs)-\($0)" }
-        ) { next in
-            tab = next
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(Apps.TestIds.tabs)
-    }
-
-    /// The pane covering the chat (nil = the Chat tab).
-    private func pane(_ app: AppListEntry) -> AnyView? {
+    /// The app tab's body (Preview, Data, Versions); nil = not the editor's.
+    private func pane(_ app: AppListEntry, _ tab: SessionScreen.Tab) -> AnyView? {
         switch tab {
-        case .chat:
-            return nil
         case .preview:
-            return AnyView(preview(app))
+            AnyView(preview(app))
         case .data:
-            return AnyView(AppDataTab(app: app))
+            AnyView(AppDataTab(app: app))
+        case .versions:
+            AnyView(AppVersionsList(
+                model: model,
+                publishing: publishing,
+                canWrite: model.canWrite,
+                onPreview: { number in previewVersion(number) },
+                onPublish: { number in
+                    if let app = model.app { requestPublish(app, number: number) }
+                }
+            ))
+        case .chat, .issues, .sessions, .results:
+            nil
         }
     }
 
     /// A menu (or Settings sheet) pick, once its sheet is gone: one
     /// presentation at a time.
     private func runPendingMenu() {
-        if let number = pendingRollback {
-            pendingRollback = nil
-            rollbackTarget = number
-            rollbackOpen = true
-            return
-        }
         guard let action = pendingMenu else { return }
         pendingMenu = nil
         switch action {
@@ -374,8 +344,9 @@ struct AppEditorScreen: View {
         case .edit: break
         case .publish:
             if let app = model.app, model.canWrite, Apps.canPublish(app.versions) { publish(app, number: app.headVersion) }
-        case .versions: editorSheet = .versions
-        case .settings: editorSheet = .settings
+        // #EXP-1732: Versions is a tab, Settings the gear (the menu lists neither).
+        case .versions: tab = .versions
+        case .settings: break
         case .export: exportOpen = model.app.map { $0.headVersion > 0 } ?? false
         case .delete: deleteOpen = model.canManage(userId: deps.auth.userId)
         }
@@ -518,11 +489,10 @@ struct AppEditorScreen: View {
         }
     }
 
-    /// VAPP-177: a Versions row's Preview: the sheet closes and the Preview
-    /// tab shows that version (the preview's default = no banner).
+    /// VAPP-177: a Versions row's Preview: the Preview tab shows that
+    /// version (the preview's default = no banner).
     private func previewVersion(_ number: Int) {
         let defaultShown = model.app.map { Apps.shownVersion($0.versions, editing: model.editing, viewing: nil) }
-        editorSheet = nil
         viewing = number == defaultShown ? nil : number
         tab = .preview
     }
@@ -565,19 +535,14 @@ struct AppEditorScreen: View {
 
     /// #VAPP-256 (fixture `rollbackCases`): a rollback past a migrated version
     /// asks first; every other publish goes through at once.
-    private func requestPublish(_ app: AppListEntry, number: Int, fromSheet: Bool = false) {
+    private func requestPublish(_ app: AppListEntry, number: Int) {
         let rows = model.versions.map { (number: $0.number, migrationState: $0.migrationState) }
         guard Apps.rollbackWarns(published: app.publishedVersion, target: number, rows: rows) else {
             publish(app, number: number)
             return
         }
-        if fromSheet {
-            pendingRollback = number
-            editorSheet = nil
-        } else {
-            rollbackTarget = number
-            rollbackOpen = true
-        }
+        rollbackTarget = number
+        rollbackOpen = true
     }
 
     /// eApps V1 `apps.publish` of version `number` (the menu's head, a
@@ -650,13 +615,13 @@ struct AppEditorScreen: View {
 
 // MARK: - Versions (VAPP-177)
 
-/// The menu's Versions sheet = the wide clients' Versions TAB body: ONE
+/// #EXP-1732: the Versions TAB body (×4): ONE
 /// grouped list newest first, each row the `v{n}` pill + the note (medium;
 /// `copy.noNote` muted) over a muted `who · when`; eApps V1 (`versionRow`):
 /// the published row = the `Published` badge, the head row ahead of it =
 /// the `Current` badge + a Publish pill, every other row a ghost Preview + a
 /// Publish pill (Publish needs write access to the app).
-struct AppVersionsSheet: View {
+struct AppVersionsList: View {
     let model: AppEditorModel
     let publishing: Int?
     let canWrite: Bool
@@ -664,7 +629,7 @@ struct AppVersionsSheet: View {
     let onPublish: (Int) -> Void
 
     var body: some View {
-        GlassSheetChrome(title: Apps.Copy.Menu.versions) {
+        ScrollView {
             VStack(spacing: 0) {
                 if model.versions.isEmpty {
                     EmptyState(title: Apps.Copy.versionsEmpty, icon: AppIcons.uiHistory, size: .list)
@@ -680,10 +645,11 @@ struct AppVersionsSheet: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+            .padding(.vertical, 16)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(Apps.TestIds.versions)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func row(_ version: AppVersionEntity, pointers: Apps.Versions) -> some View {
@@ -743,25 +709,27 @@ struct AppVersionsSheet: View {
 
 // MARK: - Settings (VAPP-177)
 
-/// The menu's Settings sheet = the wide clients' Settings TAB body, built
+/// #EXP-1732: the gear's Settings page (an opened item) = the wide clients'
+/// Settings body, built
 /// from the existing pieces: the board form's identity row (icon + colour +
 /// name, the name saved when editing ends), the description (saved when
 /// editing ends), the records line, the Tools group (a team OWNER flips the
 /// grants: `apps.update {id, headVersion: grantVersion, grantedTools}`), then Export (a
 /// version) and Delete app (the creator or an owner). Read-only for
 /// everyone else. Export / Delete hand back to the editor, which runs them
-/// once this sheet has dismissed.
-struct AppSettingsSheet: View {
+/// once this page has popped.
+struct AppSettingsPage: View {
     let model: AppEditorModel
     let onAction: (AppMenuSheet.Action) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
+    @Environment(\.dismiss) private var dismiss
     @State private var seeded = false
     @State private var name = ""
     @State private var icon = "puzzle"
-    @State private var color = AppSettingsSheet.defaultColor
+    @State private var color = AppSettingsPage.defaultColor
     @State private var description = ""
     @State private var toolBusy: String?
     /// #VAPP-243: the upstreams the app declares with my OWN connection, and
@@ -799,12 +767,12 @@ struct AppSettingsSheet: View {
     private var canManage: Bool { model.canManage(userId: deps.auth.userId) }
 
     var body: some View {
-        GlassSheetChrome(title: Apps.Copy.Menu.settings, height: .full) {
+        SessionScreenItemPage(title: SessionScreen.Copy.settings) {
             ScrollView {
                 if let app = model.app {
                     content(app)
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
+                        .padding(.vertical, 24)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -1427,7 +1395,7 @@ struct AppSettingsSheet: View {
                 if app.headVersion > 0 {
                     GlassPill(Apps.Copy.Menu.export, icon: AppIcons.uiShare, mode: .action {
                         UIApplication.endEditing()
-                        onAction(.export)
+                        handOff(.export)
                     })
                     .accessibilityIdentifier("app-export")
                 }
@@ -1436,13 +1404,22 @@ struct AppSettingsSheet: View {
                     // beside Export, left-aligned (web).
                     DestructiveButton(Apps.Copy.Menu.delete) {
                         UIApplication.endEditing()
-                        onAction(.delete)
+                        handOff(.delete)
                     }
                     .accessibilityIdentifier("app-delete")
                 }
                 Spacer(minLength: 0)
             }
             .padding(.top, 4)
+        }
+    }
+
+    /// #EXP-1732: the page pops first, then the editor runs the action
+    /// (its sheet / alert draws over the screen, not under this page).
+    private func handOff(_ action: AppMenuSheet.Action) {
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Motion.Duration.standard + 0.2) {
+            onAction(action)
         }
     }
 
@@ -1585,40 +1562,50 @@ struct AppSettingsSheet: View {
     }
 }
 
-/// The editor before its first message: the same
-/// chrome the chat screen gives an editor root — the title, the band, a
-/// pane covering the chat — over the empty chat.
-private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
+/// #EXP-1732: the editor before its first message: THE session screen's
+/// chrome (kind `app`: the header with the gear and the `…`, THE tabs) over
+/// the empty chat; Sessions and Results have nothing yet.
+private struct AppEditorShell<Title: View, Chat: View>: View {
     let title: Title
-    let band: Band
+    let tab: SessionScreen.Tab
+    let onSelect: (SessionScreen.Tab) -> Void
+    /// The app tab's body covering the chat (nil = the Chat tab).
     let pane: AnyView?
     let trailing: AnyView?
+    let onGear: () -> Void
     @ViewBuilder let chat: () -> Chat
 
+    private var screen: SessionScreen.Screen {
+        SessionScreen.screen(kind: .app, requested: tab, open: nil, counts: SessionScreen.Counts())
+    }
+
     var body: some View {
+        let shown = screen
         ZStack {
             AppBackground()
             chat()
-                .opacity(pane == nil ? 1 : 0)
-                .allowsHitTesting(pane == nil)
-                .accessibilityHidden(pane != nil)
-            if let pane {
+                .opacity(shown.active == .chat ? 1 : 0)
+                .allowsHitTesting(shown.active == .chat)
+                .accessibilityHidden(shown.active != .chat)
+            if shown.active == .results {
+                EmptyState(title: ResultsTab.Tab.Copy.empty, icon: AppIcons.chatResults, size: .list)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if shown.active != .chat, let pane {
                 pane
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // #EXP-1729: THE chat header over the band (the chat screen's).
         .workHeaderBand {
             ChatHeader {
                 title
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } trailing: {
+                SessionScreenGear(action: onGear)
                 if let trailing { trailing }
             }
-            band
+            SessionScreenTabs(tabs: shown.tabs, selection: shown.active, onSelect: onSelect)
         }
         .toolbar(.hidden, for: .navigationBar)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
 
