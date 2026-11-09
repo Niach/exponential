@@ -1,6 +1,6 @@
 [package]
 name = "eui-gpui"
-version = "0.19.1"
+version = "0.20.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "genUI gpui painter: paints the core catalog from eui-core's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
@@ -34,7 +34,7 @@ net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 overlay-anchor = []
 
 [dependencies]
-eui-core = { path = "../eui-core", version = "0.19.1" }
+eui-core = { path = "../eui-core", version = "0.20.0" }
 gpui.workspace = true
 gpui-component.workspace = true
 # EXP-1557: the switch's behaviour primitive (`gpui_base::Switch`) under
