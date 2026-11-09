@@ -374,6 +374,13 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let dot = recipe.width ?? 8
             let gap = spacing("xs")
             content = MeasuredContent(n * dot + max(n - 1, 0) * gap, recipe.height ?? dot)
+        case ("Input", "field") where InputRow.isRow(props):
+            // #EXP-1629: a `row` field leads with its `label` part, the
+            // recipe `gap` before the 160 px value.
+            let labelStyle = SelectTrigger.labelStyle(ts, part("Input", "label", props))
+            let label = props.str("label")
+            let labelW = label.isEmpty ? 0 : line(label, labelStyle) + leaf.control.gap
+            content = MeasuredContent(labelW + 160, max(ts.lineHeight, label.isEmpty ? 0 : labelStyle.lineHeight), Self.baseline(ts))
         case ("Input", "field"):
             content = MeasuredContent(160, ts.lineHeight, Self.baseline(ts))
         case ("Textarea", "field"):
@@ -922,5 +929,24 @@ enum SelectTrigger {
         let l = min(TextShaper.maxContent(labelStyle.shown(label), labelStyle), max(0, width - glyph - gap))
         let v = min(TextShaper.maxContent(valueStyle.shown(value), valueStyle), max(0, width - l - glyph - gap * 2))
         return (l, v)
+    }
+}
+
+/// #EXP-1629: an Input `variant: row` field, shared by the measurer and
+/// `TextFieldLeaf`: a Group row [label, fixed] gap [the text field filling
+/// the rest, end-aligned, the typed text at 70% of the field's colour].
+enum InputRow {
+    /// The typed text's share of the field colour (the Group row's value tone).
+    static let valueOpacity: CGFloat = 0.7
+
+    /// `variant: row` on the field (the core copies the owner's props).
+    static func isRow(_ props: Props) -> Bool {
+        props["variant"]?.string == "row"
+    }
+
+    /// The label's width inside `width`: its whole line (it never shrinks),
+    /// at most the row.
+    static func labelWidth(_ label: String, _ style: TextStyle, width: CGFloat) -> CGFloat {
+        label.isEmpty ? 0 : min(TextShaper.maxContent(style.shown(label), style), max(0, width))
     }
 }

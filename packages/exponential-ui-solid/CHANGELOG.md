@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Input `variant: "row"` (#EXP-1629): a Group row (label inside, the value end-aligned at 70%); the exponential theme's row is the IDE's (14 px rem). Parity case for the row (typing, Enter).
 - Select `triggerVariant: row` (#EXP-1629), React's: the label inside the trigger, the `value` and `chevron` parts, `align` + `popupWidth`, the list scrolled to the chosen option, item `hover` = the cursor, `selected` = chosen only. Parity cases for the row and the open popup.
 - KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
 

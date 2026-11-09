@@ -2,6 +2,7 @@ package at.exponential.ui
 
 import androidx.compose.ui.geometry.Size
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.json.str
 import at.exponential.ui.measure.ControlBox
 import at.exponential.ui.measure.SurfaceMeasurer
 import at.exponential.ui.measure.TextShaper
@@ -77,6 +78,42 @@ class MeasurerRulesTest {
         assertEquals(40.0, SurfaceModel.snap(42.0, 0.0, 100.0, 5.0), 0.0)
         assertEquals(100.0, SurfaceModel.snap(140.0, 0.0, 100.0, 5.0), 0.0)
         assertEquals("1:02:05", DateModel.formatDuration(3_725_000.0))
+    }
+
+    /**
+     * #EXP-1629: a `row` Input IS a Group row: no label above (the core
+     * hands the field the `label`), the field = label + gap + the field's
+     * intrinsic width at the recipe's height and padding (the exponential
+     * theme's IDE row: 40.82 tall, px 14, gap 10.5); the typed text at the
+     * field colour × 0.7. A default Input keeps its label above.
+     */
+    @Test
+    fun inputRowLeadsWithItsLabel() {
+        Fixtures.require()
+        val m = makeModel("input-row", theme = "exponential", width = 900f)
+        m.setNested(
+            """{"id":"root","component":"Stack","props":{"direction":"horizontal","align":"start"},"children":[""" +
+                """{"id":"d","component":"Input","props":{"label":"Email","name":"d","placeholder":"you@example.com"}},""" +
+                """{"id":"r","component":"Input","props":{"label":"Email","name":"r","placeholder":"you@example.com","variant":"row"}}]}""",
+        )
+        assertTrue("a default Input keeps its label", m.indexOf("d.label") != null)
+        assertNull("a row Input has no label above", m.indexOf("r.label"))
+        val field = m.node(m.indexOf("r.field")!!)!!
+        assertEquals("Email", field.props.str("label"))
+        assertTrue(at.exponential.ui.compose.inputRowVariant(field.props))
+        assertTrue(!at.exponential.ui.compose.inputRowVariant(m.node(m.indexOf("d.field")!!)!!.props))
+        val frame = m.frame(field.index)
+        assertEquals("the recipe's row height", 40.82f, frame.height, 0.05f)
+        val labelPart = m.part("Input", "label", field.props)
+        val lts = at.exponential.ui.compose.inputRowLabelStyle(ResolvedTextStyle(12.25f, 400, 17.5f, null), labelPart)
+        assertEquals(12.25f, lts.fontSize, 0.01f)
+        assertEquals(400, lts.fontWeight)
+        val labelW = m.textShaper().maxContent("Email", lts)
+        assertEquals("label + gap + field + px", labelW + 10.5f + 160f + 28f, frame.width, 0.5f)
+        val ink = androidx.compose.ui.graphics.Color(0xFF112233)
+        assertEquals(0.7f, at.exponential.ui.compose.inputRowValueInk(ink).alpha, 0.01f)
+        assertEquals(10.5f, at.exponential.ui.compose.inputRowGap(10.5f, 12f), 0f)
+        assertEquals(12f, at.exponential.ui.compose.inputRowGap(0f, 12f), 0f)
     }
 
     @Test
