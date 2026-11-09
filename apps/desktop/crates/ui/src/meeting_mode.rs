@@ -12,7 +12,17 @@ use etalk::voice::{VoiceSettings, VOICE};
 
 /// The voice device's desktop audio as its synced doctor reports it
 /// (`doctor.desktopAudio`; absent = `none` and `[]`).
+#[cfg(test)]
+thread_local! {
+    /// The bench's voice device capability and its live apps.
+    pub(crate) static SHOT_AUDIO: std::cell::RefCell<Option<(DesktopAudioCapability, Vec<AudioApp>)>> = const { std::cell::RefCell::new(None) };
+}
+
 pub(crate) fn desktop_audio_of(settings: &VoiceSettings, cx: &App) -> (DesktopAudioCapability, Vec<AudioApp>) {
+    #[cfg(test)]
+    if let Some(shot) = SHOT_AUDIO.with(|shot| shot.borrow().clone()) {
+        return shot;
+    }
     let Some(device_id) = settings.voice_device_id.as_deref() else { return Default::default() };
     crate::talk_host::desktop_audio(device_id, cx)
 }

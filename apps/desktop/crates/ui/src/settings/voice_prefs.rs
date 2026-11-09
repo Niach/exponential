@@ -624,6 +624,8 @@ fn document(inks: &Inks, options: &Options) -> Value {
     // apps are toggled), "None" muted while no app is picked.
     let mut apps = select_row("apps", path("/pane/tray/apps/shown"), &words.apps, path("/pane/tray/apps/value"), "app", &options.apps, false);
     apps["props"]["multiple"] = json!(true);
+    // The IDE's multi picker filters its apps.
+    apps["props"]["searchable"] = json!(true);
     apps["props"]["placeholder"] = json!(apps_value(&[]));
     let meeting = group(ink, "meeting", tray.clone(), vec![
         (switch_rows(ink, "meeting", &words.meeting, "/pane/tray/meeting", "meeting"), None),
@@ -1064,6 +1066,18 @@ impl VoicePrefsPane {
             )
         });
         cx.notify();
+    }
+
+    /// The bench presses these nodes in turn (a trigger, then an option).
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, ids: &[String], window: &mut Window, cx: &mut gpui::Context<Self>) {
+        for id in ids {
+            self.view.update(cx, |view, cx| {
+                if let Some(index) = view.index_of(id) {
+                    view.press(index, window, cx);
+                }
+            });
+        }
     }
 
     fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
