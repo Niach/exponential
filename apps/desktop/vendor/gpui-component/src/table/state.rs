@@ -1,3 +1,4 @@
+use gpui_base::TestSupportExt as _;
 use std::{ops::Range, rc::Rc, time::Duration};
 
 use crate::{
@@ -12,14 +13,22 @@ use crate::{
     v_flex,
 };
 use gpui::{
-    AppContext, Axis, Bounds, ClickEvent, Context, Div, DragMoveEvent, EventEmitter, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, ListSizingBehavior, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Point, Render, ScrollStrategy, SharedString, Stateful,
-    StatefulInteractiveElement as _, Styled, Task, UniformListScrollHandle, Window, div,
+    AppContext, Axis, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, EventEmitter,
+    FocusHandle, Focusable, InteractiveElement, IntoElement, ListSizingBehavior, MouseButton,
+    MouseDownEvent, ParentElement, Pixels, Point, Render, ScrollStrategy, SharedString, Stateful,
+    StatefulInteractiveElement as _, Styled, Task, TextAlign, UniformListScrollHandle, Window, div,
     prelude::FluentBuilder, px, uniform_list,
 };
+use rust_i18n::t;
 
 use super::*;
+
+/// Grab room on each side of a resize handle's hairline, so the divider can be
+/// caught without pixel-hunting. Both halves of the band are this wide, so
+/// widening the grab area stays symmetric about the boundary. `resizable`'s
+/// handle pads a hairline the same way, and by the same amount, see
+/// `crates/base/src/resizable/resize_handle.rs`.
+const HANDLE_PADDING: Pixels = px(4.);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum SelectionMode {
@@ -43,6 +52,25 @@ impl SelectionMode {
     fn is_cell(&self) -> bool {
         matches!(self, SelectionMode::Cell)
     }
+}
+
+/// The current selection of a table, as one value.
+///
+/// Mirrors [`TableEvent::SelectRow`], [`TableEvent::SelectColumn`] and
+/// [`TableEvent::SelectCell`]. Match on it instead of combining
+/// [`TableState::selected_row`], [`TableState::selected_col`] and
+/// [`TableState::selected_cell`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum TableSelection {
+    /// Nothing is selected.
+    #[default]
+    None,
+    /// A row is selected.
+    Row(usize),
+    /// A column is selected.
+    Column(usize),
+    /// A cell is selected, as `(row_ix, col_ix)`.
+    Cell(usize, usize),
 }
 
 /// The Table event.
@@ -117,6 +145,14 @@ impl TableVisibleRange {
     }
 }
 
+/// Where a column resize started: the pointer's x at the press on the
+/// resize handle, and the column's width then.
+#[derive(Clone, Copy)]
+struct ResizeOrigin {
+    x: Pixels,
+    width: Pixels,
+}
+
 /// The state for [`DataTable`].
 ///
 /// # Selection Modes
@@ -148,7 +184,7 @@ impl TableVisibleRange {
 ///
 /// ```rust,ignore
 /// let table_state = cx.new(|cx| {
-///     TableState::new(delegate, cx)
+///     TableState::new(delegate, window, cx)
 ///         .cell_selectable(true)
 ///         .row_selectable(true)
 /// });
@@ -196,6 +232,17 @@ pub struct TableState<D: TableDelegate> {
     pub col_selectable: bool,
     /// Whether the table can select row.
     pub row_selectable: bool,
+    /// Whether a row click with the secondary modifier (⌘ on macOS, Ctrl
+    /// elsewhere) or Shift held selects the row, default is `true`.
+    ///
+    /// Set to `false` when the delegate keeps its own multi-row selection and
+    /// handles those clicks itself. The table then leaves its selected row
+    /// alone on a modified click, so a click that takes a row out of the
+    /// delegate's selection is not undone by the table selecting it.
+    ///
+    /// In cell selection without a row header, a modified click on the
+    /// selected cell does not escalate it to its row either.
+    select_on_modifier_click: bool,
     /// Whether the table can select cell, default is false.
     ///
     /// When enabled:
@@ -235,6 +282,14 @@ pub struct TableState<D: TableDelegate> {
 
     /// The column index that is being resized.
     resizing_col: Option<usize>,
+    /// Where the press on a resize handle was, and the column's width then.
+    resize_origin: Option<ResizeOrigin>,
+    /// The column a double-click on its resize handle just fitted.
+    ///
+    /// The double-click's second press also starts a drag on the handle, which
+    /// would move the fitted edge back under the pointer, so resize drags on
+    /// this column are ignored until the next single press.
+    fitted_col: Option<usize>,
 
     /// The insertion gap index (`0..=cols_count`) while dragging a column
     /// header: the dragged column will be inserted between the columns
@@ -269,6 +324,8 @@ where
             selected_col: None,
             selected_cell: None,
             resizing_col: None,
+            resize_origin: None,
+            fitted_col: None,
             col_drag_gap: None,
             bounds: Bounds::default(),
             fixed_head_cols_bounds: Bounds::default(),
@@ -276,6 +333,7 @@ where
             loop_selection: true,
             col_selectable: true,
             row_selectable: true,
+            select_on_modifier_click: true,
             cell_selectable: false,
             row_header: true,
             sortable: true,
@@ -330,6 +388,13 @@ where
         self
     }
 
+    /// Set whether a row click with the secondary modifier or Shift held
+    /// selects the row, default is `true`.
+    pub fn select_on_modifier_click(mut self, select_on_modifier_click: bool) -> Self {
+        self.select_on_modifier_click = select_on_modifier_click;
+        self
+    }
+
     /// Set to enable/disable column selectable, default true
     pub fn col_selectable(mut self, col_selectable: bool) -> Self {
         self.col_selectable = col_selectable;
@@ -348,7 +413,7 @@ where
     ///
     /// ```rust,ignore
     /// let table_state = cx.new(|cx| {
-    ///     TableState::new(delegate, cx)
+    ///     TableState::new(delegate, window, cx)
     ///         .cell_selectable(true)  // Enable cell selection
     ///         .row_selectable(true)   // Also allow row selection via row header
     /// });
@@ -389,14 +454,82 @@ where
     pub fn scroll_to_col(&mut self, col_ix: usize, cx: &mut Context<Self>) {
         let col_ix = col_ix.saturating_sub(self.fixed_left_cols_count());
 
-        self.horizontal_scroll_handle
-            .scroll_to_item(col_ix, ScrollStrategy::Top);
+        // Resolve the offset here instead of deferring it to the virtual list.
+        //
+        // The header and the rows share `horizontal_scroll_handle`, but only
+        // the rows are a `VirtualList`, and a deferred `scroll_to_item` is
+        // applied during that list's prepaint — which runs *after* the header
+        // has already been rendered and prepainted with the old offset. The
+        // header would therefore stay one frame behind the rows.
+        match self.horizontal_offset_for_col(col_ix) {
+            Some(offset_x) => {
+                let mut offset = self.horizontal_scroll_handle.offset();
+                offset.x = offset_x;
+                self.horizontal_scroll_handle.set_offset(offset);
+            }
+            // Before the first layout the viewport size is unknown, let the
+            // virtual list resolve the offset once it has been laid out.
+            None => self
+                .horizontal_scroll_handle
+                .scroll_to_item(col_ix, ScrollStrategy::Top),
+        }
+
         cx.notify();
     }
 
+    /// The horizontal scroll offset that brings the scrollable (non-fixed)
+    /// column at `col_ix` fully into view.
+    ///
+    /// This mirrors the nearest-edge behavior of [`VirtualListScrollHandle::scroll_to_item`]
+    /// with [`ScrollStrategy::Top`]: an already visible column keeps the current
+    /// offset, otherwise the column is aligned to the edge it overflows. Both
+    /// of those move the offset towards a column that exists, so the result
+    /// never runs past the content and needs no extra clamping.
+    ///
+    /// Returns `None` when the viewport size is not known yet, or when `col_ix`
+    /// is out of range.
+    fn horizontal_offset_for_col(&self, col_ix: usize) -> Option<Pixels> {
+        let viewport_width = self.horizontal_scroll_handle.bounds().size.width;
+        if viewport_width <= px(0.) {
+            return None;
+        }
+
+        let cols = self.col_groups.get(self.fixed_left_cols_count()..)?;
+        let col_left: Pixels = cols.get(..col_ix)?.iter().map(|col| col.width).sum();
+        let col_right = col_left + cols.get(col_ix)?.width;
+        let offset_x = self.horizontal_scroll_handle.offset().x;
+
+        Some(if col_left + offset_x < px(0.) {
+            -col_left
+        } else if col_right + offset_x > viewport_width {
+            viewport_width - col_right
+        } else {
+            offset_x
+        })
+    }
+
+    /// Returns the current selection as one value.
+    ///
+    /// A selected cell reports as [`TableSelection::Cell`] only; use
+    /// `selected_cell().map(|(row_ix, _)| row_ix)` when the cell's row is wanted.
+    pub fn selection(&self) -> TableSelection {
+        if let Some(row_ix) = self.selected_row() {
+            TableSelection::Row(row_ix)
+        } else if let Some(col_ix) = self.selected_col() {
+            TableSelection::Column(col_ix)
+        } else if let Some((row_ix, col_ix)) = self.selected_cell() {
+            TableSelection::Cell(row_ix, col_ix)
+        } else {
+            TableSelection::None
+        }
+    }
+
     /// Returns the selected row index.
+    ///
+    /// `Some` only when a row itself is selected; a selected cell does not
+    /// count, see [`TableState::selection`].
     pub fn selected_row(&self) -> Option<usize> {
-        self.selected_row
+        self.selected_row.filter(|_| self.selection_mode.is_row())
     }
 
     /// Sets the selected row to the given index.
@@ -406,7 +539,6 @@ where
             None => true,
         };
 
-        cx.stop_propagation();
         self.selection_mode = SelectionMode::Row;
         self.right_clicked_row = None;
         self.selected_row = Some(row_ix);
@@ -430,6 +562,11 @@ where
         self.right_clicked_row
     }
 
+    /// Returns the cell that has been right clicked, as `(row_ix, col_ix)`.
+    pub fn right_clicked_cell(&self) -> Option<(usize, usize)> {
+        self.right_clicked_cell
+    }
+
     /// Set or clear the right-clicked row state.
     ///
     /// Pass `None` to clear — useful when opening a header context menu
@@ -440,8 +577,12 @@ where
     }
 
     /// Returns the selected column index.
+    ///
+    /// `Some` only when a column itself is selected; a selected cell does not
+    /// count, see [`TableState::selection`].
     pub fn selected_col(&self) -> Option<usize> {
         self.selected_col
+            .filter(|_| self.selection_mode.is_column())
     }
 
     /// Sets the selected col to the given index.
@@ -457,7 +598,7 @@ where
 
     /// Returns the selected cell as `(row_ix, col_ix)`.
     ///
-    /// Returns `None` if no cell is currently selected or if the table is in row/column selection mode.
+    /// `Some` only when a cell is selected; see [`TableState::selection`].
     ///
     /// # Example
     ///
@@ -467,7 +608,7 @@ where
     /// }
     /// ```
     pub fn selected_cell(&self) -> Option<(usize, usize)> {
-        self.selected_cell
+        self.selected_cell.filter(|_| self.selection_mode.is_cell())
     }
 
     /// Sets the selected cell to the given row and column indices.
@@ -488,6 +629,7 @@ where
     pub fn set_selected_cell(&mut self, row_ix: usize, col_ix: usize, cx: &mut Context<Self>) {
         self.selection_mode = SelectionMode::Cell;
         self.selected_cell = Some((row_ix, col_ix));
+        self.right_clicked_cell = None;
 
         // Scroll to the cell
         self.vertical_scroll_handle
@@ -496,6 +638,19 @@ where
 
         cx.emit(TableEvent::SelectCell(row_ix, col_ix));
         cx.notify();
+    }
+
+    /// Sets the selection as one value; [`TableSelection::None`] clears it.
+    ///
+    /// Scrolls and emits exactly as the matching `set_selected_*` or
+    /// [`TableState::clear_selection`] call would.
+    pub fn set_selection(&mut self, selection: TableSelection, cx: &mut Context<Self>) {
+        match selection {
+            TableSelection::None => self.clear_selection(cx),
+            TableSelection::Row(row_ix) => self.set_selected_row(row_ix, cx),
+            TableSelection::Column(col_ix) => self.set_selected_col(col_ix, cx),
+            TableSelection::Cell(row_ix, col_ix) => self.set_selected_cell(row_ix, col_ix, cx),
+        }
     }
 
     /// Clear the selection of the table.
@@ -515,11 +670,11 @@ where
         &self.visible_range
     }
 
-    /// Dump table data.
+    /// Dump the header row of the table.
     ///
-    /// Returns a tuple of (headers, rows) where each row is a vector of cell values.
-    pub fn dump(&self, cx: &App) -> (Vec<String>, Vec<Vec<String>>) {
-        // Get header row
+    /// Batched exporters can read the headers once with this, then stream the
+    /// rows with [`Self::dump_range`].
+    pub fn headers(&self, cx: &App) -> Vec<String> {
         let columns_count = self.delegate.columns_count(cx);
         let mut headers = Vec::with_capacity(columns_count);
         for col_ix in 0..columns_count {
@@ -527,10 +682,34 @@ where
             headers.push(column.name.to_string());
         }
 
-        // Get data rows
+        headers
+    }
+
+    /// Dump table data.
+    ///
+    /// Returns a tuple of (headers, rows) where each row is a vector of cell values.
+    ///
+    /// This materializes the complete table in memory. For large tables, prefer
+    /// [`Self::dump_range`] and process rows in batches.
+    pub fn dump(&self, cx: &App) -> (Vec<String>, Vec<Vec<String>>) {
+        self.dump_range(0..self.delegate.rows_count(cx), cx)
+    }
+
+    /// Dump table data for the specified row range.
+    ///
+    /// Returns the same `(headers, rows)` shape as [`Self::dump`], with only
+    /// the rows inside the clamped range.
+    ///
+    /// The requested range is clamped to the table's current row count. For
+    /// large tables, callers can invoke this repeatedly with bounded ranges.
+    pub fn dump_range(&self, range: Range<usize>, cx: &App) -> (Vec<String>, Vec<Vec<String>>) {
+        let columns_count = self.delegate.columns_count(cx);
         let rows_count = self.delegate.rows_count(cx);
-        let mut rows = Vec::with_capacity(rows_count);
-        for row_ix in 0..rows_count {
+        let start = range.start.min(rows_count);
+        let end = range.end.min(rows_count).max(start);
+
+        let mut rows = Vec::with_capacity(end - start);
+        for row_ix in start..end {
             let mut row = Vec::with_capacity(columns_count);
             for col_ix in 0..columns_count {
                 row.push(self.delegate.cell_text(row_ix, col_ix, cx));
@@ -538,7 +717,7 @@ where
             rows.push(row);
         }
 
-        (headers, rows)
+        (self.headers(cx), rows)
     }
 
     /// Re-compute the header layout from the current delegate.
@@ -625,11 +804,24 @@ where
             .count()
     }
 
+    /// One header row. An unset header height matches the body rows.
+    fn header_row_height(&self) -> Pixels {
+        self.options
+            .header_row_height
+            .unwrap_or(self.options.size.table_row_height())
+    }
+
+    /// Every header row, including column-group rows. An empty layout still
+    /// reserves one row, matching the vertical scrollbar's top inset.
+    fn header_band_height(&self) -> Pixels {
+        self.header_row_height() * self.header_layout.len().max(1) as f32
+    }
+
     fn page_item_count(&self) -> usize {
         let row_height = self.options.size.table_row_height();
-        let height = self.bounds.size.height;
-        let count = (height / row_height).floor() as usize;
-        count.saturating_sub(1).max(1)
+        let body_height = (self.bounds.size.height - self.header_band_height()).max(px(0.));
+        let count = (body_height / row_height).floor() as usize;
+        count.max(1)
     }
 
     fn on_row_right_click(
@@ -673,11 +865,20 @@ where
             return;
         }
 
-        self.set_selected_row(row_ix, cx);
+        cx.stop_propagation();
+        if self.selects_row_on_click(e, cx) {
+            self.set_selected_row(row_ix, cx);
+        }
 
         if e.click_count() == 2 {
             cx.emit(TableEvent::DoubleClickedRow(row_ix));
         }
+    }
+
+    /// Whether a click on a row selects it, see `select_on_modifier_click`.
+    fn selects_row_on_click(&self, e: &ClickEvent, cx: &App) -> bool {
+        let modifiers = e.modifiers();
+        self.select_on_modifier_click || !(modifiers.secondary(cx) || modifiers.shift)
     }
 
     fn on_col_head_click(&mut self, col_ix: usize, _: &mut Window, cx: &mut Context<Self>) {
@@ -717,10 +918,12 @@ where
         // giving users a way to pick rows without the dedicated header column.
         // Double-clicks are passed through to `DoubleClickedCell` and never
         // trigger the escalation.
-        let is_reselect =
-            self.selection_mode.is_cell() && self.selected_cell == Some((row_ix, col_ix));
-        let should_escalate_to_row =
-            !self.row_header && self.row_selectable && is_reselect && !is_double_click;
+        let is_reselect = self.selected_cell() == Some((row_ix, col_ix));
+        let should_escalate_to_row = !self.row_header
+            && self.row_selectable
+            && is_reselect
+            && !is_double_click
+            && self.selects_row_on_click(e, cx);
         if should_escalate_to_row {
             self.set_selected_row(row_ix, cx);
             return;
@@ -734,7 +937,7 @@ where
     }
 
     fn has_selection(&self) -> bool {
-        self.selected_row.is_some() || self.selected_col.is_some() || self.selected_cell.is_some()
+        self.selection() != TableSelection::None
     }
 
     pub(super) fn action_cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
@@ -775,6 +978,9 @@ where
         }
 
         // Row selection mode
+        if !self.row_selectable {
+            return;
+        }
         let mut selected_row = self.selected_row.unwrap_or(0);
         if selected_row > 0 {
             selected_row = selected_row.saturating_sub(1);
@@ -817,6 +1023,9 @@ where
         }
 
         // Row selection mode
+        if !self.row_selectable {
+            return;
+        }
         let selected_row = match self.selected_row {
             Some(selected_row) if selected_row < rows_count.saturating_sub(1) => selected_row + 1,
             Some(selected_row) => {
@@ -849,6 +1058,14 @@ where
             return;
         }
 
+        // Row selection mode: Home goes to the first row, as in a list
+        if self.selection_mode.is_row() && self.row_selectable {
+            if self.delegate.rows_count(cx) > 0 {
+                self.set_selected_row(0, cx);
+            }
+            return;
+        }
+
         // Column selection mode
         self.set_selected_col(0, cx);
     }
@@ -868,6 +1085,15 @@ where
             } else {
                 // No cell selected, select last cell of first row
                 self.set_selected_cell(0, columns_count.saturating_sub(1), cx);
+            }
+            return;
+        }
+
+        // Row selection mode: End goes to the last row, as in a list
+        if self.selection_mode.is_row() && self.row_selectable {
+            let rows_count = self.delegate.rows_count(cx);
+            if rows_count > 0 {
+                self.set_selected_row(rows_count - 1, cx);
             }
             return;
         }
@@ -897,6 +1123,9 @@ where
         }
 
         // Row selection mode
+        if !self.row_selectable {
+            return;
+        }
         let current = self.selected_row.unwrap_or(0);
         let target = current.saturating_sub(step);
         self.set_selected_row(target, cx);
@@ -929,6 +1158,9 @@ where
         }
 
         // Row selection mode
+        if !self.row_selectable {
+            return;
+        }
         let current = self.selected_row.unwrap_or(0);
         let max_row = rows_count.saturating_sub(1);
         let target = (current + step).min(max_row);
@@ -1039,17 +1271,76 @@ where
         self.horizontal_scroll_handle.set_offset(offset);
     }
 
+    /// The width column `col_ix` is drawn at now, or `None` past the last
+    /// column.
+    ///
+    /// This is the table's own width, which follows a drag or a fit as it
+    /// happens; the delegate's [`Column::width`] is read again only on
+    /// [`Self::refresh`].
+    pub fn col_width(&self, col_ix: usize) -> Option<Pixels> {
+        self.col_groups.get(col_ix).map(|group| group.width)
+    }
+
+    /// Fits column `col_ix` to its content, as a double-click on its resize
+    /// handle does.
+    ///
+    /// The width is [`TableDelegate::fit_column`] plus the cell padding,
+    /// clamped to the column's `min_width` and `max_width`, and
+    /// [`TableEvent::ColumnWidthsChanged`] is emitted when it changed. Returns
+    /// whether the delegate gave a width: `false` when the column cannot be
+    /// resized or the delegate answered `None`.
+    pub fn fit_col(&mut self, col_ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.is_col_resizable(col_ix) {
+            return false;
+        }
+        let Some(content) = self.delegate.fit_column(col_ix, window, cx) else {
+            return false;
+        };
+        let padding = self
+            .col_groups
+            .get(col_ix)
+            .and_then(|group| group.column.paddings)
+            .unwrap_or_else(|| self.options.size.table_cell_padding());
+        // Layout rounds a width to the nearest device pixel, and text even a
+        // fraction of a pixel wider than its cell is truncated, so round every
+        // part up to a whole device pixel.
+        let scale_factor = window.scale_factor();
+        let device_pixels = |length: Pixels| (f32::from(length) * scale_factor).ceil();
+        let mut content_pixels = device_pixels(content);
+        // Dividing back can land one ulp below the content at a fractional
+        // scale, and the text is cut for that ulp too.
+        if px(content_pixels / scale_factor) < content {
+            content_pixels += 1.;
+        }
+        let width = content_pixels + device_pixels(padding.left) + device_pixels(padding.right);
+        if self.resize_cols(col_ix, px(width / scale_factor), window, cx) {
+            let new_widths = self.col_groups.iter().map(|g| g.width).collect();
+            cx.emit(TableEvent::ColumnWidthsChanged(new_widths));
+        }
+        true
+    }
+
     /// The `ix`` is the index of the col to resize,
     /// and the `size` is the new size for the col.
-    fn resize_cols(&mut self, ix: usize, size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
+    ///
+    /// Returns whether the width changed.
+    fn resize_cols(
+        &mut self,
+        ix: usize,
+        size: Pixels,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.col_resizable {
-            return;
+            return false;
         }
 
         let mut changed = false;
         if let Some(col_group) = self.col_groups.get_mut(ix) {
             if col_group.is_resizable() {
-                let new_width = size.clamp(col_group.column.min_width, col_group.column.max_width);
+                let new_width = size
+                    .max(col_group.column.min_width)
+                    .min(col_group.column.max_width);
                 if col_group.width != new_width {
                     col_group.width = new_width;
                     changed = true;
@@ -1061,6 +1352,7 @@ where
             self.update_header_layout(cx);
             cx.notify();
         }
+        changed
     }
 
     fn perform_sort(&mut self, col_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -1120,10 +1412,20 @@ where
     fn drag_gap_at(&self, x: Pixels, drag_col_ix: usize) -> Option<usize> {
         let fixed_count = self.fixed_left_cols_count();
 
+        // A column can only be reordered within its own region: rendering
+        // pins the first `fixed_count` columns, so a cross-region move would
+        // change which columns are pinned without updating their `fixed`
+        // flags.
+        let drag_in_fixed = drag_col_ix < fixed_count;
+        let pointer_in_fixed = fixed_count > 0 && x < self.fixed_head_cols_bounds.right();
+        if drag_in_fixed != pointer_in_fixed {
+            return None;
+        }
+
         // Columns scrolled beneath the fixed region keep stale bounds, so
         // resolve `x` against the fixed columns alone when it falls in that
         // region, and against the visible scrollable columns otherwise.
-        let candidates = if fixed_count > 0 && x < self.fixed_head_cols_bounds.right() {
+        let candidates = if pointer_in_fixed {
             0..fixed_count
         } else {
             self.calculate_visible_leaf_col_range(fixed_count).0
@@ -1173,13 +1475,22 @@ where
     fn update_visible_range_if_need(
         &mut self,
         visible_range: Range<usize>,
+        items_count: usize,
         axis: Axis,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Skip when visible range is only 1 item.
+        // Skip when visible range is only 1 item, unless there is at most 1 item.
         // The visual_list will use first item to measure.
-        if visible_range.len() <= 1 {
+        if visible_range.len() <= 1 && items_count > 1 {
+            return;
+        }
+
+        // Stripe filler rows are rendered past the last row; never report them.
+        let end = visible_range.end.min(items_count);
+        let visible_range = visible_range.start.min(end)..end;
+        // A range wholly past the last item is stale; the list scrolls back next frame.
+        if visible_range.is_empty() && items_count > 0 {
             return;
         }
 
@@ -1221,6 +1532,13 @@ where
             .overflow_hidden()
             .whitespace_nowrap()
             .table_cell_size(self.options.size)
+            // Text alignment is inherited, so this aligns the header name and
+            // the delegate's cell text without changing how cells lay out.
+            .map(|this| match col_group.column.align {
+                TextAlign::Center => this.text_center(),
+                TextAlign::Right => this.text_right(),
+                _ => this,
+            })
             .map(|this| match col_padding {
                 Some(padding) => this
                     .pl(padding.left)
@@ -1229,6 +1547,40 @@ where
                     .pb(padding.bottom),
                 None => this,
             })
+    }
+
+    /// Expose a body cell to assistive technology: its role, its column and
+    /// the delegate's [`cell_label`](TableDelegate::cell_label).
+    ///
+    /// In cell selection mode the cell is a `GridCell` that reports whether it
+    /// is selected; otherwise it is a plain `Cell`.
+    fn a11y_cell<E>(&self, cell: E, row_ix: usize, col_ix: usize, window: &Window, cx: &App) -> E
+    where
+        E: gpui::StatefulInteractiveElement + FluentBuilder,
+    {
+        let cell = if self.cell_selectable {
+            let is_selected = self.selected_cell() == Some((row_ix, col_ix));
+            cell.role(gpui::Role::GridCell)
+                .aria_selected(is_selected)
+                // While the table has focus, the selected cell is the
+                // focused node for assistive technology.
+                .when(
+                    is_selected && self.focus_handle.is_focused(window),
+                    |this| this.aria_active_descendant(),
+                )
+        } else {
+            cell.role(gpui::Role::Cell)
+        };
+        // Labels are only read through the accessibility tree, so skip
+        // building them when no assistive technology is connected (tests
+        // read them through test support).
+        let label = if window.is_a11y_active() || cfg!(feature = "test-support") {
+            self.delegate.cell_label(row_ix, col_ix, cx)
+        } else {
+            None
+        };
+        cell.aria_column_index(col_ix)
+            .when_some(label, |this, label| this.aria_label(label))
     }
 
     /// Show Column selection style, when the column is selected and the selection state is Column.
@@ -1248,46 +1600,64 @@ where
                 .map(|col_group| col_group.column.selectable)
                 .unwrap_or(false);
 
-        // Don't show column selection if a cell is selected
-        if self.selection_mode.is_cell() {
-            return el;
-        }
-
-        if selectable && self.selected_col == Some(col_ix) && self.selection_mode.is_column() {
+        // `selected_col()` is `None` outside column mode, so a selected cell
+        // never leaves its column highlighted.
+        if selectable && self.selected_col() == Some(col_ix) {
             el.bg(cx.theme().tokens.table_active)
         } else {
             el
         }
     }
 
+    /// The other half of that band, for the boundary on the *left* of column
+    /// `ix` — the one owned by column `ix - 1`.
+    ///
+    /// It is positioned absolutely so that reaching back over the boundary
+    /// costs the header row no width, and it paints after this column's own
+    /// cell so that it, and not a column reorder, receives the drag.
+    fn render_leading_resize_handle(
+        &self,
+        ix: usize,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let Some(prev) = ix.checked_sub(1).filter(|ix| self.is_col_resizable(*ix)) else {
+            return div().into_any_element();
+        };
+
+        self.resize_handle_band(prev, ("resizable-handle-leading", ix).into(), cx)
+            .absolute()
+            .top_0()
+            .left_0()
+            .h_full()
+            .w(HANDLE_PADDING)
+            .into_any_element()
+    }
+
+    /// The half of column `ix`'s resize handle that lies inside column `ix`,
+    /// along with the hairline that marks the boundary.
+    ///
+    /// It is [`HANDLE_PADDING`] wide, like the half on the far side, so the
+    /// grab area is symmetric about the boundary. The negative margin keeps
+    /// the band's net contribution to the header row zero, and `justify_end`
+    /// pins the hairline to the column edge.
     fn render_resize_handle(
         &self,
         ix: usize,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        const HANDLE_SIZE: Pixels = px(2.);
-
-        let resizable = self.col_resizable
-            && self
-                .col_groups
-                .get(ix)
-                .map(|col| col.is_resizable())
-                .unwrap_or(false);
-        if !resizable {
+        if !self.is_col_resizable(ix) {
             return div().into_any_element();
         }
 
         let group_id = SharedString::from(format!("resizable-handle:{}", ix));
 
-        h_flex()
-            .id(("resizable-handle", ix))
+        self.resize_handle_band(ix, ("resizable-handle", ix).into(), cx)
             .group(group_id.clone())
-            .occlude()
-            .cursor_col_resize()
             .h_full()
-            .w(HANDLE_SIZE)
-            .ml(-(HANDLE_SIZE))
+            .w(HANDLE_PADDING)
+            .ml(-HANDLE_PADDING)
             .justify_end()
             .items_center()
             .child(
@@ -1298,6 +1668,37 @@ where
                     .group_hover(&group_id, |this| this.bg(cx.theme().border).h_full())
                     .w(px(1.)),
             )
+            .into_any_element()
+    }
+
+    fn is_col_resizable(&self, ix: usize) -> bool {
+        self.col_resizable
+            && self
+                .col_groups
+                .get(ix)
+                .map(|col| col.is_resizable())
+                .unwrap_or(false)
+    }
+
+    /// The interactive band that drags the boundary on the right of column
+    /// `ix`, carrying no styling that places or paints it.
+    ///
+    /// Paint order decides which element is offered a drag first: later
+    /// siblings win, and a header cell starts a column reorder. So a single
+    /// band straddling the boundary would lose its outer half to the next
+    /// column's cell. Each boundary is covered by two bands instead, one in
+    /// the `th` on either side, each rendered after that `th`'s own cell and
+    /// so above everything it overlaps.
+    fn resize_handle_band(
+        &self,
+        ix: usize,
+        id: ElementId,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        h_flex()
+            .id(id)
+            .occlude()
+            .cursor_col_resize()
             .on_drag_move(
                 cx.listener(move |view, e: &DragMoveEvent<ResizeColumn>, window, cx| {
                     match e.drag(cx) {
@@ -1313,6 +1714,9 @@ where
                             // }
 
                             let ix = *ix;
+                            if view.fitted_col == Some(ix) {
+                                return;
+                            }
                             view.resizing_col = Some(ix);
 
                             let col_group = view
@@ -1321,9 +1725,17 @@ where
                                 .expect("BUG: invalid col index")
                                 .clone();
 
+                            // The width at the press, plus how far the pointer
+                            // has moved since. The column's left edge isn't a
+                            // fixed point: it moves when the table scrolls,
+                            // and the scroll offset clamps as the columns
+                            // narrow.
+                            let Some(origin) = view.resize_origin else {
+                                return;
+                            };
                             view.resize_cols(
                                 ix,
-                                e.event.position.x - HANDLE_SIZE - col_group.bounds.left(),
+                                origin.width + (e.event.position.x - origin.x),
                                 window,
                                 cx,
                             );
@@ -1338,9 +1750,24 @@ where
                 cx.stop_propagation();
                 cx.new(|_| drag.clone())
             })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, e: &MouseDownEvent, window, cx| {
+                    view.resize_origin = view.col_groups.get(ix).map(|col_group| ResizeOrigin {
+                        x: e.position.x,
+                        width: col_group.width,
+                    });
+                    if e.click_count == 1 {
+                        view.fitted_col = None;
+                    } else if e.click_count == 2 && view.fit_col(ix, window, cx) {
+                        view.fitted_col = Some(ix);
+                    }
+                }),
+            )
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|view, _, _, cx| {
+                    view.resize_origin = None;
                     if view.resizing_col.is_none() {
                         return;
                     }
@@ -1352,7 +1779,22 @@ where
                     cx.notify();
                 }),
             )
-            .into_any_element()
+    }
+
+    /// The border on the right edge of the fixed columns, unless turned off
+    /// with [`DataTable::fixed_cols_border`].
+    fn render_fixed_cols_border(&self, cx: &App) -> Option<Div> {
+        self.options.fixed_cols_border.then(|| {
+            div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .bottom_0()
+                .w_0()
+                .flex_shrink_0()
+                .border_r_1()
+                .border_color(cx.theme().border)
+        })
     }
 
     /// Render the row header cell (when cell_selectable is enabled)
@@ -1373,8 +1815,11 @@ where
             .table_cell_size(self.options.size)
             .when(!is_head, |this| {
                 this.when(self.row_selectable, |this| {
-                    this.on_click(cx.listener(move |table, _, _window, cx| {
-                        table.set_selected_row(row_ix, cx);
+                    this.on_click(cx.listener(move |table, e: &ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        if table.selects_row_on_click(e, cx) {
+                            table.set_selected_row(row_ix, cx);
+                        }
                     }))
                 })
             })
@@ -1404,6 +1849,9 @@ where
         Some(
             div()
                 .id(("icon-sort", col_ix))
+                .test_support()
+                .role(gpui::Role::Button)
+                .aria_label(t!("Table.SortBy", column = col_group.column.name).to_string())
                 .p(px(2.))
                 .rounded(cx.theme().radius / 2.)
                 .map(|this| match is_on {
@@ -1440,6 +1888,10 @@ where
             .child(
                 self.render_cell(None, col_ix, window, cx)
                     .id(("col-header", col_ix))
+                    .role(gpui::Role::ColumnHeader)
+                    .aria_label(name.clone())
+                    .aria_column_index(col_ix)
+                    .test_support()
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.on_col_head_click(col_ix, window, cx);
                     }))
@@ -1497,8 +1949,10 @@ where
                         }
                     }),
             )
-            // resize handle
+            // resize handle cell right side
             .child(self.render_resize_handle(col_ix, window, cx))
+            // resize handle cell left side
+            .child(self.render_leading_resize_handle(col_ix, window, cx))
             // to save the bounds of this col.
             .on_prepaint({
                 let view = cx.entity().clone();
@@ -1591,6 +2045,7 @@ where
             self.calculate_visible_leaf_col_range(left_columns_count);
 
         let layout_len = self.header_layout.len();
+        let header_row_height = self.header_row_height();
 
         // Reset fixed head columns bounds, if no fixed columns are present
         if left_columns_count == 0 {
@@ -1602,6 +2057,10 @@ where
         let layout = self.header_layout.clone();
 
         header
+            // One header row holds every column header, including the pinned
+            // ones, which are laid out in a separate container.
+            .role(gpui::Role::Row)
+            .aria_row_index(0)
             .h_flex()
             .w_full()
             .flex_shrink_0()
@@ -1651,7 +2110,7 @@ where
                             layout.iter().enumerate().map(|(_row_ix, row_cells)| {
                                 h_flex()
                                     .min_w_full()
-                                    .h(self.options.size.table_row_height())
+                                    .h(header_row_height)
                                     .border_b_1()
                                     .border_color(cx.theme().border)
                                     .children(row_cells.iter().filter_map(|cell| {
@@ -1681,18 +2140,7 @@ where
                                     }))
                             }),
                         ))
-                        .child(
-                            // Fixed columns border
-                            div()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .bottom_0()
-                                .w_0()
-                                .flex_shrink_0()
-                                .border_r_1()
-                                .border_color(cx.theme().border),
-                        )
+                        .children(self.render_fixed_cols_border(cx))
                         .on_prepaint(move |bounds, _, cx| {
                             view.update(cx, |r, _| r.fixed_head_cols_bounds = bounds)
                         }),
@@ -1712,7 +2160,7 @@ where
                             let is_leaf_row = row_ix + 1 == layout_len;
                             h_flex()
                                 .min_w_full()
-                                .h(self.options.size.table_row_height())
+                                .h(header_row_height)
                                 .border_b_1()
                                 .border_color(cx.theme().border)
                                 .map(|this| {
@@ -1794,10 +2242,11 @@ where
         is_filled: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let horizontal_scroll_handle = self.horizontal_scroll_handle.clone();
+    ) -> gpui::AnyElement {
         let is_stripe_row = self.options.stripe && row_ix % 2 != 0;
-        let is_selected = self.selected_row == Some(row_ix);
+        // `selected_row()` is `None` outside row mode, so a selected cell or
+        // column never highlights its row.
+        let is_selected = self.selected_row() == Some(row_ix);
         let view = cx.entity().clone();
         let row_height = self.options.size.table_row_height();
 
@@ -1808,7 +2257,18 @@ where
             let mut tr = self.delegate.render_tr(row_ix, window, cx);
             let style = tr.style().clone();
 
-            tr.h_flex()
+            tr.test_support()
+                .role(gpui::Role::Row)
+                // Row 0 is the header row.
+                .aria_row_index(row_ix + 1)
+                .aria_selected(is_selected)
+                // While the table has focus, the selected row is the focused
+                // node for assistive technology.
+                .when(
+                    is_selected && self.focus_handle.is_focused(window),
+                    |this| this.aria_active_descendant(),
+                )
+                .h_flex()
                 .w_full()
                 .h(row_height)
                 .when(need_render_border, |this| {
@@ -1836,87 +2296,82 @@ where
                                 let mut items = Vec::with_capacity(left_columns_count);
 
                                 (0..left_columns_count).for_each(|col_ix| {
-                                    let is_cell_selected = self.selected_cell
-                                        == Some((row_ix, col_ix))
-                                        && self.selection_mode.is_cell();
+                                    let is_cell_selected =
+                                        self.selected_cell() == Some((row_ix, col_ix));
                                     let is_cell_right_clicked =
                                         self.right_clicked_cell == Some((row_ix, col_ix));
 
                                     items.push(
                                         self.render_col_wrap(Some(row_ix), col_ix, window, cx)
                                             .child(
-                                                self.render_cell(Some(row_ix), col_ix, window, cx)
+                                                self.a11y_cell(
+                                                    self.render_cell(
+                                                        Some(row_ix),
+                                                        col_ix,
+                                                        window,
+                                                        cx,
+                                                    )
                                                     .id(format!("table-cell:{}:{}", row_ix, col_ix))
-                                                    .relative()
-                                                    .child(self.measure_render_td(
+                                                    .test_support(),
+                                                    row_ix,
+                                                    col_ix,
+                                                    window,
+                                                    cx,
+                                                )
+                                                .relative()
+                                                .child(
+                                                    self.measure_render_td(
                                                         row_ix, col_ix, window, cx,
-                                                    ))
-                                                    .when(is_cell_selected, |this| {
+                                                    ),
+                                                )
+                                                .when(is_cell_selected, |this| {
+                                                    this.child(
+                                                        div()
+                                                            .absolute()
+                                                            .inset_0()
+                                                            .bg(cx.theme().tokens.table_active),
+                                                    )
+                                                })
+                                                .when(
+                                                    is_cell_right_clicked && !is_cell_selected,
+                                                    |this| {
                                                         this.child(
                                                             div()
                                                                 .absolute()
                                                                 .inset_0()
-                                                                .bg(cx.theme().tokens.table_active)
                                                                 .border_1()
                                                                 .border_color(
-                                                                    cx.theme().table_active_border,
+                                                                    cx.theme()
+                                                                        .table_active_border
+                                                                        .opacity(0.5),
                                                                 ),
                                                         )
-                                                    })
-                                                    .when(
-                                                        is_cell_right_clicked && !is_cell_selected,
-                                                        |this| {
-                                                            this.child(
-                                                                div()
-                                                                    .absolute()
-                                                                    .inset_0()
-                                                                    .border_1()
-                                                                    .border_color(
-                                                                        cx.theme()
-                                                                            .table_active_border
-                                                                            .opacity(0.5),
-                                                                    ),
-                                                            )
+                                                    },
+                                                )
+                                                .when(self.cell_selectable, |this| {
+                                                    this.on_click(cx.listener(
+                                                        move |table, e, window, cx| {
+                                                            table.on_cell_click(
+                                                                e, row_ix, col_ix, window, cx,
+                                                            );
                                                         },
+                                                    ))
+                                                    .on_mouse_down(
+                                                        MouseButton::Right,
+                                                        cx.listener(move |table, e, window, cx| {
+                                                            table.on_cell_right_click(
+                                                                e, row_ix, col_ix, window, cx,
+                                                            );
+                                                        }),
                                                     )
-                                                    .when(self.cell_selectable, |this| {
-                                                        this.on_click(cx.listener(
-                                                            move |table, e, window, cx| {
-                                                                table.on_cell_click(
-                                                                    e, row_ix, col_ix, window, cx,
-                                                                );
-                                                            },
-                                                        ))
-                                                        .on_mouse_down(
-                                                            MouseButton::Right,
-                                                            cx.listener(
-                                                                move |table, e, window, cx| {
-                                                                    table.on_cell_right_click(
-                                                                        e, row_ix, col_ix, window,
-                                                                        cx,
-                                                                    );
-                                                                },
-                                                            ),
-                                                        )
-                                                    }),
+                                                }),
                                             ),
                                     );
                                 });
 
                                 items
                             })
-                            .child(
-                                // Fixed columns border
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .right_0()
-                                    .bottom_0()
-                                    .w_0()
-                                    .flex_shrink_0()
-                                    .border_r_1()
-                                    .border_color(cx.theme().border),
-                            ),
+                            .children(self.render_fixed_cols_border(cx)),
                     )
                 })
                 .child(
@@ -1935,6 +2390,7 @@ where
                                     move |table, visible_range: Range<usize>, window, cx| {
                                         table.update_visible_range_if_need(
                                             visible_range.clone(),
+                                            columns_count.saturating_sub(left_columns_count),
                                             Axis::Horizontal,
                                             window,
                                             cx,
@@ -1946,9 +2402,8 @@ where
 
                                         visible_range.for_each(|col_ix| {
                                             let col_ix = col_ix + left_columns_count;
-                                            let is_cell_selected = table.selected_cell
-                                                == Some((row_ix, col_ix))
-                                                && table.selection_mode.is_cell();
+                                            let is_cell_selected =
+                                                table.selected_cell() == Some((row_ix, col_ix));
                                             let is_cell_right_clicked =
                                                 table.right_clicked_cell == Some((row_ix, col_ix));
 
@@ -1956,34 +2411,34 @@ where
                                                 .render_col_wrap(Some(row_ix), col_ix, window, cx)
                                                 .child(
                                                     table
-                                                        .render_cell(
-                                                            Some(row_ix),
+                                                        .a11y_cell(
+                                                            table
+                                                                .render_cell(
+                                                                    Some(row_ix),
+                                                                    col_ix,
+                                                                    window,
+                                                                    cx,
+                                                                )
+                                                                .id(format!(
+                                                                    "table-cell-{}:{}",
+                                                                    row_ix, col_ix
+                                                                ))
+                                                                .test_support(),
+                                                            row_ix,
                                                             col_ix,
                                                             window,
                                                             cx,
                                                         )
-                                                        .id(format!(
-                                                            "table-cell-{}:{}",
-                                                            row_ix, col_ix
-                                                        ))
                                                         .relative()
                                                         .child(table.measure_render_td(
                                                             row_ix, col_ix, window, cx,
                                                         ))
                                                         .when(is_cell_selected, |this| {
                                                             this.child(
-                                                                div()
-                                                                    .absolute()
-                                                                    .inset_0()
-                                                                    .bg(cx
-                                                                        .theme()
-                                                                        .tokens
-                                                                        .table_active)
-                                                                    .border_1()
-                                                                    .border_color(
-                                                                        cx.theme()
-                                                                            .table_active_border,
-                                                                    ),
+                                                                div().absolute().inset_0().bg(cx
+                                                                    .theme()
+                                                                    .tokens
+                                                                    .table_active),
                                                             )
                                                         })
                                                         .when(
@@ -2039,27 +2494,13 @@ where
                         .child(self.delegate.render_last_empty_col(window, cx)),
                 )
                 // Row selected style
-                // Note: Don't show row selection if a cell is selected
-                .when_some(self.selected_row, |this, _| {
-                    this.when(is_selected && self.selection_mode.is_row(), |this| {
-                        this.map(|this| {
-                            if cx.theme().list.active_highlight {
-                                this.border_color(gpui::transparent_white()).child(
-                                    div()
-                                        .top(if row_ix == 0 { px(0.) } else { px(-1.) })
-                                        .left(px(0.))
-                                        .right(px(0.))
-                                        .bottom(px(-1.))
-                                        .absolute()
-                                        .bg(cx.theme().tokens.table_active)
-                                        .border_1()
-                                        .border_color(cx.theme().table_active_border),
-                                )
-                            } else {
-                                this.bg(cx.theme().tokens.accent)
-                            }
-                        })
-                    })
+                .when(is_selected, |this| {
+                    let bg = if cx.theme().list.active_highlight {
+                        cx.theme().tokens.table_active
+                    } else {
+                        cx.theme().tokens.accent
+                    };
+                    this.bg(bg)
                 })
                 // Row right click row style
                 .when(self.right_clicked_row == Some(row_ix), |this| {
@@ -2083,7 +2524,15 @@ where
                 .on_click(cx.listener(move |this, e, window, cx| {
                     this.on_row_left_click(e, row_ix, window, cx);
                 }))
+                .into_any_element()
         } else {
+            let cols_width: Pixels = self
+                .col_groups
+                .iter()
+                .take(columns_count)
+                .map(|col_group| col_group.width)
+                .sum();
+
             // Render fake rows to fill the rest table space
             self.delegate
                 .render_tr(row_ix, window, cx)
@@ -2103,12 +2552,12 @@ where
                             .table_cell_size(self.options.size),
                     )
                 })
-                .children((0..columns_count).map(|col_ix| {
-                    h_flex()
-                        .left(horizontal_scroll_handle.offset().x)
-                        .child(self.render_cell(None, col_ix, window, cx))
-                }))
+                // The fake cells paint nothing, so a single spacer as wide as all
+                // the columns keeps the last empty column in place without laying
+                // out one element per column.
+                .child(div().flex_shrink_0().h_full().w(cols_width))
                 .child(self.delegate.render_last_empty_col(window, cx))
+                .into_any_element()
         }
     }
 
@@ -2180,7 +2629,7 @@ where
         Some(
             div()
                 .absolute()
-                .top(self.options.size.table_row_height() * self.header_layout.len().max(1) as f32)
+                .top(self.header_band_height())
                 .right_0()
                 .bottom_0()
                 .w(Scrollbar::width())
@@ -2250,7 +2699,7 @@ where
         } else {
             rows_count
         };
-        let right_clicked_row = self.right_clicked_row;
+        let has_right_click = self.right_clicked_row.is_some() || self.right_clicked_cell.is_some();
         let is_filled = total_height > Pixels::ZERO && total_height <= actual_height;
 
         let loading_view = if loading {
@@ -2264,6 +2713,8 @@ where
         };
 
         let empty_view = if rows_count == 0 {
+            // The rows list is not rendered, so report the empty range here.
+            self.update_visible_range_if_need(0..0, 0, Axis::Vertical, window, cx);
             Some(
                 div()
                     .size_full()
@@ -2276,6 +2727,7 @@ where
 
         let inner_table = v_flex()
             .id("table-inner")
+            .test_support()
             .size_full()
             .overflow_hidden()
             .child(self.render_table_header(left_columns_count, window, cx))
@@ -2325,6 +2777,7 @@ where
                                         );
                                         table.update_visible_range_if_need(
                                             visible_range.clone(),
+                                            rows_count,
                                             Axis::Vertical,
                                             window,
                                             cx,
@@ -2367,6 +2820,16 @@ where
                             .size_full()
                             .with_sizing_behavior(ListSizingBehavior::Auto)
                             .track_scroll(&self.vertical_scroll_handle)
+                            .map(|rows| {
+                                gpui_base::ScrollBounce::new(
+                                    "table-scroll-bounce",
+                                    &self.vertical_scroll_handle,
+                                    rows,
+                                )
+                                .when_some(self.options.scroll_bounce, |bounce, on| {
+                                    bounce.enabled(on)
+                                })
+                            })
                             .into_any_element(),
                         ),
                     )
@@ -2392,7 +2855,7 @@ where
                             &self.vertical_scroll_handle.0.borrow().base_handle,
                         ))
                     })
-                    .when(right_clicked_row.is_some(), |this| {
+                    .when(has_right_click, |this| {
                         this.on_mouse_down_out(cx.listener(|this, e, window, cx| {
                             this.on_row_right_click(e, None, window, cx);
                             cx.notify();
@@ -2418,5 +2881,195 @@ where
                         ),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{App, Entity, TestAppContext};
+
+    use super::*;
+
+    struct WidthsDelegate;
+
+    struct BounceDelegate;
+
+    impl TableDelegate for BounceDelegate {
+        fn columns_count(&self, _: &App) -> usize {
+            1
+        }
+        fn rows_count(&self, _: &App) -> usize {
+            40
+        }
+        fn column(&self, _: usize, _: &App) -> Column {
+            Column::new("value", "Value")
+        }
+        fn render_td(
+            &mut self,
+            row: usize,
+            _: usize,
+            _: &mut Window,
+            _: &mut Context<TableState<Self>>,
+        ) -> impl IntoElement {
+            div().child(row.to_string())
+        }
+    }
+
+    struct BounceTable(Entity<TableState<BounceDelegate>>);
+
+    impl Render for BounceTable {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .w(px(240.))
+                .h(px(200.))
+                .child(DataTable::new(&self.0).scroll_bounce(true))
+        }
+    }
+
+    #[gpui::test]
+    fn scroll_bounce_table_keeps_headers_fixed_and_accepts_new_wheel_input(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            BounceTable(cx.new(|cx| TableState::new(BounceDelegate, window, cx)))
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let state = view.read_with(cx, |view, _| view.0.clone());
+        let header = state.read_with(cx, |state, _| state.col_groups[0].bounds);
+        let wheel = |cx: &mut gpui::VisualTestContext, dy| {
+            cx.simulate_event(gpui::ScrollEvent {
+                position: gpui::point(px(100.), px(100.)),
+                delta: gpui::ScrollDelta::Lines(gpui::point(0., dy)),
+                ..Default::default()
+            });
+        };
+        for (dy, phase) in [
+            (-10000., gpui::TouchPhase::Started),
+            (0., gpui::TouchPhase::Ended),
+        ] {
+            cx.simulate_event(gpui::ScrollEvent {
+                position: gpui::point(px(100.), px(100.)),
+                delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(dy))),
+                touch_phase: phase,
+                ..Default::default()
+            });
+        }
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let end = state.read_with(cx, |state, _| {
+            state
+                .vertical_scroll_handle
+                .0
+                .borrow()
+                .base_handle
+                .offset()
+                .y
+        });
+        assert!(end < px(0.));
+        cx.executor().advance_clock(Duration::from_millis(200));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            state.read_with(cx, |state, _| state.col_groups[0].bounds),
+            header
+        );
+        wheel(cx, 2.);
+        assert!(
+            state.read_with(cx, |state, _| state
+                .vertical_scroll_handle
+                .0
+                .borrow()
+                .base_handle
+                .offset()
+                .y)
+                > end
+        );
+    }
+
+    impl TableDelegate for WidthsDelegate {
+        fn columns_count(&self, _: &App) -> usize {
+            6
+        }
+
+        fn rows_count(&self, _: &App) -> usize {
+            0
+        }
+
+        fn column(&self, col_ix: usize, _: &App) -> Column {
+            match col_ix {
+                0 => Column::new("narrow", "Narrow")
+                    .min_width(px(80.))
+                    .width(px(40.)),
+                1 => Column::new("wide", "Wide")
+                    .max_width(px(120.))
+                    .width(px(300.)),
+                // `width` alone below the default `min_width` of 20px.
+                2 => Column::new("tiny", "Tiny").width(px(10.)),
+                // The default resize protection does not limit initial width.
+                3 => Column::new("wide_default", "Wide Default").width(px(2000.)),
+                // Applications can explicitly allow wider resize ranges.
+                4 => Column::new("wide_explicit", "Wide Explicit")
+                    .max_width(px(2400.))
+                    .width(px(2000.)),
+                // `min_width` above `max_width` must not panic.
+                _ => Column::new("inverted", "Inverted")
+                    .min_width(px(200.))
+                    .max_width(px(100.)),
+            }
+        }
+
+        fn render_td(
+            &mut self,
+            _: usize,
+            _: usize,
+            _: &mut Window,
+            _: &mut Context<TableState<Self>>,
+        ) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn column_resize_bounds_preserve_initial_widths(cx: &mut TestAppContext) {
+        cx.skip_drawing();
+        let window = cx.add_window(|window, cx| TableState::new(WidthsDelegate, window, cx));
+
+        window
+            .update(cx, |table, window, cx| {
+                let widths = |table: &TableState<WidthsDelegate>| {
+                    table
+                        .col_groups
+                        .iter()
+                        .map(|col_group| col_group.width)
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    widths(table),
+                    [px(40.), px(300.), px(10.), px(2000.), px(2000.), px(100.)]
+                );
+
+                for ix in 0..table.col_groups.len() {
+                    table.resize_cols(ix, px(10000.), window, cx);
+                }
+                assert_eq!(
+                    widths(table),
+                    [
+                        px(1200.),
+                        px(120.),
+                        px(1200.),
+                        px(1200.),
+                        px(2400.),
+                        px(100.)
+                    ]
+                );
+
+                for ix in 0..table.col_groups.len() {
+                    table.resize_cols(ix, px(-100.), window, cx);
+                }
+                assert_eq!(
+                    widths(table),
+                    [px(80.), px(20.), px(20.), px(20.), px(20.), px(100.)]
+                );
+            })
+            .unwrap();
     }
 }

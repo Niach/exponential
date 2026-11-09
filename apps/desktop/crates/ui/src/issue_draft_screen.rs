@@ -1629,7 +1629,7 @@ impl Render for IssueDraftView {
             // Cmd+Enter = Create, from the title, the description or a chip.
             .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let keystroke = &event.keystroke;
-                if keystroke.key == "enter" && keystroke.modifiers.secondary() {
+                if keystroke.key == "enter" && keystroke.modifiers.secondary(cx) {
                     cx.stop_propagation();
                     this.create(Vec::new(), window, cx);
                 }

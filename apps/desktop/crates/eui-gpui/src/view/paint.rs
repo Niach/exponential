@@ -614,7 +614,7 @@ impl SurfaceView {
             return el;
         }
         let id = n.id.clone();
-        el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
+        el = el.on_scroll(cx.listener(move |this, ev: &gpui::ScrollEvent, _window, cx| this.wheel(index, &id, ev, cx)));
         // #EXP-1629: the IDE's own scrollbar over the container
         // (`view/scrollbar.rs`), fed the core's offset.
         let handle = self.scrollbars.borrow_mut().entry(n.id.clone()).or_default().clone();
@@ -644,6 +644,21 @@ impl SurfaceView {
                 cx.stop_propagation();
                 this.context_menu(index, ev.position, cx);
             }));
+        }
+        // #EXP-1629: a KeyRecorder's field, while it records: modifier
+        // changes and mouse buttons 3-5 over it go to `record`.
+        if self.key_recorder_field(index).is_some() {
+            el = el
+                .on_any_mouse_down(cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                    if this.record_mouse(ev.button, &ev.modifiers, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {
+                    if this.record_modifiers(&ev.modifiers, cx) {
+                        cx.stop_propagation();
+                    }
+                }));
         }
         // FileUpload: OS file drops (the `dragover` state while over it).
         if owner == "FileUpload" && n.part.as_deref() == Some("dropzone") {

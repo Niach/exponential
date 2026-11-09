@@ -90,38 +90,22 @@ mod tests {
     /// either, since a root that forgets the helper compiles just as happily.
     #[test]
     fn every_window_root_mounts_the_selection_guard() {
+        // Since gpui-component 0.9 each window's `Root` draws the dialog and
+        // sheet layers itself, so there is no per-window layer call left to
+        // find: the windows hosting the TextSelection layer are listed here
+        // (the main shell's two render paths, the undocked window and the
+        // undocked terminal).
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut checked = 0;
-        let mut stack = vec![src];
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).expect("the crate's own sources are readable") {
-                let path = entry.expect("a readable dir entry").path();
-                if path.is_dir() {
-                    stack.push(path);
-                    continue;
-                }
-                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
-                    continue;
-                }
-                let text = std::fs::read_to_string(&path).expect("a readable source file");
-                let roots = text.matches("Root::render_dialog_layer(").count();
-                if roots == 0 {
-                    continue;
-                }
-                let guards = text.matches("text_selection_guard::selection_guard()").count();
-                let name = path.file_name().unwrap().to_string_lossy().to_string();
-                assert!(
-                    guards >= roots,
-                    "{name} composes {roots} window root(s) but mounts {guards} \
-                     selection guard(s) — every window hosting the TextSelection \
-                     layer needs `text_selection_guard::selection_guard()` (EXP-837)"
-                );
-                checked += 1;
-            }
+        for (file, roots) in [("shell.rs", 2), ("undock.rs", 1), ("undocked_terminal.rs", 1)] {
+            let text = std::fs::read_to_string(src.join(file)).expect("a readable source file");
+            let guards = text.matches("text_selection_guard::selection_guard()").count();
+            assert!(
+                guards >= roots,
+                "{file} composes {roots} window root(s) but mounts {guards} \
+                 selection guard(s) — every window hosting the TextSelection \
+                 layer needs `text_selection_guard::selection_guard()` (EXP-837)"
+            );
         }
-        // The scan itself must not silently find nothing (a renamed helper, a
-        // moved file): shell, the two undocked windows and native dialogs.
-        assert!(checked >= 4, "expected every window-root file to be scanned, saw {checked}");
     }
 
     /// The whole rule: only a held PRIMARY button keeps a drag armed. A move

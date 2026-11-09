@@ -317,6 +317,7 @@ function templateItemsFixture() {
 const MACRO_TEMPLATE_CASES: { name: string; nested: NestedNode }[] = [
   { name: `macro-template-calendar-month`, nested: { id: `cal`, component: `Calendar`, props: { source: `/leave`, labelField: `label` }, on: { select: { event: { name: `day` } }, open: { event: { name: `open` } } } } },
   { name: `macro-template-calendar-week`, nested: { id: `week`, component: `Calendar`, props: { source: `/week`, view: `week` } } },
+  { name: `macro-template-keyrecorder-bound`, nested: { id: `ptt`, component: `KeyRecorder`, props: { label: `Push to talk`, value: { "@path": `/ptt/value` }, pending: { "@path": `/ptt/pending` }, recording: { "@path": `/ptt/recording` } }, on: { start: { event: { name: `pause` } }, stop: { event: { name: `resume` } }, key: { event: { name: `key` } } } } },
   { name: `macro-template-meter-bound`, nested: { id: `disk`, component: `Meter`, props: { segments: { "@path": `/disk` }, max: 100, label: `Disk` } } },
   { name: `macro-template-timeline`, nested: { id: `tl`, component: `Timeline`, props: { source: `/road`, rowTitle: `Workstream`, showCount: true }, on: { open: { event: { name: `open` } } } } },
 ]

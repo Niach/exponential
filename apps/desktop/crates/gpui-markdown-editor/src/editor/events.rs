@@ -855,7 +855,7 @@ impl Editor {
 
     pub(crate) fn on_editor_scroll_wheel(
         &mut self,
-        _event: &ScrollWheelEvent,
+        _event: &ScrollEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {

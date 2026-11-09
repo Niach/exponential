@@ -35,7 +35,7 @@ use std::rc::Rc;
 use gpui::{
     div, point, px, size, AnyElement, App, Bounds, FocusHandle, Focusable, HighlightStyle,
     InteractiveElement as _, IntoElement, ParentElement, Pixels, Point, Render, ScrollStrategy,
-    ScrollWheelEvent, SharedString, Size, Styled, StyledText, Window,
+    ScrollEvent, SharedString, Size, Styled, StyledText, Window,
 };
 use gpui_component::{
     h_flex,
@@ -1504,7 +1504,7 @@ impl Render for DiffView {
                     })
                     // Horizontal wheel / shift-wheel drives the shared offset
                     // (vertical deltas fall through to the virtual list).
-                    .on_scroll_wheel(cx.listener(move |_, event: &ScrollWheelEvent, window, cx| {
+                    .on_scroll(cx.listener(move |_, event: &ScrollEvent, window, cx| {
                         let delta = event.delta.pixel_delta(window.line_height());
                         if delta.x != px(0.) {
                             wheel_scroll.scroll_by(delta.x);

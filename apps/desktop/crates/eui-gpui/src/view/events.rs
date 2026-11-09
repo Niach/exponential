@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use eui_core::layout_tree::{LayerClass, ToastSpec};
 use eui_core::surface::{Layer, OutEvent};
 use eui_core::hold::HoldInput;
-use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollWheelEvent, Window};
+use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollEvent, Window};
 use serde_json::{json, Value};
 
 use super::state::{focus_order, is_focusable, is_text_field, next_focus, NodeFlags};
@@ -610,13 +610,13 @@ impl SurfaceView {
 
     pub(crate) fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let m = ev.keystroke.modifiers;
-        if (m.secondary() || m.control) && ev.keystroke.key == "c" && self.copy_selection(cx) {
+        if (m.secondary(cx) || m.control) && ev.keystroke.key == "c" && self.copy_selection(cx) {
             cx.stop_propagation();
             return;
         }
         // VAPP-279: Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on a strip tab
         // moves it one place (the core fires `reorder`).
-        if (m.secondary() || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
+        if (m.secondary(cx) || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
             if let Some(i) = self.focused.filter(|&i| self.is_strip_tab(i)) {
                 let key = if ev.keystroke.key == "left" { "ArrowLeft" } else { "ArrowRight" };
                 self.fire(i, "key", Some(json!({"key": key})), cx);
@@ -636,7 +636,12 @@ impl SurfaceView {
 
     /// VAPP-162: a key released on the focused `hold` Button ends a hold
     /// the same key started.
-    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // #EXP-1629: a recording KeyRecorder takes every key up.
+        if self.record_key_up(ev, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         if self.key_up(&ev.keystroke.key, cx) {
             cx.stop_propagation();
         }
@@ -1487,7 +1492,7 @@ impl SurfaceView {
 
     /// The wheel / trackpad over a scroll container: the core's offset
     /// moves; at an edge the event chains to the host.
-    pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollEvent, cx: &mut Context<Self>) {
         let Some(s) = self.scrolls.get(&index).copied() else { return };
         let f = self.frames.get(index as usize).copied().unwrap_or_default();
         let d = ev.delta.pixel_delta(gpui::px(20.0));

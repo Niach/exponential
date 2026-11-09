@@ -1066,9 +1066,9 @@
       "desktop": {
         "file": "shots/board/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 71608,
-        "sha256": "ddc9954b20d8bef6dd9c9ae756031bf9a7692d5d71be38de523a1234e6883a87"
+        "height": 1125,
+        "bytes": 74488,
+        "sha256": "e0c3d9e44d53d5e3e712ca9a997bdfe440f215c105af2a046e164609016d725b"
       },
       "ios": {
         "file": "shots/board/ios.webp",
@@ -1429,9 +1429,9 @@
       "desktop": {
         "file": "shots/chat-menus/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 38592,
-        "sha256": "8e187ff3a7791efbde33e753246aa8ab460a4df2728f478a1d9d6e8e045408e0"
+        "height": 1125,
+        "bytes": 44532,
+        "sha256": "dd10810aef4ed68a172b30f2158ffcbfca36f7d13da7fa7d16ad42bf8a0b69af"
       },
       "ios": {
         "file": "shots/chat-menus/ios.webp",
@@ -1651,9 +1651,9 @@
       "desktop": {
         "file": "shots/chats/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 60104,
-        "sha256": "8b6c488133e2f538d3277dd0e00ea71494a4a27778ea248a5dec3df5fcaea30a"
+        "height": 1125,
+        "bytes": 52104,
+        "sha256": "42a0e0898585f65bdd28ef5e4e4df748df8febf4101f34ff7bdbe8d3ea902f32"
       },
       "ios": {
         "file": "shots/chats/ios.webp",
@@ -1778,9 +1778,9 @@
       "desktop": {
         "file": "shots/composer-dialog-menu/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 39032,
-        "sha256": "a72addb2faf89b8f0c3ad33a2609e2cdfc7f0d0a5a5a230225a8a5223e8bb7d7"
+        "height": 1125,
+        "bytes": 40810,
+        "sha256": "7ac89260a20d14f0e7e73c45f14d95827429c39b4f3d91eaff27d6e8cc22c9a1"
       }
     },
     "composer-menu": {
@@ -3515,6 +3515,36 @@
         "height": 1200,
         "bytes": 4554,
         "sha256": "a5ebc77dfb2476609e8ecca118b183eaafe4705c73e44e9e728e098f26322050"
+      }
+    },
+    "exponential-ui-key-recorder": {
+      "android": {
+        "file": "shots/exponential-ui-key-recorder/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 18992,
+        "sha256": "d3e5ae74665b5be296c4c4f965f64219df391da73ebe7eb458f16ef7a7d12b4f"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-key-recorder/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 39054,
+        "sha256": "a2ef93e80a3400bd08779c172ad97d0573af1969ab58d5642521659c886c414f"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-key-recorder/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 19626,
+        "sha256": "8af1ff94949c004dfec037d9a93454d684f3b918d51a9b24919fb0dc7a498ce2"
+      },
+      "web": {
+        "file": "shots/exponential-ui-key-recorder/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 13152,
+        "sha256": "dc886a18c0a59a0dd10db21baecd5b74afa0be59e6baa2019611e2e7eec2457d"
       }
     },
     "exponential-ui-kitchen-sink": {

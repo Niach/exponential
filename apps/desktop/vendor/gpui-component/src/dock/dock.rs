@@ -1,433 +1,170 @@
-//! Dock is a fixed container that places at left, bottom, right of the Windows.
+//! The gpui-component appearance for the dock area: the outer frame, the
+//! split frames, and one dock's chrome.
 
-use std::{ops::Deref, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 use gpui::{
-    App, AppContext, Axis, Context, Element, Empty, Entity, IntoElement, MouseMoveEvent,
-    MouseUpEvent, ParentElement as _, Pixels, Point, Render, Style, StyleRefinement, Styled as _,
-    WeakEntity, Window, div, prelude::FluentBuilder as _, px,
+    AnyElement, App, AppContext as _, Axis, Context, Div, Element, Empty, InteractiveElement as _,
+    IntoElement, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, Stateful, Style,
+    Styled as _, Window, div,
 };
-use serde::{Deserialize, Serialize};
+use gpui_base::{
+    HandleEdge, ResizeHandleContext,
+    dock::{
+        DockAreaRenderer, DockContext, DockEvent, DockPlacement, NodeId, PanelState, PanelView,
+        TabGroupRenderer,
+    },
+};
 
-use crate::{PANEL_MIN_SIZE, Side, StyledExt, resize_handle};
+use crate::{
+    ActiveTheme as _,
+    dock::{
+        DockSkin, SkinShared, invalid_panel::InvalidPanel, panel_handle, report_user_toggle,
+        tab_panel::TabGroupSkin,
+    },
+    resizable::render_resize_handle,
+    resize_handle,
+};
 
-use super::{DockArea, DockEvent, DockItem, PanelView, TabPanel};
-
+/// The payload a dock's resize handle drags. It draws nothing: the handle
+/// itself is the affordance.
 #[derive(Clone)]
 struct ResizePanel;
 
 impl Render for ResizePanel {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         Empty
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum DockPlacement {
-    #[serde(rename = "center")]
-    Center,
-    #[serde(rename = "left")]
-    Left,
-    #[serde(rename = "bottom")]
-    Bottom,
-    #[serde(rename = "right")]
-    Right,
-}
-
-impl DockPlacement {
-    fn axis(&self) -> Axis {
-        match self {
-            Self::Left | Self::Right => Axis::Horizontal,
-            Self::Bottom => Axis::Vertical,
-            Self::Center => unreachable!(),
-        }
+impl DockAreaRenderer for DockSkin {
+    // The row, the fill and the clip are base's now -- applied around whatever
+    // these return -- so a skin that has no appearance to add returns a bare
+    // frame and still gets a dock area the right shape.
+    fn frame(&self, _: &mut Window, _: &mut App) -> Stateful<Div> {
+        div().id("dock-area")
     }
 
-    pub fn is_left(&self) -> bool {
-        matches!(self, Self::Left)
+    fn center_frame(&self, _: &mut Window, _: &mut App) -> Stateful<Div> {
+        div().id("dock-area-center")
     }
 
-    pub fn is_bottom(&self) -> bool {
-        matches!(self, Self::Bottom)
-    }
-
-    pub fn is_right(&self) -> bool {
-        matches!(self, Self::Right)
-    }
-}
-
-/// The Dock is a fixed container that places at left, bottom, right of the Windows.
-///
-/// This is unlike Panel, it can't be move or add any other panel.
-pub struct Dock {
-    pub(super) placement: DockPlacement,
-    dock_area: WeakEntity<DockArea>,
-    pub(crate) panel: DockItem,
-    /// The size is means the width or height of the Dock, if the placement is left or right, the size is width, otherwise the size is height.
-    pub(super) size: Pixels,
-    pub(super) open: bool,
-    /// Whether the Dock is collapsible, default: true
-    pub(super) collapsible: bool,
-
-    // Runtime state
-    /// Whether the Dock is resizing
-    resizing: bool,
-}
-
-impl Dock {
-    pub(crate) fn new(
-        dock_area: WeakEntity<DockArea>,
-        placement: DockPlacement,
+    fn render_split_handle(
+        &self,
+        handle: &ResizeHandleContext,
         window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let panel = cx.new(|cx| {
-            let mut tab = TabPanel::new(None, dock_area.clone(), window, cx);
-            tab.closable = false;
-            tab
-        });
-
-        let panel = DockItem::Tabs {
-            size: None,
-            items: Vec::new(),
-            active_ix: 0,
-            view: panel.clone(),
-        };
-
-        Self::subscribe_panel_events(dock_area.clone(), &panel, window, cx);
-
-        Self {
-            placement,
-            dock_area,
-            panel,
-            open: true,
-            collapsible: true,
-            size: px(200.0),
-            resizing: false,
-        }
+        cx: &mut App,
+    ) -> Option<AnyElement> {
+        Some(render_resize_handle(handle, window, cx))
     }
 
-    pub fn left(
-        dock_area: WeakEntity<DockArea>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::new(dock_area, DockPlacement::Left, window, cx)
-    }
-
-    pub fn bottom(
-        dock_area: WeakEntity<DockArea>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::new(dock_area, DockPlacement::Bottom, window, cx)
-    }
-
-    pub fn right(
-        dock_area: WeakEntity<DockArea>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::new(dock_area, DockPlacement::Right, window, cx)
-    }
-
-    /// Update the Dock to be collapsible or not.
-    ///
-    /// And if the Dock is not collapsible, it will be open.
-    pub fn set_collapsible(&mut self, collapsible: bool, _: &mut Window, cx: &mut Context<Self>) {
-        self.collapsible = collapsible;
-        if !collapsible {
-            self.open = true
-        }
-        cx.notify();
-    }
-
-    pub(super) fn from_state(
-        dock_area: WeakEntity<DockArea>,
-        placement: DockPlacement,
-        size: Pixels,
-        panel: DockItem,
-        open: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::subscribe_panel_events(dock_area.clone(), &panel, window, cx);
-
-        if !open {
-            match panel.clone() {
-                DockItem::Tabs { view, .. } => {
-                    view.update(cx, |panel, cx| {
-                        panel.set_collapsed(true, window, cx);
-                    });
-                }
-                DockItem::Split { items, .. } => {
-                    for item in items {
-                        item.set_collapsed(true, window, cx);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        Self {
-            placement,
-            dock_area,
-            panel,
-            open,
-            size,
-            collapsible: true,
-            resizing: false,
-        }
-    }
-
-    fn subscribe_panel_events(
-        dock_area: WeakEntity<DockArea>,
-        panel: &DockItem,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match panel {
-            DockItem::Tabs { view, .. } => {
-                window.defer(cx, {
-                    let view = view.clone();
-                    move |window, cx| {
-                        _ = dock_area.update(cx, |this, cx| {
-                            this.subscribe_panel(&view, window, cx);
-                        });
-                    }
-                });
-            }
-            DockItem::Split { items, view, .. } => {
-                for item in items {
-                    Self::subscribe_panel_events(dock_area.clone(), item, window, cx);
-                }
-                window.defer(cx, {
-                    let view = view.clone();
-                    move |window, cx| {
-                        _ = dock_area.update(cx, |this, cx| {
-                            this.subscribe_panel(&view, window, cx);
-                        });
-                    }
-                });
-            }
-            DockItem::Tiles { view, .. } => {
-                window.defer(cx, {
-                    let view = view.clone();
-                    move |window, cx| {
-                        _ = dock_area.update(cx, |this, cx| {
-                            this.subscribe_panel(&view, window, cx);
-                        });
-                    }
-                });
-            }
-            DockItem::Panel { .. } => {
-                // Not supported
-            }
-        }
-    }
-
-    pub fn set_panel(&mut self, panel: DockItem, _: &mut Window, cx: &mut Context<Self>) {
-        self.panel = panel;
-        cx.notify();
-    }
-
-    pub fn panel(&self) -> &DockItem {
-        &self.panel
-    }
-
-    pub fn is_open(&self) -> bool {
-        self.open
-    }
-
-    pub fn toggle_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.set_open(!self.open, window, cx);
-    }
-
-    /// Returns the size of the Dock, the size is means the width or height of
-    /// the Dock, if the placement is left or right, the size is width,
-    /// otherwise the size is height.
-    pub fn size(&self) -> Pixels {
-        self.size
-    }
-
-    /// Set the size of the Dock.
-    pub fn set_size(&mut self, size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
-        self.size = size.max(PANEL_MIN_SIZE);
-        cx.notify();
-    }
-
-    /// Set the open state of the Dock.
-    pub fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.open = open;
-        let item = self.panel.clone();
-        cx.defer_in(window, move |_, window, cx| {
-            item.set_collapsed(!open, window, cx);
-        });
-        cx.notify();
-    }
-
-    /// Add item to the Dock.
-    pub fn add_panel(
-        &mut self,
-        panel: Arc<dyn PanelView>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel
-            .add_panel(panel, &self.dock_area, None, window, cx);
-        cx.notify();
-    }
-
-    /// Remove item from the Dock.
-    pub fn remove_panel(
-        &mut self,
-        panel: Arc<dyn PanelView>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel.remove_panel(panel, window, cx);
-        cx.notify();
-    }
-
-    fn render_resize_handle(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let axis = self.placement.axis();
-        let view = cx.entity().clone();
-
-        resize_handle("resize-handle", axis)
-            .when(self.placement == DockPlacement::Left, |this| {
-                this.placement(Side::Left)
-            })
-            .on_drag(ResizePanel {}, move |info, _, _, cx| {
-                cx.stop_propagation();
-                view.update(cx, |view, _| {
-                    view.resizing = true;
-                });
-                cx.new(|_| info.deref().clone())
-            })
-    }
-    fn resize(
-        &mut self,
-        mouse_position: Point<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.resizing {
-            return;
-        }
-
-        if !self.open {
-            self.set_open(true, window, cx);
-        }
-
-        let dock_area = self
-            .dock_area
-            .upgrade()
-            .expect("DockArea is missing")
-            .read(cx);
-        let area_bounds = dock_area.bounds;
-        let mut left_dock_size = px(0.0);
-        let mut right_dock_size = px(0.0);
-
-        // Get the size of the left dock if it's open and not the current dock
-        if let Some(left_dock) = &dock_area.left_dock {
-            if left_dock.entity_id() != cx.entity().entity_id() {
-                let left_dock_read = left_dock.read(cx);
-                if left_dock_read.is_open() {
-                    left_dock_size = left_dock_read.size;
-                }
-            }
-        }
-
-        // Get the size of the right dock if it's open and not the current dock
-        if let Some(right_dock) = &dock_area.right_dock {
-            if right_dock.entity_id() != cx.entity().entity_id() {
-                let right_dock_read = right_dock.read(cx);
-                if right_dock_read.is_open() {
-                    right_dock_size = right_dock_read.size;
-                }
-            }
-        }
-
-        let size = match self.placement {
-            DockPlacement::Left => mouse_position.x - area_bounds.left(),
-            DockPlacement::Right => area_bounds.right() - mouse_position.x,
-            DockPlacement::Bottom => area_bounds.bottom() - mouse_position.y,
-            DockPlacement::Center => unreachable!(),
-        };
-        match self.placement {
-            DockPlacement::Left => {
-                let max_size =
-                    (area_bounds.size.width - PANEL_MIN_SIZE - right_dock_size).max(PANEL_MIN_SIZE);
-                self.size = size.clamp(PANEL_MIN_SIZE, max_size);
-            }
-            DockPlacement::Right => {
-                let max_size =
-                    (area_bounds.size.width - PANEL_MIN_SIZE - left_dock_size).max(PANEL_MIN_SIZE);
-                self.size = size.clamp(PANEL_MIN_SIZE, max_size);
-            }
-            DockPlacement::Bottom => {
-                let max_size = (area_bounds.size.height - PANEL_MIN_SIZE).max(PANEL_MIN_SIZE);
-                self.size = size.clamp(PANEL_MIN_SIZE, max_size);
-            }
-            DockPlacement::Center => unreachable!(),
-        }
-
-        cx.notify();
-    }
-
-    fn done_resizing(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        if !self.resizing {
-            return;
-        }
-        self.resizing = false;
-
-        // Dragging the dock's resize handle finished, bubble a layout change
-        // so subscribers can persist the new dock size.
-        _ = self.dock_area.update(cx, |_, cx| {
-            cx.emit(DockEvent::LayoutChanged);
-        });
-    }
-}
-
-impl Render for Dock {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        if !self.open && !self.placement.is_bottom() {
-            return div();
-        }
-
-        let cache_style = StyleRefinement::default().absolute().size_full();
-
+    fn split_frame(&self, node: NodeId, _: Axis, _: &mut Window, cx: &mut App) -> Stateful<Div> {
+        // The size is base's; the background is this skin's, and is the only
+        // reason this hook is implemented at all.
         div()
+            .id(("dock-split-frame", node.as_u64()))
+            .bg(cx.theme().tokens.tab_bar)
+    }
+
+    fn render_dock(
+        &self,
+        dock: &DockContext,
+        content: AnyElement,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        // No box here any more. A dock's extent is structural, so
+        // `DockArea::render_dock` applies it around whatever this returns --
+        // which also means a renderer that draws no chrome still gets a dock
+        // the right shape. This adds the edge you drag and nothing else.
+        div()
+            .flex()
+            .size_full()
             .relative()
-            .overflow_hidden()
-            .map(|this| match self.placement {
-                DockPlacement::Left | DockPlacement::Right => this.h_flex().h_full().w(self.size),
-                DockPlacement::Bottom => this.w_full().h(self.size),
-                DockPlacement::Center => unreachable!(),
+            .child(content)
+            .child(self.render_resize_handle(dock, window, cx))
+            .child(DockResizeTracker {
+                dock: dock.clone(),
+                shared: self.shared().clone(),
             })
-            // Bottom Dock should keep the title bar, then user can click the Toggle button
-            .when(!self.open && self.placement.is_bottom(), |this| {
-                this.h(px(29.))
-            })
-            .map(|this| match &self.panel {
-                DockItem::Split { view, .. } => this.child(view.clone()),
-                DockItem::Tabs { view, .. } => this.child(view.clone()),
-                DockItem::Panel { view, .. } => this.child(view.clone().view().cached(cache_style)),
-                // Not support to render Tiles and Tile into Dock
-                DockItem::Tiles { .. } => this,
-            })
-            .child(self.render_resize_handle(window, cx))
-            .child(DockElement {
-                view: cx.entity().clone(),
-            })
+            .into_any_element()
+    }
+
+    /// The "unknown panel" message the old `InvalidPanel` drew.
+    ///
+    /// It answers `dump` with the state it was handed, so a layout written by
+    /// a build that knows the panel survives a load and save here.
+    fn build_placeholder(
+        &self,
+        state: &PanelState,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Option<Arc<dyn PanelView>> {
+        let state = state.clone();
+        Some(panel_handle(cx.new(|cx| InvalidPanel::new(state, cx))))
+    }
+
+    fn tab_group_renderer(&self) -> Rc<dyn TabGroupRenderer> {
+        Rc::new(TabGroupSkin::new(self.shared().clone()))
     }
 }
 
-struct DockElement {
-    view: Entity<Dock>,
+impl DockSkin {
+    fn render_resize_handle(
+        &self,
+        dock: &DockContext,
+        _: &mut Window,
+        _: &mut App,
+    ) -> impl IntoElement {
+        let placement = dock.placement();
+        let open = dock.is_open();
+        let shared = self.shared().clone();
+
+        // One id per placement: the docks all render under the same stateful
+        // ancestor, so a shared literal would collapse the handles into one
+        // GlobalElementId and GPUI would silently share their element state —
+        // a press on the left handle then starts the right handle's drag.
+        let id = match placement {
+            DockPlacement::Left => "resize-handle-left",
+            DockPlacement::Right => "resize-handle-right",
+            DockPlacement::Bottom => "resize-handle-bottom",
+            DockPlacement::Center => "resize-handle-center",
+        };
+
+        // Every dock's handle lives inside the dock, because `dock_frame` clips
+        // to the dock's box. The left dock hugs its trailing edge; the right
+        // and bottom docks hug their leading one.
+        let edge = match placement {
+            DockPlacement::Left => HandleEdge::Trailing,
+            _ => HandleEdge::Leading,
+        };
+
+        resize_handle(id, placement.axis()).inside(edge).on_drag(
+            ResizePanel,
+            move |info, _, _, cx| {
+                cx.stop_propagation();
+                shared.resizing_dock().set(Some(placement));
+                shared.resize_started_open().set(open);
+                cx.new(|_| info.clone())
+            },
+        )
+    }
 }
 
-impl IntoElement for DockElement {
+/// Turns the window's mouse stream into dock resizing.
+///
+/// A resize is driven by pointer moves that land anywhere in the window, not
+/// only on the handle, so it cannot be expressed as a listener on the handle
+/// itself. This element paints nothing and exists for its `paint` hook, which
+/// is the only place a window-level mouse listener can be registered — which
+/// is why it stays in the skin rather than moving into base: it is a
+/// paint-order concern of this appearance.
+struct DockResizeTracker {
+    dock: DockContext,
+    shared: Rc<SkinShared>,
+}
+
+impl IntoElement for DockResizeTracker {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -435,7 +172,7 @@ impl IntoElement for DockElement {
     }
 }
 
-impl Element for DockElement {
+impl Element for DockResizeTracker {
     type RequestLayoutState = ();
     type PrepaintState = ();
 
@@ -451,7 +188,7 @@ impl Element for DockElement {
         &mut self,
         _: Option<&gpui::GlobalElementId>,
         _: Option<&gpui::InspectorElementId>,
-        window: &mut gpui::Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> (gpui::LayoutId, Self::RequestLayoutState) {
         (window.request_layout(Style::default(), None, cx), ())
@@ -463,10 +200,9 @@ impl Element for DockElement {
         _: Option<&gpui::InspectorElementId>,
         _: gpui::Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
-        _window: &mut gpui::Window,
-        _cx: &mut App,
+        _: &mut Window,
+        _: &mut App,
     ) -> Self::PrepaintState {
-        ()
     }
 
     fn paint(
@@ -476,32 +212,392 @@ impl Element for DockElement {
         _: gpui::Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,
-        window: &mut gpui::Window,
-        cx: &mut App,
+        window: &mut Window,
+        _: &mut App,
     ) {
-        window.on_mouse_event({
-            let view = self.view.clone();
-            let resizing = view.read(cx).resizing;
-            move |e: &MouseMoveEvent, phase, window, cx| {
-                if !resizing {
-                    return;
-                }
-                if !phase.bubble() {
-                    return;
-                }
+        let placement = self.dock.placement();
 
-                view.update(cx, |view, cx| view.resize(e.position, window, cx))
+        window.on_mouse_event({
+            let dock = self.dock.clone();
+            let shared = self.shared.clone();
+            move |event: &MouseMoveEvent, phase, window, cx| {
+                if !phase.bubble() || shared.resizing_dock().get() != Some(placement) {
+                    return;
+                }
+                // Base opens, closes and sizes the dock from the pointer, so a
+                // drag that started on a closed dock reopens it too.
+                dock.resize_to(event.position, window, cx);
             }
         });
 
-        // When any mouse up, stop dragging
         window.on_mouse_event({
-            let view = self.view.clone();
+            let dock = self.dock.clone();
+            let shared = self.shared.clone();
             move |_: &MouseUpEvent, phase, window, cx| {
-                if phase.bubble() {
-                    view.update(cx, |view, cx| view.done_resizing(window, cx));
+                if !phase.bubble() || shared.resizing_dock().get() != Some(placement) {
+                    return;
                 }
+                shared.resizing_dock().set(None);
+                dock.end_resize(window, cx);
+                let was_open = shared.resize_started_open().get();
+                // The size lives on the dock, not in the layout tree, so
+                // nothing else tells a subscriber to persist it.
+                _ = shared.area().update(cx, |area, cx| {
+                    cx.emit(DockEvent::LayoutChanged);
+                    report_user_toggle(area, placement, was_open, cx);
+                });
             }
-        })
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{
+        App, Entity, IntoElement as _, Modifiers, MouseButton, TestAppContext, VisualTestContext,
+        Window, point, px, size,
+    };
+
+    use std::cell::Cell;
+
+    use gpui_base::dock::DockAreaRenderer;
+
+    use gpui_base::PANEL_MIN_SIZE;
+
+    use crate::dock::{
+        DockArea, DockLayout, DockPlacement, DockSkin,
+        test_support::{MeasuredProbe, SizedProbe},
+    };
+
+    /// A renderer that draws no chrome at all: every hook at its trait default.
+    ///
+    /// This is the position every renderer that is not `DockSkin` starts from,
+    /// including the one gpui-shell installs so a script can draw the chrome
+    /// itself, and the shape of what it gets is base's promise.
+    struct ChromelessDockSkin;
+
+    impl DockAreaRenderer for ChromelessDockSkin {
+        fn tab_group_renderer(&self) -> Rc<dyn gpui_base::dock::TabGroupRenderer> {
+            Rc::new(ChromelessTabs)
+        }
+    }
+
+    struct ChromelessTabs;
+    impl gpui_base::dock::TabGroupRenderer for ChromelessTabs {
+        // The one hook with no default, because a group with no tab bar has no
+        // way to choose between its panels. Drawn as nothing, so the height it
+        // leaves the content is the whole group.
+        fn render_tab_bar(
+            &self,
+            _: &gpui_base::dock::TabGroupContext,
+            _: &mut Window,
+            _: &mut App,
+        ) -> gpui::AnyElement {
+            gpui::Empty.into_any_element()
+        }
+    }
+
+    /// A dock's box is base's, not its renderer's.
+    ///
+    /// This is the regression. The extent lived in `DockSkin::render_dock`, so
+    /// it was reachable only through that one renderer, and `render_dock`'s
+    /// trait default hands the content straight back. A dock that never states
+    /// its extent is not a column beside the centre: it takes whatever the row
+    /// gives it and the panes inside shrink to their content. Nothing failed,
+    /// and nothing said why.
+    #[gpui::test]
+    fn a_dock_is_its_own_width_under_a_renderer_that_draws_no_chrome(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        let measured = Rc::new(Cell::new(gpui::Size::default()));
+        let probe = measured.clone();
+        let centre = Rc::new(Cell::new(gpui::Size::default()));
+        let centre_probe = centre.clone();
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            DockArea::new("test", None, window, cx).with_renderer(Rc::new(ChromelessDockSkin))
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_center(
+                    DockLayout::tabs().panel(SizedProbe::new(centre_probe, cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock(
+                    DockPlacement::Right,
+                    DockLayout::tabs().panel(SizedProbe::new(probe, cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock_size(DockPlacement::Right, px(200.), window, cx);
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                if !area.is_dock_open(DockPlacement::Right) {
+                    area.toggle_dock(DockPlacement::Right, window, cx);
+                }
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let dock = measured.get().width;
+        assert_eq!(
+            dock,
+            px(200.),
+            "the right dock has to be its own width, not the area's: got {dock:?}"
+        );
+        // The other half of the same fault: a dock area that is not a row puts
+        // the centre above the dock at the area's full width instead of beside
+        // it at what the dock leaves.
+        let middle = centre.get().width;
+        assert_eq!(
+            middle,
+            px(600.),
+            "the centre has to be what the docks leave: got {middle:?}"
+        );
+        // This renderer draws no tab bar, so a group that fills its slot leaves
+        // its panel the whole 600. A tab group frame without a column and a
+        // fill gives it nothing: the panel is positioned absolutely inside the
+        // content region and contributes no height of its own, so the region
+        // resolves to zero and the group is a strip of tabs.
+        let tall = centre.get().height;
+        assert_eq!(
+            tall,
+            px(600.),
+            "a group has to fill its slot, or its panel gets no height: got {tall:?}"
+        );
+    }
+
+    fn area_with_side_docks(cx: &mut TestAppContext) -> (Entity<DockArea>, &mut VisualTestContext) {
+        cx.update(|cx| crate::init(cx));
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            DockArea::new("test", None, window, cx).with_renderer(DockSkin::new(cx))
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_center(
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock(
+                    DockPlacement::Left,
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock(
+                    DockPlacement::Right,
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+        (area, cx)
+    }
+
+    /// Every dock's handle once shared the literal element id
+    /// `"resize-handle"`, so GPUI silently handed them one element state —
+    /// including the pending-mouse-down that starts a drag. Pressing the left
+    /// handle then let the right dock's drag listener (painted later, so
+    /// dispatched first) claim the drag, and one pixel of movement threw the
+    /// right dock to nearly the full area width.
+    #[gpui::test]
+    fn dragging_the_left_handle_resizes_only_the_left_dock(cx: &mut TestAppContext) {
+        let (area, cx) = area_with_side_docks(cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        // The left dock is 200px wide, so its handle sits at x ∈ [198, 199).
+        cx.simulate_mouse_down(
+            point(px(198.5), px(300.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        // Past the drag threshold: the drag starts and claims a dock.
+        cx.simulate_mouse_move(
+            point(px(204.), px(300.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        // The move the claimed dock resizes to.
+        cx.simulate_mouse_move(
+            point(px(240.), px(300.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        cx.simulate_mouse_up(
+            point(px(240.), px(300.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        cx.run_until_parked();
+
+        let (left, right) = cx.update(|_, cx| {
+            let area = area.read(cx);
+            (
+                area.dock_size(DockPlacement::Left),
+                area.dock_size(DockPlacement::Right),
+            )
+        });
+        assert_eq!(
+            right,
+            Some(px(200.)),
+            "the right dock must not move when the left handle is dragged"
+        );
+        assert_eq!(left, Some(px(240.)), "the left dock follows the pointer");
+    }
+    #[gpui::test]
+    fn dragging_the_bottom_dock_closed_and_open_reports_each_toggle(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            DockArea::new("test", None, window, cx).with_renderer(DockSkin::new(cx))
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        let events = Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_center(
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock(
+                    DockPlacement::Bottom,
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock_size(DockPlacement::Bottom, px(200.), window, cx);
+            });
+            let events = events.clone();
+            cx.subscribe(&area, move |_, event: &crate::dock::DockToggleEvent, _| {
+                events
+                    .borrow_mut()
+                    .push((event.placement(), event.is_open()));
+            })
+            .detach();
+        });
+        cx.run_until_parked();
+
+        let drag = |cx: &mut VisualTestContext, ys: &[f32]| {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let (first, rest) = ys.split_first().unwrap();
+            cx.simulate_mouse_down(
+                point(px(400.), px(*first)),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            for y in rest {
+                cx.simulate_mouse_move(
+                    point(px(400.), px(*y)),
+                    MouseButton::Left,
+                    Modifiers::none(),
+                );
+            }
+            cx.simulate_mouse_up(
+                point(px(400.), px(*ys.last().unwrap())),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            cx.run_until_parked();
+        };
+
+        // A resize that keeps the dock open is not a toggle.
+        drag(cx, &[400.5, 380., 350.]);
+        assert!(events.borrow().is_empty(), "a plain resize is not reported");
+
+        // Same handle, same strip geometry as the snapping test below.
+        drag(cx, &[350.5, 356., 580., 540.]);
+        drag(cx, &[571.5, 565., 520.]);
+        assert_eq!(
+            *events.borrow(),
+            vec![
+                (DockPlacement::Bottom, false),
+                (DockPlacement::Bottom, true)
+            ]
+        );
+    }
+
+    #[gpui::test]
+    fn dragging_the_bottom_handle_below_the_minimum_snaps_to_the_nearer_end(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| crate::init(cx));
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            DockArea::new("test", None, window, cx).with_renderer(DockSkin::new(cx))
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_center(
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock(
+                    DockPlacement::Bottom,
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock_size(DockPlacement::Bottom, px(200.), window, cx);
+            });
+        });
+        cx.run_until_parked();
+
+        let drag = |cx: &mut VisualTestContext, ys: &[f32]| {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let (first, rest) = ys.split_first().unwrap();
+            cx.simulate_mouse_down(
+                point(px(400.), px(*first)),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            for y in rest {
+                cx.simulate_mouse_move(
+                    point(px(400.), px(*y)),
+                    MouseButton::Left,
+                    Modifiers::none(),
+                );
+            }
+            cx.simulate_mouse_up(
+                point(px(400.), px(*ys.last().unwrap())),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            cx.run_until_parked();
+        };
+        let bottom = |cx: &mut VisualTestContext| {
+            cx.update(|_, cx| {
+                let area = area.read(cx);
+                (
+                    area.is_dock_open(DockPlacement::Bottom),
+                    area.dock_size(DockPlacement::Bottom),
+                )
+            })
+        };
+
+        // From the 200px dock's handle at y ∈ [400, 401), through the closed
+        // strip and back, released 60px tall: nearer the strip than the
+        // minimum, so it closes.
+        drag(cx, &[400.5, 406., 580., 540.]);
+        assert!(!bottom(cx).0, "released nearer the strip, the dock closes");
+
+        // From the closed strip's handle at y ∈ [571, 572), released 80px
+        // tall: nearer the minimum, so it opens at the minimum.
+        drag(cx, &[571.5, 565., 520.]);
+        assert_eq!(
+            bottom(cx),
+            (true, Some(PANEL_MIN_SIZE)),
+            "released nearer the minimum, the dock opens at the minimum"
+        );
     }
 }
