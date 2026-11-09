@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, boards, conversations, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
-import { inRollback, probeRealDb } from "@/test/real-db"
+import { inRollback, probeRealDb, retryingConflict } from "@/test/real-db"
 import { inSession, sessionConversation, messageWithSession } from "@/lib/sessions/messages"
 
 // #EXP-1399: ESCALATED cards against the REAL migrated Postgres (copied
@@ -406,7 +406,11 @@ describe.skipIf(!ready.ok)(`0198 migration: ask mirrors from before the review l
     const before = await asks(w.chat)
     expect(before.map((m) => m.body).join(`\n`)).toContain(`Which secret port?`)
     expect(before.map((m) => m.body).join(`\n`)).toContain(`Rotate the secret key`)
-    await inRollback(async (tx) => {
+    // The scrub walks every ask mirror and the real-DB files run side by
+    // side: one snapshot keeps a mirror another file commits mid-case out of
+    // the idempotence count (a concurrent write = 40001: the replay runs again).
+    await retryingConflict(() => inRollback(async (tx) => {
+      await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`)
       await tx.execute(sql.raw(scrub))
       const after = await tx
         .select()
@@ -423,6 +427,6 @@ describe.skipIf(!ready.ok)(`0198 migration: ask mirrors from before the review l
       // Idempotent: a second run rewrites nothing.
       const again = await tx.execute(sql.raw(scrub))
       expect((again as unknown as { rowCount: number }).rowCount).toBe(0)
-    })
+    }))
   })
 })
