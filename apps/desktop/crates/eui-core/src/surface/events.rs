@@ -41,6 +41,25 @@ impl Surface {
         self.slot_of.get(id).map(|&s| self.scroll_key(s)).filter(|k| k != id && self.lists.iter().any(|l| l.id == *k)).unwrap_or_else(|| id.to_string())
     }
 
+    /// #LOGS-9: whether the windowed list `spec` scrolled to `scroll` (on
+    /// its axis) lays out other rows or other spacers than it was built
+    /// with (a sticky list re-windows always: its pinned header moves).
+    fn window_moves(&mut self, spec: &crate::layout_tree::ListSpec, scroll: f32) -> bool {
+        let Some(viewport) = self.local.list_views.get(&spec.id).map(|v| v.viewport) else { return true };
+        let Some(window) = self.local.lists.get_mut(&spec.id) else { return true };
+        if spec.sticky || window.gap != spec.gap || spec.offsets.len() != spec.keys.len() + 1 {
+            return true;
+        }
+        let offsets = window.offsets_cached(&spec.keys);
+        let before = window.scroll_offset;
+        window.scroll_offset = scroll.max(0.0);
+        let range = window.visible_range(&offsets, viewport.max(1.0));
+        window.scroll_offset = before;
+        let count = spec.keys.len();
+        let pad = |o: &[f32], r: crate::list::VisibleRange| (o[r.start.min(count)], o[count] - o[r.end.min(count)]);
+        range != spec.range || pad(&offsets, range) != pad(&spec.offsets, spec.range)
+    }
+
     /// Both axes. Offsets clamp to the content the last pass measured (a
     /// fling past the end lands on the last page, never on blank rows).
     pub fn scroll_to(&mut self, id: &str, x: f32, y: f32) -> bool {
@@ -62,14 +81,24 @@ impl Surface {
         }
         // A windowed container re-windows (its subtree only), and so does
         // every windowed list this container is the viewport of (round 2);
-        // a plain one only moves paint.
-        let lists: Vec<String> = self
+        // a plain one only moves paint. #LOGS-9: only when the scroll moves
+        // its window (the rows or the spacers): a step inside the overscan
+        // keeps the built rows.
+        let candidates: Vec<(crate::layout_tree::ListSpec, f32)> = self
             .lists
             .iter()
             .filter(|l| l.windowed)
-            .filter(|l| l.id == id || matches!(self.local.list_views.get(&l.id).map(|v| &v.source), Some(crate::layout_tree::ListViewSource::Ancestor { id: a, .. }) if a == id))
-            .map(|l| l.id.clone())
+            .filter_map(|l| {
+                let along = if l.horizontal { x } else { y };
+                let scroll = match self.local.list_views.get(&l.id).map(|v| &v.source) {
+                    _ if l.id == id => along,
+                    Some(crate::layout_tree::ListViewSource::Ancestor { id: a, rel }) if a == id => along - rel,
+                    _ => return None,
+                };
+                Some((l.clone(), scroll))
+            })
             .collect();
+        let lists: Vec<String> = candidates.into_iter().filter(|(l, scroll)| self.window_moves(l, *scroll)).map(|(l, _)| l.id).collect();
         self.subtree_pending.extend(lists);
         // #EXP-1629: a Select's fade refits after the pass (`refit_select_fades`).
         if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && self.nodes[s as usize].owner_component.as_deref() == Some("Select")) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
