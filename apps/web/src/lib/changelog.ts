@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-08-swipe-app-screens`,
+    date: `2026-11-08`,
+    title: `Swipe between an app's screens`,
+    summary: `On a phone, swipe sideways to move between an app's screens; the tab bar follows.`,
+    body: `- **Swipe between app screens**: on a phone, an app with screens in its bottom tab bar pages between them with a sideways swipe, like the inbox and chat tabs; the tab bar follows.
+- **Sideways content stays yours**: a swipe that starts on a table, chart, carousel or slider scrolls that, not the screen.`,
+  },
+  {
     id: `2026-11-09-desktop-diagnostics`,
     date: `2026-11-09`,
     title: `Send diagnostics, your choice`,
