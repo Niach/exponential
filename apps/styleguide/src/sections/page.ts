@@ -184,6 +184,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`record-form`]: `Inputs & pickers`,
   [`record-table`]: `Lists & rows`,
   [`settings-row`]: `Inputs & pickers`,
+  [`key-recorder`]: `Inputs & pickers`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,

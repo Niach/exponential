@@ -56,7 +56,8 @@
         "timeline",
         "record-form",
         "record-table",
-        "settings-row"
+        "settings-row",
+        "key-recorder"
       ]
     },
     {
@@ -159,6 +160,7 @@
     "record-form": "VAPP-217",
     "record-table": "VAPP-217",
     "settings-row": "VAPP-280",
+    "key-recorder": "EXP-1629",
     "mosaic": "EXP-1495",
     "window": "VAPP-290",
     "zoomable-image": "EXP-1586",

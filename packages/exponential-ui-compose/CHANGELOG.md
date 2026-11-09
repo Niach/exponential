@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- The `KeyRecorder` macro (#EXP-1629, `fixtures/interactions-round1.json` `keyRecorder`): its `field` presses on a tap (or Enter / Space while idle), takes the focus when `recording` turns true (focusable in touch mode), and while recording the surface's keys hand EVERY hardware key to the core as `record` (no Tab move, no Escape dismiss, no repeat; the navigation bar's Back stays the system's) with the canonical key name (`keyRecorderKeyName`: the physical key, f1-f24, US punctuation) and the held flags, a modifier key alone as `modifiers`, mouse buttons 3-5 over it as `mouse`; losing the focus is `blur`. `keyRecorderPress` / `keyRecorderRecord` / `keyRecorderMouse` / `keyRecorderBlur`, `keyRecorderKeyPayload`.
+- Markdown: an image directly in a top-level paragraph's text splits the paragraph into the text before it, a block image and the text after it (edges trimmed, an empty side dropped); in a heading, list item, cell, quote or inside a span it stays its alt text (#FEED-208, `fixtures/markdown-render.json` `image_split_*`).
+
 ## 0.20.0 (2026-11-08)
 
 - Tabs `swipeable` (#FEED-200): a horizontal TOUCH swipe on the `content` pages the panels (a mouse is unchanged): the axis locks through the core's `swipeLock`, a touch starting inside a Table, Chart, Carousel, ZoomableImage, Slider, Resizable, a horizontal List / ScrollArea or an `overflowX: auto|scroll` box is left to it (`swipeBlocks`, `SurfaceModel.swipeBlockedAt`), and `swipe {phase, offset, velocity}` goes to the core (`SurfaceModel.tabSwipe`), which draws and settles. A pure-translation `transform` now animates over the node's `transition` (snaps under reduced motion), so the panels and the `thumb` settle smoothly. `fixtures/swipe.json` lock / offset / settle / blocks replay through the facade.

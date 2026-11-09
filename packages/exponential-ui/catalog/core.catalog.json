@@ -5450,6 +5450,62 @@
         ]
       }
     },
+    "KeyRecorder": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "The accessible name."
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true,
+          "description": "The recorded keys, one cap each."
+        },
+        "recording": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Listening for keys; bind it."
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true,
+          "description": "The held modifiers while recording."
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Shown while recording with no key held."
+        },
+        "error": {
+          "type": "string",
+          "description": "An error under the field."
+        }
+      },
+      "events": [
+        "start",
+        "stop",
+        "key"
+      ],
+      "example": {
+        "label": "Push to talk",
+        "value": [
+          "Ctrl",
+          "Space"
+        ]
+      }
+    },
     "DatePicker": {
       "kind": "native",
       "group": "input",

@@ -31,9 +31,9 @@ use gpui::{
 };
 use gpui_component::{
     h_flex,
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
+use crate::feedback::Spinner;
 
 use domain::rows::Attachment;
 

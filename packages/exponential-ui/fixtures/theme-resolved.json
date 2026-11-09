@@ -6587,6 +6587,34 @@
             }
           ]
         },
+        "KeyRecorder": {
+          "field": [
+            {
+              "style": {
+                "borderColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "recording": true
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -15014,6 +15042,71 @@
             }
           ]
         },
+        "KeyRecorder": {
+          "field": [
+            {
+              "style": {
+                "borderColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "recording": true
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "style": {
+                "paddingHorizontal": 7,
+                "paddingVertical": 3.5,
+                "borderRadius": 5.25
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 13,
+                "lineHeight": 20
+              }
+            }
+          ],
+          "none": [
+            {
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            }
+          ],
+          "ellipsis": [
+            {
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -23423,6 +23516,34 @@
                 "color": "$color.mutedForeground",
                 "fontFamily": "$type.family.mono",
                 "fontSize": "$type.size.xs"
+              }
+            }
+          ]
+        },
+        "KeyRecorder": {
+          "field": [
+            {
+              "style": {
+                "borderColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "recording": true
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
               }
             }
           ]
@@ -31880,6 +32001,71 @@
                 "color": "$color.mutedForeground",
                 "fontFamily": "$type.family.mono",
                 "fontSize": "$type.size.xs"
+              }
+            }
+          ]
+        },
+        "KeyRecorder": {
+          "field": [
+            {
+              "style": {
+                "borderColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "recording": true
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "style": {
+                "paddingHorizontal": 7,
+                "paddingVertical": 3.5,
+                "borderRadius": 5.25
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 13,
+                "lineHeight": 20
+              }
+            }
+          ],
+          "none": [
+            {
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            }
+          ],
+          "ellipsis": [
+            {
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ]

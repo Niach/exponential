@@ -6638,6 +6638,91 @@
       "macro": null
     },
     {
+      "name": "KeyRecorder",
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-key-recorder",
+      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "start",
+        "stop",
+        "key"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The accessible name."
+        },
+        {
+          "name": "value",
+          "type": "[string]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The recorded keys, one cap each."
+        },
+        {
+          "name": "recording",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Listening for keys; bind it."
+        },
+        {
+          "name": "pending",
+          "type": "[string]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The held modifiers while recording."
+        },
+        {
+          "name": "placeholder",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Shown while recording with no key held."
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "An error under the field."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "field = button named `label`, aria-pressed while recording; the error line is an alert",
+        "keys": [
+          "Enter, Space: start recording",
+          "While recording every key, modifier change and mouse button 3-5 goes to `key`; Tab and Escape included (the host decides)"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "KeyRecorder",
+        "label": "Push to talk",
+        "value": [
+          "Ctrl",
+          "Space"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KeyRecorder/<part>."
+    },
+    {
       "name": "DatePicker",
       "kind": "native",
       "group": "input",

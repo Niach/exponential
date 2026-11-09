@@ -6578,6 +6578,34 @@
         }
       ]
     },
+    "KeyRecorder": {
+      "field": [
+        {
+          "style": {
+            "borderColor": "#00000000",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "recording": true
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.destructive"
+          }
+        }
+      ]
+    },
     "Label": {
       "text": [
         {

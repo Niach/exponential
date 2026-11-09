@@ -2366,6 +2366,36 @@
         ]
       }
     },
+    "KeyRecorder": {
+      "props": {
+        "label": {
+          "description": "The accessible name."
+        },
+        "value": {
+          "description": "The recorded keys, one cap each."
+        },
+        "recording": {
+          "description": "Listening for keys; bind it."
+        },
+        "pending": {
+          "description": "The held modifiers while recording."
+        },
+        "placeholder": {
+          "description": "Shown while recording with no key held."
+        },
+        "error": {
+          "description": "An error under the field."
+        }
+      },
+      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "example": {
+        "label": "Push to talk",
+        "value": [
+          "Ctrl",
+          "Space"
+        ]
+      }
+    },
     "DatePicker": {
       "props": {
         "label": {

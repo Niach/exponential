@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +64,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.exponential.app.AppConstants
+import io.sentry.android.navigation.SentryNavigationListener
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.ChatShare
@@ -172,6 +174,12 @@ fun AppNavHost() {
     val needsAuth =
         state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
     val navController = key(needsAuth) { rememberNavController() }
+    // #LOGS-2: navigation breadcrumbs + transactions (inert while Sentry is off).
+    DisposableEffect(navController) {
+        val listener = SentryNavigationListener()
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
     val pendingTarget by deepLinkBus.target.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // EXP-1212: the New issue page holds navigation while its draft has

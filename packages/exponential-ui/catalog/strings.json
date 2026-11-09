@@ -111,6 +111,8 @@
     "tree": "Tree",
     "stepCompact": "Step {step} of {total} · {label}",
     "all": "All",
-    "total": "Total"
+    "total": "Total",
+    "keyRecorderNone": "None",
+    "keyRecorderPlaceholder": "Press any key or combination…"
   }
 }

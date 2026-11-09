@@ -30,7 +30,7 @@ use crate::settings::SettingsSection;
 const PRUNED: &[&str] = &["header", "switcher_menu", "chats"];
 
 /// A row glyph the IDE paints.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Glyph {
     Board(domain::rows::Board),
     Agent(domain::session_tree::AgentRow),
@@ -179,6 +179,8 @@ pub(crate) struct SidebarRegion {
     assistant: Option<(String, String)>,
     /// #EXP-1741: the Computer button's state (the corner paints it).
     computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
+    /// The Computer button changed since the document last repainted.
+    computer_changed: bool,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
     frozen: bool,
@@ -205,6 +207,7 @@ impl SidebarRegion {
                 shown: None,
                 assistant: None,
                 computer,
+                computer_changed: true,
                 #[cfg(test)]
                 frozen: false,
             }
@@ -218,12 +221,17 @@ impl SidebarRegion {
             return;
         }
         let (input, glyphs) = gather(nav, cx);
+        // A glyph is host-painted: its state changes without the data. The
+        // rail renders on every tick of a mark inside it (#LOGS-4): repaint
+        // the document only when a glyph or the Computer button changed.
+        let glyphs_changed = *self.glyphs.borrow() != glyphs;
         *self.glyphs.borrow_mut() = glyphs;
         self.assistant = active_team_id(nav, cx).and_then(|team| crate::session_data::my_assistant(&team, cx)).map(|a| (a.id, a.name.unwrap_or_else(|| "Assistant".into())));
         self.input = input;
         self.push(cx);
-        // A glyph is host-painted: its state changes without the data.
-        self.view.update(cx, |_, cx| cx.notify());
+        if glyphs_changed || std::mem::take(&mut self.computer_changed) {
+            self.view.update(cx, |_, cx| cx.notify());
+        }
     }
 
     /// A sample state, for the pictures.
@@ -264,7 +272,11 @@ impl SidebarRegion {
         if self.frozen {
             return;
         }
-        *self.computer.borrow_mut() = Some(state);
+        let state = Some(state);
+        if *self.computer.borrow() != state {
+            *self.computer.borrow_mut() = state;
+            self.computer_changed = true;
+        }
     }
 
     /// The row under the pointer, for the context menu.

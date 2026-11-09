@@ -25,6 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-swipe-app-screens`,
+    date: `2026-11-09`,
+    title: `Swipe between an app's screens`,
+    summary: `On a phone, swipe sideways to move between an app's screens; the tab bar follows.`,
+    body: `- **Swipe between app screens**: on a phone, an app with screens in its bottom tab bar pages between them with a sideways swipe, like the inbox and chat tabs; the tab bar follows.
+- **Sideways content stays yours**: a swipe that starts on a table, chart, carousel or slider scrolls that, not the screen.`,
+  },
+  {
+    id: `2026-11-09-android-diagnostics`,
+    date: `2026-11-09`,
+    title: `Android diagnostics, opt-out in Settings`,
+    summary: `Android sends crash, ANR and performance diagnostics only through our own servers, with your user id only; turn it off with Send diagnostics.`,
+    body: `- **Crash and performance diagnostics**: the Android app reports crashes, ANRs and performance through our own servers only, never straight to a third party, with your user id and nothing else, deleted after 30 days.
+- **Send diagnostics**: on by default, off in Settings → Account → Privacy, per device.`,
+  },
+  {
     id: `2026-11-09-desktop-diagnostics`,
     date: `2026-11-09`,
     title: `Send diagnostics, your choice`,

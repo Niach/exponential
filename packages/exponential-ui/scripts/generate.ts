@@ -1035,6 +1035,15 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `example · a settings group`, node: settingsGroup() },
     { label: `stackBelow · xl (stacked)`, node: { id: `group`, component: `Group`, children: [settingsSelectRow(`xl`)] } },
   ],
+  // #EXP-1629: the shortcut recorder in its five states (the IDE's Push to
+  // talk row: a binding, none, recording, a held modifier, an inline error).
+  KeyRecorder: [
+    { label: `value`, node: { id: `ptt`, component: `KeyRecorder`, props: { label: `Push to talk`, value: [`Ctrl`, `Space`] } } },
+    { label: `empty`, node: { id: `ptt-none`, component: `KeyRecorder`, props: { label: `Push to talk`, value: [] } } },
+    { label: `recording`, node: { id: `ptt-recording`, component: `KeyRecorder`, props: { label: `Push to talk`, value: [`Ctrl`, `Space`], recording: true } } },
+    { label: `recording · held modifier`, node: { id: `ptt-held`, component: `KeyRecorder`, props: { label: `Push to talk`, value: [`Ctrl`, `Space`], recording: true, pending: [`Ctrl`] } } },
+    { label: `error`, node: { id: `ptt-error`, component: `KeyRecorder`, props: { label: `Push to talk`, recording: true, error: `Hold Ctrl, Alt, Shift or Super with that key` } } },
+  ],
   // #VAPP-284: a foldable parent (the settings nav's groups), closed and open.
   Row: [
     { label: `children · closed`, node: { id: `device`, component: `Row`, props: { title: `This device`, icon: `ui-device`, density: `compact`, pressable: true, open: false }, children: [{ id: `tools`, component: `Row`, props: { title: `Tools`, icon: `settings-tools`, density: `compact`, pressable: true } }] } },
