@@ -111,6 +111,12 @@
       "default",
       "lg"
     ],
+    "avatarSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -2062,11 +2068,12 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "avatarSize",
           "default": "default"
         },
         "seed": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         }
       }
     },
@@ -3109,6 +3116,10 @@
         },
         "avatar": {
           "type": "url",
+          "bindable": true
+        },
+        "seed": {
+          "type": "string",
           "bindable": true
         },
         "state": {

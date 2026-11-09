@@ -16,7 +16,7 @@ cargo build -p exponential-ui-ffi --release --features cli
 for LANG in swift kotlin; do
   rm -rf "$HERE/out/$LANG" && mkdir -p "$HERE/out/$LANG"
   cargo run -q -p exponential-ui-ffi --release --features cli --bin uniffi-bindgen -- generate \
-    --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG" --config "$HERE/uniffi.toml"
+    --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG"
 done
 # VAPP-131: the readers load in place (patch-swift-binding.pl).
 perl "$HERE/patch-swift-binding.pl" "$HERE/out/swift/ExponentialUIFFI.swift"

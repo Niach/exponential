@@ -94,6 +94,11 @@ gpui-component-assets.workspace = true
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
 gpui_wgpu = { workspace = true }
 
+# Mac platform on the process main thread (see the file's header).
+[[test]]
+name = "text_clusters_macos"
+harness = false
+
 [[example]]
 name = "conformance_dump"
 path = "examples/conformance_dump.rs"

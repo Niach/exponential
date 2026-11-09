@@ -79,6 +79,9 @@
                       "name": {
                         "@path": "/user/name"
                       },
+                      "seed": {
+                        "@path": "/user/login"
+                      },
                       "size": "lg"
                     }
                   }
@@ -1012,6 +1015,7 @@
   },
   "data": {
     "user": {
+      "login": "",
       "name": "",
       "host": ""
     },

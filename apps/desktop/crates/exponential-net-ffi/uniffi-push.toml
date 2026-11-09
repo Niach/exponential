@@ -3,5 +3,6 @@
 # collide with the full build's when the iOS app links both (VAPP-40: the
 # app's ExpCore links the full node, the Notification Service Extension this
 # one).
-[bindings.swift]
+# uniffi 0.32: a global --config file, merged over the crate's uniffi.toml.
+[crates.exponential_net_ffi.bindings.swift]
 module_name = "ExponentialNetPush"
