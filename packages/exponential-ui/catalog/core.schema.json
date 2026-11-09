@@ -22221,7 +22221,8 @@
               "chart7",
               "chart8",
               "link",
-              "borderStrong"
+              "borderStrong",
+              "ghostHover"
             ]
           }
         },

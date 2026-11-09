@@ -670,6 +670,14 @@
           "message": "missing value for $color.borderStrong"
         },
         {
+          "path": "modes.light.color.ghostHover",
+          "message": "missing value for $color.ghostHover"
+        },
+        {
+          "path": "modes.dark.color.ghostHover",
+          "message": "missing value for $color.ghostHover"
+        },
+        {
           "path": "tokens.spacing.none",
           "message": "missing value for $spacing.none"
         },

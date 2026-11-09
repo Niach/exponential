@@ -449,7 +449,10 @@ final class Round1NativesTests: XCTestCase {
         let m = try surface(node("week", "Select", ["label": .string("Week starts on"), "triggerVariant": .string("row"), "value": .string("tuesday"), "options": options]))
         paint(m)
         let trigger = try XCTUnwrap(m.index(of: "week.trigger"))
-        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["week.label", "week.spacer", "week.value", "week.chevron"])
+        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["week.label", "week.spacer", "week.button"])
+        // #EXP-1629: the IDE picker's ghost value button holds the value and the chevron.
+        let button = try XCTUnwrap(m.index(of: "week.button"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == button && !$0.removed }.map(\.id), ["week.value", "week.chevron"])
         XCTAssertEqual(m.node(m.index(of: "week.label")!)?.props.str("text"), "Week starts on")
         XCTAssertEqual(m.node(m.index(of: "week.value")!)?.props.str("text"), "Tuesday")
         let chevron = m.part("Select", "chevron", props: m.ownerProps(trigger))

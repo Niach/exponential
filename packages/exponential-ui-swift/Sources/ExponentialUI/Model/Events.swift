@@ -210,6 +210,14 @@ extension SurfaceModel {
             hoverTrigger(id, target: target, hovered)
             return
         }
+        // #EXP-1629: a row Select's value button lends its `hover` to the
+        // value/placeholder/chevron inside it; theirs alone is never reported.
+        if let i = byId[id], nodes[i].ownerComponent == "Select" {
+            if ["value", "placeholder", "chevron"].contains(nodes[i].part ?? ""), let p = nodes[i].parent, nodes[p].part == "button" { return }
+            if nodes[i].part == "button" {
+                for c in nodes[i].children { setInteraction(nodes[c].id) { $0.hover = hovered } }
+            }
+        }
         setInteraction(id) { $0.hover = hovered }
     }
 
