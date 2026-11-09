@@ -512,12 +512,13 @@ export function tryLoadTheme(source: unknown, options: ThemeOptions = {}): { the
 /** #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
  *  after themes shipped takes a sibling's value when the chain sets none, so
  *  every older theme stays complete: `link` = `primary`, #EDE-65
- *  `borderStrong` = `border`. */
+ *  `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`. */
 function deriveColors(theme: ResolvedTheme): void {
   for (const mode of MODES) {
     const color = theme.modes[mode].color as Record<string, string>
     if (color.link === undefined && color.primary !== undefined) color.link = color.primary
     if (color.borderStrong === undefined && color.border !== undefined) color.borderStrong = color.border
+    if (color.ghostHover === undefined && color.accent !== undefined) color.ghostHover = color.accent
   }
 }
 
