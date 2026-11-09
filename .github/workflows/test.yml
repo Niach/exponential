@@ -96,12 +96,12 @@ jobs:
           desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
-          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
+          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/vendor/gpui-pre-wgpu/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
-          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
+          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/(gpui-component|gpui-pre-wgpu)/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
