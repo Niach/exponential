@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalAutofill
 import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
@@ -65,6 +67,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import at.exponential.ui.json.Props
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.list
 import at.exponential.ui.json.str
@@ -109,6 +112,8 @@ fun OwnedTextField(
     /** The owner Input's `type` (catalog enum `inputType`): masking, autofill, autocorrection. */
     inputType: String = "",
     keyboardType: KeyboardType = keyboardTypeOf(inputType),
+    /** #EXP-1629: a `row` Input's value (and placeholder) sits at the end. */
+    endAligned: Boolean = false,
 ) {
     val secure = inputType == "password"
     val state = model.field(index)
@@ -242,7 +247,11 @@ fun OwnedTextField(
         visualTransformation = if (secure) PasswordVisualTransformation() else VisualTransformation.None,
         cursorBrush = SolidColor(textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
         decorationBox = { inner ->
-            Box(Modifier.fillMaxSize(), contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart) {
+            Box(Modifier.fillMaxSize(), contentAlignment = when {
+                multiline -> Alignment.TopStart
+                endAligned -> Alignment.CenterEnd
+                else -> Alignment.CenterStart
+            }) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     BasicText(
                         placeholder,
@@ -317,6 +326,7 @@ internal fun TextFieldLeaf(cx: LeafContext, multiline: Boolean) {
     val owner = cx.ownerProps
     val placeholder = cx.part(cx.node.recipeComponent, "placeholder")
     val type = owner.str("type")
+    if (!multiline && inputRowVariant(cx.props, owner)) return InputRowFieldLeaf(cx, placeholder.color)
     InnerBox(cx) {
         OwnedTextField(
             index = cx.index,
@@ -333,6 +343,66 @@ internal fun TextFieldLeaf(cx: LeafContext, multiline: Boolean) {
         )
     }
 }
+
+/**
+ * #EXP-1629: a `row` Input's `field` IS a Group row (the recipe's height,
+ * padding and gap; no chrome of its own): the `label` part leading and never
+ * shrinking, then the owned text field filling the rest, its value
+ * end-aligned at the field colour × 0.7 (the placeholder keeps its own,
+ * unfaded). The label stays the field's accessibility label.
+ */
+@Composable
+private fun InputRowFieldLeaf(cx: LeafContext, placeholderColor: Color?) {
+    val owner = cx.ownerProps
+    val label = inputRowLabel(cx.props, owner)
+    val labelPart = cx.part("Input", "label")
+    val type = owner.str("type")
+    InnerBox(cx) {
+        Row(
+            Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(inputRowGap(cx.style.gap, cx.spacing("md")).dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The field names itself with the label: the painted line stays out of the tree (no double read).
+            if (label.isNotEmpty()) LeafLine(cx, label, Modifier.clearAndSetSemantics {}, color = labelPart.color ?: cx.ink, ts = inputRowLabelStyle(cx.textStyle, labelPart))
+            OwnedTextField(
+                index = cx.index,
+                model = cx.model,
+                multiline = false,
+                placeholder = owner.str("placeholder"),
+                textStyle = cx.composeTextStyle(color = inputRowValueInk(cx.ink)),
+                placeholderColor = placeholderColor ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.5f),
+                disabled = cx.model.isDisabled(cx.index),
+                submitsOnReturn = false,
+                accessibilityLabel = label.ifEmpty { owner.str("placeholder") },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                inputType = type,
+                endAligned = true,
+            )
+        }
+    }
+}
+
+/** #EXP-1629: is this Input a `row` (the field's props, else the owner's)? */
+internal fun inputRowVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
+    props.str("variant").ifEmpty { ownerProps.str("variant") } == "row"
+
+/** #EXP-1629: a `row` field's leading label (the core's on the field, else the owner's `label`). */
+internal fun inputRowLabel(props: Props, ownerProps: Props = emptyMap()): String =
+    props.str("label").ifEmpty { ownerProps.str("label") }
+
+/** #EXP-1629: the row label's text style: the `label` part's size, line height and weight (regular), the field's family otherwise. */
+internal fun inputRowLabelStyle(ts: ResolvedTextStyle, label: at.exponential.ui.theme.PartStyle): ResolvedTextStyle =
+    ResolvedTextStyle(label.px("fontSize") ?: 12f, label.style.fontWeight ?: 400, label.px("lineHeight") ?: 16f, label.fontFamily ?: ts.fontFamily)
+
+/** #EXP-1629: the gap between a row's label and its value (the recipe's, else `$spacing.md`; the measurer's rule). */
+internal fun inputRowGap(recipeGap: Float, md: Float): Float = if (recipeGap > 0f) recipeGap else md
+
+/** #EXP-1629: a row's typed text: the field colour at 70 % (the Group row's value tone). */
+internal fun inputRowValueInk(ink: Color): Color = ink.copy(alpha = ink.alpha * INPUT_ROW_VALUE_OPACITY)
+
+/** #EXP-1629: the opacity of a `row` Input's typed text. */
+internal const val INPUT_ROW_VALUE_OPACITY = 0.7f
 
 /**
  * A one-line inline field of a control (round 1): a NumberField `.input`

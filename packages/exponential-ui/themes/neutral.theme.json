@@ -2657,6 +2657,20 @@
           "style": {
             "borderColor": "$color.destructive"
           }
+        },
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "height": 44,
+            "paddingHorizontal": "$spacing.lg",
+            "gap": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "label": [
@@ -2666,6 +2680,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontWeight": "$type.weight.medium",
             "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "fontWeight": "$type.weight.regular"
           }
         }
       ],

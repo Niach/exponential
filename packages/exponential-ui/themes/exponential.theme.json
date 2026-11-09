@@ -712,6 +712,31 @@
             "borderColor": "$color.input",
             "boxShadow": "$shadow.none"
           }
+        },
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "height": 40.82,
+            "paddingHorizontal": 14,
+            "paddingVertical": 10.5,
+            "gap": 10.5,
+            "backgroundColor": "#00000000",
+            "fontSize": 12.25,
+            "lineHeight": 17.5
+          }
+        }
+      ],
+      "label": [
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
         }
       ]
     },
