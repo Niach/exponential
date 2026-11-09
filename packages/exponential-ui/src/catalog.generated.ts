@@ -85,6 +85,7 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
+  selectTrigger: ["field","row"],
 } as const
 export type VariantValue = (typeof ENUMS)["variant"][number]
 export type SizeValue = (typeof ENUMS)["size"][number]
@@ -145,6 +146,7 @@ export type MotionDirectionValue = (typeof ENUMS)["motionDirection"][number]
 export type MotionFitValue = (typeof ENUMS)["motionFit"][number]
 export type CalendarViewValue = (typeof ENUMS)["calendarView"][number]
 export type StepperCollapseValue = (typeof ENUMS)["stepperCollapse"][number]
+export type SelectTriggerValue = (typeof ENUMS)["selectTrigger"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
@@ -287,7 +289,7 @@ export interface ComponentProps {
   Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean; size?: SwitchSizeValue }
   Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic; icon?: IconName; endLabel?: string | Dynamic; showValue?: boolean }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
-  Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
   KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }

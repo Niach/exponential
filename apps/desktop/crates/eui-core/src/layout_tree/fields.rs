@@ -269,11 +269,17 @@ pub fn format_bytes(n: f64) -> String {
 impl Builder<'_, '_> {
     /// The column frame every labelled field shares: label first.
     fn field_open(&mut self, index: u32) -> LNode {
+        self.field_open_with(index, true)
+    }
+
+    /// [`Self::field_open`]; `label: false` leaves the label to the control
+    /// (a `row` Select paints it inside its trigger).
+    fn field_open_with(&mut self, index: u32, label: bool) -> LNode {
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("gap", json!("$spacing.xs"))]);
         self.nodes[index as usize].kind = NodeKind::Container;
         let owner = self.nodes[index as usize].clone();
-        if let Some(label) = str_prop(&owner.props, "label") {
-            self.text_part(index, &owner, "label", label, "label", "");
+        if let Some(text) = str_prop(&owner.props, "label").filter(|_| label) {
+            self.text_part(index, &owner, "label", text, "label", "");
         }
         owner
     }
@@ -371,7 +377,9 @@ impl Builder<'_, '_> {
     /// Select = the combobox: trigger; open → a layer with an optional
     /// search field, the (filtered) options and `empty`.
     pub(crate) fn select(&mut self, index: u32) {
-        let owner = self.field_open(index);
+        // #EXP-1629: a `row` trigger IS a Group row: the label leads inside it.
+        let row = self.nodes[index as usize].props.get("triggerVariant").and_then(Value::as_str) == Some("row");
+        let owner = self.field_open_with(index, !row);
         // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
         let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
@@ -383,18 +391,32 @@ impl Builder<'_, '_> {
         let shown: Vec<String> = chosen.iter().map(|v| label_of(v).unwrap_or_else(|| v.clone())).collect();
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let (text, is_placeholder) = if shown.is_empty() { (placeholder, true) } else { (shown.join(", "), false) };
-        let trigger = self.trigger(&owner, &text, is_placeholder, "Select.trigger");
+        let trigger = self.trigger(&owner, &text, is_placeholder, if row { "Select.chevron" } else { "Select.trigger" });
+        if row {
+            if let Some(label) = str_prop(&owner.props, "label") {
+                self.nodes[trigger as usize].props.insert("label".into(), json!(label));
+            }
+        }
         self.field_close(&owner, Some(trigger));
         if !self.is_open(&owner.id, &Map::new(), false) {
             return;
         }
-        let (layer, root) = self.popup(&owner, "content", trigger, json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320}));
+        // #EXP-1629: `align` (row: end), `popupWidth` (row: the layout's
+        // selectRowPopupWidth; a field without one: at least the trigger).
+        let align = owner.props.get("align").and_then(Value::as_str).and_then(OverlayAlign::parse).unwrap_or(if row { OverlayAlign::End } else { OverlayAlign::Start });
+        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| row.then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
+        // The IDE picker: 4 under the search field, eight rows before the list scrolls.
+        let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
+        if let Some(w) = width {
+            style["width"] = json!(w);
+        }
+        let (layer, root) = self.popup(&owner, "content", trigger, style);
         let query = self.ctx.local.query.get(&owner.id).cloned().unwrap_or_default();
         if bool_prop(&owner.props, "searchable") {
             let search = self.part_in(root, &owner, "search", "Select", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"placeholder": self.string("search"), "value": query, "icon": super::builtin_icon("Select.search")}), "");
             self.nodes[search as usize].pressable = true;
         }
-        let list = self.part_in(root, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll"}), json!({}), "");
+        let list = self.part_in(root, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256}), json!({}), "");
         self.nodes[list as usize].part_query = None;
         let needle = query.to_lowercase();
         let mut shown_any = false;
@@ -427,7 +449,7 @@ impl Builder<'_, '_> {
             let empty = owner.props.get("emptyText").map(js).unwrap_or_else(|| self.string("noResults"));
             self.text_part(list, &owner, "empty", &empty, "muted", "");
         }
-        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: trigger, side: OverlaySide::Bottom, align: OverlayAlign::Start }, false, true, true, Some(list));
+        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: trigger, side: OverlaySide::Bottom, align }, false, true, width.is_none(), Some(list));
     }
 
     /// A `yyyy-mm-dd` as the surface formatter's medium date (the raw
