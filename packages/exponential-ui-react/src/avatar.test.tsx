@@ -1,7 +1,8 @@
 // #EXP-1629: the Avatar replays fixtures/avatar.json (the cross-client rule):
 // a seed paints `palette[fnv1a32(seed) % 8]` at 20% behind initials in it,
-// no seed (absent or empty) leaves the recipe's muted fallback, the name
-// reduces to the fixture's initials, and the name is never the seed.
+// #EXP-1754: no seed keys the hue on the name (trimmed; an email counts),
+// nothing at all (absent or blank) leaves the recipe's muted fallback, and
+// the name reduces to the fixture's initials.
 
 import { afterEach, describe, expect, it } from "vitest"
 import { cleanup, render } from "@testing-library/react"
@@ -12,7 +13,8 @@ import { ExponentialSurface } from "./surface"
 
 afterEach(cleanup)
 
-const rule = fixture as unknown as { palette: string[]; fillAlpha: number; hues: [string, number][]; initials: [string, string][] }
+type KeyCase = { case: string; id?: string; name?: string; email?: string; key: string | null; hue: number | null }
+const rule = fixture as unknown as { palette: string[]; fillAlpha: number; keys: KeyCase[]; hues: [string, number][]; initials: [string, string][] }
 
 /** The hex → the rgb() jsdom normalises a style colour to. */
 const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(`, `)})`
@@ -37,12 +39,29 @@ describe(`Avatar (fixtures/avatar.json)`, () => {
     })
   })
 
-  it(`no seed (absent or empty) leaves the muted recipe; the name is never the seed`, () => {
+  it(`the keys: the seed, else the name (or an email), else the muted recipe`, () => {
+    // eUI's Avatar: `seed` is the id, `name` (required) the name, else the email, else empty.
+    const fallback = paint(rule.keys.map((c, i) => ({ id: `k${i}`, props: { name: c.name ?? c.email ?? ``, ...(c.id !== undefined ? { seed: c.id } : {}) } })))
+    rule.keys.forEach((c, i) => {
+      const el = fallback(`k${i}`)
+      if (c.hue === null) {
+        expect(el.getAttribute(`style`), c.case).toBeNull()
+        return
+      }
+      const hex = rule.palette[c.hue]!
+      expect(el.style.color, c.case).toBe(rgb(hex))
+      expect(el.style.backgroundColor, c.case).toBe(`color-mix(in srgb, ${rgb(hex)} ${rule.fillAlpha * 100}%, transparent)`)
+    })
+  })
+
+  it(`an empty seed falls through to the name; no seed and no name is muted`, () => {
     const fallback = paint([
-      { id: `none`, props: { name: `Jane Doe` } },
-      { id: `empty`, props: { name: `Jane Doe`, seed: `` } },
+      { id: `none`, props: { name: `` } },
+      { id: `blank`, props: { name: `   `, seed: `` } },
+      { id: `named`, props: { name: `Jane Reporter`, seed: `` } },
     ])
-    for (const id of [`none`, `empty`]) expect(fallback(id).getAttribute(`style`)).toBeNull()
+    for (const id of [`none`, `blank`]) expect(fallback(id).getAttribute(`style`)).toBeNull()
+    expect(fallback(`named`).style.color).toBe(rgb(rule.palette[6]!))
   })
 
   it(`the name reduces to the fixture's initials`, () => {

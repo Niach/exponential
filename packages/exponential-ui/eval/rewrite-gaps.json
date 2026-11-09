@@ -29,6 +29,7 @@
     { "id": "board", "class": "expressible", "with": "Toolbar (search, filters, New issue); the status groups are Section + Row; bulk selection = Row selection + a Toolbar selection bar" },
     { "id": "issue-detail", "class": "native", "with": "a markdown EDITOR with mentions, issue refs and image paste (Textarea is plain text); the property tray is Chip + Select; the activity is Row + Markdown" },
     { "id": "issue-comments", "class": "native", "with": "the same editor for the composer; nested comments are Row + Markdown" },
+    { "id": "issue-reporter-comments", "class": "native", "with": "as issue-comments; the reporter's Avatar seeds by name (fixtures/avatar.json keys)" },
     { "id": "issue-create", "class": "native", "with": "the markdown editor; title + property Chips + FileUpload otherwise" },
     { "id": "search", "class": "expressible", "with": "SearchList over Section + Row" },
     { "id": "board-empty", "class": "expressible", "with": "EmptyState + the getting-started block (Section + Meter + Row)" },

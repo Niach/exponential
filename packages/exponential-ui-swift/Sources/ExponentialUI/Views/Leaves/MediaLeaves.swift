@@ -35,14 +35,15 @@ struct IconLeaf: View {
 
 /// `Avatar`: the image when the host resolves one (wearing the
 /// `Avatar/image` ring), else initials (fixtures/avatar.json, #EXP-1629):
-/// a `seed` tints them from the palette, none paints the `Avatar/fallback`
+/// the hue key (#EXP-1754: the `seed`, else the trimmed `name`, which may be
+/// an email) tints them from the palette, no key paints the `Avatar/fallback`
 /// recipe's muted colours; the letters' size and weight are the recipe's.
 struct AvatarLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let name = cx.props.str("name")
-        let seed = cx.props.str("seed")
+        let seed = AvatarFallback.hueKey(id: cx.props.str("seed"), name: name) ?? ""
         let fallback = cx.part("Avatar", "fallback")
         let image = cx.part("Avatar", "image")
         let size = min(cx.size.width, cx.size.height)

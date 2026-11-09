@@ -611,8 +611,9 @@ pub fn seed_hue(seed: &str) -> Hsla {
     color_of(Some(eui_core::avatar::AVATAR_PALETTE[eui_core::avatar::avatar_hue_index(seed)])).unwrap_or_default()
 }
 
-/// The fallback's (fill, ink): a seed's hue at the fill alpha + the hue, no
-/// seed = the `Avatar/fallback` recipe colours.
+/// The fallback's (fill, ink): a hue key's hue at the fill alpha + the hue,
+/// no key (empty) = the `Avatar/fallback` recipe colours. The key is
+/// [`eui_core::avatar::avatar_hue_key`] (#EXP-1754: the seed, else the name).
 pub fn avatar_colors(seed: &str, recipe_bg: Option<Hsla>, recipe_ink: Hsla) -> (Option<Hsla>, Hsla) {
     if seed.is_empty() {
         return (recipe_bg, recipe_ink);
@@ -698,12 +699,14 @@ pub(crate) fn percent_decode(s: &str) -> Vec<u8> {
 
 /// `Avatar` (#EXP-1629, `fixtures/avatar.json`): the picture once it
 /// decodes, wearing the `Avatar/image` ring; else the initials on the seed's
-/// hue (no seed = the `Avatar/fallback` recipe colours), sized + weighted by
+/// hue key's hue (#EXP-1754: the seed, else the trimmed name; neither = the
+/// `Avatar/fallback` recipe colours), sized + weighted by
 /// the fallback recipe.
 pub fn avatar(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
     let fallback = cx.part("Avatar", "fallback", &[]);
     let fallback_props = cx.part_props("Avatar", "fallback", &[]);
-    let (bg, fg) = avatar_colors(cx.str("seed"), fallback.bg, fallback.color.unwrap_or(cx.ink));
+    let key = eui_core::avatar::avatar_hue_key(cx.str("seed"), cx.str("name"), "").unwrap_or("");
+    let (bg, fg) = avatar_colors(key, fallback.bg, fallback.color.unwrap_or(cx.ink));
     let size = cx.w.min(cx.h);
     let fs = px_prop(&fallback_props, "fontSize").map_or((size / 2.0).round(), |f| f * cx.scale);
     let weight = fallback_props.get("fontWeight").and_then(Value::as_f64).unwrap_or(400.0) as f32;
@@ -1609,9 +1612,21 @@ mod tests {
         for case in f["initials"].as_array().unwrap() {
             assert_eq!(initials(case[0].as_str().unwrap()), case[1].as_str().unwrap(), "initials of {:?}", case[0]);
         }
-        // No seed = the recipe's muted colours.
+        // #EXP-1754: the key (seed, else name, else email), no key = the recipe's muted colours.
         let muted = color_of(Some("#27272a"));
-        assert_eq!(avatar_colors("", muted, gpui::white()), (muted, gpui::white()));
+        for case in f["keys"].as_array().unwrap() {
+            let field = |k: &str| case[k].as_str().unwrap_or("");
+            let key = eui_core::avatar::avatar_hue_key(field("id"), field("name"), field("email"));
+            assert_eq!(key, case["key"].as_str(), "{}", case["case"]);
+            let want = match case["hue"].as_u64() {
+                Some(idx) => {
+                    let hue = color_of(Some(palette[idx as usize])).unwrap();
+                    (Some(hue.opacity(0.2)), hue)
+                }
+                None => (muted, gpui::white()),
+            };
+            assert_eq!(avatar_colors(key.unwrap_or(""), muted, gpui::white()), want, "{}", case["case"]);
+        }
     }
 
     #[test]
