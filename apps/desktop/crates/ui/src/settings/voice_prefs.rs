@@ -348,6 +348,7 @@ fn project(state: &Voice, cx: &App) -> Value {
                 "reason": reason,
                 "hint": reason.is_some(),
                 "error": capture.and_then(|capture| capture.error.clone()),
+                "hasError": capture.is_some_and(|capture| capture.error.is_some()),
             },
             "wake": {"checked": settings.wake_word && ready, "disabled": !ready, "detail": wake_detail, "hint": wake_detail.is_some()},
             "meeting": {
@@ -360,6 +361,7 @@ fn project(state: &Voice, cx: &App) -> Value {
             "desktopAudio": {"value": settings.desktop_audio.key(), "label": settings.desktop_audio.label()},
             "apps": {"shown": apps_shown, "label": apps_value(&settings.desktop_audio_apps), "on": apps_on, "empty": settings.desktop_audio_apps.is_empty(), "some": !settings.desktop_audio_apps.is_empty()},
             "wakeInvalid": state.wake_phrase_invalid,
+            "hasWakeInvalid": state.wake_phrase_invalid.is_some(),
         });
     }
     json!({
@@ -425,8 +427,11 @@ fn picker_trigger(ink: &Ink, id: &str, value: Value, action: &str, items: Vec<Va
     let mut text = faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), alpha);
     text["props"]["lines"] = json!(1);
     text["style"]["maxWidth"] = json!(240);
+    // The Button centres its content box one device pixel higher.
+    text["style"]["paddingBottom"] = json!(1);
     let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "cursor": "pointer"},
+        // A Medium ghost Button's content: `gap_2` between the value and its chevron.
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "cursor": "pointer"},
         "children": [
             text,
             {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": alpha}},
@@ -479,13 +484,11 @@ fn switch_rows(ink: &Ink, id: &str, label: &str, base: &str, action: &str) -> Ve
         .collect()
 }
 
-/// A text-field row (`glass_input_row`): the label leading (never
-/// shrinking), the field filling the rest, its text at 70%.
-fn input_row(ink: &Ink, id: &str, visible: Value, label: &str, name: &str, placeholder: &str) -> Value {
-    let mut text = ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground);
-    text["style"]["flexShrink"] = json!(0);
-    let field = json!({"id": format!("{id}_field"), "component": "Input", "props": {"label": label, "name": name, "placeholder": placeholder, "value": path(&format!("/pane/fields/{name}"))}});
-    ink.shell(id, false, visible, vec![text, json!({"id": format!("{id}_value"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexGrow": 1, "minWidth": 0, "opacity": VALUE_ALPHA}, "children": [field]})])
+/// A text-field row (`glass_input_row`): genUI's row Input (the label
+/// leading, the bare value end-aligned at 70%; the exponential theme's row
+/// is the IDE's at its 14 px rem).
+fn input_row(id: &str, visible: Value, label: &str, name: &str, placeholder: &str) -> Value {
+    json!({"id": id, "component": "Input", "visible": visible, "props": {"variant": "row", "label": label, "name": name, "placeholder": placeholder, "value": path(&format!("/pane/fields/{name}"))}})
 }
 
 /// `action_error::field_error`: the 13 px line in the danger ink, in a box
@@ -540,7 +543,7 @@ fn push_to_talk(inks: &Inks) -> Value {
         rows.push(ink.shell(rid, false, hint_pick(base, hint), vec![column, control_column(&format!("{rid}_control"), controls)]));
     }
     // feedback-states.json `errors`: invalid input inline under its field.
-    rows.push(field_error(inks, "ptt_error", at("error"), at("error"), (ink.r(1.), ink.r(0.75))));
+    rows.push(field_error(inks, "ptt_error", at("error"), at("hasError"), (ink.r(1.), ink.r(0.75))));
     json!({"id": "ptt", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": rows})
 }
 
@@ -574,8 +577,8 @@ fn document(inks: &Inks, options: &Options) -> Value {
         (device, None),
         (agent, Some(pickers.clone())),
         (language, Some(pickers.clone())),
-        (vec![input_row(ink, "voice_file", tray.clone(), &copy.voice_file, "voiceFile", &copy.voice_file_placeholder)], Some(tray.clone())),
-        (vec![input_row(ink, "voice_transcript", tray.clone(), &copy.voice_transcript, "voiceTranscript", &copy.voice_transcript_placeholder)], Some(tray.clone())),
+        (vec![input_row("voice_file", tray.clone(), &copy.voice_file, "voiceFile", &copy.voice_file_placeholder)], Some(tray.clone())),
+        (vec![input_row("voice_transcript", tray.clone(), &copy.voice_transcript, "voiceTranscript", &copy.voice_transcript_placeholder)], Some(tray.clone())),
     ]);
 
     let mut header = ink.band("tray_header", "", None);
@@ -585,11 +588,11 @@ fn document(inks: &Inks, options: &Options) -> Value {
     let tray_group = group(ink, "tray", tray.clone(), vec![
         (vec![push_to_talk(inks)], None),
         (switch_rows(ink, "wake", &copy.wake_word, "/pane/tray/wake", "wake"), Some(json!(true))),
-        (vec![input_row(ink, "wake_phrase", json!(true), &copy.wake_phrase, "wakePhrase", &options.wake_placeholder)], Some(json!(true))),
+        (vec![input_row("wake_phrase", json!(true), &copy.wake_phrase, "wakePhrase", &options.wake_placeholder)], Some(json!(true))),
     ]);
 
     // #NEW-56: the too-short wake phrase's line, under the tray group (`px_1`).
-    let invalid = field_error(inks, "wake_invalid", path("/pane/tray/wakeInvalid"), and(tray.clone(), path("/pane/tray/wakeInvalid")), (ink.r(0.25), 0.));
+    let invalid = field_error(inks, "wake_invalid", path("/pane/tray/wakeInvalid"), and(tray.clone(), path("/pane/tray/hasWakeInvalid")), (ink.r(0.25), 0.));
 
     // #NEW-57: the Apps row's multi pick: each item toggles one app.
     let apps_items: Vec<Value> = options
