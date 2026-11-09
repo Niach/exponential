@@ -72,9 +72,9 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{self, InputEvent, InputState, TextareaState},
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
+use crate::feedback::Spinner;
 use steer::activity::SessionAgent;
 use steer::commands::parse_command;
 use steer::feed::{
