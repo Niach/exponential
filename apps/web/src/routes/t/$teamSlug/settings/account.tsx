@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc-client"
 import { AccountOverview } from "@/components/account/account-overview"
 import { DeleteAccountSection } from "@/components/account/delete-account-section"
 import { PasskeysSection } from "@/components/account/passkeys-section"
+import { PrivacySection } from "@/components/account/privacy-section"
 import {
   SignInMethodsSection,
   type LinkReturn,
@@ -47,9 +48,9 @@ type LinkSearch = {
 }
 
 // Personal section (EXP-238): identity, sign-in methods (EXP-1126: the
-// changeable primary email, Google/Apple/OIDC linking, passkeys), timezone
-// and account deletion. Always visible — the layout's beforeLoad already
-// guarantees a session.
+// changeable primary email, Google/Apple/OIDC linking, passkeys), timezone,
+// diagnostics (#LOGS-2, this device only) and account deletion. Always
+// visible — the layout's beforeLoad already guarantees a session.
 function SettingsAccount() {
   const { teamSlug } = Route.useParams()
   const { timezone, signInMethods } = Route.useLoaderData()
@@ -87,6 +88,7 @@ function SettingsAccount() {
         waysIn={signInMethods.waysIn}
         onChanged={reloadMethods}
       />
+      <PrivacySection />
       <DeleteAccountSection />
     </div>
   )

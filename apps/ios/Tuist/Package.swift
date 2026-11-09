@@ -53,5 +53,9 @@ let package = Package(
         // inline surface) is declared only when its xcframework exists, and
         // Project.swift links it only then.
         .package(path: "../../../packages/exponential-ui-swift"),
+        // #LOGS-2: crash, hang, performance and breadcrumb reporting to our
+        // GlitchTip (Sentry protocol). The app target only (Observability.swift);
+        // ExpCore and the extensions stay free of it.
+        .package(url: "https://github.com/getsentry/sentry-cocoa", from: "9.33.0"),
     ] + engine
 )

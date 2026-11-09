@@ -14,24 +14,24 @@
 //! open + after every action (never optimistic: the row leaves the server list
 //! and re-enters sync at its own pace); a failed read is quiet (FEED-79).
 
-use gpui::{
-    div, App, InteractiveElement as _, StatefulInteractiveElement as _, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window,
-};
-use gpui_component::{
-    v_flex, ActiveTheme as _, Disableable as _, Icon,
-};
+use std::rc::Rc;
+
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window};
+use gpui_component::ActiveTheme as _;
+use serde_json::{json, Value};
 use sync::Store;
 
 use api::boards::{ArchivedBoard, TrashedBoard};
+use eui_gpui::binding::Binding;
+use eui_gpui::view::SurfaceView;
 
-use crate::icons::{board_icon_name_glyph, registry};
+use crate::icons::registry;
 use crate::navigation::{active_team_id, navigate, Navigation, Screen};
 use crate::queries;
 use crate::sidebar::select_settings_section;
-use crate::surface::{glass_pill_button, PillSize};
 
-use super::{parse_hex_color, section, SettingsSection};
+use super::doc::{empty_state, hex, mount, not, path, IdeToasts, Ink, SM, XS};
+use super::{parse_hex_color, SettingsSection};
 
 pub struct AllBoardsPane {
     nav: Entity<Navigation>,
@@ -49,11 +49,42 @@ pub struct AllBoardsPane {
     trash: Vec<TrashedBoard>,
     /// The board being unarchived or restored — disables its row's button.
     pending: Option<String>,
+    #[cfg(test)]
+    shot_team: Option<String>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
 }
 
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
 impl AllBoardsPane {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        // The actions leave the binding for the pane: New board opens its
+        // dialog, a live row its pane, Unarchive / Restore write.
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["new", "open", "unarchive", "restore"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let view = mount("settings-all-boards", document(&Ink::of(cx)), &binding, window, cx);
         // The live band follows the synced boards.
         let boards = Store::global(cx).collections().boards.clone();
         let subscriptions = vec![
@@ -79,8 +110,99 @@ impl AllBoardsPane {
             account_id: None,
             generation: 0,
             pending: None,
+            #[cfg(test)]
+            shot_team: None,
+            binding,
+            view,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// The team the pane shows (the pictures pin one: the headless store
+    /// syncs none).
+    fn team_id(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(team) = &self.shot_team {
+            return Some(team.clone());
+        }
+        active_team_id(&self.nav, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = crate::navigation::nav_for_window(window, cx);
+        Self::new(nav, window, cx)
+    }
+
+    /// The pane with these put-away boards (the server reads pinned).
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, archived: Vec<ArchivedBoard>, trash: Vec<TrashedBoard>, cx: &mut gpui::Context<Self>) {
+        self.shot_team = Some("team-shots".into());
+        self.loaded_team = self.shot_team.clone();
+        self.account_id = Store::global(cx).session(cx).account_id().map(str::to_string);
+        self.loaded = true;
+        self.archived = archived;
+        self.trash = trash;
+        cx.notify();
+    }
+
+    /// A document action: `new` (the create-board dialog), `open` (a live
+    /// board's pane), `unarchive` / `restore` on the board `key`.
+    fn action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match name {
+            "new" => {
+                if let Some(team_id) = self.team_id(cx) {
+                    crate::create_board_dialog::open(window, cx, team_id);
+                }
+            }
+            "open" => {
+                select_settings_section(window, cx, SettingsSection::Board(key.to_string()));
+                navigate(window, cx, Screen::Settings);
+            }
+            "unarchive" if self.pending.is_none() => {
+                if let Some(board) = self.archived.iter().find(|board| board.id == key).cloned() {
+                    self.unarchive(&board, window, cx);
+                }
+            }
+            "restore" if self.pending.is_none() => {
+                if let Some(board) = self.trash.iter().find(|board| board.id == key).cloned() {
+                    self.restore(&board, window, cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The pane's state as the document reads it.
+    fn project(&self, team: Option<&str>, cx: &App) -> Value {
+        let muted = cx.theme().muted_foreground;
+        let tint = |color: Option<&str>| hex(color.and_then(parse_hex_color).unwrap_or(muted));
+        let Some(team_id) = team else {
+            return json!({"noTeam": true, "live": [], "archived": [], "trash": []});
+        };
+        let live: Vec<Value> = Store::global(cx)
+            .collections()
+            .boards_in_team(team_id, cx)
+            .iter()
+            .map(|board| {
+                let fallback = if board.repository_id.is_some() { "code" } else { "square-kanban" };
+                json!({"key": board.id, "name": board.name, "icon": glyph_name(board.icon.as_deref(), fallback), "color": tint(board.color.as_deref())})
+            })
+            .collect();
+        let pending = |id: &str| self.pending.as_deref() == Some(id);
+        let archived: Vec<Value> = self
+            .archived
+            .iter()
+            .map(|board| json!({"key": board.id, "name": board.name, "icon": glyph_name(board.icon.as_deref(), "code"), "color": tint(board.color.as_deref()),
+                "caption": archived_on(board.archived_at.as_deref()), "action": if pending(&board.id) { "Unarchiving\u{2026}" } else { "Unarchive" }, "pending": pending(&board.id)}))
+            .collect();
+        let trash: Vec<Value> = self
+            .trash
+            .iter()
+            .map(|board| json!({"key": board.id, "name": board.name, "icon": glyph_name(board.icon.as_deref(), "code"), "color": tint(board.color.as_deref()),
+                "caption": purge_countdown(board.purge_at.as_deref(), chrono::Utc::now()), "action": "Restore", "pending": pending(&board.id)}))
+            .collect();
+        json!({"noTeam": false, "noLive": live.is_empty(), "hasArchived": !archived.is_empty(), "hasTrash": !trash.is_empty(), "live": live, "archived": archived, "trash": trash})
     }
 
     /// Kick the server fetch when the pane is first shown or the team /
@@ -231,100 +353,16 @@ impl AllBoardsPane {
         })
         .detach();
     }
-
-    /// One Trash row: the purge countdown and Restore.
-    fn trash_row(&self, board: &TrashedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let pending = self.pending.as_deref() == Some(board.id.as_str());
-        let board_for_click = board.clone();
-        board_row(
-            board.icon.as_deref(),
-            board.color.as_deref(),
-            &board.name,
-            purge_countdown(board.purge_at.as_deref(), chrono::Utc::now()),
-            glass_pill_button(
-                SharedString::from(format!("restore-{}", board.id)),
-                PillSize::Sm,
-                cx,
-            )
-            .label("Restore")
-            .disabled(pending)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.restore(&board_for_click, window, cx);
-            })),
-            cx,
-        )
-    }
-
-    fn archived_row(&self, board: &ArchivedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let pending = self.pending.as_deref() == Some(board.id.as_str());
-        let board_for_click = board.clone();
-        board_row(
-            board.icon.as_deref(),
-            board.color.as_deref(),
-            &board.name,
-            archived_on(board.archived_at.as_deref()),
-            glass_pill_button(
-                SharedString::from(format!("unarchive-{}", board.id)),
-                PillSize::Sm,
-                cx,
-            )
-            .label(if pending { "Unarchiving\u{2026}" } else { "Unarchive" })
-            .disabled(pending)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.unarchive(&board_for_click, window, cx);
-            })),
-            cx,
-        )
-    }
 }
 
-/// One put-away board row. EXP-1076: a board is an ENTITY, so its list is
-/// the hairline LADDER: `flat_row` at the settings row rhythm (the web
-/// `SETTINGS_LIST_CLASS` twin): the tinted glyph, name, the caption, the action pill.
-fn board_row(
-    icon: Option<&str>,
-    color: Option<&str>,
-    name: &str,
-    caption: SharedString,
-    action: gpui_component::button::Button,
-    cx: &App,
-) -> gpui::Div {
-    crate::surface::flat_row()
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_3()
-        .px_3()
-        .py_2()
-        // The board's own colour, like the live rows and web's `BoardGlyph`.
-        .child(board_icon_name_glyph(icon.unwrap_or_default()).text_color(
-            color.and_then(parse_hex_color).unwrap_or(cx.theme().muted_foreground),
-        ))
-        .child(board_name(name))
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(caption),
-        )
-        .child(action)
-}
-
-fn board_name(name: &str) -> gpui::Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .truncate()
-        .text_sm()
-        .font_weight(gpui::FontWeight::MEDIUM)
-        .child(SharedString::from(name.to_string()))
+/// A curated board icon name the IDE's registry knows, else `fallback`.
+fn glyph_name(icon: Option<&str>, fallback: &str) -> String {
+    icon.filter(|name| registry::icon_by_name(name).is_some()).unwrap_or(fallback).to_string()
 }
 
 /// Web `formatPurgeCountdown`: "Purges in ~Nh" (hours rounded up), "Purging
 /// soon" once due, "Purges soon" without a timestamp.
-fn purge_countdown(purge_at: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> SharedString {
+fn purge_countdown(purge_at: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> String {
     let Some(at) = purge_at.filter(|at| !at.is_empty()) else {
         return "Purges soon".into();
     };
@@ -341,100 +379,86 @@ fn purge_countdown(purge_at: Option<&str>, now: chrono::DateTime<chrono::Utc>) -
 
 /// Web `formatArchivedOn`: "Archived Jul 1, 2026", bare "Archived" without a
 /// timestamp.
-fn archived_on(archived_at: Option<&str>) -> SharedString {
+fn archived_on(archived_at: Option<&str>) -> String {
     match archived_at.filter(|at| !at.is_empty()) {
         Some(at) => format!("Archived {}", super::storage::format_created_date(at)).into(),
         None => "Archived".into(),
     }
 }
 
+/// A board row (EXP-1076: a board is an ENTITY, so its list is the flat
+/// ladder at the settings row rhythm, `px_3` / `py_2`, `gap_3`): the
+/// board's own tinted glyph, the name, and for a put-away board the
+/// caption and the action pill firing `put_away`.
+fn board_row(ink: &Ink, list: &str, put_away: Option<&str>) -> Value {
+    let glyph = ink.r(1.);
+    let mut name = ink.text(&format!("{list}_name"), path("name"), SM, &ink.foreground);
+    name["props"]["lines"] = json!(1);
+    name["style"]["fontWeight"] = json!(500);
+    name["style"]["minWidth"] = json!(0);
+    name["style"]["flexGrow"] = json!(1);
+    name["style"]["flexShrink"] = json!(1);
+    name["style"]["flexBasis"] = json!(0);
+    let mut children = vec![
+        json!({"id": format!("{list}_icon"), "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": path("color"), "flexShrink": 0}}),
+        name,
+    ];
+    if let Some(action) = put_away {
+        let mut caption = ink.text(&format!("{list}_caption"), path("caption"), XS, &ink.muted);
+        caption["style"]["flexShrink"] = json!(0);
+        children.push(caption);
+        let event = json!({"name": action, "context": {"key": path("key")}});
+        children.extend(ink.pill_button(&format!("{list}_action"), None, path("action"), path("pending"), event));
+    }
+    let mut row = json!({"id": format!("{list}_row"), "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": children});
+    if put_away.is_none() {
+        row["props"] = json!({"pressable": true});
+        row["accessibility"] = json!({"label": path("name")});
+        row["on"] = json!({"press": {"event": {"name": "open", "context": {"key": path("key")}}}});
+        row["style"]["cursor"] = json!("pointer");
+    }
+    row
+}
+
+/// One band's flat list of board rows.
+fn ladder(ink: &Ink, list: &str, put_away: Option<&str>, visible: Value) -> Value {
+    json!({"id": format!("{list}_rows"), "component": "List", "visible": visible, "props": {"gap": "none"},
+        "template": {"component": format!("{list}_wrap"), "path": format!("/pane/{list}"), "key": "key"},
+        "children": [{"id": format!("{list}_wrap"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [board_row(ink, list, put_away)]}]})
+}
+
+/// The pane's tree: the Boards band (New board) over the live boards, then
+/// the Archived and Trash bands while non-empty; no team = the no-team
+/// state.
+fn document(ink: &Ink) -> Value {
+    let section = |id: &str, visible: Value, children: Vec<Value>| json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": children});
+    let [new_board, _] = ink.pill_button("new", Some("ui-add"), json!("New board"), json!(false), json!({"name": "new"}));
+    let live = section("live", json!(true), vec![
+        ink.band("live_band", "Boards", Some(new_board)),
+        empty_state(ink, "live_empty", "settings-boards", crate::empty_state_copy::TEAM_BOARDS, path("/pane/noLive")),
+        ladder(ink, "live", None, not(path("/pane/noLive"))),
+    ]);
+    let archived = section("archived", path("/pane/hasArchived"), vec![ink.band("archived_band", "Archived", None), ladder(ink, "archived", Some("unarchive"), json!(true))]);
+    let trash = section("trash", path("/pane/hasTrash"), vec![ink.band("trash_band", "Trash", None), ladder(ink, "trash", Some("restore"), json!(true))]);
+    // The page: `v_flex().gap_6()`.
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [
+            {"id": "page", "component": "Box", "visible": not(path("/pane/noTeam")), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%"}, "children": [live, archived, trash]},
+            empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam")),
+        ]})
+}
+
 impl Render for AllBoardsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
-                crate::empty_state_copy::NO_TEAM_SELECTED,
-                cx,
-            ));
-        };
-        self.ensure_loaded(&team_id, cx);
-
-        // The live band: "New board" as its trailing pill (web parity), the
-        // synced boards in the nav's order, a row opens that board's pane.
-        let new_board = {
-            let team_id = team_id.clone();
-            glass_pill_button("all-boards-new-board", PillSize::Sm, cx)
-                .icon(Icon::new(registry::UI_ADD))
-                .label("New board")
-                .on_click(move |_, window, cx| {
-                    crate::create_board_dialog::open(window, cx, team_id.clone());
-                })
-                .into_any_element()
-        };
-        let boards = Store::global(cx).collections().boards_in_team(&team_id, cx);
-        let mut live = section(cx).child(crate::surface::glass_section_band(
-            None,
-            "Boards",
-            Some(new_board),
-            cx,
-        ));
-        if boards.is_empty() {
-            live = live.child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(registry::SETTINGS_BOARDS),
-                crate::empty_state_copy::TEAM_BOARDS,
-                cx,
-            ));
-        } else {
-            live = live.child(v_flex().w_full().min_w_0().children(boards.iter().map(|board| {
-                let color = board
-                    .color
-                    .as_deref()
-                    .and_then(parse_hex_color)
-                    .unwrap_or(cx.theme().muted_foreground);
-                let target = SettingsSection::Board(board.id.clone());
-                crate::surface::list_row(
-                    crate::surface::flat_row()
-                        .flex()
-                        .w_full()
-                        .min_w_0()
-                        .items_center()
-                        .gap_3()
-                        .px_3()
-                        .py_2()
-                        .child(crate::icons::board_icon(board).text_color(color))
-                        .child(board_name(&board.name))
-                        .id(SharedString::from(format!("all-boards-row-{}", board.id)))
-                        .cursor_pointer()
-                        .on_click(move |_, window, cx| {
-                            select_settings_section(window, cx, target.clone());
-                            navigate(window, cx, Screen::Settings);
-                        }),
-                )
-            })));
+        let team = self.team_id(cx);
+        if let Some(team_id) = &team {
+            self.ensure_loaded(team_id, cx);
         }
-
-        let mut page = v_flex().gap_6().child(live);
-        if !self.archived.is_empty() {
-            let rows = self.archived.clone();
-            page = page.child(
-                section(cx)
-                    .child(crate::surface::glass_section_band(None, "Archived", None, cx))
-                    .child(v_flex().w_full().min_w_0().children(
-                        rows.iter().map(|board| crate::surface::list_row(self.archived_row(board, cx))),
-                    )),
-            );
-        }
-        if !self.trash.is_empty() {
-            let rows = self.trash.clone();
-            page = page.child(
-                section(cx)
-                    .child(crate::surface::glass_section_band(None, "Trash", None, cx))
-                    .child(v_flex().w_full().min_w_0().children(
-                        rows.iter().map(|board| crate::surface::list_row(self.trash_row(board, cx))),
-                    )),
-            );
-        }
-        page
+        let projection = self.project(team.as_deref(), cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
@@ -444,8 +468,8 @@ mod tests {
 
     #[test]
     fn archived_caption_matches_web() {
-        assert_eq!(archived_on(Some("2026-07-01T10:00:00.000Z")).as_ref(), "Archived Jul 1, 2026");
-        assert_eq!(archived_on(None).as_ref(), "Archived");
+        assert_eq!(archived_on(Some("2026-07-01T10:00:00.000Z")).as_str(), "Archived Jul 1, 2026");
+        assert_eq!(archived_on(None).as_str(), "Archived");
     }
 
     #[test]
@@ -453,8 +477,8 @@ mod tests {
         let now = chrono::DateTime::parse_from_rfc3339("2026-07-01T10:00:00.000Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
-        assert_eq!(purge_countdown(Some("2026-07-03T03:30:00.000Z"), now).as_ref(), "Purges in ~42h");
-        assert_eq!(purge_countdown(Some("2026-07-01T09:00:00.000Z"), now).as_ref(), "Purging soon");
-        assert_eq!(purge_countdown(None, now).as_ref(), "Purges soon");
+        assert_eq!(purge_countdown(Some("2026-07-03T03:30:00.000Z"), now).as_str(), "Purges in ~42h");
+        assert_eq!(purge_countdown(Some("2026-07-01T09:00:00.000Z"), now).as_str(), "Purging soon");
+        assert_eq!(purge_countdown(None, now).as_str(), "Purges soon");
     }
 }
