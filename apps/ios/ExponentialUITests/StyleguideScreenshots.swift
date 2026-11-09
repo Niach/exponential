@@ -1928,7 +1928,6 @@ final class StyleguideScreenshots: XCTestCase {
         // #EXP-1757: a Back tapped while the item's feed still settles is
         // swallowed (a run without the card shots taps it right after the
         // snapshot), so go back until the Chats list's tab bar is up.
-        let chatsTab = app.buttons["tab-chats"]
         for _ in 0..<4 where !(chatsTab.exists && chatsTab.isHittable) {
             goBack(app)
             settle(1)
