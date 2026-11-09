@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-217 (eApps U2; docs/package-format.md \"Record macros\"): THE HOST FILL of the RecordForm and RecordTable macros, replayed by the TS reference (src/host/record-macros.ts fillRecordMacros, called by templateMessages and validatePackage's component check) and the Rust core (host::record_macros::fill_record_macros, template_messages). A macro sees only its node's props, so the host fills every RecordForm / RecordTable of a template's flat component list from the package's records before the reducer runs; macros.json then expands them (fixtures/catalog-macros.json RecordForm/* + RecordTable/*). FIELDS (recordFormFields, in the Data tab's order: required in order, then the rest by name; files left out): label = the name humanized (closeDate / close_date → Close date), placeholder = the schema description; a member ref → a searchable Select with options = /recordMembers/rows, an issue ref → the same over /recordIssues/rows (the macro's own bindings: exp:members / exp:issues appended once per surface, past `sources` at exactly those paths: isRecordMacroBinding; members for a writing form, issues when a field refs one); boolean → switch; number → number (min/max from the schema), integer → number with step 1, precision 0; array of enum items → a multiple Select, other arrays → chips (wide, max = maxLength); string enum → select; format date → date, time → time, date-time → datetime (wide, date/time = the pickers' draft parts at <draft path>Parts/<name>/date|time); a string without maxLength or longer than 200 → textarea (wide); else text. value = {path: <draft path>/<name>}. CHECKS: required (not a switch) → required / $string.required; a free string's maxLength → length max / $string.invalidValue; a number's minimum/maximum → numeric / $string.invalidValue. RecordForm: path = the author's or /recordForm/<id>; writing: error = <path>Error (a refused save's message, under the fields), author = <path>Author, authorOptions = cond(the viewer's row in /recordMembers has role owner, the members, null): a Select first in the form, shown only with options (domain-contract app-records.json `formAuthor`; placeholder $string.me); on.submit (unless the author wrote one) = records_upsert {kind, id: the author's recordId when given, data: one binding per field; a datetime field = cond(its date part, dateTime(date, time), its value); author: an owner's non-empty pick only when <path>Author differs from <path>AuthorBase, else null; form: {error: <path>Error, close (table): base/editor/open}: the HOST writes them: a landed (or queued) write clears error and sets close false; invalid input (BAD_REQUEST) writes the message at error with no toast, anything else toasts; a write with an author goes straight to the server, past the offline outbox}; a read-only viewer → readOnly. RecordTable (base = /recordTable/<id>): title = the kind's title or its name humanized; cols = the chosen columns (default every field, unknown names and files dropped), number/integer → type number align end, boolean → boolean, date → date, date-time → dateTime, fixed widths by format/type (date 104, time 64, date-time 188, number/integer 64, boolean 56, never under the label's 8 px a letter + 36), else truncate; then updatedAt (relativeTime, 136) and, when editable, the menu slot column (80); rows = base/rows/rows, count = pluralize {count}: one $string.recordCountOne, other $string.recordCount, loading = not(base/rows); children = the phone row template <id>__row (appended: a Row, title = the first column as text else —, subtitle = the second, meta = the relative updatedAt, press = open the editor on the row; editable: trailing = <id>__rowDelete, appended after it, a ghost icon Button ui-delete, label $string.delete, press = on.delete); the binding base/rows ← records:<kind>?<query without its ?, default sort=updatedAt&order=desc> appended to the template's. Editable (the author's editable !== false and not a read-only viewer): fields/path over base/editor/draft, editorOpen/editorId/deleteOpen bindings, on.add/edit/delete/submit/cancel/confirm/cancelDelete (each only when the author wrote none): add = set base/editor {open, draft: {}, draftAuthor and draftAuthorBase: /recordMembers/me}, edit = set base/editor {open, draft: the row, and with a datetime field draftParts: {<name>: {date: formatDate yyyy-MM-dd, time: formatDate HH:mm of the row's value}}, draftAuthor: coalesce(row authorId, /recordMembers/me), draftAuthorBase: row authorId}, delete = set base/delete {open, id: the row's id}, submit = records_upsert with id = the draft's id, cancel / cancelDelete = close, confirm = records_delete {id: base/delete/id}. Not editable: add false. An undeclared kind fills only missing: true (the unknown state). INSTALL (validatePackage, at the macro's component): a writing RecordForm (not readOnly) or editable RecordTable needs records_upsert in functions; an editable RecordTable also records_delete; a RecordTable's records:<kind> must pass sources when sources is set. VAPP-206: a form's write binds a field the kind does not require through {call: expr, args: {expr: \"v == '' ? null : v\", vars: {v: <the field's binding>}, default: null}}: an unpicked Select or an emptied Input writes null (absent on a create, cleared on a patch). FEED-202: a `columns` entry is a field name or a column object {key, …}: its label, type (never slot), currency, decimals, align, width, format, truncate and sortable win over the field's defaults (an unknown or file key drops out); a currency column without the author's width is 96 (never under the label's); search: true = searchValue base/search over the shown text columns (string, no format; none = search false); filter = a string enum field: filterLabel = its name humanized, filterOptions = [{$string.all, \"\"}, each value], filterValue base/filter (any other field drops filter); either one: rows = filter {items: base/rows/rows, query + fields, where {<field>: base/filter}}, count = pluralize(len(rows)), and the phone row's visible = lt(0, len(filter of [the row] by the same args)); totals passes to the Table (`totals`: a last row with each number and currency column's sum over the rows, the first column `$string.total` unless it sums).",
+  "$comment": "VAPP-217 (eApps U2; docs/package-format.md \"Record macros\"): THE HOST FILL of the RecordForm and RecordTable macros, replayed by the TS reference (src/host/record-macros.ts fillRecordMacros, called by templateMessages and validatePackage's component check) and the Rust core (host::record_macros::fill_record_macros, template_messages). A macro sees only its node's props, so the host fills every RecordForm / RecordTable of a template's flat component list from the package's records before the reducer runs; macros.json then expands them (fixtures/catalog-macros.json RecordForm/* + RecordTable/*). FIELDS (recordFormFields, in the Data tab's order: required in order, then the rest by name; files left out): label = the name humanized (closeDate / close_date → Close date), placeholder = the schema description; a member ref → a searchable Select with options = /recordMembers/rows, an issue ref → the same over /recordIssues/rows (the macro's own bindings: exp:members / exp:issues appended once per surface, past `sources` at exactly those paths: isRecordMacroBinding; members for a writing form, issues when a field refs one); boolean → switch; number → number (min/max from the schema), integer → number with step 1, precision 0; array of enum items → a multiple Select, other arrays → chips (wide, max = maxLength); string enum → select; format date → date, time → time, date-time → datetime (wide, date/time = the pickers' draft parts at <draft path>Parts/<name>/date|time); a string without maxLength or longer than 200 → textarea (wide); else text. value = {path: <draft path>/<name>}. CHECKS: required (not a switch) → required / $string.required; a free string's maxLength → length max / $string.invalidValue; a number's minimum/maximum → numeric / $string.invalidValue. RecordForm: path = the author's or /recordForm/<id>; writing: error = <path>Error (a refused save's message, under the fields), author = <path>Author, authorOptions = cond(the viewer's row in /recordMembers has role owner, the members, null): a Select first in the form, shown only with options (domain-contract app-records.json `formAuthor`; placeholder $string.me); on.submit (unless the author wrote one) = records_upsert {kind, id: the author's recordId when given, data: one binding per field; a datetime field = cond(its date part, dateTime(date, time), its value); author: an owner's non-empty pick only when <path>Author differs from <path>AuthorBase, else null; form: {error: <path>Error, close (table): base/editor/open}: the HOST writes them: a landed (or queued) write clears error and sets close false; invalid input (BAD_REQUEST) writes the message at error with no toast, anything else toasts; a write with an author goes straight to the server, past the offline outbox}; a read-only viewer → readOnly. RecordTable (base = /recordTable/<id>): title = the kind's title or its name humanized; cols = the chosen columns (default every field, unknown names and files dropped), number/integer → type number align end, boolean → boolean, date → date, date-time → dateTime, fixed widths by format/type (date 104, time 64, date-time 188, number/integer 64, boolean 56, never under the label's 8 px a letter + 36), else truncate; then updatedAt (relativeTime, 136) and, when editable, the menu slot column (80); rows = base/rows/rows, count = pluralize {count}: one $string.recordCountOne, other $string.recordCount, loading = cond(base/rows, false, true) (presence: A2UI 1.0 coerces an object to false, so never not(base/rows)); children = the phone row template <id>__row (appended: a Row, title = the first column as text else —, subtitle = the second, meta = the relative updatedAt, press = open the editor on the row; editable: trailing = <id>__rowDelete, appended after it, a ghost icon Button ui-delete, label $string.delete, press = on.delete); the binding base/rows ← records:<kind>?<query without its ?, default sort=updatedAt&order=desc> appended to the template's. Editable (the author's editable !== false and not a read-only viewer): fields/path over base/editor/draft, editorOpen/editorId/deleteOpen bindings, on.add/edit/delete/submit/cancel/confirm/cancelDelete (each only when the author wrote none): add = set base/editor {open, draft: {}, draftAuthor and draftAuthorBase: /recordMembers/me}, edit = set base/editor {open, draft: the row, and with a datetime field draftParts: {<name>: {date: formatDate yyyy-MM-dd, time: formatDate HH:mm of the row's value}}, draftAuthor: coalesce(row authorId, /recordMembers/me), draftAuthorBase: row authorId}, delete = set base/delete {open, id: the row's id}, submit = records_upsert with id = the draft's id, cancel / cancelDelete = close, confirm = records_delete {id: base/delete/id}. Not editable: add false. An undeclared kind fills only missing: true (the unknown state). INSTALL (validatePackage, at the macro's component): a writing RecordForm (not readOnly) or editable RecordTable needs records_upsert in functions; an editable RecordTable also records_delete; a RecordTable's records:<kind> must pass sources when sources is set. VAPP-206: a form's write binds a field the kind does not require through {call: expr, args: {expr: \"v == '' ? null : v\", vars: {v: <the field's binding>}, default: null}}: an unpicked Select or an emptied Input writes null (absent on a create, cleared on a patch). FEED-202: a `columns` entry is a field name or a column object {key, …}: its label, type (never slot), currency, decimals, align, width, format, truncate and sortable win over the field's defaults (an unknown or file key drops out); a currency column without the author's width is 96 (never under the label's); search: true = searchValue base/search over the shown text columns (string, no format; none = search false); filter = a string enum field: filterLabel = its name humanized, filterOptions = [{$string.all, \"\"}, each value], filterValue base/filter (any other field drops filter); either one: rows = filter {items: base/rows/rows, query + fields, where {<field>: base/filter}}, count = pluralize(len(rows)), and the phone row's visible = lt(0, len(filter of [the row] by the same args)); totals passes to the Table (`totals`: a last row with each number and currency column's sum over the rows, the first column `$string.total` unless it sums).",
   "records": {
     "deal": {
       "title": "Deal",
@@ -1645,11 +1645,13 @@
               }
             },
             "loading": {
-              "@call": "not",
+              "@call": "cond",
               "args": {
-                "value": {
+                "if": {
                   "@path": "/recordTable/t/rows"
-                }
+                },
+                "then": false,
+                "else": true
               }
             },
             "editable": true,
@@ -2278,11 +2280,13 @@
               }
             },
             "loading": {
-              "@call": "not",
+              "@call": "cond",
               "args": {
-                "value": {
+                "if": {
                   "@path": "/recordTable/t/rows"
-                }
+                },
+                "then": false,
+                "else": true
               }
             },
             "children": {
@@ -2469,11 +2473,13 @@
               }
             },
             "loading": {
-              "@call": "not",
+              "@call": "cond",
               "args": {
-                "value": {
+                "if": {
                   "@path": "/recordTable/t/rows"
-                }
+                },
+                "then": false,
+                "else": true
               }
             },
             "add": false,
@@ -2813,11 +2819,13 @@
               }
             },
             "loading": {
-              "@call": "not",
+              "@call": "cond",
               "args": {
-                "value": {
+                "if": {
                   "@path": "/recordTable/root/rows"
-                }
+                },
+                "then": false,
+                "else": true
               }
             },
             "children": {
@@ -3013,11 +3021,13 @@
               }
             },
             "loading": {
-              "@call": "not",
+              "@call": "cond",
               "args": {
-                "value": {
+                "if": {
                   "@path": "/recordTable/root/rows"
-                }
+                },
+                "then": false,
+                "else": true
               }
             },
             "children": {
