@@ -127,6 +127,10 @@ public struct PaintStyle: Equatable, Sendable {
     public var borderColor: Color?
     /// `solid | dashed | dotted`.
     public var borderStyle: String = "solid"
+    /// #EXP-1629: a recipe's `backgroundClip: padding-box`: the background
+    /// (and gradient) paint inside the border, so a translucent border
+    /// blends over what is behind the box.
+    public var backgroundClipPadding: Bool = false
     /// The uniform radius (the largest corner).
     public var radius: CGFloat = 0
     /// `[topLeft, topRight, bottomRight, bottomLeft]`.
@@ -198,6 +202,7 @@ public struct PaintStyle: Equatable, Sendable {
         sticky = v.sticky
         borderColor = v.borderColor.flatMap { Color(hex: $0) }
         borderStyle = v.borderStyle ?? "solid"
+        backgroundClipPadding = v.backgroundClip == "padding-box"
         let r = CGFloat(max(0, v.borderRadius ?? 0))
         radii = v.cornerRadii.map { $0.map { CGFloat(max(0, $0)) } }.flatMap { $0.count == 4 ? $0 : nil } ?? [r, r, r, r]
         radius = radii.max() ?? 0
@@ -335,13 +340,14 @@ extension View {
     @ViewBuilder
     func paintedBox(_ s: PaintStyle, size: CGSize, group: Bool = false) -> some View {
         let shape = s.shape(size)
+        let fill = s.backgroundClipPadding && s.hasBorder ? BorderInnerBox(widths: s.borderWidths, radii: shape.radii) : BorderInnerBox(widths: [0, 0, 0, 0], radii: shape.radii)
         self
             .background {
                 ZStack {
-                    if let bg = s.background { shape.fill(bg) }
+                    if let bg = s.background { fill.fill(bg) }
                     if let g = s.gradient {
                         let p = g.points(in: size)
-                        shape.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
+                        fill.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
                     }
                 }
             }
@@ -428,16 +434,27 @@ struct SideBand: Shape {
 
     func path(in rect: CGRect) -> Path {
         var p = BoxShape(radii: radii).path(in: rect)
+        p.addPath(BorderInnerBox(widths: widths, radii: radii).path(in: rect))
+        return p
+    }
+}
+
+/// The box inside its border (`[top, right, bottom, left]` widths), each
+/// inner corner shrunk by the wider of its two sides: what a
+/// `padding-box` background fills and what a per-side border bands around.
+struct BorderInnerBox: Shape {
+    let widths: [CGFloat]
+    let radii: [CGFloat]
+
+    func path(in rect: CGRect) -> Path {
         let inner = CGRect(x: rect.minX + widths[3], y: rect.minY + widths[0], width: max(0, rect.width - widths[1] - widths[3]), height: max(0, rect.height - widths[0] - widths[2]))
-        // The inner corner shrinks by the wider of its two sides.
         let k = [
             max(0, radii[0] - max(widths[0], widths[3])),
             max(0, radii[1] - max(widths[0], widths[1])),
             max(0, radii[2] - max(widths[2], widths[1])),
             max(0, radii[3] - max(widths[2], widths[3])),
         ]
-        p.addPath(BoxShape(radii: k).path(in: inner))
-        return p
+        return BoxShape(radii: k).path(in: inner)
     }
 }
 

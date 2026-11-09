@@ -597,11 +597,9 @@ class SurfaceMeasurer(
         val text = leaf.props.str("text").ifEmpty { leaf.props.str("placeholder") }
         val gap = max(c.gap, spacing("sm"))
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
-        // #EXP-1629: the `chevron` part's size; a `row` adds its leading label (the `label` part's weight).
+        // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
         val glyph = part("Select", "chevron", leaf.props).width ?: 16f
-        val label = if (leaf.props.str("triggerVariant") == "row") leaf.props.str("label") else ""
-        val lead = if (label.isEmpty()) 0f else line(shown(label, leaf), ts.copy(fontWeight = part("Select", "label", leaf.props).style.fontWeight ?: 400)) + gap
-        return Content(lead + line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
+        return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
     }
 
     /**

@@ -484,7 +484,9 @@ impl SurfaceView {
         let size = lcx.text_style.font_size;
         let ink = lcx.ink;
         let icon = (f.kind == FieldKind::Search).then(|| n.props.get("icon").and_then(Value::as_str).unwrap_or("search").to_string());
-        let icon_w = if icon.is_some() { 16.0 + 8.0 } else { 0.0 };
+        // The glyph-to-text gap: the field's recipe `gap`, else 8.
+        let icon_gap = if lcx.style.gap > 0.0 { lcx.style.gap } else { 8.0 };
+        let icon_w = if icon.is_some() { 16.0 + icon_gap } else { 0.0 };
         let field_w = (w - icon_w).max(0.0);
         // A disabled field dims ONCE, through its frame's recipe opacity (the
         // reference's `color: inherit` value under the field's `disabled`
@@ -508,7 +510,7 @@ impl SurfaceView {
         let mut row = lcx
             .row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))
             .items_center()
-            .gap(px(if icon.is_some() { 8.0 } else if row_variant { lcx.style.gap } else { 0.0 }))
+            .gap(px(if icon.is_some() { icon_gap } else if row_variant { lcx.style.gap } else { 0.0 }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
@@ -518,7 +520,10 @@ impl SurfaceView {
             )
             .on_mouse_up(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseUpEvent, window, cx| this.field_press_up(&up, ev.position, window, cx)));
         if let Some(name) = icon {
-            row = row.child(div().flex_none().opacity(0.6).child(icons::concept(lcx.host, &name, 16.0, ink)));
+            // The placeholder's ink (`mutedForeground`), as the IDE's
+            // search rows draw their glyph; else the text's at 60%.
+            let (glyph, fade) = lcx.theme_color("mutedForeground").map_or((ink, 0.6), |muted| (muted, 1.0));
+            row = row.child(div().flex_none().opacity(fade).child(icons::concept(lcx.host, &name, 16.0, glyph)));
         }
         let row = if row_variant { self.input_row(lcx, row, el) } else { row.child(el) };
         if disabled {

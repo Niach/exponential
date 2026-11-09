@@ -8,7 +8,7 @@ import { calendarStop, monthGrid } from "./dates"
 import { HostOwnedController, parseLocaleNumber } from "./inputs"
 import { linkAt, parseList, parseMarkdown } from "./markdown"
 import { FormRegistry, fieldErrorsVisible, type FormField } from "./form"
-import { nextEnabledIndex, typeaheadStep } from "./listbox"
+import { firstEnabledIndex, listMoreBelow, nextEnabledIndex, selectPopupGeometry, typeaheadStep, valueAnchorOffsets } from "./listbox"
 import { acquireMedia, clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, releaseMedia } from "./media"
 
 describe(`coercions`, () => {
@@ -192,5 +192,29 @@ describe(`media`, () => {
     expect(mediaCacheStats()).toEqual({ entries: 1, inUse: 0 })
     clearMediaCache()
     expect(mediaCacheStats()).toEqual({ entries: 0, inUse: 0 })
+  })
+})
+
+describe(`#EXP-1629 select popup`, () => {
+  it(`a row hangs off its value: start, 262 wide, 1 under, 7 from the window`, () => {
+    expect(selectPopupGeometry({ triggerVariant: `row` }, `--w`)).toEqual({ align: `start`, minWidth: undefined, width: `262px`, anchorValue: true, sideOffset: 1, collisionPadding: 7 })
+    expect(selectPopupGeometry({}, `--w`)).toEqual({ align: `start`, minWidth: `var(--w)`, width: undefined, anchorValue: false, sideOffset: 4, collisionPadding: 8 })
+    expect(selectPopupGeometry({ triggerVariant: `row`, align: `end`, popupWidth: 120 }, `--w`)).toMatchObject({ align: `end`, width: `120px` })
+  })
+  it(`the trigger-anchored offsets that put a popup under the value`, () => {
+    const box = (left: number, top: number, width: number, height: number) => ({ getBoundingClientRect: () => ({ left, top, width, height, right: left + width, bottom: top + height }) }) as unknown as Element
+    const trigger = box(0, 0, 400, 41)
+    const value = box(300, 11, 60, 19)
+    expect(valueAnchorOffsets(trigger, value, `start`, 1, false)).toEqual({ sideOffset: -10, alignOffset: 300 })
+    expect(valueAnchorOffsets(trigger, value, `end`, 1, false)).toEqual({ sideOffset: -10, alignOffset: 40 })
+    expect(valueAnchorOffsets(trigger, value, `start`, 1, true)).toEqual({ sideOffset: -10, alignOffset: 40 })
+  })
+  it(`the cursor starts on the first enabled option; the fade shows while rows sit below`, () => {
+    expect(firstEnabledIndex(3, (i) => i === 0)).toBe(1)
+    expect(firstEnabledIndex(1, () => true)).toBe(-1)
+    const list = (scrollTop: number) => ({ scrollTop, clientHeight: 100, scrollHeight: 300 }) as HTMLElement
+    expect(listMoreBelow(list(0))).toBe(true)
+    expect(listMoreBelow(list(200))).toBe(false)
+    expect(listMoreBelow(null)).toBe(false)
   })
 })

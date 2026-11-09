@@ -103,7 +103,8 @@ data class AvatarTint(val fill: Color, val ink: Color)
  * letters verbatim; [fontSize] defaults to half of [size]; [cornerRadius]
  * clips a rounded square instead of a circle. The letters sit on a line box
  * trimmed to the glyph, so they centre optically. [textStyle] is the base
- * the letters merge onto.
+ * the letters merge onto. [pictureFill] (#EXP-1629, the `Avatar/image`
+ * background) fills the whole round box behind the picture, under the ring.
  */
 @Composable
 fun AvatarView(
@@ -122,6 +123,7 @@ fun AvatarView(
     ring: Color? = null,
     ringWidth: Dp = 1.dp,
     picture: (@Composable () -> Unit)? = null,
+    pictureFill: Color? = null,
 ) {
     val tokens = LocalPrimitiveTokens.current
     val key = seed.orEmpty()
@@ -130,6 +132,7 @@ fun AvatarView(
         modifier = modifier
             .size(size)
             .clip(shape)
+            .then(if (picture != null && pictureFill != null) Modifier.background(pictureFill, shape) else Modifier)
             .then(if (picture != null && ring != null && ringWidth > 0.dp) Modifier.border(ringWidth, ring, shape) else Modifier)
             .then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier),
         contentAlignment = Alignment.Center,
