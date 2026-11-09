@@ -6348,6 +6348,14 @@
           "description": "Field label."
         },
         {
+          "name": "description",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Muted hint (`row`: under the label)."
+        },
+        {
           "name": "name",
           "type": "string",
           "required": true,

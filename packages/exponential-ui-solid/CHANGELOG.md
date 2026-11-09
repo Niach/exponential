@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629), React's: the field hint, the row's `labels` + `control` columns, `aria-describedby`. Parity cases for both variants.
 - Composer `leading` / `trailing` slots and image paste (#EDE-65 R): the slots sit in the controls row (leading at the start, trailing before send); a paste with image files fires `attach` {files} and calls `host.onUpload`, a paste with other files only is prevented. `composer-slots.test.tsx` replays `composerSlots` + `composerPaste`.
 
 ## 0.21.0 (2026-11-09)

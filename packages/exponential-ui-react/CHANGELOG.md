@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629): under a field trigger; in a row the `labels` column (label + hint) and the `control` column (value + chevron); the trigger's `aria-describedby` names it.
 - Composer `leading` / `trailing` slots and image paste (#EDE-65 R), React's: the slots sit in the controls row (`.xui-composer-leading` before the attach control, `.xui-composer-trailing` before send); a paste with image files fires `attach` {files} and calls `host.onUpload(images, {nodeId, name: <the Composer's id>})`, a paste with other files only is prevented, text pastes as before.
 
 ## 0.21.0 (2026-11-09)

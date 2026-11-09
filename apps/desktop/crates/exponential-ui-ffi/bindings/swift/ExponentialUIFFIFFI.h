@@ -982,6 +982,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_set_open(uint64_t ptr, Ru
 void uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(uint64_t ptr, int8_t hover, int8_t reduced_motion, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_POPUP_BOUNDS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_POPUP_BOUNDS
+int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_popup_bounds(uint64_t ptr, float x, float y, float width, float height, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_PRESSED
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_PRESSED
 int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(uint64_t ptr, RustBuffer ids, RustCallStatus *_Nonnull out_status
@@ -3265,6 +3270,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_open(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_POINTER
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_POINTER
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_POPUP_BOUNDS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_POPUP_BOUNDS
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_popup_bounds(void
     
 );
 #endif
