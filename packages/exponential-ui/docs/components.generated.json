@@ -7276,14 +7276,18 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-composer",
-      "description": "Chat input: a growing text field, a submit button, optional attachments.",
+      "description": "Chat input: a growing text field, a submit button, optional attachments; `leading`/`trailing` slots sit in its controls row.",
       "children": "none",
-      "slots": [],
+      "slots": [
+        "leading",
+        "trailing"
+      ],
       "events": [
         "submit",
         "change",
         "stop",
-        "key"
+        "key",
+        "attach"
       ],
       "basic": [],
       "props": [
@@ -7319,7 +7323,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows the attach control."
+          "description": "Shows the attach control (`attach`; a pasted image fires `attach` {files})."
         },
         {
           "name": "busy",

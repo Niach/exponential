@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import { Checkbox as CheckboxPrimitive, RadioGroup as RadioPrimitive, Slider as SliderPrimitive, Switch as SwitchPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { boundPath, composerMenuKey, hostPath, switchTravel } from "@exponential_app/eui/web"
+import { boundPath, composerMenuKey, composerPaste, hostPath, switchTravel } from "@exponential_app/eui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useHostOwnedValue, useWriteEpoch } from "../inputs"
@@ -508,7 +508,7 @@ export function SliderNative({ node, props, rootProps, emit, scope }: NativeProp
 // Composer
 // ---------------------------------------------------------------------------
 
-export function ComposerNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
+export function ComposerNative({ node, props, rootProps, emit, slots, scope, domId }: NativeProps) {
   const part = useParts(node, props)
   const ctx = useSurfaceContext()
   const { send, writeLocal } = useInputSender(node, scope, `value`, domId)
@@ -552,6 +552,16 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
           field.edit(e.target.value)
           void emit(`change`, { value: e.target.value }, { value: e.target.value })
         }}
+        onPaste={(e) => {
+          // #EDE-65 R: a pasted image fires `attach` {files}; files without
+          // one do nothing; text stays the field's own.
+          const paste = composerPaste(e.clipboardData)
+          if (!paste.take) return
+          e.preventDefault()
+          if (paste.images.length === 0) return
+          void ctx.host.onUpload?.(paste.images, { nodeId: domId, name: node.id })
+          void emit(`attach`, { files: paste.files })
+        }}
         onKeyDown={(e) => {
           // #EDE-65: an IME composition's keys are the IME's; menuKeys hands the
           // arrows, Enter, Tab and Escape to the host's menu.
@@ -570,11 +580,13 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
         }}
       />
       <div className="xui-composer-bar">
+        {slots.leading ? <div className="xui-composer-leading">{slots.leading}</div> : null}
         {bool(props.attachments) ? (
           <button type="button" {...(part(`attachment`) as Record<string, string>)} aria-label={ctx.t(`browse`)} onClick={() => void emit(`attach`)}>
             <BuiltinIcon slot="Composer.attachment" />
           </button>
         ) : null}
+        {slots.trailing ? <div className="xui-composer-trailing">{slots.trailing}</div> : null}
         <button type="button" {...(part(`send`, busy && `pressed`) as Record<string, string>)} aria-label={busy ? ctx.t(`stop`) : submitLabel} disabled={!busy && field.value.trim() === ``} onClick={submit}>
           {busy ? <BuiltinIcon slot="Composer.stop" /> : <BuiltinIcon slot="Composer.send" />}
         </button>

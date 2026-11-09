@@ -8,6 +8,7 @@ import at.exponential.ui.ffi.UiException
 import at.exponential.ui.host.A2UI_VERSION
 import at.exponential.ui.host.AppFileLoader
 import at.exponential.ui.host.FilePickRequest
+import at.exponential.ui.host.UploadEvent
 import at.exponential.ui.host.HostAttachment
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.ImageSize
@@ -196,6 +197,7 @@ internal class EmbedSandbox(private val outer: SurfaceModel, private val slot: E
     override fun copy(text: String) = base.copy(text)
 
     override fun pickFiles(request: FilePickRequest) = base.pickFiles(request)
+    override fun onUpload(event: UploadEvent) = base.onUpload(event)
 }
 
 /**

@@ -13087,6 +13087,71 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_composer_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_composer_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "slots · leading + trailing",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_slotted",
+                "component": "Composer",
+                "props": {
+                  "placeholder": "Ask anything"
+                },
+                "slots": {
+                  "leading": {
+                    "id": "c3_options",
+                    "component": "Menu",
+                    "props": {
+                      "items": [
+                        {
+                          "label": "Attach a file",
+                          "value": "attach",
+                          "icon": "ui-attach"
+                        },
+                        {
+                          "label": "Plan first",
+                          "value": "plan"
+                        }
+                      ]
+                    },
+                    "children": [
+                      {
+                        "id": "c3_plus",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-add",
+                          "label": "Options",
+                          "variant": "ghost",
+                          "size": "icon"
+                        }
+                      }
+                    ]
+                  },
+                  "trailing": {
+                    "id": "c3_context",
+                    "component": "Ring",
+                    "props": {
+                      "value": 0.42,
+                      "size": "sm"
+                    }
+                  }
+                }
+              }
+            ]
           }
         ]
       }

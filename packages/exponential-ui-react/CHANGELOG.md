@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer `leading` / `trailing` slots and image paste (#EDE-65 R), React's: the slots sit in the controls row (`.xui-composer-leading` before the attach control, `.xui-composer-trailing` before send); a paste with image files fires `attach` {files} and calls `host.onUpload(images, {nodeId, name: <the Composer's id>})`, a paste with other files only is prevented, text pastes as before.
+
 ## 0.21.0 (2026-11-09)
 
 - Select `triggerVariant: row` (#EXP-1629): the trigger is the `label`, a spacer, the `value` (at most `selectRowValueMaxWidth`, truncated) and the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: hung off the VALUE, `start`, 262 px, `selectRowPopupOffset` under it, `selectRowPopupMargin` from the window's edges); every Select opens at the TOP with the cursor on the first enabled option (the search field focused when searchable), no longer scrolled to the chosen one; the list's bottom `fade` (`searchListFade`) while options sit below; the search glyph in `mutedForeground`; item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
