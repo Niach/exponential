@@ -10,6 +10,7 @@ use gpui::{
     WindowControlArea, WindowOptions, div, linear_color_stop, linear_gradient,
     prelude::FluentBuilder as _, px,
 };
+use gpui_base::TestSupportExt as _;
 use smallvec::SmallVec;
 
 pub const TITLE_BAR_HEIGHT: Pixels = px(34.);
@@ -70,8 +71,9 @@ impl TitleBar {
     /// [`crate::TitleBar`], so the title bar owns dragging and double clicking itself:
     ///
     /// ```no_run
-    /// # use gpui::WindowOptions;
-    /// # use gpui_component::TitleBar;
+    /// # mod gpui_kit { pub use gpui::*; pub extern crate gpui_component as component; }
+    /// # use gpui_kit::WindowOptions;
+    /// # use gpui_kit::component::TitleBar;
     /// let options = WindowOptions {
     ///     window_min_size: None,
     ///     ..TitleBar::window_options()
@@ -206,6 +208,7 @@ impl RenderOnce for ControlIcon {
 
         div()
             .id(self.id())
+            .test_support()
             .flex()
             .w(TITLE_BAR_HEIGHT)
             .h_full()
@@ -251,7 +254,21 @@ struct WindowControls {
 impl RenderOnce for WindowControls {
     fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
         if cfg!(target_os = "macos") || cfg!(target_family = "wasm") {
-            return div().id("window-controls");
+            return div().id("window-controls").test_support();
+        }
+
+        // Under server-side decorations the window manager already renders
+        // its own title bar, complete with min/max/close; drawing ours as
+        // well stacks a duplicate set of controls on top of it (most
+        // visibly two close buttons). gpui falls back to server-side
+        // decorations on X11 sessions without a compositor, and a Wayland
+        // compositor may grant server mode even when client mode was
+        // requested. Skip ours unless this window is actually client-side
+        // decorated, mirroring the `is_client_decorated` gating of the
+        // title bar's window-menu overlay.
+        #[cfg(target_os = "linux")]
+        if !matches!(window.window_decorations(), Decorations::Client { .. }) {
+            return div().id("window-controls").test_support();
         }
 
         // The window manager declares which controls it can honor; a tiling
@@ -261,6 +278,7 @@ impl RenderOnce for WindowControls {
 
         h_flex()
             .id("window-controls")
+            .test_support()
             .items_center()
             .flex_shrink_0()
             .h_full()
@@ -332,6 +350,8 @@ impl RenderOnce for TitleBar {
                 .when(is_macos, |this| {
                     this.on_double_click(|_, window, _| window.titlebar_double_click())
                 })
+                // After `on_double_click`, which is implemented for `Stateful` only.
+                .test_support()
                 .on_mouse_down_out(window.listener_for(&state, |state, _, _, _| {
                     state.should_move = false;
                 }))

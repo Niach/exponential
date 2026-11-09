@@ -21,7 +21,7 @@
 use std::time::{Duration, Instant};
 
 use eui_core::swipe::{swipe_blocks, swipe_lock};
-use gpui::{canvas, prelude::*, AnyElement, Context, DispatchPhase, HitboxBehavior, ScrollDelta, ScrollWheelEvent, TouchPhase};
+use gpui::{canvas, prelude::*, AnyElement, Context, DispatchPhase, HitboxBehavior, ScrollDelta, ScrollEvent, TouchPhase};
 use serde_json::{json, Value};
 
 use super::SurfaceView;
@@ -104,7 +104,7 @@ impl SurfaceView {
         canvas(
             |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |_, hitbox, window, _| {
-                window.on_mouse_event(move |_: &ScrollWheelEvent, phase, window, _| {
+                window.on_mouse_event(move |_: &ScrollEvent, phase, window, _| {
                     if phase == DispatchPhase::Capture && hitbox.should_handle_scroll(window) {
                         hits.borrow_mut().push(index);
                     }
@@ -124,7 +124,7 @@ impl SurfaceView {
             |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |_, hitbox, window, _| {
                 let this = this.clone();
-                window.on_mouse_event(move |ev: &ScrollWheelEvent, phase, window, cx| {
+                window.on_mouse_event(move |ev: &ScrollEvent, phase, window, cx| {
                     if phase != DispatchPhase::Capture {
                         return;
                     }
@@ -143,7 +143,7 @@ impl SurfaceView {
 
     /// One wheel event over (or for the live gesture of) swipeable content
     /// `index`; true = it was the pager's (stop it).
-    pub(crate) fn wheel_swipe(&mut self, index: u32, hovered: bool, ev: &ScrollWheelEvent, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn wheel_swipe(&mut self, index: u32, hovered: bool, ev: &ScrollEvent, cx: &mut Context<Self>) -> bool {
         let ScrollDelta::Pixels(d) = ev.delta else { return false };
         let (dx, dy) = (f32::from(d.x), f32::from(d.y));
         let Some(id) = self.cache.node(index).map(|n| n.id.clone()) else { return false };

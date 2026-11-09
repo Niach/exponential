@@ -12,81 +12,73 @@ webviews.
 
 The painter's public API is made of gpui types (`Entity`, `Window`, `App`,
 elements), so an app that links it must link the SAME gpui: a second gpui
-package id in the tree splits every type and nothing compiles. gpui and
-gpui-component are git dependencies, pinned here (the policy table; the
-`test.yml` gate checks it against `apps/desktop/Cargo.toml` + `Cargo.lock`,
-`crates/app/tests/pinned_revs.rs`, the guide app
-`packages/exponential-ui/guides/gpui` and its install snippet on exponential.at/ui
+package id in the tree splits every type and nothing compiles. gpui comes
+from the `gpui-pre-*` crates.io snapshots of zed's crates, at the exact
+snapshot gpui-kit's `gpui-component` release builds against; both are pinned
+here (the policy table; the `test.yml` gate checks it against
+`apps/desktop/Cargo.toml` + `Cargo.lock`, `crates/app/tests/pinned_revs.rs`,
+the guide app `packages/exponential-ui/guides/gpui`, the sample
+`samples/exponential-ui/gpui` and the install snippet on exponential.at/ui
 (eDE's shell, `crates/ede-shell`, is a member of this workspace since #EDE-51),
 with `bun packages/exponential-ui/release/check-gpui-revs.ts`):
 
-| pin | rev | covers |
+| pin | version | covers |
 |---|---|---|
-| zed | `cc053a4a6fa2fd0e8793201ed9099466af1be0b1` | `gpui` 0.2.2, `gpui_platform`, `gpui_macros`, `gpui_wgpu` (Linux), every zed crate in the lock |
-| gpui-component | `da4f93696dc2b2b4d91bcc42412b9053a3d24de8` | `gpui-component` 0.5.2, `gpui-base`, `gpui-component-assets` |
-| rust | `1.96.0` | `rust-toolchain.toml` |
+| gpui-pre | `0.3.11` | `gpui` (`gpui-pre`), `gpui_platform`, `gpui_macros`, `gpui_wgpu` (Linux), every `gpui-pre-*` crate in the lock (zed `f816e1f`, 2026-11-01) |
+| gpui-component | `0.9.0` | `gpui-component`, `gpui-base`, `gpui-kit-assets`, `gpui-component-macros` (longbridge/gpui-kit) |
+| rust | `1.98.1` | `rust-toolchain.toml` |
 
 ### Consuming it (Exponential desktop, spezl desktop, any gpui app)
 
-Take the SDK from the release tag (there is no crates.io release, see
-below) and copy three things from the table, all from the SAME tag:
+Take the SDK from the release tag and copy the gpui lines from the table,
+all from the SAME tag:
 
 ```toml
 [dependencies]
 eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.20.0" }
 eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.20.0" }
-# zed floats in the manifest: the Cargo.lock is the pin (a rev here would
-# not match gpui-component's floating zed deps and split gpui in two).
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
-
-# zed's ztracing is GPL-3.0-or-later; the SDK's no-op shims replace it.
-# A dependency's [patch] never applies to its consumers: copy these.
-[patch."https://github.com/zed-industries/zed"]
-ztracing = { git = "https://github.com/Niach/exponential", tag = "eui-v0.20.0" }
-ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.20.0" }
+# The dependency keys keep gpui's crate names; the packages are the snapshot.
+gpui = { package = "gpui-pre", version = "=0.3.11" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+gpui-component = "=0.9.0"
 ```
 
-then lock zed at the pin (a fresh lock floats it to zed main HEAD) and pin
-the compiler:
+and pin the compiler:
 
 ```sh
-cargo update gpui --precise cc053a4a6fa2fd0e8793201ed9099466af1be0b1
-printf '[toolchain]\nchannel = "1.96.0"\n' > rust-toolchain.toml
+printf '[toolchain]\nchannel = "1.98.1"\n' > rust-toolchain.toml
 ```
 
-`grep 'zed-industries/zed#' Cargo.lock | sort -u` must print one rev. Never
-plain `cargo update` the zed crates, build with `--locked`, and add more
-gpui-component or zed crates only at the same revs. Consumers inside this
-repo (the IDE's `crates/*`) take them through `workspace = true`.
+Keep every requirement exact (`=`): gpui-kit pins its snapshot exactly
+because any snapshot may change gpui's API. Consumers inside this repo (the
+IDE's `crates/*`) take them through `workspace = true`. This workspace also
+patches two crates (`[patch.crates-io]` in `apps/desktop/Cargo.toml`:
+gpui-component's overlay and menu fixes, gpui-pre-wgpu's colour-emoji
+shaping); a dependency's `[patch]` never reaches its consumers, so an app
+copies them only if it wants those fixes.
 
 ### Bumps
 
-A bump moves both revs together: read the zed rev out of gpui-component's own
-`Cargo.lock` at the chosen gpui-component rev, `cargo update gpui --precise
-<zed rev>` in `apps/desktop` and in the guide app, then update this table,
-`pinned_revs.rs`, both manifests and the guide snippet in one PR (the gate
-fails on anything left behind). A rev change is a breaking change for
-consumers: it ships as the next minor of the SDK (`0.1.x` → `0.2.0`), never
-inside a patch, and is announced in this crate's `CHANGELOG.md` under that
-version with a `gpui revisions:` line naming the old and new revs, which the
-`eui-v*` GitHub release notes carry. Consumers bump the tag, the revs, the
-`--precise` lock and the toolchain in one commit.
+A bump moves both pins together: read the `gpui-pre` snapshot out of
+gpui-kit's workspace `Cargo.toml` at the chosen release tag, move every
+`gpui-pre*` and gpui-kit requirement in `apps/desktop` and in the guide and
+sample apps, re-vendor `vendor/gpui-component` and `vendor/gpui-pre-wgpu`
+(their `PATCHES.md`), then update this table, `pinned_revs.rs` and the guide
+snippet in one PR (the gate fails on anything left behind). A pin change is
+a breaking change for consumers: it ships as the next minor of the SDK
+(`0.1.x` → `0.2.0`), never inside a patch, and is announced in this crate's
+`CHANGELOG.md` under that version with a `gpui revisions:` line naming the
+old and new pins, which the `eui-v*` GitHub release notes carry. Consumers
+bump the tag, the pins and the toolchain in one commit.
 
 ### Releases: a git tag, not crates.io
 
 The crate rides on the SDK's `eui-v<semver>` tag (one version for every SDK
 package, `packages/exponential-ui/release/README.md`); it has no tag prefix
 of its own, so the core and the painter can never be taken at different
-revisions. It stays `publish = false`: crates.io refuses a crate with git
-dependencies, and today (2026-10-29) neither pin has a crates.io release.
-zed's own `gpui` on crates.io stopped at 0.2.2 (2025-10-22, a year behind
-the pinned rev) and ships no `gpui_platform`; the crates.io
-`gpui-component` 0.8.x builds on `gpui-pre` 0.3.x, a renamed zed snapshot
-republished by gpui-component's maintainers, not on zed's `gpui`. Publishing
-would mean moving the whole IDE (and every consumer) onto `gpui-pre` and
-gpui-component 0.8, a gpui identity change far beyond this crate; it is
-revisited when zed publishes gpui again.
+revisions. It stays `publish = false` for now: since the move to `gpui-pre`
+every dependency is on crates.io, so publishing is possible and is its own
+decision.
 
 ## The painting model (the VAPP-4 verdict)
 

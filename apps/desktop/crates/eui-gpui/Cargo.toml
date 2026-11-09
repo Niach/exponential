@@ -92,7 +92,7 @@ gpui-component-assets.workspace = true
 # with ONLY the conformance font files (no system fonts) so the dump is
 # deterministic. Already in the lock (gpui_linux's text system).
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
-gpui_wgpu = { git = "https://github.com/zed-industries/zed" }
+gpui_wgpu = { workspace = true }
 
 [[example]]
 name = "conformance_dump"

@@ -420,6 +420,9 @@ pub struct SurfaceView {
     copy_resets: HashMap<String, Task<()>>,
     /// Segmented roving item (`group id` → item index).
     group_focus: HashMap<String, usize>,
+    /// #EXP-1629: each open Select's cursor (owner id → option id): the ONE
+    /// option painted `hover`, moved by the keyboard focus and the pointer.
+    pub(crate) select_cursor: HashMap<String, String>,
     /// A calendar day to focus once its month is built (keyboard paging).
     pending_day: Option<(String, String)>,
     /// The category / slice under the pointer, per Chart.
@@ -654,6 +657,7 @@ impl SurfaceView {
             announcement: None,
             copy_resets: HashMap::new(),
             group_focus: HashMap::new(),
+            select_cursor: HashMap::new(),
             pending_day: None,
             chart_hover: HashMap::new(),
             markdown: RefCell::new(HashMap::new()),
@@ -1865,7 +1869,7 @@ impl Element for SurfaceElement {
         // FEED-200 (`swipe.rs`): registered before the nodes, so a wheel
         // event's capture pass starts with no blocker under the pointer.
         let hits = self.view.read(cx).swipe_hits.clone();
-        window.on_mouse_event(move |_: &gpui::ScrollWheelEvent, phase, _, _| {
+        window.on_mouse_event(move |_: &gpui::ScrollEvent, phase, _, _| {
             if phase == gpui::DispatchPhase::Capture {
                 hits.borrow_mut().clear();
             }

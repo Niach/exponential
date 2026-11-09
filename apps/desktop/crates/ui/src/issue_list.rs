@@ -663,7 +663,7 @@ impl IssueListView {
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 // Modifier clicks drive selection; plain clicks navigate.
                 let modifiers = event.modifiers();
-                if modifiers.secondary() {
+                if modifiers.secondary(cx) {
                     this.toggle_selected(issue_id.clone(), cx);
                     return;
                 }

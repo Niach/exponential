@@ -383,8 +383,9 @@ pub(crate) fn open(
             // decoration wrapper — it framed the whole transparent layer in
             // a 1px border and a shadow (macOS never draws it).
             cx.new(|cx| {
+                use gpui_component::RootExt as _;
                 Root::new(layer, window, cx)
-                    .bordered(false)
+                    .bordered(false, cx)
                     .bg(gpui::transparent_black())
             })
         });
@@ -497,7 +498,7 @@ impl Render for MenuLayer {
             .id("menu-layer")
             .size_full()
             .relative()
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_scroll(|_, _, cx| cx.stop_propagation())
             .child(
                 deferred(
                     anchored()

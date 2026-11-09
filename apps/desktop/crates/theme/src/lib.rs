@@ -330,7 +330,6 @@ pub fn exponential_dark() -> ThemeColor {
     c.title_bar_border = transparent;
     c.status_bar = transparent;
     c.status_bar_border = transparent;
-    c.tiles = card;
     c.window_border = t::glass::STROKE_ACTIVE.to_hsla(); // Linux CSD only
 
     // ---- Overlay / selection / caret ----------------------------------------

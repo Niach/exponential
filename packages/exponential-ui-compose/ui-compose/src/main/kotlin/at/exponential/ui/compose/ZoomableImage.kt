@@ -226,7 +226,7 @@ internal fun zoomableBox(props: Props, wrap: Float?, intrinsicWidth: Float, aspe
 }
 
 /** The icon of a built-in slot (`ZoomableImage.zoomIn` → `ui-add`). */
-private fun builtinIcon(slot: String, fallback: String): String =
+internal fun builtinIcon(slot: String, fallback: String): String =
     ExponentialUICatalog.builtinIconSlots.indexOf(slot).takeIf { it >= 0 }?.let { ExponentialUICatalog.builtinIconNames.getOrNull(it) } ?: fallback
 
 /** A recipe part as the primitive's look (dp, the content colour falling back to [ink]). */

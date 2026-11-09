@@ -1445,7 +1445,7 @@ impl Block {
 
         // Cmd/Ctrl+click follows a rendered link instead of editing it, so the
         // block is neither focused nor selected; the link opens on mouse-up.
-        if event.modifiers.secondary()
+        if event.modifiers.secondary(cx)
             && (self.pointer_link_hit(event.position).is_some()
                 || self.pointer_reference_hit(event.position).is_some())
         {
@@ -1578,7 +1578,7 @@ impl Block {
     ) {
         // Only Cmd/Ctrl+click follows the link; a plain click falls through so
         // the block focuses for editing like any other inline text.
-        if event.modifiers.secondary() {
+        if event.modifiers.secondary(cx) {
             cx.stop_propagation();
         }
     }
@@ -1609,7 +1609,7 @@ impl Block {
 
         // Cmd/Ctrl+click follows a rendered link, using the same open-link
         // prompt as the double-click gesture below.
-        if event.modifiers.secondary()
+        if event.modifiers.secondary(cx)
             && let Some(link) = self.pointer_link_hit(event.position)
         {
             self.open_rendered_link(&link, cx);
@@ -1618,7 +1618,7 @@ impl Block {
 
         // EXP-261 vendoring: Cmd/Ctrl+click on a decorated reference pill —
         // the host routes it (issue refs navigate in-app).
-        if event.modifiers.secondary()
+        if event.modifiers.secondary(cx)
             && let Some((kind, value)) = self.pointer_reference_hit(event.position)
         {
             cx.stop_propagation();
@@ -1630,7 +1630,7 @@ impl Block {
         // click opens it too (the host routes it). Mention pills keep
         // plain-click editing, and a drag that ends on a pill still selects
         // text (the selection is non-empty by then, so it falls through).
-        if !event.modifiers.secondary()
+        if !event.modifiers.secondary(cx)
             && event.click_count == 1
             && self.selected_range.is_empty()
             && let Some((kind, value)) = self.pointer_reference_hit(event.position)

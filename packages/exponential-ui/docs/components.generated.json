@@ -6370,6 +6370,31 @@
           "description": "Shown when the search matches nothing."
         },
         {
+          "name": "triggerVariant",
+          "type": "field | row",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "field",
+          "description": "`row` = a Group row: label, value, chevron."
+        },
+        {
+          "name": "align",
+          "type": "start | center | end",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        {
+          "name": "popupWidth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Popup width in px (`row`: 260)."
+        },
+        {
           "name": "disabled",
           "type": "boolean",
           "required": false,

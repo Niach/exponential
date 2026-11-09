@@ -772,7 +772,7 @@ impl Render for Editor {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_editor_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_editor_mouse_up))
             .when(!self.embedded, |this| {
-                this.on_scroll_wheel(cx.listener(Self::on_editor_scroll_wheel))
+                this.on_scroll(cx.listener(Self::on_editor_scroll_wheel))
                     .p(px(d.editor_padding))
                     .pb(px(d.editor_padding
                         + scroll_trigger_padding
@@ -1019,7 +1019,7 @@ impl Render for Editor {
         // is an ancestor of every block, so one listener here covers a link in any
         // block while editing. Gated to the secondary modifier so Shift during
         // selection does not repaint.
-        let follow_modifier_active = window.modifiers().secondary();
+        let follow_modifier_active = window.modifiers().secondary(cx);
 
         let base = div()
             .on_children_prepainted(width_listener)
@@ -1030,8 +1030,8 @@ impl Render for Editor {
             .relative()
             .bg(theme.colors.editor_background)
             .font(editor_text_font(&theme.fonts.ui_family))
-            .on_modifiers_changed(move |event, window, _| {
-                if event.modifiers.secondary() != follow_modifier_active {
+            .on_modifiers_changed(move |event, window, cx| {
+                if event.modifiers.secondary(cx) != follow_modifier_active {
                     window.refresh();
                 }
             })

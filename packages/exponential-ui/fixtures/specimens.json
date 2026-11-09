@@ -12088,6 +12088,80 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-select-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-select-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row (in a Group)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c2-timezone",
+                    "component": "Select",
+                    "props": {
+                      "label": "Timezone",
+                      "name": "timezone",
+                      "triggerVariant": "row",
+                      "searchable": true,
+                      "value": "Europe/Vienna",
+                      "options": [
+                        {
+                          "label": "Europe/Berlin",
+                          "value": "Europe/Berlin"
+                        },
+                        {
+                          "label": "Europe/London",
+                          "value": "Europe/London"
+                        },
+                        {
+                          "label": "Europe/Vienna",
+                          "value": "Europe/Vienna"
+                        },
+                        {
+                          "label": "UTC",
+                          "value": "UTC"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "c2-week",
+                    "component": "Select",
+                    "props": {
+                      "label": "Week starts on",
+                      "name": "week",
+                      "triggerVariant": "row",
+                      "value": "monday",
+                      "options": [
+                        {
+                          "label": "Monday",
+                          "value": "monday"
+                        },
+                        {
+                          "label": "Sunday",
+                          "value": "sunday"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

@@ -994,6 +994,19 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       },
     },
   ],
+  // #EXP-1629: the settings pane's picker rows (the IDE's glass picker row):
+  // a searchable timezone and a short list, inside a Group.
+  Select: [{
+    label: `triggerVariant · row (in a Group)`,
+    node: {
+      id: `prefs`,
+      component: `Group`,
+      children: [
+        { id: `timezone`, component: `Select`, props: { label: `Timezone`, name: `timezone`, triggerVariant: `row`, searchable: true, value: `Europe/Vienna`, options: [`Europe/Berlin`, `Europe/London`, `Europe/Vienna`, `UTC`].map((zone) => ({ label: zone, value: zone })) } },
+        { id: `week`, component: `Select`, props: { label: `Week starts on`, name: `week`, triggerVariant: `row`, value: `monday`, options: [{ label: `Monday`, value: `monday` }, { label: `Sunday`, value: `sunday` }] } },
+      ],
+    },
+  }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
   StatTile: [{ label: `pressable · true`, node: { id: `tile_press`, component: `StatTile`, props: { label: `Income`, value: `4,200`, delta: `+8 %`, tone: `success`, pressable: true } } }],

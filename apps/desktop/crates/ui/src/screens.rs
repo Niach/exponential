@@ -28,7 +28,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{Panel, PanelControl, PanelEvent},
+    dock::{BasePanel, Panel, PanelControl, PanelEvent},
     h_flex,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -2255,13 +2255,9 @@ impl ScreensPanel {
     }
 }
 
-impl Panel for ScreensPanel {
+impl BasePanel for ScreensPanel {
     fn panel_name(&self) -> &'static str {
         PANEL_NAME
-    }
-
-    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        "Team"
     }
 
     /// The screens ARE the center — closing them would leave an empty center
@@ -2270,8 +2266,23 @@ impl Panel for ScreensPanel {
         false
     }
 
-    fn zoomable(&self, _cx: &App) -> Option<PanelControl> {
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl Panel for ScreensPanel {
+    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        "Team"
+    }
+
+    fn zoom_control(&self, _cx: &App) -> Option<PanelControl> {
         None
+    }
+
+    /// Chrome-less: alone in the center it draws no title bar (EXP-851).
+    fn title_bar(&self, _cx: &App) -> bool {
+        false
     }
 }
 

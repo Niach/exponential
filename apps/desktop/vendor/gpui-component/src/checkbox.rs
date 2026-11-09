@@ -4,13 +4,13 @@ use crate::{
     ActiveTheme, Disableable, IconName, RoleOverride, Selectable, Sizable, Size, icon::IconNamed,
     text::Text, tooltip::ComponentTooltip, v_flex,
 };
-use crate::{StyledExt as _, ThemeStyled as _};
+use crate::{StyleSized as _, StyledExt as _, ThemeStyled as _};
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Styled, Window, div, prelude::FluentBuilder as _, px, relative, rems, svg,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
+    prelude::FluentBuilder as _, px, relative, rems, svg,
 };
-use gpui_base::CheckboxIndicator;
+use gpui_base::{CheckboxIndicator, spring};
 
 /// A Checkbox element.
 #[derive(IntoElement)]
@@ -21,6 +21,7 @@ pub struct Checkbox {
     // `Text` is legacy presentation state. During render it is composed into
     // the Base Checkbox child seam together with application children.
     label: Option<Text>,
+    accessibility_label: Option<SharedString>,
     children: Vec<AnyElement>,
     checked: bool,
     disabled: bool,
@@ -42,6 +43,7 @@ impl Checkbox {
             base: gpui_base::Checkbox::new(id),
             style: StyleRefinement::default(),
             label: None,
+            accessibility_label: None,
             children: Vec::new(),
             checked: false,
             disabled: false,
@@ -66,9 +68,27 @@ impl Checkbox {
         self
     }
 
+    /// Overrides how long the pointer must rest before the tooltip shows.
+    ///
+    /// Defaults to [`gpui_base::TooltipDefaults::show_delay`].
+    pub fn tooltip_show_delay(mut self, delay: Duration) -> Self {
+        self.tooltip.show_delay = Some(delay);
+        self
+    }
+
     /// Set the label for the checkbox.
     pub fn label(mut self, label: impl Into<Text>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Set the name a screen reader announces, overriding the visible label.
+    ///
+    /// This does not change the label drawn on screen. A checkbox without a
+    /// [`label`](Self::label) or text children has no accessible name, so set this
+    /// whenever the checkbox is drawn without visible text.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -78,10 +98,18 @@ impl Checkbox {
         self
     }
 
-    /// Set the click handler for the checkbox.
+    /// Alias for [`Self::on_change`]. The last callback registered with either name wins.
+    pub fn on_click(self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
+        self.on_change(handler)
+    }
+
+    /// Handle a requested checked value from pointer or keyboard activation.
     ///
-    /// The `&bool` parameter indicates the new checked state after the click.
-    pub fn on_click(mut self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
+    /// This is a controlled value: the owner must write the requested value and
+    /// call `cx.notify()` to render it. Disabled controls do not call the handler.
+    /// This and [`Self::on_click`] share one callback; chaining them replaces
+    /// the previous handler instead of calling both.
+    pub fn on_change(mut self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(handler));
         self
     }
@@ -161,7 +189,16 @@ pub(crate) fn checkbox_check_icon(
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
-    let toggle_state = window.use_keyed_state(id, cx, |_, _| checked);
+    // The mark keeps its path while the spring is still fading it out. Guarding
+    // the path on `checked` alone unmounted the glyph the moment the box was
+    // cleared, so only the fade-in was ever visible.
+    let opacity = spring(
+        (id, "mark"),
+        if checked { 1. } else { 0. },
+        cx.theme().motion_tokens().spring_control,
+        window,
+        cx,
+    );
     let color = if disabled {
         cx.theme().primary_foreground.opacity(0.5)
     } else {
@@ -180,43 +217,28 @@ pub(crate) fn checkbox_check_icon(
             _ => this.size_3(),
         })
         .text_color(color)
-        .map(|this| match checked {
-            true => this.path(IconName::Check.path()),
-            _ => this,
-        })
-        .map(|this| {
-            if !disabled && checked != *toggle_state.read(cx) {
-                let duration = Duration::from_secs_f64(0.25);
-                cx.spawn({
-                    let toggle_state = toggle_state.clone();
-                    async move |cx| {
-                        cx.background_executor().timer(duration).await;
-                        _ = toggle_state.update(cx, |this, _| *this = checked);
-                    }
-                })
-                .detach();
-
-                this.with_animation(
-                    ElementId::NamedInteger("toggle".into(), checked as u64),
-                    Animation::new(Duration::from_secs_f64(0.25)),
-                    move |this, delta| {
-                        this.opacity(if checked { 1.0 * delta } else { 1.0 - delta })
-                    },
-                )
-                .into_any_element()
-            } else {
-                this.into_any_element()
-            }
+        .when(opacity > 0., |this| {
+            this.path(crate::resolve_icon_path(IconName::Check.path(), cx))
+                .opacity(opacity)
         })
 }
 
 impl RenderOnce for Checkbox {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let checked = self.checked;
+        let has_content = self.label.is_some() || !self.children.is_empty();
+        let indicator_size = rems(match self.size {
+            Size::XSmall => 0.75,
+            Size::Small => 0.875,
+            Size::Large => 1.125,
+            _ => 1.,
+        });
 
         let base = self.base;
         let children = self.children;
-        let accessibility_label = self.label.as_ref().map(|label| label.get_text(cx));
+        let accessibility_label = self
+            .accessibility_label
+            .or_else(|| self.label.as_ref().map(|label| label.get_text(cx)));
         let on_click = self.on_click.clone();
         let focus_handle = window
             .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
@@ -262,11 +284,8 @@ impl RenderOnce for Checkbox {
             .line_height(relative(1.))
             .text_color(cx.theme().foreground)
             .map(|this| match self.size {
-                Size::XSmall => this.text_xs(),
-                Size::Small => this.text_sm(),
-                Size::Medium => this.text_base(),
-                Size::Large => this.text_lg(),
-                _ => this,
+                Size::Size(_) => this,
+                size => this.input_text_size(size),
             })
             .rounded(cx.theme().radius * 0.5)
             .when(is_focused && self.focus_ring_enabled, |this| {
@@ -278,13 +297,9 @@ impl RenderOnce for Checkbox {
                     .checked(checked)
                     .disabled(self.disabled)
                     .relative()
-                    .map(|this| match self.size {
-                        Size::XSmall => this.size_3(),
-                        Size::Small => this.size_3p5(),
-                        Size::Medium => this.size_4(),
-                        Size::Large => this.size(rems(1.125)),
-                        _ => this.size_4(),
-                    })
+                    .size(indicator_size)
+                    // Center on the first 1.25em line, including when the label wraps.
+                    .when(has_content, |this| this.mt(indicator_size * 0.125))
                     .flex_shrink_0()
                     .border_1()
                     .rounded(radius)
@@ -319,7 +334,7 @@ impl RenderOnce for Checkbox {
                     v_flex()
                         .flex_1()
                         .overflow_hidden()
-                        .line_height(relative(1.2))
+                        .line_height(relative(1.25))
                         .gap_1()
                         .map(|this| {
                             if let Some(label) = self.label {
@@ -330,7 +345,6 @@ impl RenderOnce for Checkbox {
                                         .when(self.disabled, |this| {
                                             this.text_color(cx.theme().muted_foreground)
                                         })
-                                        .line_height(relative(1.))
                                         .child(label),
                                 )
                             } else {
@@ -359,6 +373,25 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn an_explicit_accessibility_label_replaces_the_visible_one() {
+        let plain = Checkbox::new("remember").label("Remember me");
+        assert_eq!(plain.accessibility_label, None);
+
+        let named = Checkbox::new("remember")
+            .label("Remember me")
+            .accessibility_label("Remember this account");
+        assert_eq!(
+            named.accessibility_label.as_deref(),
+            Some("Remember this account"),
+            "an explicit name must win over the visible label"
+        );
+        assert!(
+            matches!(named.label.as_ref(), Some(Text::String(label)) if label.as_ref() == "Remember me"),
+            "and must not change what is drawn"
+        );
+    }
 
     struct CheckboxHarness {
         disabled: bool,
@@ -408,7 +441,8 @@ mod tests {
     }
 
     fn activate_key(cx: &mut VisualTestContext, key: &str) {
-        let keystroke = Keystroke::parse(key).unwrap();
+        let keystroke =
+            cx.update(|_, cx| Keystroke::parse_with_os(key, cx.platform_info().os).unwrap());
         cx.simulate_event(KeyDownEvent {
             keystroke: keystroke.clone(),
             is_held: false,
@@ -473,5 +507,34 @@ mod tests {
             .expect("custom content must prepaint through the Base child seam");
         assert!(bounds.size.width > px(0.));
         assert!(bounds.size.height > px(0.));
+    }
+
+    #[gpui::test]
+    fn the_check_mark_asks_the_icon_resolver_for_its_path(cx: &mut TestAppContext) {
+        struct CheckedHarness;
+
+        impl Render for CheckedHarness {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                Checkbox::new("checked").checked(true)
+            }
+        }
+
+        let asked = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+            let asked = asked.clone();
+            crate::set_icon_resolver(cx, move |path, _| {
+                asked.borrow_mut().push(path.to_string());
+                None
+            });
+        });
+        let (_, cx) = cx.add_window_view(|_, _| CheckedHarness);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        assert!(
+            asked.borrow().contains(&IconName::Check.path().to_string()),
+            "the check mark must be drawn from the resolved path"
+        );
     }
 }
