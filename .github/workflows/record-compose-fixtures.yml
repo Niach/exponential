@@ -53,6 +53,8 @@ name: record-compose-fixtures
 # kitchen-sink goldens (seeded avatars), the CallSurface avatar.
 # EXP-1629 (2026-11-09, after #2440): re-recorded again for the kitchen
 # sink with the Select row trigger AND the seeded avatars.
+# EXP-1629 (2026-11-09, after #2405): re-recorded on Compose 1.11 for the
+# Avatar, CallSurface and kitchen-sink goldens.
 on:
   workflow_dispatch: {}
   push:

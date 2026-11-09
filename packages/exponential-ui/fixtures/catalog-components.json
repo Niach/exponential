@@ -17,7 +17,7 @@
         },
         "children": [
           {
-            "id": "box-child",
+            "id": "box_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -42,7 +42,7 @@
         },
         "children": [
           {
-            "id": "box-child",
+            "id": "box_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -67,7 +67,7 @@
         },
         "children": [
           {
-            "id": "box-child",
+            "id": "box_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -87,7 +87,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -107,7 +107,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -127,7 +127,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -147,7 +147,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -167,7 +167,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -187,7 +187,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -207,7 +207,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -227,7 +227,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -247,7 +247,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -268,7 +268,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -289,7 +289,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -310,7 +310,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -331,7 +331,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -352,7 +352,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -373,7 +373,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -394,7 +394,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -415,7 +415,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -436,7 +436,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -457,7 +457,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -478,7 +478,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -499,7 +499,7 @@
         },
         "children": [
           {
-            "id": "stack-child",
+            "id": "stack_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -519,7 +519,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -539,7 +539,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -559,7 +559,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -579,7 +579,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -599,7 +599,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -619,7 +619,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -639,7 +639,7 @@
         },
         "children": [
           {
-            "id": "grid-child",
+            "id": "grid_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -659,7 +659,7 @@
         },
         "children": [
           {
-            "id": "card-child",
+            "id": "card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -680,7 +680,7 @@
         },
         "children": [
           {
-            "id": "card-child",
+            "id": "card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -701,7 +701,7 @@
         },
         "children": [
           {
-            "id": "card-child",
+            "id": "card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -722,7 +722,7 @@
         },
         "children": [
           {
-            "id": "card-child",
+            "id": "card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -743,7 +743,7 @@
         },
         "children": [
           {
-            "id": "card-child",
+            "id": "card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -762,7 +762,7 @@
         },
         "children": [
           {
-            "id": "window-child",
+            "id": "window_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -812,7 +812,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -832,7 +832,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -852,7 +852,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -873,7 +873,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -894,7 +894,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -915,7 +915,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -936,7 +936,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -957,7 +957,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -978,7 +978,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -998,7 +998,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1018,7 +1018,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1039,7 +1039,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1060,7 +1060,7 @@
         },
         "children": [
           {
-            "id": "list-child",
+            "id": "list_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1084,7 +1084,7 @@
         },
         "children": [
           {
-            "id": "resizable-child",
+            "id": "resizable_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1108,7 +1108,7 @@
         },
         "children": [
           {
-            "id": "resizable-child",
+            "id": "resizable_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1132,7 +1132,7 @@
         },
         "children": [
           {
-            "id": "resizable-child",
+            "id": "resizable_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1156,7 +1156,7 @@
         },
         "children": [
           {
-            "id": "resizable-child",
+            "id": "resizable_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1180,7 +1180,7 @@
         },
         "children": [
           {
-            "id": "resizable-child",
+            "id": "resizable_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1192,7 +1192,7 @@
     {
       "name": "ScrollArea/example",
       "node": {
-        "id": "scroll-area",
+        "id": "scroll_area",
         "component": "ScrollArea",
         "props": {
           "direction": "vertical",
@@ -1200,7 +1200,7 @@
         },
         "children": [
           {
-            "id": "scroll-area-child",
+            "id": "scroll_area_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1212,7 +1212,7 @@
     {
       "name": "ScrollArea/direction=vertical",
       "node": {
-        "id": "scroll-area",
+        "id": "scroll_area",
         "component": "ScrollArea",
         "props": {
           "direction": "vertical",
@@ -1220,7 +1220,7 @@
         },
         "children": [
           {
-            "id": "scroll-area-child",
+            "id": "scroll_area_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1232,7 +1232,7 @@
     {
       "name": "ScrollArea/direction=horizontal",
       "node": {
-        "id": "scroll-area",
+        "id": "scroll_area",
         "component": "ScrollArea",
         "props": {
           "direction": "horizontal",
@@ -1240,7 +1240,7 @@
         },
         "children": [
           {
-            "id": "scroll-area-child",
+            "id": "scroll_area_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1252,7 +1252,7 @@
     {
       "name": "ScrollArea/direction=both",
       "node": {
-        "id": "scroll-area",
+        "id": "scroll_area",
         "component": "ScrollArea",
         "props": {
           "direction": "both",
@@ -1260,7 +1260,7 @@
         },
         "children": [
           {
-            "id": "scroll-area-child",
+            "id": "scroll_area_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1281,7 +1281,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1302,7 +1302,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1323,7 +1323,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1344,7 +1344,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1365,7 +1365,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1386,7 +1386,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1407,7 +1407,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1428,7 +1428,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1450,7 +1450,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1472,7 +1472,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1494,7 +1494,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1516,7 +1516,7 @@
         },
         "children": [
           {
-            "id": "sidebar-child",
+            "id": "sidebar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1528,7 +1528,7 @@
     {
       "name": "SplitView/example",
       "node": {
-        "id": "split-view",
+        "id": "split_view",
         "component": "SplitView",
         "props": {
           "open": true,
@@ -1536,7 +1536,7 @@
         },
         "children": [
           {
-            "id": "split-view-child",
+            "id": "split_view_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1548,7 +1548,7 @@
     {
       "name": "SplitView/open=true",
       "node": {
-        "id": "split-view",
+        "id": "split_view",
         "component": "SplitView",
         "props": {
           "open": true,
@@ -1556,7 +1556,7 @@
         },
         "children": [
           {
-            "id": "split-view-child",
+            "id": "split_view_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1568,7 +1568,7 @@
     {
       "name": "SplitView/open=false",
       "node": {
-        "id": "split-view",
+        "id": "split_view",
         "component": "SplitView",
         "props": {
           "open": false,
@@ -1576,7 +1576,7 @@
         },
         "children": [
           {
-            "id": "split-view-child",
+            "id": "split_view_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1588,7 +1588,7 @@
     {
       "name": "AppBar/example",
       "node": {
-        "id": "app-bar",
+        "id": "app_bar",
         "component": "AppBar",
         "props": {
           "title": "Settings",
@@ -1599,7 +1599,7 @@
     {
       "name": "AppBar/back=true",
       "node": {
-        "id": "app-bar",
+        "id": "app_bar",
         "component": "AppBar",
         "props": {
           "title": "Settings",
@@ -1610,7 +1610,7 @@
     {
       "name": "AppBar/back=false",
       "node": {
-        "id": "app-bar",
+        "id": "app_bar",
         "component": "AppBar",
         "props": {
           "title": "Settings",
@@ -1629,7 +1629,7 @@
         },
         "children": [
           {
-            "id": "page-child",
+            "id": "page_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1649,7 +1649,7 @@
         },
         "children": [
           {
-            "id": "page-child",
+            "id": "page_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1669,7 +1669,7 @@
         },
         "children": [
           {
-            "id": "page-child",
+            "id": "page_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1690,7 +1690,7 @@
         },
         "children": [
           {
-            "id": "page-child",
+            "id": "page_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1711,7 +1711,7 @@
         },
         "children": [
           {
-            "id": "page-child",
+            "id": "page_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1730,7 +1730,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1749,7 +1749,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1768,7 +1768,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1787,7 +1787,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1806,7 +1806,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1825,7 +1825,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1844,7 +1844,7 @@
         },
         "children": [
           {
-            "id": "toolbar-child",
+            "id": "toolbar_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1864,7 +1864,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1885,7 +1885,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1906,7 +1906,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1927,7 +1927,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1948,7 +1948,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1969,7 +1969,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1990,7 +1990,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2011,7 +2011,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2032,7 +2032,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2053,7 +2053,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2074,7 +2074,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2095,7 +2095,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2116,7 +2116,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2137,7 +2137,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2158,7 +2158,7 @@
         },
         "children": [
           {
-            "id": "section-child",
+            "id": "section_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2177,7 +2177,7 @@
         },
         "children": [
           {
-            "id": "group-child",
+            "id": "group_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2554,7 +2554,7 @@
     {
       "name": "CodeBlock/example",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2566,7 +2566,7 @@
     {
       "name": "CodeBlock/language=plain",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2578,7 +2578,7 @@
     {
       "name": "CodeBlock/language=json",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2590,7 +2590,7 @@
     {
       "name": "CodeBlock/language=js",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2602,7 +2602,7 @@
     {
       "name": "CodeBlock/language=ts",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2614,7 +2614,7 @@
     {
       "name": "CodeBlock/language=tsx",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2626,7 +2626,7 @@
     {
       "name": "CodeBlock/language=rust",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2638,7 +2638,7 @@
     {
       "name": "CodeBlock/language=swift",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2650,7 +2650,7 @@
     {
       "name": "CodeBlock/language=kotlin",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2662,7 +2662,7 @@
     {
       "name": "CodeBlock/language=python",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2674,7 +2674,7 @@
     {
       "name": "CodeBlock/language=bash",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2686,7 +2686,7 @@
     {
       "name": "CodeBlock/language=html",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2698,7 +2698,7 @@
     {
       "name": "CodeBlock/language=css",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2710,7 +2710,7 @@
     {
       "name": "CodeBlock/language=sql",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2722,7 +2722,7 @@
     {
       "name": "CodeBlock/language=yaml",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2734,7 +2734,7 @@
     {
       "name": "CodeBlock/language=markdown",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2746,7 +2746,7 @@
     {
       "name": "CodeBlock/language=ansi",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2758,7 +2758,7 @@
     {
       "name": "CodeBlock/lineNumbers=true",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2770,7 +2770,7 @@
     {
       "name": "CodeBlock/lineNumbers=false",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2782,7 +2782,7 @@
     {
       "name": "CodeBlock/wrap=true",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2795,7 +2795,7 @@
     {
       "name": "CodeBlock/wrap=false",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2808,7 +2808,7 @@
     {
       "name": "CodeBlock/copyable=true",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2821,7 +2821,7 @@
     {
       "name": "CodeBlock/copyable=false",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2834,7 +2834,7 @@
     {
       "name": "CodeBlock/variant=default",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2847,7 +2847,7 @@
     {
       "name": "CodeBlock/variant=destructive",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2860,7 +2860,7 @@
     {
       "name": "CodeBlock/size=default",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -2873,7 +2873,7 @@
     {
       "name": "CodeBlock/size=sm",
       "node": {
-        "id": "code-block",
+        "id": "code_block",
         "component": "CodeBlock",
         "props": {
           "code": "const answer = 42 // the answer",
@@ -3037,7 +3037,7 @@
     {
       "name": "ZoomableImage/example",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3050,7 +3050,7 @@
     {
       "name": "ZoomableImage/initial=auto",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3064,7 +3064,7 @@
     {
       "name": "ZoomableImage/initial=fit",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3078,7 +3078,7 @@
     {
       "name": "ZoomableImage/initial=fitWidth",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3092,7 +3092,7 @@
     {
       "name": "ZoomableImage/initial=actual",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3106,7 +3106,7 @@
     {
       "name": "ZoomableImage/controls=auto",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3120,7 +3120,7 @@
     {
       "name": "ZoomableImage/controls=always",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3134,7 +3134,7 @@
     {
       "name": "ZoomableImage/controls=none",
       "node": {
-        "id": "zoomable-image",
+        "id": "zoomable_image",
         "component": "ZoomableImage",
         "props": {
           "src": "https://example.com/screenshot.png",
@@ -3299,7 +3299,7 @@
     {
       "name": "AudioPlayer/example",
       "node": {
-        "id": "audio-player",
+        "id": "audio_player",
         "component": "AudioPlayer",
         "props": {
           "src": "https://example.com/track.mp3",
@@ -3370,7 +3370,7 @@
     {
       "name": "QrCode/example",
       "node": {
-        "id": "qr-code",
+        "id": "qr_code",
         "component": "QrCode",
         "props": {
           "value": "https://exponential.at",
@@ -3381,7 +3381,7 @@
     {
       "name": "QrCode/level=L",
       "node": {
-        "id": "qr-code",
+        "id": "qr_code",
         "component": "QrCode",
         "props": {
           "value": "https://exponential.at",
@@ -3393,7 +3393,7 @@
     {
       "name": "QrCode/level=M",
       "node": {
-        "id": "qr-code",
+        "id": "qr_code",
         "component": "QrCode",
         "props": {
           "value": "https://exponential.at",
@@ -3405,7 +3405,7 @@
     {
       "name": "QrCode/level=Q",
       "node": {
-        "id": "qr-code",
+        "id": "qr_code",
         "component": "QrCode",
         "props": {
           "value": "https://exponential.at",
@@ -3417,7 +3417,7 @@
     {
       "name": "QrCode/level=H",
       "node": {
-        "id": "qr-code",
+        "id": "qr_code",
         "component": "QrCode",
         "props": {
           "value": "https://exponential.at",
@@ -3437,7 +3437,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3458,7 +3458,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3479,7 +3479,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3499,7 +3499,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3519,7 +3519,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3540,7 +3540,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3561,7 +3561,7 @@
         },
         "children": [
           {
-            "id": "carousel-child",
+            "id": "carousel_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3617,7 +3617,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3647,7 +3647,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3677,7 +3677,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3707,7 +3707,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3737,7 +3737,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3767,7 +3767,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3797,7 +3797,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3827,7 +3827,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3857,7 +3857,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3887,7 +3887,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3917,7 +3917,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -3947,7 +3947,7 @@
         },
         "children": [
           {
-            "id": "tabs-child",
+            "id": "tabs_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4266,7 +4266,7 @@
         },
         "children": [
           {
-            "id": "accordion-child",
+            "id": "accordion_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4292,7 +4292,7 @@
         },
         "children": [
           {
-            "id": "accordion-child",
+            "id": "accordion_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4318,7 +4318,7 @@
         },
         "children": [
           {
-            "id": "accordion-child",
+            "id": "accordion_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4338,7 +4338,7 @@
         },
         "children": [
           {
-            "id": "collapsible-child",
+            "id": "collapsible_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4358,7 +4358,7 @@
         },
         "children": [
           {
-            "id": "collapsible-child",
+            "id": "collapsible_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4378,7 +4378,7 @@
         },
         "children": [
           {
-            "id": "collapsible-child",
+            "id": "collapsible_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4397,7 +4397,7 @@
         },
         "children": [
           {
-            "id": "trace-child",
+            "id": "trace_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4416,7 +4416,7 @@
         },
         "children": [
           {
-            "id": "trace-child",
+            "id": "trace_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4435,7 +4435,7 @@
         },
         "children": [
           {
-            "id": "trace-child",
+            "id": "trace_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4447,7 +4447,7 @@
     {
       "name": "TraceItem/example",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4458,7 +4458,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4470,7 +4470,7 @@
     {
       "name": "TraceItem/status=running",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4482,7 +4482,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4494,7 +4494,7 @@
     {
       "name": "TraceItem/status=error",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4506,7 +4506,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4518,7 +4518,7 @@
     {
       "name": "TraceItem/status=pending",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4530,7 +4530,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4542,7 +4542,7 @@
     {
       "name": "TraceItem/status=done",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4554,7 +4554,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4566,7 +4566,7 @@
     {
       "name": "TraceItem/status=skipped",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4578,7 +4578,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4590,7 +4590,7 @@
     {
       "name": "TraceItem/size=default",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4602,7 +4602,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4614,7 +4614,7 @@
     {
       "name": "TraceItem/size=sm",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4626,7 +4626,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4638,7 +4638,7 @@
     {
       "name": "TraceItem/collapsible=true",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4649,7 +4649,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4661,7 +4661,7 @@
     {
       "name": "TraceItem/collapsible=false",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4672,7 +4672,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4684,7 +4684,7 @@
     {
       "name": "TraceItem/open=true",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4695,7 +4695,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4707,7 +4707,7 @@
     {
       "name": "TraceItem/open=false",
       "node": {
-        "id": "trace-item",
+        "id": "trace_item",
         "component": "TraceItem",
         "props": {
           "title": "Ran bun test",
@@ -4718,7 +4718,7 @@
         },
         "children": [
           {
-            "id": "trace-item-child",
+            "id": "trace_item_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5104,7 +5104,7 @@
         },
         "children": [
           {
-            "id": "dialog-child",
+            "id": "dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5125,7 +5125,7 @@
         },
         "children": [
           {
-            "id": "dialog-child",
+            "id": "dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5146,7 +5146,7 @@
         },
         "children": [
           {
-            "id": "dialog-child",
+            "id": "dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5168,7 +5168,7 @@
         },
         "children": [
           {
-            "id": "dialog-child",
+            "id": "dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5190,7 +5190,7 @@
         },
         "children": [
           {
-            "id": "dialog-child",
+            "id": "dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5211,7 +5211,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5232,7 +5232,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5253,7 +5253,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5274,7 +5274,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5295,7 +5295,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5316,7 +5316,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5337,7 +5337,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5359,7 +5359,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5381,7 +5381,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5403,7 +5403,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5425,7 +5425,7 @@
         },
         "children": [
           {
-            "id": "drawer-child",
+            "id": "drawer_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5437,7 +5437,7 @@
     {
       "name": "DockCard/example",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5449,7 +5449,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5461,7 +5461,7 @@
     {
       "name": "DockCard/tone=neutral",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5473,7 +5473,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5485,7 +5485,7 @@
     {
       "name": "DockCard/tone=primary",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5497,7 +5497,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5509,7 +5509,7 @@
     {
       "name": "DockCard/tone=success",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5521,7 +5521,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5533,7 +5533,7 @@
     {
       "name": "DockCard/tone=warning",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5545,7 +5545,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5557,7 +5557,7 @@
     {
       "name": "DockCard/tone=danger",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5569,7 +5569,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5581,7 +5581,7 @@
     {
       "name": "DockCard/tone=info",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5593,7 +5593,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5605,7 +5605,7 @@
     {
       "name": "DockCard/open=true",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5618,7 +5618,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5630,7 +5630,7 @@
     {
       "name": "DockCard/open=false",
       "node": {
-        "id": "dock-card",
+        "id": "dock_card",
         "component": "DockCard",
         "props": {
           "label": "Plan ready",
@@ -5643,7 +5643,7 @@
         },
         "children": [
           {
-            "id": "dock-card-child",
+            "id": "dock_card_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5655,7 +5655,7 @@
     {
       "name": "AlertDialog/example",
       "node": {
-        "id": "alert-dialog",
+        "id": "alert_dialog",
         "component": "AlertDialog",
         "props": {
           "title": "Delete board?",
@@ -5664,7 +5664,7 @@
         },
         "children": [
           {
-            "id": "alert-dialog-child",
+            "id": "alert_dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5676,7 +5676,7 @@
     {
       "name": "AlertDialog/destructive=true",
       "node": {
-        "id": "alert-dialog",
+        "id": "alert_dialog",
         "component": "AlertDialog",
         "props": {
           "title": "Delete board?",
@@ -5685,7 +5685,7 @@
         },
         "children": [
           {
-            "id": "alert-dialog-child",
+            "id": "alert_dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5697,7 +5697,7 @@
     {
       "name": "AlertDialog/destructive=false",
       "node": {
-        "id": "alert-dialog",
+        "id": "alert_dialog",
         "component": "AlertDialog",
         "props": {
           "title": "Delete board?",
@@ -5706,7 +5706,7 @@
         },
         "children": [
           {
-            "id": "alert-dialog-child",
+            "id": "alert_dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5718,7 +5718,7 @@
     {
       "name": "AlertDialog/open=true",
       "node": {
-        "id": "alert-dialog",
+        "id": "alert_dialog",
         "component": "AlertDialog",
         "props": {
           "title": "Delete board?",
@@ -5728,7 +5728,7 @@
         },
         "children": [
           {
-            "id": "alert-dialog-child",
+            "id": "alert_dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5740,7 +5740,7 @@
     {
       "name": "AlertDialog/open=false",
       "node": {
-        "id": "alert-dialog",
+        "id": "alert_dialog",
         "component": "AlertDialog",
         "props": {
           "title": "Delete board?",
@@ -5750,7 +5750,7 @@
         },
         "children": [
           {
-            "id": "alert-dialog-child",
+            "id": "alert_dialog_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5769,7 +5769,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5789,7 +5789,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5809,7 +5809,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5828,7 +5828,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5847,7 +5847,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5866,7 +5866,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5885,7 +5885,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5905,7 +5905,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5925,7 +5925,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5945,7 +5945,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5965,7 +5965,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -5985,7 +5985,7 @@
         },
         "children": [
           {
-            "id": "popover-child",
+            "id": "popover_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6004,7 +6004,7 @@
         },
         "children": [
           {
-            "id": "tooltip-child",
+            "id": "tooltip_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6024,7 +6024,7 @@
         },
         "children": [
           {
-            "id": "tooltip-child",
+            "id": "tooltip_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6044,7 +6044,7 @@
         },
         "children": [
           {
-            "id": "tooltip-child",
+            "id": "tooltip_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6064,7 +6064,7 @@
         },
         "children": [
           {
-            "id": "tooltip-child",
+            "id": "tooltip_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6084,7 +6084,7 @@
         },
         "children": [
           {
-            "id": "tooltip-child",
+            "id": "tooltip_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6114,7 +6114,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6145,7 +6145,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6176,7 +6176,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6207,7 +6207,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6238,7 +6238,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6269,7 +6269,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6300,7 +6300,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6331,7 +6331,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6362,7 +6362,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6393,7 +6393,7 @@
         },
         "children": [
           {
-            "id": "menu-child",
+            "id": "menu_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -6840,7 +6840,7 @@
     {
       "name": "EmptyState/example",
       "node": {
-        "id": "empty-state",
+        "id": "empty_state",
         "component": "EmptyState",
         "props": {
           "icon": "nav-inbox",
@@ -6852,7 +6852,7 @@
     {
       "name": "EmptyState/size=page",
       "node": {
-        "id": "empty-state",
+        "id": "empty_state",
         "component": "EmptyState",
         "props": {
           "icon": "nav-inbox",
@@ -6865,7 +6865,7 @@
     {
       "name": "EmptyState/size=list",
       "node": {
-        "id": "empty-state",
+        "id": "empty_state",
         "component": "EmptyState",
         "props": {
           "icon": "nav-inbox",
@@ -7241,7 +7241,7 @@
     {
       "name": "VoiceWave/example",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7256,7 +7256,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7268,7 +7268,7 @@
     {
       "name": "VoiceWave/activity=idle",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "idle",
@@ -7283,7 +7283,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7295,7 +7295,7 @@
     {
       "name": "VoiceWave/activity=listening",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7310,7 +7310,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7322,7 +7322,7 @@
     {
       "name": "VoiceWave/activity=thinking",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "thinking",
@@ -7337,7 +7337,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7349,7 +7349,7 @@
     {
       "name": "VoiceWave/activity=speaking",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "speaking",
@@ -7364,7 +7364,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7376,7 +7376,7 @@
     {
       "name": "VoiceWave/activity=muted",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "muted",
@@ -7391,7 +7391,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7403,7 +7403,7 @@
     {
       "name": "VoiceWave/variant=ring",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7419,7 +7419,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7431,7 +7431,7 @@
     {
       "name": "VoiceWave/variant=bars",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7447,7 +7447,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7459,7 +7459,7 @@
     {
       "name": "VoiceWave/size=sm",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7474,7 +7474,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7486,7 +7486,7 @@
     {
       "name": "VoiceWave/size=md",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7501,7 +7501,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7513,7 +7513,7 @@
     {
       "name": "VoiceWave/size=lg",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7528,7 +7528,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7540,7 +7540,7 @@
     {
       "name": "VoiceWave/size=xl",
       "node": {
-        "id": "voice-wave",
+        "id": "voice_wave",
         "component": "VoiceWave",
         "props": {
           "activity": "listening",
@@ -7555,7 +7555,7 @@
         },
         "children": [
           {
-            "id": "voice-wave-child",
+            "id": "voice_wave_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -7567,7 +7567,7 @@
     {
       "name": "CallSurface/example",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7583,7 +7583,7 @@
     {
       "name": "CallSurface/state=ringing",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7599,7 +7599,7 @@
     {
       "name": "CallSurface/state=connecting",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7615,7 +7615,7 @@
     {
       "name": "CallSurface/state=talking",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7631,7 +7631,7 @@
     {
       "name": "CallSurface/state=ended",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7647,7 +7647,7 @@
     {
       "name": "CallSurface/activity=idle",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7663,7 +7663,7 @@
     {
       "name": "CallSurface/activity=listening",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7679,7 +7679,7 @@
     {
       "name": "CallSurface/activity=thinking",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7695,7 +7695,7 @@
     {
       "name": "CallSurface/activity=speaking",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7711,7 +7711,7 @@
     {
       "name": "CallSurface/activity=muted",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7727,7 +7727,7 @@
     {
       "name": "CallSurface/muted=true",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7744,7 +7744,7 @@
     {
       "name": "CallSurface/muted=false",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7761,7 +7761,7 @@
     {
       "name": "CallSurface/speaker=true",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -7778,7 +7778,7 @@
     {
       "name": "CallSurface/speaker=false",
       "node": {
-        "id": "call-surface",
+        "id": "call_surface",
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
@@ -8950,7 +8950,7 @@
     {
       "name": "StatTile/example",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -8971,7 +8971,7 @@
     {
       "name": "StatTile/tone=neutral",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -8992,7 +8992,7 @@
     {
       "name": "StatTile/tone=primary",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9013,7 +9013,7 @@
     {
       "name": "StatTile/tone=success",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9034,7 +9034,7 @@
     {
       "name": "StatTile/tone=warning",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9055,7 +9055,7 @@
     {
       "name": "StatTile/tone=danger",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9076,7 +9076,7 @@
     {
       "name": "StatTile/tone=info",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9097,7 +9097,7 @@
     {
       "name": "StatTile/pressable=true",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9119,7 +9119,7 @@
     {
       "name": "StatTile/pressable=false",
       "node": {
-        "id": "stat-tile",
+        "id": "stat_tile",
         "component": "StatTile",
         "props": {
           "label": "Active users",
@@ -9149,7 +9149,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9169,7 +9169,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9189,7 +9189,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9209,7 +9209,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9229,7 +9229,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9249,7 +9249,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9269,7 +9269,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9290,7 +9290,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9311,7 +9311,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9332,7 +9332,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9353,7 +9353,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9374,7 +9374,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9395,7 +9395,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9416,7 +9416,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9437,7 +9437,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9458,7 +9458,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9479,7 +9479,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9500,7 +9500,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9521,7 +9521,7 @@
         },
         "children": [
           {
-            "id": "button-child",
+            "id": "button_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9701,7 +9701,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9721,7 +9721,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9741,7 +9741,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9761,7 +9761,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9781,7 +9781,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9801,7 +9801,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9821,7 +9821,7 @@
         },
         "children": [
           {
-            "id": "form-child",
+            "id": "form_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9833,14 +9833,14 @@
     {
       "name": "FieldGroup/example",
       "node": {
-        "id": "field-group",
+        "id": "field_group",
         "component": "FieldGroup",
         "props": {
           "columns": 2
         },
         "children": [
           {
-            "id": "field-group-child",
+            "id": "field_group_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9852,7 +9852,7 @@
     {
       "name": "FormActions/example",
       "node": {
-        "id": "form-actions",
+        "id": "form_actions",
         "component": "FormActions",
         "props": {
           "submit": "Save",
@@ -9860,7 +9860,7 @@
         },
         "children": [
           {
-            "id": "form-actions-child",
+            "id": "form_actions_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9872,7 +9872,7 @@
     {
       "name": "FormActions/cancel=true",
       "node": {
-        "id": "form-actions",
+        "id": "form_actions",
         "component": "FormActions",
         "props": {
           "submit": "Save",
@@ -9880,7 +9880,7 @@
         },
         "children": [
           {
-            "id": "form-actions-child",
+            "id": "form_actions_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9892,7 +9892,7 @@
     {
       "name": "FormActions/cancel=false",
       "node": {
-        "id": "form-actions",
+        "id": "form_actions",
         "component": "FormActions",
         "props": {
           "submit": "Save",
@@ -9900,7 +9900,7 @@
         },
         "children": [
           {
-            "id": "form-actions-child",
+            "id": "form_actions_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9912,7 +9912,7 @@
     {
       "name": "FormActions/destructive=true",
       "node": {
-        "id": "form-actions",
+        "id": "form_actions",
         "component": "FormActions",
         "props": {
           "submit": "Save",
@@ -9921,7 +9921,7 @@
         },
         "children": [
           {
-            "id": "form-actions-child",
+            "id": "form_actions_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9933,7 +9933,7 @@
     {
       "name": "FormActions/destructive=false",
       "node": {
-        "id": "form-actions",
+        "id": "form_actions",
         "component": "FormActions",
         "props": {
           "submit": "Save",
@@ -9942,7 +9942,7 @@
         },
         "children": [
           {
-            "id": "form-actions-child",
+            "id": "form_actions_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9954,7 +9954,7 @@
     {
       "name": "SettingsRow/example",
       "node": {
-        "id": "settings-row",
+        "id": "settings_row",
         "component": "SettingsRow",
         "props": {
           "label": "Daily digest",
@@ -9962,7 +9962,7 @@
         },
         "children": [
           {
-            "id": "settings-row-child",
+            "id": "settings_row_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9974,7 +9974,7 @@
     {
       "name": "SettingsRow/stackBelow=never",
       "node": {
-        "id": "settings-row",
+        "id": "settings_row",
         "component": "SettingsRow",
         "props": {
           "label": "Daily digest",
@@ -9983,7 +9983,7 @@
         },
         "children": [
           {
-            "id": "settings-row-child",
+            "id": "settings_row_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -9995,7 +9995,7 @@
     {
       "name": "SettingsRow/stackBelow=sm",
       "node": {
-        "id": "settings-row",
+        "id": "settings_row",
         "component": "SettingsRow",
         "props": {
           "label": "Daily digest",
@@ -10004,7 +10004,7 @@
         },
         "children": [
           {
-            "id": "settings-row-child",
+            "id": "settings_row_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -10016,7 +10016,7 @@
     {
       "name": "SettingsRow/stackBelow=md",
       "node": {
-        "id": "settings-row",
+        "id": "settings_row",
         "component": "SettingsRow",
         "props": {
           "label": "Daily digest",
@@ -10025,7 +10025,7 @@
         },
         "children": [
           {
-            "id": "settings-row-child",
+            "id": "settings_row_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -10037,7 +10037,7 @@
     {
       "name": "SettingsRow/stackBelow=lg",
       "node": {
-        "id": "settings-row",
+        "id": "settings_row",
         "component": "SettingsRow",
         "props": {
           "label": "Daily digest",
@@ -10046,7 +10046,7 @@
         },
         "children": [
           {
-            "id": "settings-row-child",
+            "id": "settings_row_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -10058,7 +10058,7 @@
     {
       "name": "SettingsRow/stackBelow=xl",
       "node": {
-        "id": "settings-row",
+        "id": "settings_row",
         "component": "SettingsRow",
         "props": {
           "label": "Daily digest",
@@ -10067,7 +10067,7 @@
         },
         "children": [
           {
-            "id": "settings-row-child",
+            "id": "settings_row_child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -10356,7 +10356,7 @@
     {
       "name": "NumberField/example",
       "node": {
-        "id": "number-field",
+        "id": "number_field",
         "component": "NumberField",
         "props": {
           "label": "Seats",
@@ -10370,7 +10370,7 @@
     {
       "name": "NumberField/disabled=true",
       "node": {
-        "id": "number-field",
+        "id": "number_field",
         "component": "NumberField",
         "props": {
           "label": "Seats",
@@ -10385,7 +10385,7 @@
     {
       "name": "NumberField/disabled=false",
       "node": {
-        "id": "number-field",
+        "id": "number_field",
         "component": "NumberField",
         "props": {
           "label": "Seats",
@@ -10400,7 +10400,7 @@
     {
       "name": "NumberField/validateOn=change",
       "node": {
-        "id": "number-field",
+        "id": "number_field",
         "component": "NumberField",
         "props": {
           "label": "Seats",
@@ -10415,7 +10415,7 @@
     {
       "name": "NumberField/validateOn=blur",
       "node": {
-        "id": "number-field",
+        "id": "number_field",
         "component": "NumberField",
         "props": {
           "label": "Seats",
@@ -10430,7 +10430,7 @@
     {
       "name": "NumberField/validateOn=submit",
       "node": {
-        "id": "number-field",
+        "id": "number_field",
         "component": "NumberField",
         "props": {
           "label": "Seats",
@@ -10614,7 +10614,7 @@
     {
       "name": "ChoiceTiles/example",
       "node": {
-        "id": "choice-tiles",
+        "id": "choice_tiles",
         "component": "ChoiceTiles",
         "props": {
           "name": "design",
@@ -10639,7 +10639,7 @@
     {
       "name": "ChoiceTiles/type=single",
       "node": {
-        "id": "choice-tiles",
+        "id": "choice_tiles",
         "component": "ChoiceTiles",
         "props": {
           "name": "design",
@@ -10665,7 +10665,7 @@
     {
       "name": "ChoiceTiles/type=multiple",
       "node": {
-        "id": "choice-tiles",
+        "id": "choice_tiles",
         "component": "ChoiceTiles",
         "props": {
           "name": "design",
@@ -10691,7 +10691,7 @@
     {
       "name": "ChoiceTiles/disabled=true",
       "node": {
-        "id": "choice-tiles",
+        "id": "choice_tiles",
         "component": "ChoiceTiles",
         "props": {
           "name": "design",
@@ -10717,7 +10717,7 @@
     {
       "name": "ChoiceTiles/disabled=false",
       "node": {
-        "id": "choice-tiles",
+        "id": "choice_tiles",
         "component": "ChoiceTiles",
         "props": {
           "name": "design",
@@ -11287,7 +11287,7 @@
     {
       "name": "SearchList/example",
       "node": {
-        "id": "search-list",
+        "id": "search_list",
         "component": "SearchList",
         "props": {
           "placeholder": "Search issues",
@@ -11311,7 +11311,7 @@
     {
       "name": "SearchList/showCount=true",
       "node": {
-        "id": "search-list",
+        "id": "search_list",
         "component": "SearchList",
         "props": {
           "placeholder": "Search issues",
@@ -11336,7 +11336,7 @@
     {
       "name": "SearchList/showCount=false",
       "node": {
-        "id": "search-list",
+        "id": "search_list",
         "component": "SearchList",
         "props": {
           "placeholder": "Search issues",
@@ -11361,7 +11361,7 @@
     {
       "name": "ChipInput/example",
       "node": {
-        "id": "chip-input",
+        "id": "chip_input",
         "component": "ChipInput",
         "props": {
           "label": "Labels",
@@ -11376,7 +11376,7 @@
     {
       "name": "ChipInput/disabled=true",
       "node": {
-        "id": "chip-input",
+        "id": "chip_input",
         "component": "ChipInput",
         "props": {
           "label": "Labels",
@@ -11392,7 +11392,7 @@
     {
       "name": "ChipInput/disabled=false",
       "node": {
-        "id": "chip-input",
+        "id": "chip_input",
         "component": "ChipInput",
         "props": {
           "label": "Labels",
@@ -11408,7 +11408,7 @@
     {
       "name": "KeyRecorder/example",
       "node": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -11422,7 +11422,7 @@
     {
       "name": "KeyRecorder/recording=true",
       "node": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -11437,7 +11437,7 @@
     {
       "name": "KeyRecorder/recording=false",
       "node": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -11452,7 +11452,7 @@
     {
       "name": "DatePicker/example",
       "node": {
-        "id": "date-picker",
+        "id": "date_picker",
         "component": "DatePicker",
         "props": {
           "label": "Due",
@@ -11464,7 +11464,7 @@
     {
       "name": "DatePicker/inline=true",
       "node": {
-        "id": "date-picker",
+        "id": "date_picker",
         "component": "DatePicker",
         "props": {
           "label": "Due",
@@ -11477,7 +11477,7 @@
     {
       "name": "DatePicker/inline=false",
       "node": {
-        "id": "date-picker",
+        "id": "date_picker",
         "component": "DatePicker",
         "props": {
           "label": "Due",
@@ -11490,7 +11490,7 @@
     {
       "name": "DateRangePicker/example",
       "node": {
-        "id": "date-range-picker",
+        "id": "date_range_picker",
         "component": "DateRangePicker",
         "props": {
           "label": "Sprint",
@@ -11503,7 +11503,7 @@
     {
       "name": "TimePicker/example",
       "node": {
-        "id": "time-picker",
+        "id": "time_picker",
         "component": "TimePicker",
         "props": {
           "label": "Starts",
@@ -11515,7 +11515,7 @@
     {
       "name": "TimePicker/disabled=true",
       "node": {
-        "id": "time-picker",
+        "id": "time_picker",
         "component": "TimePicker",
         "props": {
           "label": "Starts",
@@ -11528,7 +11528,7 @@
     {
       "name": "TimePicker/disabled=false",
       "node": {
-        "id": "time-picker",
+        "id": "time_picker",
         "component": "TimePicker",
         "props": {
           "label": "Starts",
@@ -11541,7 +11541,7 @@
     {
       "name": "FileUpload/example",
       "node": {
-        "id": "file-upload",
+        "id": "file_upload",
         "component": "FileUpload",
         "props": {
           "label": "Attachments",
@@ -11554,7 +11554,7 @@
     {
       "name": "FileUpload/multiple=true",
       "node": {
-        "id": "file-upload",
+        "id": "file_upload",
         "component": "FileUpload",
         "props": {
           "label": "Attachments",
@@ -11567,7 +11567,7 @@
     {
       "name": "FileUpload/multiple=false",
       "node": {
-        "id": "file-upload",
+        "id": "file_upload",
         "component": "FileUpload",
         "props": {
           "label": "Attachments",
@@ -11580,7 +11580,7 @@
     {
       "name": "FileUpload/disabled=true",
       "node": {
-        "id": "file-upload",
+        "id": "file_upload",
         "component": "FileUpload",
         "props": {
           "label": "Attachments",
@@ -11594,7 +11594,7 @@
     {
       "name": "FileUpload/disabled=false",
       "node": {
-        "id": "file-upload",
+        "id": "file_upload",
         "component": "FileUpload",
         "props": {
           "label": "Attachments",
@@ -11608,7 +11608,7 @@
     {
       "name": "QrScanner/example",
       "node": {
-        "id": "qr-scanner",
+        "id": "qr_scanner",
         "component": "QrScanner",
         "props": {
           "hint": "Point at the code on your computer"
@@ -11618,7 +11618,7 @@
     {
       "name": "QrScanner/disabled=true",
       "node": {
-        "id": "qr-scanner",
+        "id": "qr_scanner",
         "component": "QrScanner",
         "props": {
           "hint": "Point at the code on your computer",
@@ -11629,7 +11629,7 @@
     {
       "name": "QrScanner/disabled=false",
       "node": {
-        "id": "qr-scanner",
+        "id": "qr_scanner",
         "component": "QrScanner",
         "props": {
           "hint": "Point at the code on your computer",
@@ -11922,7 +11922,7 @@
     {
       "name": "MessageBubble/example",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -11935,7 +11935,7 @@
     {
       "name": "MessageBubble/side=in",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -11948,7 +11948,7 @@
     {
       "name": "MessageBubble/side=out",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -11961,7 +11961,7 @@
     {
       "name": "MessageBubble/status=sending",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -11974,7 +11974,7 @@
     {
       "name": "MessageBubble/status=sent",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -11987,7 +11987,7 @@
     {
       "name": "MessageBubble/status=read",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -12000,7 +12000,7 @@
     {
       "name": "MessageBubble/pressable=true",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -12014,7 +12014,7 @@
     {
       "name": "MessageBubble/pressable=false",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -12028,7 +12028,7 @@
     {
       "name": "MessageBubble/href",
       "node": {
-        "id": "message-bubble",
+        "id": "message_bubble",
         "component": "MessageBubble",
         "props": {
           "text": "Is the printer fixed?",
@@ -13580,7 +13580,7 @@
     {
       "name": "RecordForm/example",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -13656,7 +13656,7 @@
     {
       "name": "RecordForm/readOnly=true",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -13733,7 +13733,7 @@
     {
       "name": "RecordForm/readOnly=false",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -13810,7 +13810,7 @@
     {
       "name": "RecordForm/cancel=true",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -13887,7 +13887,7 @@
     {
       "name": "RecordForm/cancel=false",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -13964,7 +13964,7 @@
     {
       "name": "RecordForm/missing=true",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -14041,7 +14041,7 @@
     {
       "name": "RecordForm/missing=false",
       "node": {
-        "id": "record-form",
+        "id": "record_form",
         "component": "RecordForm",
         "props": {
           "kind": "deal",
@@ -14118,7 +14118,7 @@
     {
       "name": "RecordTable/example",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14237,7 +14237,7 @@
     {
       "name": "RecordTable/search=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14357,7 +14357,7 @@
     {
       "name": "RecordTable/search=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14477,7 +14477,7 @@
     {
       "name": "RecordTable/totals=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14597,7 +14597,7 @@
     {
       "name": "RecordTable/totals=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14717,7 +14717,7 @@
     {
       "name": "RecordTable/add=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14837,7 +14837,7 @@
     {
       "name": "RecordTable/add=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -14957,7 +14957,7 @@
     {
       "name": "RecordTable/editable=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15077,7 +15077,7 @@
     {
       "name": "RecordTable/editable=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15197,7 +15197,7 @@
     {
       "name": "RecordTable/loading=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15317,7 +15317,7 @@
     {
       "name": "RecordTable/loading=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15437,7 +15437,7 @@
     {
       "name": "RecordTable/editorOpen=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15556,7 +15556,7 @@
     {
       "name": "RecordTable/editorOpen=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15675,7 +15675,7 @@
     {
       "name": "RecordTable/deleteOpen=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15794,7 +15794,7 @@
     {
       "name": "RecordTable/deleteOpen=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -15913,7 +15913,7 @@
     {
       "name": "RecordTable/missing=true",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",
@@ -16033,7 +16033,7 @@
     {
       "name": "RecordTable/missing=false",
       "node": {
-        "id": "record-table",
+        "id": "record_table",
         "component": "RecordTable",
         "props": {
           "kind": "deal",

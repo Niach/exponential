@@ -13,6 +13,6 @@ pub(crate) const ID: &str = "mosaic";
 pub(crate) const OWNER: &str = "EXP-1495";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-mosaic", "specimen-mosaic").expect("the Mosaic specimen");
+    let tree = specimen_node("exponential-ui-mosaic", "specimen_mosaic").expect("the Mosaic specimen");
     div().w_full().child(styleguide_surface("sg-mosaic", tree, window, cx))
 }

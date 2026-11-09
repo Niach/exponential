@@ -2,16 +2,16 @@
 # app's versions (apps/android/gradle/libs.versions.toml) so the app can
 # include `:ui-compose-primitives` by path without a second resolution.
 [versions]
-agp = "8.10.1"
-kotlin = "2.4.0"
-compose-bom = "2024.12.01"
+agp = "8.13.2"
+kotlin = "2.4.21"
+compose-bom = "2026.06.01"
 activity-compose = "1.12.4"
 core-ktx = "1.16.0"
 # The UniFFI bindings in Android mode (`@RequiresApi` on the cleaner, #VAPP-291).
 androidx-annotation = "1.9.1"
 # The UniFFI bindings load the facade over JNA (>= 5.12: `com.sun.jna.internal.Cleaner`).
-jna = "5.18.1"
-kotlinx-coroutines = "1.9.0"
+jna = "5.19.1"
+kotlinx-coroutines = "1.11.0"
 junit = "4.13.2"
 androidx-test-junit = "1.2.1"
 androidx-test-rules = "1.6.1"

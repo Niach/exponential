@@ -12645,6 +12645,7 @@ version = "0.14.143"
 dependencies = [
  "anyhow",
  "api",
+ "base64 0.22.1",
  "chrono",
  "cocoa 0.26.0",
  "coding",
@@ -12676,8 +12677,10 @@ dependencies = [
  "log",
  "objc",
  "observability",
+ "png 0.18.1",
  "raw-window-handle",
  "reqwest 0.12.28",
+ "resvg 0.46.0",
  "ropey",
  "serde",
  "serde_json",
