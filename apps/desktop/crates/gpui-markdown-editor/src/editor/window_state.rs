@@ -512,6 +512,33 @@ impl Editor {
         self.external_scroll_handle = Some(handle);
     }
 
+    /// #LOGS-6: lay out every row from the next frame on (a host anchoring
+    /// a scroll below the description needs its real height now).
+    pub fn mount_all_rows(&mut self, cx: &mut Context<Self>) {
+        if !self.mount_all_rows {
+            self.mount_all_rows = true;
+            cx.notify();
+        }
+    }
+
+    /// #LOGS-6: how many rows an embedded editor's first frame mounts: every
+    /// row whose top, at the rows' `lower` bound heights, is above `reach`
+    /// (the host viewport's bottom in editor coordinates, at least). A row
+    /// left out starts below the viewport, and so does all that follows.
+    pub(super) fn embedded_first_rows(lower: &[f32], reach: f32) -> usize {
+        let mut top = 0.0;
+        lower
+            .iter()
+            .take_while(|height| {
+                let shows = top < reach;
+                top += **height;
+                shows
+            })
+            .count()
+            .max(1)
+            .min(lower.len())
+    }
+
     /// EXP-261 vendoring: move keyboard focus to the first focusable block on
     /// the next frame (`apply_pending_focus` completes it during render).
     pub fn focus_first_block(&mut self, cx: &mut Context<Self>) {

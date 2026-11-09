@@ -13,6 +13,7 @@ mod theme_config;
 pub use actions::*;
 pub use api::*;
 pub use editor::Editor as MarkdownEditor;
+pub use editor::editor_text_font;
 pub use environment::MarkdownEditorEnvironment;
 pub use host::{
     ChipIcon, ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget,

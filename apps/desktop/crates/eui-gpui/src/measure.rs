@@ -251,6 +251,36 @@ impl Fonts {
     }
 }
 
+/// #LOGS-6: the fonts a surface with `default_family` paints with (the
+/// sans face, the first mono face the system loads, each with its glyph
+/// fallback chain, in every weight and style), resolved through
+/// `text_system`. Resolving a face the first time loads its family and
+/// builds its fallback cascade (milliseconds each); a host calls this on a
+/// background thread so a surface's first frame finds them loaded.
+pub fn prewarm_fonts(text_system: &TextSystem, default_family: &str) -> Vec<Font> {
+    let loads = |family: &SharedString| {
+        family.starts_with('.') || {
+            let id = text_system.resolve_font(&plain_font(family.clone(), 400, false, None));
+            text_system.get_font_for_id(id).is_some_and(|f| f.family == *family)
+        }
+    };
+    let mono = MONO_CANDIDATES.iter().map(|m| SharedString::from(*m)).find(|m| loads(m)).unwrap_or_else(|| SharedString::from(".SystemUIFont"));
+    let sans = SharedString::from(default_family.to_string());
+    let sans_fallbacks = FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect());
+    let mono_fallbacks = FontFallbacks::from_fonts(MONO_CANDIDATES.iter().chain(SANS_FALLBACKS.iter()).map(|s| s.to_string()).collect());
+    let mut fonts = Vec::new();
+    for (family, fallbacks) in [(sans, sans_fallbacks), (mono, mono_fallbacks)] {
+        for weight in [400, 500, 600, 700] {
+            for italic in [false, true] {
+                let font = plain_font(family.clone(), weight, italic, Some(fallbacks.clone()));
+                text_system.resolve_font(&font);
+                fonts.push(font);
+            }
+        }
+    }
+    fonts
+}
+
 /// A font of `family` at `weight` (italic when asked).
 pub fn make_font(family: SharedString, weight: u16) -> Font {
     plain_font(family, weight, false, None)
