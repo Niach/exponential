@@ -208,8 +208,7 @@ pub fn redirect_hop(from: &str, location: &str, options: &MediaOptions) -> Optio
 #[cfg(feature = "net")]
 fn send(key: &MediaKey) -> Result<(reqwest::blocking::Response, String), String> {
     use std::time::Duration;
-    crate::transport::install_crypto();
-    let client = reqwest::blocking::Client::builder()
+    let client = crate::transport::http_client()
         .connect_timeout(Duration::from_millis(MEDIA_TIMEOUT_MS))
         .timeout(Duration::from_millis(MEDIA_TIMEOUT_MS))
         .redirect(reqwest::redirect::Policy::none())

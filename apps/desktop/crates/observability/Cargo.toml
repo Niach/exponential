@@ -15,5 +15,5 @@ serde_json.workspace = true
 reqwest.workspace = true
 
 [dev-dependencies]
-# The tunnel test builds its own reqwest 0.13 client: the ring provider first.
-rustls.workspace = true
+# The tunnel test builds its own reqwest client.
+exp-http = { path = "../exp-http" }

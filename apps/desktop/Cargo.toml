@@ -85,7 +85,8 @@ rusqlite = { version = "0.41", features = ["bundled", "serde_json"] }  # feature
 # marginal tree weight is roughly what dropping ureq gives back.
 #
 # 0.13: `rustls-no-provider` (the ring provider `rustls` below, installed as
-# the process default before a client is built, as crates/emcp does); the
+# the process default by crates/exp-http, which every client is built
+# through: its test fails a client built any other way); the
 # roots are the OS trust store (rustls-platform-verifier), 0.13's only rustls
 # verifier, no longer the bundled webpki roots.
 reqwest = { version = "0.13", default-features = false, features = [

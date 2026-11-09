@@ -300,7 +300,7 @@ jobs:
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
-          -p eagent -p coding -p ui -p engine -p elocal -p api
+          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
 

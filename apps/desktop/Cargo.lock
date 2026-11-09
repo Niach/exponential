@@ -327,13 +327,13 @@ dependencies = [
  "eagent",
  "emcp",
  "etalk",
+ "exp-http",
  "flume 0.11.1",
  "libc",
  "log",
  "open",
  "reqwest",
  "ring",
- "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1709,11 +1709,11 @@ dependencies = [
  "epilot-screen",
  "etalk",
  "eui-core",
+ "exp-http",
  "flate2",
  "libc",
  "log",
  "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3332,12 +3332,12 @@ dependencies = [
 name = "etalk-crispasr"
 version = "0.2.4"
 dependencies = [
+ "exp-http",
  "flate2",
  "libc",
  "libloading",
  "log",
  "reqwest",
- "rustls",
  "sha2 0.10.9",
  "tar",
  "zip",
@@ -3536,6 +3536,14 @@ dependencies = [
  "terminal",
  "updater",
  "uuid",
+]
+
+[[package]]
+name = "exp-http"
+version = "0.14.143"
+dependencies = [
+ "reqwest",
+ "rustls",
 ]
 
 [[package]]
@@ -8151,9 +8159,9 @@ dependencies = [
 name = "observability"
 version = "0.14.143"
 dependencies = [
+ "exp-http",
  "log",
  "reqwest",
- "rustls",
  "sentry",
  "serde",
  "serde_json",
@@ -12963,10 +12971,10 @@ version = "0.14.143"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
+ "exp-http",
  "log",
  "minisign-verify",
  "reqwest",
- "rustls",
  "self-replace",
  "sha2 0.10.9",
  "tempfile",

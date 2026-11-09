@@ -218,17 +218,19 @@ mod net {
         }
     }
 
-    /// reqwest 0.13 without a bundled provider builds its TLS from the
-    /// process default: ring, unless the host installed one already.
-    pub(crate) fn install_crypto() {
+    /// THE builder of every eui-gpui reqwest client: reqwest 0.13 without a
+    /// bundled provider builds its TLS from the process default and panics
+    /// without one, so ring goes in first unless the host installed one
+    /// already (the workspace's `exp-http` gate allowlists only this).
+    pub(crate) fn http_client() -> reqwest::blocking::ClientBuilder {
         let _ = rustls::crypto::ring::default_provider().install_default();
+        reqwest::blocking::Client::builder()
     }
 
     fn client() -> reqwest::blocking::Client {
-        install_crypto();
         // No total timeout: a live stream stays open for as long as the
         // server keeps it.
-        reqwest::blocking::Client::builder().timeout(None::<Duration>).build().unwrap_or_else(|_| reqwest::blocking::Client::new())
+        http_client().timeout(None::<Duration>).build().unwrap_or_else(|_| http_client().build().expect("an HTTP client"))
     }
 
     /// A stream transport's generation, bumped by every `start`/`close`
@@ -270,8 +272,7 @@ mod net {
 
     /// The POST side's client: bounded, unlike the stream's [`client`].
     fn post_client(connect: Duration, total: Duration) -> reqwest::blocking::Client {
-        install_crypto();
-        reqwest::blocking::Client::builder().connect_timeout(connect).timeout(total).build().unwrap_or_else(|_| reqwest::blocking::Client::new())
+        http_client().connect_timeout(connect).timeout(total).build().unwrap_or_else(|_| http_client().build().expect("an HTTP client"))
     }
 
     /// The POST side: one thread sends client messages in order. Like the
