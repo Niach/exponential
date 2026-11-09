@@ -10,7 +10,9 @@
  * Prereqs (same stack as the store screenshots, see seed-screenshots.ts):
  *   1. backend up + the BUILT web server on :5173 behind the Caddy h2 proxy on
  *      :3000 — Electric's 19 long-polls starve Chromium's 6-connection HTTP/1.1
- *      limit, so captures go through https://localhost:3000
+ *      limit, so captures go through https://localhost:3000 (a plain-http
+ *      `CAPTURE_BASE_URL`, an isolated stack's web server, gets its own h2
+ *      front: lib/h2-front.ts)
  *   2. bun run seed:screenshots
  *   3. bun run screenshots:desktop   # the `steering` view needs a live relay
  *
@@ -40,6 +42,7 @@ import {
   type WebIdentity,
 } from "@exp/view-catalog"
 import { launchContext, login, parkPointer, settle, shot, waitForAnchor } from "./lib/capture-web"
+import { captureBase } from "./lib/h2-front"
 import { KEEPS_POINTER, RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
 import type { NotificationReadState } from "./lib/demo-notifications"
 import {
@@ -405,7 +408,6 @@ async function resolveReclock(): Promise<(() => Promise<unknown>) | undefined> {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  const ctx = recipeContext(args.baseUrl)
 
   // EXP-913, FIRST thing: the orchestrator judges this lane on the results
   // file, so a run that dies before its first view (a DB lookup, a browser
@@ -414,7 +416,12 @@ async function main() {
   const results: Result[] = []
   writeResults(args.out, results)
 
-  console.log(`base ${args.baseUrl}`)
+  // A plain-http base gets an h2 front, or client navigations never settle
+  // (lib/h2-front.ts).
+  const front = await captureBase(args.baseUrl)
+  console.log(`base ${args.baseUrl}${front.url === args.baseUrl ? `` : ` via h2 front ${front.url}`}`)
+  args.baseUrl = front.url
+  const ctx = recipeContext(args.baseUrl)
   console.log(`out  ${args.out}`)
 
   // One lookup for the whole run, and only when a wanted view needs it.
@@ -545,6 +552,7 @@ async function main() {
     }
   } finally {
     await browser.close()
+    await front.close()
     // The last view's side effects too: the native lanes capture over the
     // same database after this one.
     await notificationBaseline?.restore().catch(() => {})
