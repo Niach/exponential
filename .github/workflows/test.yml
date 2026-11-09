@@ -426,11 +426,23 @@ jobs:
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest --no-daemon
       # #VAPP-270: `exponential bundle --target android` end to end on a
       # synthetic kit (aapt2 link, zipalign, apksigner, bundletool, jarsigner).
+      # bundletool's only release asset is on github.com releases, which 504s
+      # in an outage (as services.gradle.org did, #2337): the pinned jar is
+      # cached and its download retries every error.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/bundletool
+          key: bundletool-1.18.1
       - name: Bundle an app for Android
         working-directory: apps/desktop
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
-          BUNDLETOOL="$RUNNER_TEMP/bundletool.jar" cargo test --locked -p eengine-bundle --test android -- --nocapture
+          jar="$RUNNER_TEMP/bundletool/bundletool-all-1.18.1.jar"
+          if [ ! -s "$jar" ]; then
+            mkdir -p "$(dirname "$jar")"
+            curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$jar.part" https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+            mv "$jar.part" "$jar"
+          fi
+          BUNDLETOOL="$jar" cargo test --locked -p eengine-bundle --test android -- --nocapture
 
   # #EXP-1543: the iOS ExpCore suite (ios-core.yml) when the PR touches
   # ExpCore or a fixture it reads. INFORMATIONAL (2026-11-01): not in `gate`,
