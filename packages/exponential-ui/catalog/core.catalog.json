@@ -2202,6 +2202,30 @@
         "keys": "⌘K"
       }
     },
+    "KbdGroup": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "description": "Key chord: one Kbd cap per key.",
+      "props": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "Keys in order (`⌘`, `K`)."
+        }
+      },
+      "example": {
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      }
+    },
     "Label": {
       "kind": "macro",
       "group": "text",
@@ -2491,7 +2515,7 @@
         "seed": {
           "type": "string",
           "bindable": true,
-          "description": "A user id: the palette hue; none = muted."
+          "description": "A user id; else the name picks the hue."
         }
       },
       "example": {
@@ -5826,12 +5850,19 @@
           "type": "boolean",
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        "menuKeys": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       },
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ],
       "example": {
         "placeholder": "Ask anything"

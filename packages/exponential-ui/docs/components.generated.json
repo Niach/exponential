@@ -1369,6 +1369,42 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Kbd/<part>."
     },
     {
+      "name": "KbdGroup",
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "specimenId": "exponential-ui-kbd-group",
+      "description": "Key chord: one Kbd cap per key.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "keys",
+          "type": "[string]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Keys in order (`⌘`, `K`)."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group of the Kbd caps, read in order",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "KbdGroup",
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KbdGroup/<part>."
+    },
+    {
       "name": "Label",
       "kind": "macro",
       "group": "text",
@@ -1892,7 +1928,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "A user id: the palette hue; none = muted."
+          "description": "A user id; else the name picks the hue."
         }
       ],
       "accessibility": {
@@ -7237,7 +7273,8 @@
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ],
       "basic": [],
       "props": [
@@ -7283,6 +7320,15 @@
           "responsive": false,
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        {
+          "name": "menuKeys",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       ],
       "accessibility": {

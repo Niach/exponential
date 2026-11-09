@@ -2992,6 +2992,17 @@
               "props": {
                 "keys": "⌘S"
               }
+            },
+            {
+              "id": "nf_kbd_group",
+              "component": "KbdGroup",
+              "props": {
+                "keys": [
+                  "Ctrl",
+                  "Shift",
+                  "P"
+                ]
+              }
             }
           ]
         },

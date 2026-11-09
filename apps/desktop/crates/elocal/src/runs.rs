@@ -173,6 +173,9 @@ struct Live {
     turn_text: String,
     /// The agent message row the turn's prose lands in.
     turn_row: Option<String>,
+    /// A turn started and has not ended: the engine seeds `ended` before the
+    /// first prompt (EXP-848), which is no turn end to report.
+    in_turn: bool,
 }
 
 pub struct LocalRuns {
@@ -630,7 +633,7 @@ impl LocalRuns {
         }
         match runner.start(brief, grant, sink) {
             Ok(run) => {
-                self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None });
+                self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None, in_turn: false });
             }
             Err(e) => {
                 log::warn!("run {session_id}: {e}");
@@ -744,8 +747,23 @@ impl LocalRuns {
                 }
                 let mut live = self.live.lock().expect("live");
                 let Some(run) = live.get_mut(session_id) else { return };
+                // A new assistant message (after a tool call) is a new block:
+                // a blank line between blocks, as the hub's copies join them
+                // (eagent-hub-core `copy`); a message's own chunks join as sent.
+                let last = run.turn_row.as_deref().and_then(|r| r.split_once('|')).map(|(_, m)| m);
+                if let (Some(new), Some(last)) = (message_id.as_deref(), last) {
+                    if !last.is_empty() && new != last && !run.turn_text.trim_end().is_empty() {
+                        let trimmed = run.turn_text.trim_end().len();
+                        run.turn_text.truncate(trimmed);
+                        run.turn_text.push_str("\n\n");
+                    }
+                }
                 run.turn_text.push_str(&text);
-                let same_row = message_id.as_deref().is_some_and(|m| run.turn_row.as_deref().is_some_and(|r| r.ends_with(m))) || run.turn_row.is_some();
+                if let (Some(row), Some(new)) = (run.turn_row.as_mut(), message_id.as_deref()) {
+                    let id = row.split('|').next().unwrap_or("").to_string();
+                    *row = format!("{id}|{new}");
+                }
+                let same_row = run.turn_row.is_some();
                 if let (true, Some(row_id)) = (same_row, run.turn_row.as_ref().map(|r| r.split('|').next().unwrap_or("").to_string())) {
                     if let Ok(Some(mut row)) = self.desktop.store.row("messages", &row_id) {
                         row.insert("body".into(), json!(run.turn_text));
@@ -763,6 +781,9 @@ impl LocalRuns {
                 self.step("device.reply", json!({"sessionId": session_id, "card": card}));
             }
             ActivityEvent::Turn { state: TurnState::Started, .. } => {
+                if let Some(run) = self.live.lock().expect("live").get_mut(session_id) {
+                    run.in_turn = true;
+                }
                 let device_id = self.desktop.executor.device_id();
                 self.step("device.report", json!({"sessionId": session_id, "deviceId": device_id, "busy": true}));
             }
@@ -770,6 +791,9 @@ impl LocalRuns {
                 let (reply, row) = {
                     let mut live = self.live.lock().expect("live");
                     let Some(run) = live.get_mut(session_id) else { return };
+                    if !std::mem::take(&mut run.in_turn) {
+                        return;
+                    }
                     let row = run.turn_row.take().map(|r| r.split('|').next().unwrap_or("").to_string());
                     (std::mem::take(&mut run.turn_text), row)
                 };
@@ -982,6 +1006,20 @@ mod tests {
 
     impl FakeRun {
         fn turn(&self, text: &str) {
+            if text.contains("[seed-only]") {
+                // The engine's seed before any prompt: no turn ran.
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                return;
+            }
+            if text.contains("[two-blocks]") {
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Started, started_at: None, tokens: None, at: None, writing: None });
+                self.sink.send(ActivityEvent::Narration { text: "I'll open the image.".into(), before_question_id: None, message_id: Some("m1".into()), subagent_id: None, at: None });
+                self.sink.send(ActivityEvent::Narration { text: "It is red.".into(), before_question_id: None, message_id: Some("m2".into()), subagent_id: None, at: None });
+                self.sink.send(ActivityEvent::Narration { text: " Text: 42.".into(), before_question_id: None, message_id: Some("m2".into()), subagent_id: None, at: None });
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                return;
+            }
             self.sink.send(ActivityEvent::Turn { state: TurnState::Started, started_at: None, tokens: None, at: None, writing: None });
             self.sink.send(ActivityEvent::Narration { text: format!("Hello {text}"), before_question_id: None, message_id: Some("a1".into()), subagent_id: None, at: None });
             self.sink.send(ActivityEvent::Narration { text: " there".into(), before_question_id: None, message_id: Some("a1".into()), subagent_id: None, at: None });
@@ -1076,6 +1114,49 @@ mod tests {
         assert_eq!(local, format!("look\n\n![shot.png]({})\n[x](/api/attachments/missing-1)", path.display()));
         assert_eq!(std::fs::read(&path).unwrap(), b"PNG!");
         assert_eq!(localize_attachments(&desktop, "no files"), "no files");
+    }
+
+    /// #EDE-65: a turn with two assistant messages (prose, a tool call,
+    /// more prose) lands as two blocks with a blank line between them, and
+    /// a message's own chunks join as they came; the session goes idle.
+    #[test]
+    fn a_turns_assistant_messages_keep_their_block_break() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(desktop.executor.team_id().to_string());
+        send.text = Some("[two-blocks] look".into());
+        let session = api::sessions::send(&desktop.client(), &send).unwrap().session_id;
+        wait_for(&changes, || desktop.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
+        let bodies: Vec<String> = desktop.store.rows_where("messages", "root_id", &session).unwrap().into_iter().filter(|m| m["author_kind"] == "agent").filter_map(|m| m["body"].as_str().map(str::to_string)).collect();
+        assert_eq!(bodies, ["I'll open the image.\n\nIt is red. Text: 42."]);
+        runs.stop_all();
+    }
+
+    /// #EDE-65: the engine seeds a turn `ended` before the first prompt; that
+    /// is no turn end: the session stays running until a turn really ends.
+    #[test]
+    fn the_engines_seeded_turn_end_is_no_turn_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(desktop.executor.team_id().to_string());
+        send.text = Some("[seed-only] look".into());
+        let session = api::sessions::send(&desktop.client(), &send).unwrap().session_id;
+        let status = |d: &LocalDesktop| d.store.row("sessions", &session).unwrap().unwrap()["status"].as_str().unwrap_or("").to_string();
+        wait_for(&changes, || runs.is_running(&session));
+        // Every event the run sent is handled by now (one worker, in order).
+        while changes.recv_timeout(Duration::from_millis(500)).is_ok() {}
+        assert_eq!(status(&desktop), "running");
+        runs.stop_all();
     }
 
     #[test]

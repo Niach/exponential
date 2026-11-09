@@ -2894,6 +2894,19 @@
       }
     },
     {
+      "name": "KbdGroup/example",
+      "node": {
+        "id": "kbd_group",
+        "component": "KbdGroup",
+        "props": {
+          "keys": [
+            "⌘",
+            "K"
+          ]
+        }
+      }
+    },
+    {
       "name": "Label/example",
       "node": {
         "id": "label",
@@ -11688,6 +11701,28 @@
         "props": {
           "placeholder": "Ask anything",
           "busy": false
+        }
+      }
+    },
+    {
+      "name": "Composer/menuKeys=true",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "menuKeys": true
+        }
+      }
+    },
+    {
+      "name": "Composer/menuKeys=false",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "menuKeys": false
         }
       }
     },

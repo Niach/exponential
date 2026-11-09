@@ -332,6 +332,10 @@ pub(crate) struct ReporterContact {
     /// Whether the submission carries a `reporterEmail` — the gate for the
     /// "Reply to reporter" pill (nothing to email otherwise).
     pub has_email: bool,
+    /// #EXP-1754: the avatar's hue key — the submission's `reporterName`,
+    /// else its `reporterEmail` (`user_avatar::avatar_hue_key`); `None` =
+    /// anonymous, the muted disc.
+    pub avatar_key: Option<String>,
 }
 
 /// The bottom composer's placeholder while the pill is OFF (and on every
@@ -1442,6 +1446,10 @@ impl IssueTimeline {
                 .as_ref()
                 .map(|reporter| reporter.name.as_str())
                 .unwrap_or(domain::reporter_reply::ANONYMOUS_NAME),
+            reporter_avatar_key: self
+                .reporter
+                .as_ref()
+                .and_then(|reporter| reporter.avatar_key.as_deref()),
             can_edit,
             can_delete,
             editing: edit.map(|edit| &edit.mention),
@@ -2423,7 +2431,11 @@ mod tests {
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
                 view.set_reporter(
-                    Some(ReporterContact { name: "Ada".to_string(), has_email: true }),
+                    Some(ReporterContact {
+                        name: "Ada".to_string(),
+                        has_email: true,
+                        avatar_key: Some("Ada".to_string()),
+                    }),
                     window,
                     cx,
                 );
