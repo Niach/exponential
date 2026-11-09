@@ -46,3 +46,19 @@ export function avatarInitials(label: string | null | undefined): string {
     : [...local].slice(0, 2).join(``)
   return picked === `` ? `?` : picked.toUpperCase()
 }
+
+/** #EXP-1754 (fixtures/avatar.json `keys`): what an avatar's hue is keyed
+ *  on: the person's id, else their name, else their email (trimmed; blank
+ *  counts as absent). `undefined` = no key: the muted fallback. */
+export function avatarHueKey(
+  id: string | null | undefined,
+  name?: string | null,
+  email?: string | null
+): string | undefined {
+  if (id && id.trim() !== ``) return id
+  for (const label of [name, email]) {
+    const trimmed = (label ?? ``).trim()
+    if (trimmed !== ``) return trimmed
+  }
+  return undefined
+}

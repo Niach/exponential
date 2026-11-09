@@ -155,8 +155,7 @@ impl AssetSource for Assets {
 }
 
 pub(crate) fn headless() -> HeadlessAppContext {
-    let platform = gpui_platform::current_platform(true);
-    let mut cx = HeadlessAppContext::with_platform(platform.text_system(), Arc::new(Assets), gpui_platform::current_headless_renderer);
+        let mut cx = HeadlessAppContext::with_platform(crate::test_text_system(), Arc::new(Assets), gpui_platform::current_headless_renderer);
     cx.update(|cx| {
         let fonts = std::fs::read_dir(asset_root().join("fonts")).into_iter().flatten().flatten().map(|f| f.path()).filter(|p| p.extension().is_some_and(|e| e == "ttf")).filter_map(|p| std::fs::read(p).ok()).map(Cow::Owned).collect();
         cx.text_system().add_fonts(fonts).expect("the fonts");

@@ -1,30 +1,151 @@
 {
-  "$comment": "#EXP-1629: THE Avatar fallback rule every Exponential UI renderer replays (React, Solid, Swift, Compose, gpui), the app's own (packages/design-tokens `avatar`, EXP-698 r4) so an eUI avatar and the app's UserAvatar of one person look the same. `palette` = design-tokens `avatar` in ITS order (append-only, never reorder: the index is what the hash lands on). A `seed` (a user id) picks `palette[fnv1a32(utf8(seed)) % 8]` (`hues` pins the hash: the app's 8-id fixture); the fallback fills with that hue at `fillAlpha` and draws the initials in it at full alpha, no stroke. No seed (absent or empty) = the `Avatar/fallback` recipe colours (muted). `initials` pins the letters of `name`: an email reduces to its local part, the rest splits on space . _ - +; two or more parts give their first letters, one part its first two characters; uppercased; nothing = `?`. The recipe sizes the letters at half the diameter, regular weight; a picture wears the `Avatar/image` ring (a hairline in `$color.border`), the IDE's gpui-component Avatar.",
-  "palette": ["#F87171", "#FB923C", "#FACC15", "#4ADE80", "#2DD4BF", "#60A5FA", "#A78BFA", "#F472B6"],
+  "$comment": "#EXP-1629: THE Avatar fallback rule every Exponential UI renderer replays (React, Solid, Swift, Compose, gpui), the app's own (packages/design-tokens `avatar`, EXP-698 r4) so an eUI avatar and the app's UserAvatar of one person look the same. `palette` = design-tokens `avatar` in ITS order (append-only, never reorder: the index is what the hash lands on). #EXP-1754: the hue KEY is the person's id, else their name, else their email (trimmed; blank counts as absent), so a widget reporter known only by name or email has one colour on every client; nothing at all = the `Avatar/fallback` recipe colours (muted grey). `keys` pins it (eUI's Avatar: `seed` is the id, `name` the name or email). The key picks `palette[fnv1a32(utf8(key)) % 8]` (`hues` pins the hash: the app's 8-id fixture); the fallback fills with that hue at `fillAlpha` and draws the initials in it at full alpha, no stroke. `initials` pins the letters of `name`: an email reduces to its local part, the rest splits on space . _ - +; two or more parts give their first letters, one part its first two characters; uppercased; nothing = `?`. The recipe sizes the letters at half the diameter, regular weight; a picture wears the `Avatar/image` ring (a hairline in `$color.border`), the IDE's gpui-component Avatar.",
+  "palette": [
+    "#F87171",
+    "#FB923C",
+    "#FACC15",
+    "#4ADE80",
+    "#2DD4BF",
+    "#60A5FA",
+    "#A78BFA",
+    "#F472B6"
+  ],
   "fillAlpha": 0.2,
+  "keys": [
+    {
+      "case": "a member: the id wins over name and email",
+      "id": "user_01HZY",
+      "name": "Ada Lovelace",
+      "email": "ada@lovelace.dev",
+      "key": "user_01HZY",
+      "hue": 1
+    },
+    {
+      "case": "a widget reporter known by name",
+      "name": "Jane Reporter",
+      "email": "jane@x.dev",
+      "key": "Jane Reporter",
+      "hue": 6
+    },
+    {
+      "case": "a widget reporter known by email only",
+      "email": "jane@x.dev",
+      "key": "jane@x.dev",
+      "hue": 4
+    },
+    {
+      "case": "a name padded with spaces",
+      "name": "  Jane Reporter  ",
+      "key": "Jane Reporter",
+      "hue": 6
+    },
+    {
+      "case": "an empty id falls through to the name",
+      "id": "",
+      "name": "Jane Reporter",
+      "key": "Jane Reporter",
+      "hue": 6
+    },
+    {
+      "case": "nothing: grey",
+      "key": null,
+      "hue": null
+    },
+    {
+      "case": "only blanks: grey",
+      "id": "",
+      "name": "   ",
+      "email": "",
+      "key": null,
+      "hue": null
+    }
+  ],
   "hues": [
-    ["", 5],
-    ["demo-mira", 2],
-    ["demo-jonas", 4],
-    ["demo-sofia", 1],
-    ["alex", 5],
-    ["7c9e6679-7425-40de-944b-e07fc1f90ae7", 3],
-    ["user_01HZY", 1],
-    ["ünïcödé", 2]
+    [
+      "",
+      5
+    ],
+    [
+      "demo-mira",
+      2
+    ],
+    [
+      "demo-jonas",
+      4
+    ],
+    [
+      "demo-sofia",
+      1
+    ],
+    [
+      "alex",
+      5
+    ],
+    [
+      "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      3
+    ],
+    [
+      "user_01HZY",
+      1
+    ],
+    [
+      "ünïcödé",
+      2
+    ]
   ],
   "initials": [
-    ["Jane Doe", "JD"],
-    ["Foo Bar Baz", "FB"],
-    ["huacnlee", "HU"],
-    ["alex.smith@x.dev", "AS"],
-    ["jonas_weber", "JW"],
-    ["mira-k", "MK"],
-    ["x+y@z.io", "XY"],
-    ["  Sofia  ", "SO"],
-    ["m", "M"],
-    ["ünïcödé", "ÜN"],
-    ["@x.dev", "?"],
-    ["", "?"],
-    ["   ", "?"]
+    [
+      "Jane Doe",
+      "JD"
+    ],
+    [
+      "Foo Bar Baz",
+      "FB"
+    ],
+    [
+      "huacnlee",
+      "HU"
+    ],
+    [
+      "alex.smith@x.dev",
+      "AS"
+    ],
+    [
+      "jonas_weber",
+      "JW"
+    ],
+    [
+      "mira-k",
+      "MK"
+    ],
+    [
+      "x+y@z.io",
+      "XY"
+    ],
+    [
+      "  Sofia  ",
+      "SO"
+    ],
+    [
+      "m",
+      "M"
+    ],
+    [
+      "ünïcödé",
+      "ÜN"
+    ],
+    [
+      "@x.dev",
+      "?"
+    ],
+    [
+      "",
+      "?"
+    ],
+    [
+      "   ",
+      "?"
+    ]
   ]
 }

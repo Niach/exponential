@@ -130,6 +130,14 @@ final class MarkdownParseTests: XCTestCase {
             XCTAssertEqual(tint.ink, AvatarFallback.palette[want])
             XCTAssertEqual(tint.fill.a, AvatarFallback.fillAlpha)
         }
+        let keys = try XCTUnwrap(json["keys"] as? [[String: Any]])
+        XCTAssertFalse(keys.isEmpty)
+        for row in keys {
+            let label = try XCTUnwrap(row["case"] as? String)
+            let key = AvatarFallback.hueKey(id: row["id"] as? String, name: row["name"] as? String, email: row["email"] as? String)
+            XCTAssertEqual(key, row["key"] as? String, label)
+            XCTAssertEqual(key.map(AvatarFallback.hueIndex), row["hue"] as? Int, label)
+        }
         let initials = try XCTUnwrap(json["initials"] as? [[String]])
         XCTAssertFalse(initials.isEmpty)
         for row in initials {
