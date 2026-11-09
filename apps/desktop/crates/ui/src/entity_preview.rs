@@ -439,6 +439,13 @@ fn comment_card(comment_id: &str, cx: &mut App) -> Option<AnyElement> {
         .as_deref()
         .and_then(|author_id| collections.users.read(cx).get(author_id).cloned());
     let author_label = crate::comments::author_label(author.as_ref());
+    // A reporter's comment has no author row: the byline reads like every
+    // platform (reporter-reply.json `anonymousName`); the avatar stays as is.
+    let byline_label = if comment.author_id.is_none() {
+        domain::reporter_reply::ANONYMOUS_NAME.to_string()
+    } else {
+        author_label.clone()
+    };
     let author_id = comment
         .author_id
         .clone()
@@ -470,7 +477,7 @@ fn comment_card(comment_id: &str, cx: &mut App) -> Option<AnyElement> {
                 .truncate()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .child(SharedString::from(author_label)),
+                .child(SharedString::from(byline_label)),
         );
     if !when.is_empty() {
         byline = byline.child(div().text_xs().text_color(muted).child(SharedString::from(when)));

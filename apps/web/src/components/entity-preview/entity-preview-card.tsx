@@ -58,6 +58,7 @@ import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { isIssueSearchOpen } from "@/lib/issue-search"
 import { useEntityRefRow } from "./use-entity-ref-row"
 import { useEntityRefTargets } from "./use-entity-ref-target"
+import { REPORTER_REPLY_COPY } from "@/components/reporter-reply-copy"
 
 // EXP-920: the hover card / tap sheet behind a tool-row chip, resolved per
 // kind from THIS client's synced rows — never the server. One component per
@@ -234,6 +235,9 @@ function CommentCard({ comment }: { comment: Comment }) {
   )
   const author = (userRows?.[0] ?? null) as User | null
   const name = displayUserName(author ?? undefined, authorId ?? undefined)
+  // A reporter's comment has no author row: the preview names it like every
+  // platform does (reporter-reply.json `anonymousName`); its avatar stays grey.
+  const byline = authorId ? name : REPORTER_REPLY_COPY.anonymousName
   const issue = issueRefs?.resolveById(comment.issueId) ?? null
   const when = relativeTime(comment.createdAt)
   return (
@@ -244,7 +248,7 @@ function CommentCard({ comment }: { comment: Comment }) {
           user={{ id: authorId, name, image: author?.image }}
         />
       }
-      eyebrow={when ? `${name} · ${when}` : name}
+      eyebrow={when ? `${byline} · ${when}` : byline}
       title={nounEyebrow(`comment`)}
       body={comment.body}
       footer={
