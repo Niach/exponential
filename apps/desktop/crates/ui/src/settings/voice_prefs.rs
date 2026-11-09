@@ -42,7 +42,7 @@ use etalk::voice::{
 
 use etalk::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudio, DesktopAudioCapability, MEETING};
 
-use super::doc::{and, faded, hex, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, VALUE_ALPHA, XS};
+use super::doc::{and, faded, hex, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, XS};
 use crate::queries;
 
 /// The member's agents (every team's), by id: the pickers' options and the
@@ -242,6 +242,9 @@ struct Options {
     desktop_audio: Vec<(String, String)>,
     apps: Vec<(String, String)>,
     wake_placeholder: String,
+    /// voice.json: while the voice downloads, the Language row's hint
+    /// (`downloadProgress`; a Select's `description` is not bindable).
+    language_detail: Option<String>,
 }
 
 fn pairs(list: &[VoiceOption]) -> Vec<(String, String)> {
@@ -287,6 +290,9 @@ fn options(state: &Voice, cx: &App) -> Options {
         desktop_audio: desktop_audio_options(capability).into_iter().map(|value| (value.key().to_string(), value.label().to_string())).collect(),
         apps: app_options(&live, &settings.desktop_audio_apps).into_iter().map(|option| (option.value, option.label)).collect(),
         wake_placeholder: wake_placeholder(&settings, &agent_rows),
+        language_detail: (state.fixed.is_none() && settings.voice_device_id.is_some() && settings.agent_id.is_some())
+            .then(|| etalk_gpui::speak_replies::download_detail(cx))
+            .flatten(),
     }
 }
 
@@ -299,10 +305,6 @@ fn project(state: &Voice, cx: &App) -> Value {
     let (devices, agents, _) = choices(state, cx);
     let live = state.fixed.is_none();
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
-    // voice.json: while the voice downloads (only ever on the voice device,
-    // i.e. here) a row's detail reads `downloadProgress`; S-3 removed the
-    // Speak replies row, so the Language row (the voice) carries it.
-    let downloading = (live && ready).then(|| etalk_gpui::speak_replies::download_detail(cx)).flatten();
     // The stored device names the tray group even while its row is not
     // synced here (its label, else `copy.ellipsis`), as on web.
     let device_name = settings.voice_device_id.as_deref().map(|id| label_of(&devices, Some(id), &copy.ellipsis));
@@ -378,7 +380,7 @@ fn project(state: &Voice, cx: &App) -> Value {
         // for an agent not synced here.
         "device": {"value": settings.voice_device_id.clone().unwrap_or_else(|| NONE.to_string()), "label": label_of(&devices, settings.voice_device_id.as_deref(), "")},
         "agent": {"value": settings.agent_id.clone().unwrap_or_else(|| NONE.to_string()), "label": label_of(&agents, settings.agent_id.as_deref(), "")},
-        "language": {"value": language, "label": language_label(&language, device_name.as_deref()), "detail": downloading, "hint": downloading.is_some()},
+        "language": {"value": language},
         "fields": {"wakePhrase": settings.wake_phrase, "voiceFile": settings.voice_file, "voiceTranscript": settings.voice_transcript},
         "hasTray": !tray.is_null(),
         "tray": tray,
@@ -424,41 +426,12 @@ fn select_options(list: &[(String, String)]) -> Vec<Value> {
     list.iter().map(|(value, label)| json!({"label": label, "value": value})).collect()
 }
 
-/// The hinted row's Menu entries: plain items, so a pick closes it.
-fn menu_items(list: &[(String, String)]) -> Vec<Value> {
-    list.iter().map(|(value, label)| json!({"label": label, "value": value})).collect()
-}
-
 /// A picker row (`glass_picker_row` + the IDE's Picker popup): genUI's
 /// `Select` with the `row` trigger; a pick closes it (`multiple` stays open).
 fn select_row(id: &str, visible: Value, label: &str, value: Value, action: &str, options: &[(String, String)], disabled: bool) -> Value {
     json!({"id": id, "component": "Select", "visible": visible,
         "props": {"triggerVariant": "row", "label": label, "name": id, "value": value, "options": select_options(options), "disabled": disabled},
         "on": {"change": {"event": {"name": action}}}})
-}
-
-/// A picker row's trigger: the value at 70% (40% while `dim`) with its
-/// chevron, opening `items` as the single-select Menu that fires `action`.
-fn picker_trigger(ink: &Ink, id: &str, value: Value, action: &str, items: Vec<Value>, dim: bool) -> Value {
-    let glyph = ink.r(1.);
-    let alpha = if dim { 0.4 } else { VALUE_ALPHA };
-    let mut text = faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), alpha);
-    text["props"]["lines"] = json!(1);
-    text["style"]["maxWidth"] = json!(240);
-    // The Button sets its value half a point higher than the box centre.
-    text["style"]["marginTop"] = json!(-0.5);
-    text["style"]["marginBottom"] = json!(0.5);
-    let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
-        // A Medium ghost Button's content: `gap_2` between the value and its chevron.
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "cursor": "pointer"},
-        "children": [
-            text,
-            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": alpha}},
-        ]});
-    if dim {
-        return trigger;
-    }
-    json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": items, "align": "end"}, "on": {"select": {"event": {"name": action}}}, "children": [trigger]})
 }
 
 /// `<base>/hint` picks the row drawn with its hint line (or without).
@@ -470,26 +443,24 @@ fn hint_pick(base: &str, hint: bool) -> Value {
     }
 }
 
-/// One picker row: a Select row, and (while `<base>/hint`) the IDE row
-/// with its hint line under the label, which a Select row has no part for.
+/// One picker row: a Select row (twice when `dim` picks a disabled one),
+/// its `description` the IDE row's hint under the label.
 #[allow(clippy::too_many_arguments)]
-fn picker_rows(ink: &Ink, id: &str, visible: Value, label: &str, base: &str, action: &str, options: &[(String, String)], dim: Option<Value>) -> Vec<Value> {
-    let items = menu_items(options);
+fn picker_rows(id: &str, visible: Value, label: &str, base: &str, action: &str, options: &[(String, String)], dim: Option<Value>, description: Option<&str>) -> Vec<Value> {
     let variants: Vec<(String, Value, bool)> = match &dim {
         Some(disabled) => vec![(id.to_string(), not(disabled.clone()), false), (format!("{id}_dim"), disabled.clone(), true)],
         None => vec![(id.to_string(), json!(true), false)],
     };
-    let mut rows = Vec::new();
-    for (vid, shown, dim) in variants {
-        rows.push(select_row(&vid, and(visible.clone(), and(shown.clone(), hint_pick(base, false))), label, path(&format!("{base}/value")), action, options, dim));
-        for hint in [true] {
-            let rid = format!("{vid}_hinted");
-            let column = label_column(ink, &format!("{rid}_text"), label, hint.then(|| path(&format!("{base}/detail"))), false);
-            let trigger = picker_trigger(ink, &rid, path(&format!("{base}/label")), action, items.clone(), dim);
-            rows.push(ink.shell(&rid, false, and(visible.clone(), and(shown.clone(), hint_pick(base, hint))), vec![column, control_column(&format!("{rid}_control"), vec![trigger])]));
-        }
-    }
-    rows
+    variants
+        .into_iter()
+        .map(|(vid, shown, dim)| {
+            let mut row = select_row(&vid, and(visible.clone(), shown), label, path(&format!("{base}/value")), action, options, dim);
+            if let Some(description) = description {
+                row["props"]["description"] = json!(description);
+            }
+            row
+        })
+        .collect()
 }
 
 /// A switch row (`glass_toggle_row`), once per hint variant and per
@@ -596,9 +567,9 @@ fn document(inks: &Inks, options: &Options) -> Value {
     let pickers = path("/pane/pickers");
     let tray = path("/pane/hasTray");
 
-    let device = picker_rows(ink, "device", pickers.clone(), &copy.voice_device, "/pane/device", "device", &&options.devices, None);
-    let agent = picker_rows(ink, "agent", pickers.clone(), &copy.agent, "/pane/agent", "agent", &&options.agents, None);
-    let language = picker_rows(ink, "language", json!(true), &copy.language, "/pane/language", "language", &&options.languages, None);
+    let device = picker_rows("device", pickers.clone(), &copy.voice_device, "/pane/device", "device", &options.devices, None, None);
+    let agent = picker_rows("agent", pickers.clone(), &copy.agent, "/pane/agent", "agent", &options.agents, None, None);
+    let language = picker_rows("language", json!(true), &copy.language, "/pane/language", "language", &options.languages, None, options.language_detail.as_deref());
     let first = group(ink, "first", path("/pane/ready"), vec![
         (device, None),
         (agent, Some(pickers.clone())),
@@ -629,8 +600,8 @@ fn document(inks: &Inks, options: &Options) -> Value {
     apps["props"]["placeholder"] = json!(apps_value(&[]));
     let meeting = group(ink, "meeting", tray.clone(), vec![
         (switch_rows(ink, "meeting", &words.meeting, "/pane/tray/meeting", "meeting"), None),
-        (picker_rows(ink, "auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", &&options.auto_stop, Some(path("/pane/tray/autoStop/disabled"))), Some(json!(true))),
-        (picker_rows(ink, "desktop_audio", json!(true), &words.desktop_audio, "/pane/tray/desktopAudio", "desktopAudio", &&options.desktop_audio, None), Some(json!(true))),
+        (picker_rows("auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", &options.auto_stop, Some(path("/pane/tray/autoStop/disabled")), None), Some(json!(true))),
+        (picker_rows("desktop_audio", json!(true), &words.desktop_audio, "/pane/tray/desktopAudio", "desktopAudio", &options.desktop_audio, None, None), Some(json!(true))),
         (vec![apps], Some(path("/pane/tray/apps/shown"))),
     ]);
 
@@ -1292,6 +1263,7 @@ mod tests {
             desktop_audio: vec![("off".into(), "Off".into())],
             apps: vec![("us.zoom.xos".into(), "Zoom".into())],
             wake_placeholder: "Hey Studio".into(),
+            language_detail: Some("Downloading the voice · 40%".into()),
         };
         let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks { ink, danger: "#ff6467ff".into() }, &options)).expect("parses");
         assert_eq!(tree.id, "root");
