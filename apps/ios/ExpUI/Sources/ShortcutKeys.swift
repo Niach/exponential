@@ -4,7 +4,9 @@ internal import ExponentialUIPrimitives
 
 /// S-3: a push-to-talk binding as THE keycaps (the web `ShortcutKeys`): one
 /// SDK `KbdView` per `shortcutLabel` part in a `KbdGroup`, in the app's
-/// tokens; empty = `copy.shortcutNone` as muted words.
+/// tokens (the cap's `accent` = the glass active wash, the exponential
+/// theme's dark `accent` `#ffffff1c`); empty = `copy.shortcutNone` as muted
+/// words.
 public struct ShortcutKeys: View {
     let value: String
 
@@ -25,7 +27,7 @@ public struct ShortcutKeys: View {
             }
             .primitiveTokens(PrimitiveTokens(
                 mutedForeground: DesignTokens.Palette.mutedForeground,
-                muted: GlassTokens.fillActive,
+                accent: GlassTokens.fillActive,
                 radiusSm: DesignTokens.Radius.sm
             ))
             .accessibilityElement(children: .combine)

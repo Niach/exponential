@@ -469,7 +469,8 @@
           "default": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -481,7 +482,8 @@
           "type=text": {
             "props": {
               "type": "text",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -493,7 +495,8 @@
           "type=email": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -505,7 +508,8 @@
           "type=password": {
             "props": {
               "type": "password",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -517,7 +521,8 @@
           "type=number": {
             "props": {
               "type": "number",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -529,7 +534,8 @@
           "type=search": {
             "props": {
               "type": "search",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -541,7 +547,8 @@
           "type=url": {
             "props": {
               "type": "url",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -553,13 +560,41 @@
           "type=tel": {
             "props": {
               "type": "tel",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
               "borderWidth": 1,
               "borderRadius": 8
+            }
+          },
+          "variant=field": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 8
+            }
+          },
+          "variant=row": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "gap": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -1843,7 +1878,8 @@
           "default": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1855,7 +1891,8 @@
           "type=text": {
             "props": {
               "type": "text",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1867,7 +1904,8 @@
           "type=email": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1879,7 +1917,8 @@
           "type=password": {
             "props": {
               "type": "password",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1891,7 +1930,8 @@
           "type=number": {
             "props": {
               "type": "number",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1903,7 +1943,8 @@
           "type=search": {
             "props": {
               "type": "search",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1915,7 +1956,8 @@
           "type=url": {
             "props": {
               "type": "url",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -1927,13 +1969,42 @@
           "type=tel": {
             "props": {
               "type": "tel",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "variant=field": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
+          },
+          "variant=row": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "height": 40.82,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10.5,
+              "gap": 10.5,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -3217,7 +3288,8 @@
           "default": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3229,7 +3301,8 @@
           "type=text": {
             "props": {
               "type": "text",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3241,7 +3314,8 @@
           "type=email": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3253,7 +3327,8 @@
           "type=password": {
             "props": {
               "type": "password",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3265,7 +3340,8 @@
           "type=number": {
             "props": {
               "type": "number",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3277,7 +3353,8 @@
           "type=search": {
             "props": {
               "type": "search",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3289,7 +3366,8 @@
           "type=url": {
             "props": {
               "type": "url",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3301,13 +3379,41 @@
           "type=tel": {
             "props": {
               "type": "tel",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
               "paddingHorizontal": 16,
               "borderWidth": 3,
               "borderRadius": 9999
+            }
+          },
+          "variant=field": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "borderWidth": 3,
+              "borderRadius": 9999
+            }
+          },
+          "variant=row": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "height": 44,
+              "paddingHorizontal": 16,
+              "gap": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -4594,7 +4700,8 @@
           "default": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4606,7 +4713,8 @@
           "type=text": {
             "props": {
               "type": "text",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4618,7 +4726,8 @@
           "type=email": {
             "props": {
               "type": "email",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4630,7 +4739,8 @@
           "type=password": {
             "props": {
               "type": "password",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4642,7 +4752,8 @@
           "type=number": {
             "props": {
               "type": "number",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4654,7 +4765,8 @@
           "type=search": {
             "props": {
               "type": "search",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4666,7 +4778,8 @@
           "type=url": {
             "props": {
               "type": "url",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4678,13 +4791,42 @@
           "type=tel": {
             "props": {
               "type": "tel",
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "variant=field": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
+          },
+          "variant=row": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "height": 40.82,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10.5,
+              "gap": 10.5,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }

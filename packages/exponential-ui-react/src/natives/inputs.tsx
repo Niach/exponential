@@ -102,27 +102,39 @@ function TextFieldNative({ node, props, rootProps, emit, scope, domId, multiline
     },
   }
   const fieldStates = [disabled && `disabled`, field.focused && `focus`, f.invalid && `invalid`] as const
+  // #EXP-1629: a `row` Input IS a Group row: the `field` part is a <label>
+  // wrapping the leading `label` part and the bare, end-aligned input (the
+  // label span stays its accessible name; a click anywhere focuses it).
+  const row = !multiline && str(props.variant) === `row`
   void ctx
+  const input = (attrs: Record<string, unknown>) => (
+    <input
+      ref={focusRef as React.Ref<HTMLInputElement>}
+      {...attrs}
+      {...shared}
+      type={str(props.type, `text`)}
+      onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === `Enter`) {
+          e.preventDefault()
+          field.commit()
+          void emit(`submit`, { value: field.value })
+          f.submit()
+        }
+      }}
+    />
+  )
   return (
     <div {...(rootProps as Record<string, unknown>)} data-pending={field.pending ? `true` : undefined} data-revision={field.revision}>
-      <TextPart part={part(`label`)} text={label} as="label" htmlFor={id} />
+      {row ? null : <TextPart part={part(`label`)} text={label} as="label" htmlFor={id} />}
       {multiline ? (
         <textarea ref={focusRef as React.Ref<HTMLTextAreaElement>} {...(part(`field`, ...fieldStates) as Record<string, string>)} {...shared} rows={rows} data-autosize={auto ? `true` : undefined} />
+      ) : row ? (
+        <label {...(part(`field`, ...fieldStates) as Record<string, string>)} htmlFor={id}>
+          <TextPart part={part(`label`)} text={label} id={`${id}-l`} />
+          {input({ className: `xui-Input-rowfield`, "aria-labelledby": label ? `${id}-l` : undefined })}
+        </label>
       ) : (
-        <input
-          ref={focusRef as React.Ref<HTMLInputElement>}
-          {...(part(`field`, ...fieldStates) as Record<string, string>)}
-          {...shared}
-          type={str(props.type, `text`)}
-          onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === `Enter`) {
-              e.preventDefault()
-              field.commit()
-              void emit(`submit`, { value: field.value })
-              f.submit()
-            }
-          }}
-        />
+        input(part(`field`, ...fieldStates) as Record<string, unknown>)
       )}
       <TextPart part={part(`description`)} text={description} id={`${id}-d`} />
       <FieldErrors part={part} field={f} />

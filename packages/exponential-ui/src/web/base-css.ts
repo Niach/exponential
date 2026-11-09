@@ -241,6 +241,10 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Switch-body{display:flex;flex-direction:column;gap:var(--xui-spacing-xxs);flex:1 1 0%;min-width:0}
 .xui-Input-field,.xui-Textarea-field{display:block;width:100%;min-width:0;margin:0;outline:none;appearance:none;border:0 solid transparent;background:transparent;color:inherit;font:inherit}
 .xui-Input-field::placeholder,.xui-Textarea-field::placeholder,.xui-Composer-field::placeholder{color:var(--xui-color-mutedForeground)}
+.xui-Input-field[data-r-variant="row"]{display:flex;flex-direction:row;align-items:center;cursor:text}
+.xui-Input-field[data-r-variant="row"]>.xui-Input-label{flex:0 0 auto;white-space:nowrap;cursor:inherit}
+.xui-Input-rowfield{display:block;flex:1 1 auto;align-self:stretch;width:auto;min-width:0;margin:0;padding:0;outline:none;appearance:none;border:0;background:transparent;font:inherit;text-align:end;color:color-mix(in srgb,currentColor 70%,transparent)}
+.xui-Input-rowfield::placeholder{color:var(--xui-color-mutedForeground)}
 .xui-Textarea-field{resize:none;line-height:var(--xui-type-lineHeight-sm);padding-top:var(--xui-spacing-sm);padding-bottom:var(--xui-spacing-sm)}
 .xui-Input-label,.xui-Textarea-label,.xui-Select-label,.xui-DatePicker-label,.xui-DateRangePicker-label,.xui-TimePicker-label,.xui-NumberField-label,.xui-ChipInput-label,.xui-FileUpload-label,.xui-Slider-label,.xui-Radio-label,.xui-Checkbox-label,.xui-Switch-label{display:block;cursor:inherit}
 .xui-Select-trigger,.xui-DatePicker-trigger,.xui-DateRangePicker-trigger,.xui-TimePicker-trigger{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:var(--xui-spacing-sm);width:100%;min-width:0;cursor:pointer;text-align:start;white-space:nowrap}

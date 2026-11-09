@@ -372,6 +372,10 @@
     "selectTrigger": [
       "field",
       "row"
+    ],
+    "inputVariant": [
+      "field",
+      "row"
     ]
   },
   "defs": {
@@ -3646,6 +3650,11 @@
         "value": {
           "type": "string",
           "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "inputVariant",
+          "default": "field"
         },
         "disabled": {
           "type": "boolean",

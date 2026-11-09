@@ -472,6 +472,44 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
     }
 
+    /// #EXP-1629: a `row` Input IS a Group row: no label above, the field
+    /// carries the label (its row-weight `label` part) and the IDE metrics,
+    /// measures label + gap + field; the default Input keeps its label.
+    func testInputRowCarriesItsLabelInsideTheField() throws {
+        let m = try surface(node("mail", "Input", ["label": .string("Email"), "placeholder": .string("you@example.com"), "variant": .string("row")]))
+        let painted = paint(m)
+        XCTAssertNil(m.index(of: "mail.label"), "a row has no label above")
+        let field = try XCTUnwrap(m.index(of: "mail.field"))
+        XCTAssertTrue(painted.contains(field))
+        let props = m.node(field)!.props
+        XCTAssertTrue(InputRow.isRow(props))
+        XCTAssertEqual(props.str("label"), "Email")
+        XCTAssertEqual(m.frame(field).height, 40.82, accuracy: 0.01)
+        XCTAssertEqual(m.style(field).gap, 10.5, accuracy: 0.01)
+        XCTAssertEqual(m.style(field).paddingHorizontal, 14, accuracy: 0.01)
+        let look = m.part("Input", "label", props: m.ownerProps(field))
+        let labelStyle = SelectTrigger.labelStyle(m.textStyle(field), look)
+        XCTAssertEqual(labelStyle.fontSize, 12.25, accuracy: 0.001)
+        XCTAssertEqual(labelStyle.lineHeight, 19.82, accuracy: 0.001)
+        XCTAssertEqual(look.style.fontWeight, 400, "the row label is regular")
+        XCTAssertEqual(InputRow.labelWidth("Email", labelStyle, width: 4), 4, "at most the row")
+        XCTAssertEqual(InputRow.valueOpacity, 0.7, accuracy: 0.001)
+
+        let measurer = SurfaceMeasurer(theme: m.theme, mode: m.mode, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+        let ts = TextStyle.body
+        let rowStyle = SelectTrigger.labelStyle(ts, m.part("Input", "label", props: ["variant": .string("row")]))
+        let row = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email"), "variant": .string("row")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(row.width, TextShaper.width("Email", rowStyle) + 12 + 160, accuracy: 0.01)
+        XCTAssertEqual(row.height, max(ts.lineHeight, rowStyle.lineHeight), accuracy: 0.01)
+        let plain = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(plain.width, 160, accuracy: 0.01, "the default field is unchanged")
+
+        let d = try surface(node("mail", "Input", ["label": .string("Email"), "placeholder": .string("you@example.com")]))
+        paint(d)
+        XCTAssertNotNil(d.index(of: "mail.label"), "the default Input keeps its label")
+        XCTAssertFalse(InputRow.isRow(d.node(d.index(of: "mail.field")!)!.props))
+    }
+
     func testDateRangePickerSelectsInTwoSteps() throws {
         let m = try surface(node("dr", "DateRangePicker", ["label": .string("Sprint"), "start": .string("2026-10-07")]))
         m.setOpen("dr", true)
