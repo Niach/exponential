@@ -12,6 +12,8 @@ reqwest.workspace = true
 exp-http = { path = "../exp-http" }
 dirs.workspace = true
 log = "0.4"
+# The instance advert (`/api/version`, EXP-1761).
+serde_json.workspace = true
 # Streaming digest for SHA256SUMS.txt verification — already in the tree
 # transitively (rustls ecosystem), so this adds no new tree weight.
 sha2 = "0.10"
