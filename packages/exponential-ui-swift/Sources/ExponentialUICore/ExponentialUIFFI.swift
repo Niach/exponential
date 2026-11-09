@@ -3715,6 +3715,14 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func setPointer(hover: Bool, reducedMotion: Bool) 
     
+    /**
+     * #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+     * go, in SURFACE coordinates: the host's window around the surface (a
+     * popup that does not fit is fitted into it, not into the surface).
+     * Width or height <= 0 = unset, the default: the surface's own view.
+     */
+    func setPopupBounds(x: Float, y: Float, width: Float, height: Float)  -> Bool
+    
     func setPressed(ids: [String])  -> Bool
     
     /**
@@ -4525,6 +4533,25 @@ open func setPointer(hover: Bool, reducedMotion: Bool)  {try! rustCall() {
         FfiConverterBool.lower(reducedMotion),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+     * go, in SURFACE coordinates: the host's window around the surface (a
+     * popup that does not fit is fitted into it, not into the surface).
+     * Width or height <= 0 = unset, the default: the surface's own view.
+     */
+open func setPopupBounds(x: Float, y: Float, width: Float, height: Float) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_set_popup_bounds(
+            self.uniffiCloneHandle(),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),
+        FfiConverterFloat.lower(width),
+        FfiConverterFloat.lower(height),uniffiCallStatus
+    )
+})
 }
     
 open func setPressed(ids: [String]) -> Bool  {
@@ -10479,6 +10506,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer() != 33301) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_popup_bounds() != 12485) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed() != 58518) {

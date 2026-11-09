@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629), React's: the field hint, the row's `labels` + `control` columns, `aria-describedby`. Parity cases for both variants.
+
 ## 0.21.0 (2026-11-09)
 
 - Select `triggerVariant: row` (#EXP-1629), React's: the `label`, spacer, `value` and `chevron` parts, the popup hung off the value (start, 262 px, fitted into the window), `align` + `popupWidth`, every opening at the top with the cursor on the first enabled option (no longer scrolled to the chosen one), the list's bottom `fade`, item `hover` = the cursor, `selected` = chosen only. Parity cases for the row and the open popup.

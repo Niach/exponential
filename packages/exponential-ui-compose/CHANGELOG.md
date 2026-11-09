@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629): painted from the core's parts (the row's `labels` and `control` columns, the field's hint). Anchored popups now fit into the WINDOW around the surface (the surface's window position + the root's size, `SurfaceModel.setPopupWindow` → the core's `set_popup_bounds`), as web and the IDE do.
+
 ## 0.21.0 (2026-11-09)
 
 - `eui-compose-primitives` `Kbd`: fills with `PrimitiveTokens.accent` (the catalog's `Kbd` recipe; was `muted`).

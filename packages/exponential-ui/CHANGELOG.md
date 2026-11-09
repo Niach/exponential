@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629): a muted hint, under a `field` trigger, under the label in a `row` (the IDE's `glass_picker_row(label, Some(description), …)`). New parts `description`, `labels` (the label column: `gap`) and `control` (the trailing column: `minWidth`, `gap`); layout `selectRowDescriptionMaxWidth` 460. A row trigger is `minHeight` + `paddingVertical` now (neutral 44 / 12, exponential 40.82 / 10.5), the field's `height` a `triggerVariant: field` rule. The exponential row hint is the IDE's: 10.5 / 16.99 at 50% foreground, 1.75 under the label, the control column at least 203.5 (the IDE's 200 plus its wider 10.5 column gap). The Select specimen gains `triggerVariant · row + description`. Prompt budget 9,887 → 9,892 tokens.
+
 ## 0.21.0 (2026-11-09)
 
 - Input `row` (#EXP-1629): `variant` (`field` | `row`; the app's `GlassInputRow`): a `row` field is a Group row (the `label` leading inside it, never shrinking; the value end-aligned filling the rest at 70% of the field's colour, the placeholder in its own; no fill, border or focus chrome; neutral: 44 tall, 16 / 12, gap 12). The exponential theme's row is the IDE's (14 px rem): 40.82 tall, padding 14 / 10.5, gap 10.5, label 12.25 / 19.82, value 12.25 / 17.5. The Input specimen gains `variant · row (in a Group)`, on React, Solid, gpui, SwiftUI and Compose. Prompt budget 9,782 → 9,796 tokens.

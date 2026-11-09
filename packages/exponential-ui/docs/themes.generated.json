@@ -3749,7 +3749,10 @@
         "error",
         "value",
         "chevron",
-        "fade"
+        "fade",
+        "description",
+        "labels",
+        "control"
       ],
       "props": [
         "multiple",

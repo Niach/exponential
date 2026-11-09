@@ -22,7 +22,7 @@ import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, 
 import { boundPath, firstEnabledIndex, listMoreBelow, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
-import { FieldErrors, createField, type FieldState } from "../form"
+import { FieldErrors, createField, joinIds, type FieldState } from "../form"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
@@ -65,6 +65,9 @@ interface SelectState {
   /** #EXP-1629: the `row` trigger's label (inside it), its glyph slot and the popup geometry. */
   rowLabel: () => JSX.Element
   spacer: () => JSX.Element
+  /** A `description`: a row's trailing `control` column (around the value and chevron); the trigger's describedby. */
+  End: (p: { children: JSX.Element }) => JSX.Element
+  describedBy: () => string | undefined
   /** The value box (a row popup's anchor). */
   setValueEl: (el: HTMLElement) => void
   valueEl: () => HTMLElement | undefined
@@ -136,12 +139,30 @@ export function SelectNative(props: NativeProps): JSX.Element {
   )
 
   const row = () => str(props.props.triggerVariant) === `row`
-  const rowLabel = () => (row() ? <TextPart part={part(`label`)} text={props.props.label} /> : null)
-  const spacer = () => (row() ? <span class="xui-Select-spacer" aria-hidden="true" /> : null)
+  // A `description`: under a field trigger; in a row UNDER the label (the
+  // `labels` column), the value and chevron in the trailing `control`.
+  const description = () => str(props.props.description)
+  const described = () => row() && description() !== ``
+  const rowLabel = () =>
+    !row() ? null : described() ? (
+      <div {...part(`labels`)}>
+        <TextPart part={part(`label`)} text={props.props.label} />
+        <TextPart part={part(`description`)} text={description()} id={`${id}-d`} />
+      </div>
+    ) : (
+      <TextPart part={part(`label`)} text={props.props.label} />
+    )
+  const spacer = () => (row() && !described() ? <span class="xui-Select-spacer" aria-hidden="true" /> : null)
+  const End = (p: { children: JSX.Element }) => (
+    <Show when={described()} fallback={p.children}>
+      <div {...part(`control`)}>{p.children}</div>
+    </Show>
+  )
+  const describedBy = () => joinIds(description() && `${id}-d`, f.describedBy)
   const [valueEl, setValueEl] = createSignal<HTMLElement>()
   const chevronSlot = () => (row() ? `Select.chevron` : `Select.trigger`)
   const geometry = (triggerWidthVar: string) => selectPopupGeometry(props.props, triggerWidthVar)
-  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, setValueEl, valueEl, chevronSlot, geometry }
+  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, geometry }
   return (
     <div {...props.rootProps} data-source={source() || undefined}>
       <Show when={!row()}>
@@ -149,6 +170,9 @@ export function SelectNative(props: NativeProps): JSX.Element {
       </Show>
       <Show when={!multiple() && !searchable()} fallback={<Combobox s={state} emptyText={str(props.props.emptyText)} />}>
         <PlainSelect s={state} name={str(props.props.name, props.node.id)} emptyText={str(props.props.emptyText)} />
+      </Show>
+      <Show when={!row()}>
+        <TextPart part={part(`description`)} text={description()} id={`${id}-d`} />
       </Show>
       <FieldErrors part={part} field={f} />
     </div>
@@ -199,7 +223,7 @@ function PlainSelect(props: { s: SelectState; name: string; emptyText: string })
         id={s.id}
         {...part(`trigger`, s.open() && `open`, s.disabled() && `disabled`, s.field.invalid && `invalid`)}
         aria-invalid={s.field.invalid || undefined}
-        aria-describedby={s.field.describedBy}
+        aria-describedby={s.describedBy()}
         onClick={(e) => {
           e.currentTarget.focus()
           if (pointerType !== `mouse`) openUp(e)
@@ -226,10 +250,12 @@ function PlainSelect(props: { s: SelectState; name: string; emptyText: string })
       >
         {s.rowLabel()}
         {s.spacer()}
-        <span ref={s.setValueEl}>
-          {chosen() ? <span {...part(`value`)} style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}
-        </span>
-        <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
+        <s.End>
+          <span ref={s.setValueEl}>
+            {chosen() ? <span {...part(`value`)} style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}
+          </span>
+          <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
+        </s.End>
       </button>
       <Show when={inForm() ? `${optionKey()}#` : false} keyed>
         {(_key) => <NativeSelect name={props.name} value={current()} disabled={s.disabled()} options={s.options()} onChange={(v) => s.commit(v)} />}
@@ -506,7 +532,7 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
         disabled={s.disabled()}
         role="combobox"
         aria-invalid={s.field.invalid || undefined}
-        aria-describedby={s.field.describedBy}
+        aria-describedby={s.describedBy()}
         onKeyDown={(e) => {
           if (!s.open() && (e.key === `ArrowDown` || e.key === `ArrowUp`)) {
             e.preventDefault()
@@ -517,8 +543,10 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
       >
         {s.rowLabel()}
         {s.spacer()}
-        <span ref={s.setValueEl}>{chosen().length ? <span {...part(`value`)}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}</span>
-        <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
+        <s.End>
+          <span ref={s.setValueEl}>{chosen().length ? <span {...part(`value`)}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}</span>
+          <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
+        </s.End>
       </button>
       <Show when={s.open()}>
         <ComboboxContent s={s} contentId={contentId} shown={shown} selected={selected} nav={nav} pick={pick} optionId={optionId} activeId={activeId} emptyText={props.emptyText} listRef={(el) => (listEl = el)} />
