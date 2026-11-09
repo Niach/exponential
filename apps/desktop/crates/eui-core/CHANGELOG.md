@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629): a `field` Select shows it under the trigger (the form description); a `row` trigger with one is the `labels` column (the `label`, then the `description` at most `layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH` 460, wrapping; it shrinks) and the trailing `control` column (the `value` + `chevron`, end-aligned; its recipe `minWidth` holds it). The row trigger's recipes take `minHeight` + `paddingVertical` instead of `height`, so the row grows with the hint.
+
 - Composer slots (#EDE-65 R): a Composer with `leading` / `trailing` stays one measured leaf and gets a `bar` row at the bottom of its content box (the send disc's height): `leading`, a spacer, `trailing`, then `sendSpace` (the disc's `$control.buttonIcon` square, unpainted). A measured leaf with children now lays them out as a flex box at its measured size inside its padding + border (`Engine::set_inset`); they never size it. `interactions-round1.json` `composerSlots` + `composerPaste` replayed.
 - `color.borderStrong` + recipe keys `borderTopLeftRadius`, `maxWidth` (#EDE-65): `load_theme` derives `borderStrong` from `border` when a chain sets none (as `link` from `primary`); the validator takes `maxWidth` as a number, a `$control`/`$spacing` token or a percentage `"N%"` (0–100). The built-in `exponential` theme's MessageBubble is the IDE's chat bubble.
 

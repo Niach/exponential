@@ -4046,6 +4046,9 @@
         "label": {
           "type": "string"
         },
+        "description": {
+          "type": "string"
+        },
         "name": {
           "type": "string",
           "required": true

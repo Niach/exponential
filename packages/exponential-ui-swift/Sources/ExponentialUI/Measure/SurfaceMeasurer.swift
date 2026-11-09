@@ -901,6 +901,7 @@ enum SelectTrigger {
     static func glyphSize(_ look: PartStyle) -> CGFloat {
         look.width ?? look.height ?? 16
     }
+
 }
 
 /// #EXP-1629: an Input `variant: row` field, shared by the measurer and

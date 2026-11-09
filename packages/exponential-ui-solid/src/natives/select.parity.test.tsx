@@ -20,7 +20,7 @@ describe(`select: variants`, () => {
   const example = fixtureCases([`Select`])[0].node
   it(`every forced state`, async () => expectParity({ tree: example, theme: `exponential`, states: STATES }))
   it(`dark + rtl (orange)`, async () => expectParity({ tree: example, theme: `orange`, mode: `dark`, direction: `rtl` }))
-  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }]) {
+  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }]) {
     const tag = JSON.stringify(variant)
     it(`${tag}: placeholder (no value)`, async () => expectParity({ tree: sel({ ...variant, placeholder: `Pick one` }) }))
     it(`${tag}: a value not in the options`, async () => expectParity({ tree: sel({ ...variant, value: `nope` }) }))

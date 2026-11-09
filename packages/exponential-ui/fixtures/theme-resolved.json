@@ -3368,7 +3368,6 @@
           "trigger": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -3379,6 +3378,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "field"
+              },
+              "style": {
+                "height": "$control.input"
               }
             },
             {
@@ -3410,8 +3417,9 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "height": 44,
+                "minHeight": 44,
                 "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
                 "gap": "$spacing.md",
                 "borderWidth": 0,
                 "borderRadius": "$radius.none",
@@ -3575,6 +3583,39 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            }
+          ],
+          "description": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ],
+          "labels": [
+            {
+              "style": {
+                "gap": "$spacing.xxs"
+              }
+            }
+          ],
+          "control": [
+            {
+              "style": {
+                "minWidth": 200,
+                "gap": "$spacing.md"
               }
             }
           ],
@@ -11795,7 +11836,6 @@
           "trigger": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -11806,6 +11846,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "field"
+              },
+              "style": {
+                "height": "$control.input"
               }
             },
             {
@@ -11837,8 +11885,9 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "height": 44,
+                "minHeight": 44,
                 "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
                 "gap": "$spacing.md",
                 "borderWidth": 0,
                 "borderRadius": "$radius.none",
@@ -11858,8 +11907,9 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "height": 40.82,
+                "minHeight": 40.82,
                 "paddingHorizontal": 14,
+                "paddingVertical": 10.5,
                 "gap": 7,
                 "fontSize": 12.25,
                 "lineHeight": 17.5
@@ -12152,6 +12202,67 @@
               "style": {
                 "width": 14,
                 "height": 14
+              }
+            }
+          ],
+          "description": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99,
+                "color": "$color.foreground",
+                "opacity": 0.5
+              }
+            }
+          ],
+          "labels": [
+            {
+              "style": {
+                "gap": "$spacing.xxs"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "gap": 1.75
+              }
+            }
+          ],
+          "control": [
+            {
+              "style": {
+                "minWidth": 200,
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "minWidth": 203.5,
+                "gap": 7
               }
             }
           ],
@@ -20405,7 +20516,6 @@
           "trigger": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -20416,6 +20526,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "field"
+              },
+              "style": {
+                "height": "$control.input"
               }
             },
             {
@@ -20447,8 +20565,9 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "height": 44,
+                "minHeight": 44,
                 "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
                 "gap": "$spacing.md",
                 "borderWidth": 0,
                 "borderRadius": "$radius.none",
@@ -20625,6 +20744,39 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            }
+          ],
+          "description": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            }
+          ],
+          "labels": [
+            {
+              "style": {
+                "gap": "$spacing.xxs"
+              }
+            }
+          ],
+          "control": [
+            {
+              "style": {
+                "minWidth": 200,
+                "gap": "$spacing.md"
               }
             }
           ],
@@ -29174,7 +29326,6 @@
           "trigger": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -29185,6 +29336,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "field"
+              },
+              "style": {
+                "height": "$control.input"
               }
             },
             {
@@ -29216,8 +29375,9 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "height": 44,
+                "minHeight": 44,
                 "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
                 "gap": "$spacing.md",
                 "borderWidth": 0,
                 "borderRadius": "$radius.none",
@@ -29237,8 +29397,9 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "height": 40.82,
+                "minHeight": 40.82,
                 "paddingHorizontal": 14,
+                "paddingVertical": 10.5,
                 "gap": 7,
                 "fontSize": 12.25,
                 "lineHeight": 17.5
@@ -29531,6 +29692,67 @@
               "style": {
                 "width": 14,
                 "height": 14
+              }
+            }
+          ],
+          "description": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99,
+                "color": "$color.foreground",
+                "opacity": 0.5
+              }
+            }
+          ],
+          "labels": [
+            {
+              "style": {
+                "gap": "$spacing.xxs"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "gap": 1.75
+              }
+            }
+          ],
+          "control": [
+            {
+              "style": {
+                "minWidth": 200,
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "minWidth": 203.5,
+                "gap": 7
               }
             }
           ],

@@ -1025,6 +1025,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `week`, component: `Select`, props: { label: `Week starts on`, name: `week`, triggerVariant: `row`, value: `monday`, options: [{ label: `Monday`, value: `monday` }, { label: `Sunday`, value: `sunday` }] } },
       ],
     },
+  }, {
+    // #EXP-1629: a picker row with its hint under the label (the IDE's
+    // `glass_picker_row(label, Some(description), …)`: Settings → Voice).
+    label: `triggerVariant · row + description`,
+    node: {
+      id: `voice_prefs`,
+      component: `Group`,
+      children: [
+        { id: `language`, component: `Select`, props: { label: `Language`, description: `Spoken replies and dictation use it`, name: `language`, triggerVariant: `row`, value: `en`, options: [{ label: `English`, value: `en` }, { label: `Deutsch`, value: `de` }] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
