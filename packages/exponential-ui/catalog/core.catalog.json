@@ -5848,12 +5848,19 @@
           "type": "boolean",
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        "menuKeys": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       },
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ],
       "example": {
         "placeholder": "Ask anything"

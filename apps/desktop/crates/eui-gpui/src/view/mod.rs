@@ -16,6 +16,7 @@ pub(crate) mod embed;
 mod events;
 mod input;
 mod key_recorder;
+mod composer_keys;
 mod motion;
 mod motion_leaf;
 mod canvas_leaf;
@@ -354,6 +355,8 @@ pub struct SurfaceView {
     pending_focus: Option<String>,
     /// #EXP-1629: the KeyRecorder field recording now (focus + capture).
     recording: Option<key_recorder::KeyRecording>,
+    /// #EDE-65: the keystroke interceptor while a Composer has menuKeys on.
+    composer_keys: Option<Subscription>,
     /// The hover-opened trigger keyboard focus sits in.
     focus_trigger: Option<String>,
     fields: HashMap<String, Field>,
@@ -620,6 +623,7 @@ impl SurfaceView {
             keyboard: false,
             pending_focus: None,
             recording: None,
+            composer_keys: None,
             focus_trigger: None,
             fields: HashMap::new(),
             zooms: HashMap::new(),
@@ -1370,6 +1374,7 @@ impl SurfaceView {
             self.focus_id(&id, window, cx);
         }
         self.sync_key_recorder(window, cx);
+        self.sync_composer_keys(cx);
         // Only a rebuilt or changed slot can hold other text.
         if self.md_selection.is_some_and(|sel| (all || changed.contains(&sel.node)) && self.md_text_key(sel.node) != self.md_selection_key) {
             self.md_selection = None;

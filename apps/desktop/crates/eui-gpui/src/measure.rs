@@ -40,12 +40,11 @@ const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
 /// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
 ///
-/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system drops
-/// a face it is asked to load by family when the face has no `m` glyph
-/// (`load_family`), which removes Noto Color Emoji from its font database,
-/// and with it the colour face its own per-character emoji fallback reaches
-/// for: every emoji then drew as a box or a monochrome outline. Unnamed, the
-/// platform's emoji fallback finds it.
+/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system
+/// (vendor/gpui-pre-wgpu) shapes every cluster with emoji presentation in the
+/// colour face itself, ahead of any face in this chain; upstream it dropped a
+/// face loaded by family without an `m` glyph, so naming Noto Color Emoji
+/// here once removed it from the font database.
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub(crate) const SANS_FALLBACKS: &[&str] = &[
     ".SystemUIFont",

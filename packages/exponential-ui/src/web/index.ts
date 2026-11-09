@@ -73,3 +73,6 @@ export { keyRecorderKey, keyRecorderCode, keyRecorderKeyPayload, keyRecorderMous
 export type { KeyRecorderPayload } from "./key-recorder"
 // #EDE-65 lane M: Embed's sandboxed host plugin + box (React + Solid).
 export { embedHost, embedDenied, embedBoxStyle } from "./embed-host"
+// #EDE-65: the Composer's `menuKeys` (React + Solid Composer).
+export { composerMenuKey } from "./composer-keys"
+export type { ComposerMenuKey, ComposerKeyEvent } from "./composer-keys"
