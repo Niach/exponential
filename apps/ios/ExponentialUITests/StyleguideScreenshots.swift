@@ -1925,10 +1925,14 @@ final class StyleguideScreenshots: XCTestCase {
         }
         // Back twice (#EXP-1732: the pushed session item → the chat → the
         // Chats list) on the back button (`goBack`: by name, never the `…`).
-        // #EXP-1757: a Back tapped while the item's feed still settles is
-        // swallowed (a run without the card shots taps it right after the
-        // snapshot), so go back until the Chats list's tab bar is up.
-        for _ in 0..<4 where !(chatsTab.exists && chatsTab.isHittable) {
+        // #EXP-1757: while the item's feed sits pinned to its bottom its
+        // Back does nothing (#EXP-1759); one scroll unpins it, as a reader's
+        // would. Then back until the Chats list's tab bar is up.
+        if anyElement(app, identified: "session-item-title").exists {
+            app.swipeDown(velocity: .slow)
+            settle(1)
+        }
+        for _ in 0..<3 where !(chatsTab.exists && chatsTab.isHittable) {
             goBack(app)
             settle(1)
         }
