@@ -510,7 +510,7 @@ class InteractionTest {
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val host = RecordingHost()
-            val m = SurfaceModel("key-recorder", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            val m = SurfaceModel("key_recorder", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
             m.fixedMeasure = true
             m.setNested(f["surface"]!!.json)
             m.setViewport(390f, 800f)

@@ -11263,7 +11263,7 @@
     {
       "name": "KeyRecorder/example",
       "node": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -11277,7 +11277,7 @@
     {
       "name": "KeyRecorder/recording=true",
       "node": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -11292,7 +11292,7 @@
     {
       "name": "KeyRecorder/recording=false",
       "node": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",

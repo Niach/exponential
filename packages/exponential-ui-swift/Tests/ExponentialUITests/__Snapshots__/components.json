@@ -14672,7 +14672,7 @@
           390,
           29
         ],
-        "id" : "key-recorder"
+        "id" : "key_recorder"
       },
       {
         "border" : 1,
@@ -14683,7 +14683,7 @@
           112,
           29
         ],
-        "id" : "key-recorder.field",
+        "id" : "key_recorder.field",
         "radius" : 5.25
       },
       {
@@ -14694,7 +14694,7 @@
           96,
           20
         ],
-        "id" : "key-recorder.field.value"
+        "id" : "key_recorder.field.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -14706,7 +14706,7 @@
           42,
           20
         ],
-        "id" : "key-recorder.field.value.key.0",
+        "id" : "key_recorder.field.value.key.0",
         "radius" : 8
       },
       {
@@ -14717,7 +14717,7 @@
           32,
           20
         ],
-        "id" : "key-recorder.field.value.key.0.label"
+        "id" : "key_recorder.field.value.key.0.label"
       },
       {
         "bg" : "#ffffff0a",
@@ -14729,7 +14729,7 @@
           50,
           20
         ],
-        "id" : "key-recorder.field.value.key.1",
+        "id" : "key_recorder.field.value.key.1",
         "radius" : 8
       },
       {
@@ -14740,7 +14740,7 @@
           40,
           20
         ],
-        "id" : "key-recorder.field.value.key.1.label"
+        "id" : "key_recorder.field.value.key.1.label"
       }
     ]
   },
@@ -14755,7 +14755,7 @@
           390,
           29
         ],
-        "id" : "key-recorder"
+        "id" : "key_recorder"
       },
       {
         "border" : 1,
@@ -14766,7 +14766,7 @@
           112,
           29
         ],
-        "id" : "key-recorder.field",
+        "id" : "key_recorder.field",
         "radius" : 5.25
       },
       {
@@ -14777,7 +14777,7 @@
           96,
           20
         ],
-        "id" : "key-recorder.field.value"
+        "id" : "key_recorder.field.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -14789,7 +14789,7 @@
           42,
           20
         ],
-        "id" : "key-recorder.field.value.key.0",
+        "id" : "key_recorder.field.value.key.0",
         "radius" : 8
       },
       {
@@ -14800,7 +14800,7 @@
           32,
           20
         ],
-        "id" : "key-recorder.field.value.key.0.label"
+        "id" : "key_recorder.field.value.key.0.label"
       },
       {
         "bg" : "#ffffff0a",
@@ -14812,7 +14812,7 @@
           50,
           20
         ],
-        "id" : "key-recorder.field.value.key.1",
+        "id" : "key_recorder.field.value.key.1",
         "radius" : 8
       },
       {
@@ -14823,7 +14823,7 @@
           40,
           20
         ],
-        "id" : "key-recorder.field.value.key.1.label"
+        "id" : "key_recorder.field.value.key.1.label"
       }
     ]
   },
@@ -14838,7 +14838,7 @@
           390,
           29
         ],
-        "id" : "key-recorder"
+        "id" : "key_recorder"
       },
       {
         "border" : 1,
@@ -14849,7 +14849,7 @@
           248,
           29
         ],
-        "id" : "key-recorder.field",
+        "id" : "key_recorder.field",
         "radius" : 5.25
       },
       {
@@ -14860,7 +14860,7 @@
           232,
           20
         ],
-        "id" : "key-recorder.field.placeholder"
+        "id" : "key_recorder.field.placeholder"
       }
     ]
   },

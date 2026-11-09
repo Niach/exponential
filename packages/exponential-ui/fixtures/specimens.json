@@ -12116,7 +12116,7 @@
       "component": "KeyRecorder",
       "title": "KeyRecorder",
       "node": {
-        "id": "specimen-key-recorder",
+        "id": "specimen_key_recorder",
         "component": "Box",
         "style": {
           "display": "flex",
@@ -12127,7 +12127,7 @@
         },
         "children": [
           {
-            "id": "specimen-key-recorder-case-0",
+            "id": "specimen_key_recorder_case_0",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12136,7 +12136,7 @@
             },
             "children": [
               {
-                "id": "specimen-key-recorder-case-0-label",
+                "id": "specimen_key_recorder_case_0_label",
                 "component": "Text",
                 "props": {
                   "text": "example",
@@ -12144,7 +12144,7 @@
                 }
               },
               {
-                "id": "c0-key-recorder",
+                "id": "c0_key_recorder",
                 "component": "KeyRecorder",
                 "props": {
                   "label": "Push to talk",
@@ -12157,7 +12157,7 @@
             ]
           },
           {
-            "id": "specimen-key-recorder-case-1",
+            "id": "specimen_key_recorder_case_1",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12166,7 +12166,7 @@
             },
             "children": [
               {
-                "id": "specimen-key-recorder-case-1-label",
+                "id": "specimen_key_recorder_case_1_label",
                 "component": "Text",
                 "props": {
                   "text": "value",
@@ -12174,7 +12174,7 @@
                 }
               },
               {
-                "id": "c1-ptt",
+                "id": "c1_ptt",
                 "component": "KeyRecorder",
                 "props": {
                   "label": "Push to talk",
@@ -12187,7 +12187,7 @@
             ]
           },
           {
-            "id": "specimen-key-recorder-case-2",
+            "id": "specimen_key_recorder_case_2",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12196,7 +12196,7 @@
             },
             "children": [
               {
-                "id": "specimen-key-recorder-case-2-label",
+                "id": "specimen_key_recorder_case_2_label",
                 "component": "Text",
                 "props": {
                   "text": "empty",
@@ -12204,7 +12204,7 @@
                 }
               },
               {
-                "id": "c2-ptt-none",
+                "id": "c2_ptt_none",
                 "component": "KeyRecorder",
                 "props": {
                   "label": "Push to talk",
@@ -12214,7 +12214,7 @@
             ]
           },
           {
-            "id": "specimen-key-recorder-case-3",
+            "id": "specimen_key_recorder_case_3",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12223,7 +12223,7 @@
             },
             "children": [
               {
-                "id": "specimen-key-recorder-case-3-label",
+                "id": "specimen_key_recorder_case_3_label",
                 "component": "Text",
                 "props": {
                   "text": "recording",
@@ -12231,7 +12231,7 @@
                 }
               },
               {
-                "id": "c3-ptt-recording",
+                "id": "c3_ptt_recording",
                 "component": "KeyRecorder",
                 "props": {
                   "label": "Push to talk",
@@ -12245,7 +12245,7 @@
             ]
           },
           {
-            "id": "specimen-key-recorder-case-4",
+            "id": "specimen_key_recorder_case_4",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12254,7 +12254,7 @@
             },
             "children": [
               {
-                "id": "specimen-key-recorder-case-4-label",
+                "id": "specimen_key_recorder_case_4_label",
                 "component": "Text",
                 "props": {
                   "text": "recording · held modifier",
@@ -12262,7 +12262,7 @@
                 }
               },
               {
-                "id": "c4-ptt-held",
+                "id": "c4_ptt_held",
                 "component": "KeyRecorder",
                 "props": {
                   "label": "Push to talk",
@@ -12279,7 +12279,7 @@
             ]
           },
           {
-            "id": "specimen-key-recorder-case-5",
+            "id": "specimen_key_recorder_case_5",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12288,7 +12288,7 @@
             },
             "children": [
               {
-                "id": "specimen-key-recorder-case-5-label",
+                "id": "specimen_key_recorder_case_5_label",
                 "component": "Text",
                 "props": {
                   "text": "error",
@@ -12296,7 +12296,7 @@
                 }
               },
               {
-                "id": "c5-ptt-error",
+                "id": "c5_ptt_error",
                 "component": "KeyRecorder",
                 "props": {
                   "label": "Push to talk",

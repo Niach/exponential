@@ -51709,7 +51709,7 @@
     {
       "name": "KeyRecorder/bound:value",
       "input": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -51719,19 +51719,19 @@
         }
       },
       "expanded": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "key-recorder.field",
+            "id": "key_recorder.field",
             "component": "Box",
             "props": {
               "pressable": true
             },
             "children": [
               {
-                "id": "key-recorder.field.none",
+                "id": "key_recorder.field.none",
                 "component": "Text",
                 "props": {
                   "text": "$string.keyRecorderNone",
@@ -51762,7 +51762,7 @@
                 }
               },
               {
-                "id": "key-recorder.field.value",
+                "id": "key_recorder.field.value",
                 "component": "Box",
                 "props": {},
                 "children": [],
@@ -51794,7 +51794,7 @@
                   }
                 },
                 "template": {
-                  "component": "key-recorder.field.value.key",
+                  "component": "key_recorder.field.value.key",
                   "path": "/value"
                 }
               }
@@ -51846,19 +51846,19 @@
             ]
           },
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.value",
+                    "id": "key_recorder.field.value",
                     "component": "Box",
                     "props": {},
                     "children": [],
@@ -51869,7 +51869,7 @@
                       "gap": "$spacing.xs"
                     },
                     "template": {
-                      "component": "key-recorder.field.value.key",
+                      "component": "key_recorder.field.value.key",
                       "path": "/value"
                     },
                     "recipe": {
@@ -51926,19 +51926,19 @@
             "value": []
           },
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.none",
+                    "id": "key_recorder.field.none",
                     "component": "Text",
                     "props": {
                       "text": "None",
@@ -51998,19 +51998,19 @@
         {
           "data": {},
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.none",
+                    "id": "key_recorder.field.none",
                     "component": "Text",
                     "props": {
                       "text": "None",
@@ -52072,7 +52072,7 @@
     {
       "name": "KeyRecorder/bound:recording",
       "input": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -52086,29 +52086,29 @@
         }
       },
       "expanded": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "key-recorder.field",
+            "id": "key_recorder.field",
             "component": "Box",
             "props": {
               "pressable": true
             },
             "children": [
               {
-                "id": "key-recorder.field.value",
+                "id": "key_recorder.field.value",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "key-recorder.field.value.key.0",
+                    "id": "key_recorder.field.value.key.0",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0.label",
+                        "id": "key_recorder.field.value.key.0.label",
                         "component": "Text",
                         "props": {
                           "text": "Ctrl",
@@ -52139,12 +52139,12 @@
                     }
                   },
                   {
-                    "id": "key-recorder.field.value.key.1",
+                    "id": "key_recorder.field.value.key.1",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.1.label",
+                        "id": "key_recorder.field.value.key.1.label",
                         "component": "Text",
                         "props": {
                           "text": "Space",
@@ -52200,7 +52200,7 @@
                 }
               },
               {
-                "id": "key-recorder.field.placeholder",
+                "id": "key_recorder.field.placeholder",
                 "component": "Text",
                 "props": {
                   "text": "$string.keyRecorderPlaceholder",
@@ -52292,19 +52292,19 @@
             "recording": true
           },
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.placeholder",
+                    "id": "key_recorder.field.placeholder",
                     "component": "Text",
                     "props": {
                       "text": "Press any key or combination…",
@@ -52381,7 +52381,7 @@
           },
           "presses": [
             {
-              "id": "key-recorder.field",
+              "id": "key_recorder.field",
               "outcome": {
                 "data": {
                   "recording": true
@@ -52395,29 +52395,29 @@
             "recording": false
           },
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.value",
+                    "id": "key_recorder.field.value",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0",
+                        "id": "key_recorder.field.value.key.0",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.0.label",
+                            "id": "key_recorder.field.value.key.0.label",
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
@@ -52448,12 +52448,12 @@
                         }
                       },
                       {
-                        "id": "key-recorder.field.value.key.1",
+                        "id": "key_recorder.field.value.key.1",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.1.label",
+                            "id": "key_recorder.field.value.key.1.label",
                             "component": "Text",
                             "props": {
                               "text": "Space",
@@ -52559,7 +52559,7 @@
           },
           "presses": [
             {
-              "id": "key-recorder.field",
+              "id": "key_recorder.field",
               "outcome": {
                 "data": {
                   "recording": true
@@ -52571,29 +52571,29 @@
         {
           "data": {},
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.value",
+                    "id": "key_recorder.field.value",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0",
+                        "id": "key_recorder.field.value.key.0",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.0.label",
+                            "id": "key_recorder.field.value.key.0.label",
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
@@ -52624,12 +52624,12 @@
                         }
                       },
                       {
-                        "id": "key-recorder.field.value.key.1",
+                        "id": "key_recorder.field.value.key.1",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.1.label",
+                            "id": "key_recorder.field.value.key.1.label",
                             "component": "Text",
                             "props": {
                               "text": "Space",
@@ -52728,7 +52728,7 @@
           },
           "presses": [
             {
-              "id": "key-recorder.field",
+              "id": "key_recorder.field",
               "outcome": {
                 "data": {
                   "recording": true
@@ -52742,7 +52742,7 @@
     {
       "name": "KeyRecorder/bound:pending",
       "input": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "KeyRecorder",
         "props": {
           "label": "Push to talk",
@@ -52756,29 +52756,29 @@
         }
       },
       "expanded": {
-        "id": "key-recorder",
+        "id": "key_recorder",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "key-recorder.field",
+            "id": "key_recorder.field",
             "component": "Box",
             "props": {
               "pressable": true
             },
             "children": [
               {
-                "id": "key-recorder.field.value",
+                "id": "key_recorder.field.value",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "key-recorder.field.value.key.0",
+                    "id": "key_recorder.field.value.key.0",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0.label",
+                        "id": "key_recorder.field.value.key.0.label",
                         "component": "Text",
                         "props": {
                           "text": "Ctrl",
@@ -52809,12 +52809,12 @@
                     }
                   },
                   {
-                    "id": "key-recorder.field.value.key.1",
+                    "id": "key_recorder.field.value.key.1",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.1.label",
+                        "id": "key_recorder.field.value.key.1.label",
                         "component": "Text",
                         "props": {
                           "text": "Space",
@@ -52904,29 +52904,29 @@
             "pending": []
           },
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.value",
+                    "id": "key_recorder.field.value",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0",
+                        "id": "key_recorder.field.value.key.0",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.0.label",
+                            "id": "key_recorder.field.value.key.0.label",
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
@@ -52957,12 +52957,12 @@
                         }
                       },
                       {
-                        "id": "key-recorder.field.value.key.1",
+                        "id": "key_recorder.field.value.key.1",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.1.label",
+                            "id": "key_recorder.field.value.key.1.label",
                             "component": "Text",
                             "props": {
                               "text": "Space",
@@ -53053,29 +53053,29 @@
             "pending": []
           },
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.value",
+                    "id": "key_recorder.field.value",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0",
+                        "id": "key_recorder.field.value.key.0",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.0.label",
+                            "id": "key_recorder.field.value.key.0.label",
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
@@ -53106,12 +53106,12 @@
                         }
                       },
                       {
-                        "id": "key-recorder.field.value.key.1",
+                        "id": "key_recorder.field.value.key.1",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.1.label",
+                            "id": "key_recorder.field.value.key.1.label",
                             "component": "Text",
                             "props": {
                               "text": "Space",
@@ -53200,29 +53200,29 @@
         {
           "data": {},
           "bound": {
-            "id": "key-recorder",
+            "id": "key_recorder",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "key-recorder.field",
+                "id": "key_recorder.field",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "key-recorder.field.value",
+                    "id": "key_recorder.field.value",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "key-recorder.field.value.key.0",
+                        "id": "key_recorder.field.value.key.0",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.0.label",
+                            "id": "key_recorder.field.value.key.0.label",
                             "component": "Text",
                             "props": {
                               "text": "Ctrl",
@@ -53253,12 +53253,12 @@
                         }
                       },
                       {
-                        "id": "key-recorder.field.value.key.1",
+                        "id": "key_recorder.field.value.key.1",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "key-recorder.field.value.key.1.label",
+                            "id": "key_recorder.field.value.key.1.label",
                             "component": "Text",
                             "props": {
                               "text": "Space",
