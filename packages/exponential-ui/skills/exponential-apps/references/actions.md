@@ -1,6 +1,6 @@
 # Actions: all-or-nothing writes, require
 
-> Generated from packages/exponential-ui/docs/package-format.md (Actions) (genUI 0.20.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Actions) (genUI 0.21.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Actions
 
