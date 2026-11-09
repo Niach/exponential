@@ -11,8 +11,13 @@ use crate::theme::{Theme, ThemeDimensions};
 
 /// Rows within this many pixels of the viewport stay mounted.
 const RENDER_OVERDRAW_PX: f32 = 800.0;
+/// #LOGS-6: rows an embedded editor mounts per frame after its first, until
+/// it holds them all.
+const EMBEDDED_GROW_ROWS: usize = 6;
 
-fn editor_text_font(family: &str) -> Font {
+/// The editor's text font for `family` (with its Tibetan fallbacks); #LOGS-6:
+/// public so a host can prewarm exactly this face.
+pub fn editor_text_font(family: &str) -> Font {
     // FontFallbacks is internally `Arc<Vec<String>>` — building it once
     // per process and Arc-cloning per render is the right shape, since
     // editor_text_font() is called from Editor::render on every frame.
@@ -673,7 +678,44 @@ impl Render for Editor {
         // EXP-261 vendoring: embedded mode mounts every row — descriptions
         // are short and the host scroll container clips; windowing math would
         // otherwise run against a zero-sized untracked viewport.
-        let render_window = if self.embedded {
+        // #LOGS-6: with the host's scroll handle, a long description's first
+        // frame mounts only the rows that can reach the host's viewport, then
+        // EMBEDDED_GROW_ROWS more per frame until it holds them all. Rows are
+        // only ever left off at the END, so every mounted row lays out exactly
+        // as in the whole document, and the whole document is what settles.
+        let host_handle = self.external_scroll_handle.clone().filter(|_| self.embedded);
+        let render_window = if let Some(host) = host_handle {
+            let n = row_first_ids.len();
+            // Unmeasured rows at the minimum block height: a lower bound.
+            let lower: Vec<f32> = (0..n)
+                .map(|ix| row_top_gaps.get(ix).copied().unwrap_or(0.0) + estimate)
+                .collect();
+            let mounted = if self.mount_all_rows {
+                n
+            } else {
+                match self.embedded_mounted {
+                    Some(mounted) => (mounted + EMBEDDED_GROW_ROWS).min(n),
+                    None => {
+                        let viewport = host.bounds().size.height;
+                        let viewport = if viewport > px(1.0) { viewport } else { window.viewport_size().height };
+                        // The editor's top is at least the content's top.
+                        let reach = f32::from(viewport - host.offset().y);
+                        Self::embedded_first_rows(&lower, reach)
+                    }
+                }
+            };
+            let mounted = focus_row.map_or(mounted, |row| mounted.max(row + 1)).min(n);
+            self.embedded_mounted = Some(mounted);
+            if mounted < n {
+                window.request_animation_frame();
+            }
+            super::RenderWindow {
+                run_start: 0,
+                run_end: mounted,
+                top_h: 0.0,
+                bottom_h: lower[mounted..].iter().sum(),
+            }
+        } else if self.embedded {
             super::RenderWindow {
                 run_start: 0,
                 run_end: row_first_ids.len(),

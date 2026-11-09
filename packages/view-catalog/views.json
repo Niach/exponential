@@ -6854,6 +6854,39 @@
       }
     },
     {
+      "id": "exponential-ui-embed",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · Embed",
+      "blurb": "EDE-65: A nested genUI card drawn in place, sandboxed: its own data and ids, its events reach the host as action, a bad surface shows an error box. The core catalog specimen (the example, a result card with its own data, a question card with a reply, a bad surface) of ui.exponential.at/components/embed/.",
+      "order": 116,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-embed",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-embed"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-embed",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-embed",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-stat-tile",
       "group": "exponential-ui-catalog",
       "title": "genUI · StatTile",

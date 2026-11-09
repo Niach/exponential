@@ -1599,3 +1599,51 @@ Each file is sha256-pinned in `vendor/a2ui/README.md` and
 7. **The agent function timeout** is 30 s.
 8. **The migration's table list** was re-checked against `packages/db-schema` in phase C: §14.1.
 9. **XID tables** are pinned to Unicode 17.0.0. Fixture ids stay inside identifiers that every engine agrees on.
+
+## 19. Embed: a nested surface in place (#EDE-65)
+
+A native (group layout, not lite, no children): a genUI card inside a genUI
+surface, drawn in place. The chat's three uses are its specimen
+(`exponential-ui-embed`): an agent's result card with its own data, a
+question card whose buttons reply, and a bad surface's error box.
+
+**Props.** `surface` (object, required, bindable) = `{root, data?,
+version?}`: `root` a nested component, `data` the card's OWN model.
+**Events.** `action`. **Parts.** `root` (no recipe props). **a11y.** No role
+of its own: the nested surface's nodes join the host's order in place, Tab
+moves through its controls; the error box is an Alert.
+
+**Parse** (`fixtures/embed.json` `parse`, the TS reference `src/embed.ts`
+`embedCard`). The resolved `surface` value is a card when it is an object
+whose `root` is sound (a non-empty string `id` and `component`; `props`,
+`on`, `style` objects when present; `children` an array of sound nodes;
+`slots` an object of sound nodes, recursively), `data` is absent, null or an
+object (absent or null = `{}`) and `version` is absent or `"1.0"`. An
+unknown component inside a sound root is still a card (the nested surface
+paints its Unknown placeholder). Anything else paints `errorRoot` instead:
+an error Alert titled `$string.embedInvalid` (`This card could not be
+shown`); the host around it keeps painting.
+
+**Sandbox** (`render`, `events`). `surface` is a DATA prop: a binding
+`{"@path"}` AT ITS TOP resolves against the host (the Embed's scope),
+nothing inside it ever does. Inner bindings read the card's data, never the
+host's; an inner `set` writes the card's model only; the nested surface id
+is `<host surface id>/<embed component id>` (`embedSurfaceId`), so inner ids
+never meet the host's (a host `t` and a card `t` both paint). An inner host
+function is DENIED: never forwarded, and its action stops (the `event` after
+it does not fire). An Embed may nest another Embed.
+
+**Action.** Every inner `event` action reaches the host as the Embed's
+`action`, with the payload `{name: <inner event name>, context: <inner
+event context>}` (`embedPayload`; inner bindings in the context resolved
+against the card's data) merged over the author's `on.action` context like
+any component payload, so the payload's `name` and `context` win over an
+author's keys of the same name. No `on.action` = the host hears nothing.
+
+- [x] Catalog, schema, strings (`embedInvalid`), a11y, recipes, regenerated tables, prompt budget (9,748 → 9,812 tokens).
+- [x] `fixtures/embed.json` (parse, render, events) + the TS reference `src/embed.ts` and `src/embed.test.ts`.
+- [x] Specimen `exponential-ui-embed` (example, result card · own data, question card · reply, bad surface · error box).
+- [ ] Rust core `eui_core::embed` + `tests/embed_fixture.rs`.
+- [ ] Painters ×5: React and Solid (`embed.test.tsx`), gpui (`tests/embed.rs`), SwiftUI `EmbedTests`, Compose `EmbedTest`.
+- [x] Styleguide entry `embed` (web + the desktop twin), `views.json` `exponential-ui-embed`.
+- [ ] Shots ×4 (`shots/exponential-ui-embed/`).
