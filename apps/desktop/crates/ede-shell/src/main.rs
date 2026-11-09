@@ -439,6 +439,15 @@ fn plain_icon(name: &str, size: f32, color: gpui::Hsla) -> Option<gpui::AnyEleme
     Some(gpui::svg().path(assets::icon_path(name)?).size(px(size)).text_color(color).into_any_element())
 }
 
+/// THE sender avatar's side (transcript-grouping.json `layout.avatar`).
+const SENDER_AVATAR: f32 = 32.0;
+
+/// The sender avatar's (disc, glyph) px: the IDE's `agent_avatar` at
+/// [`SENDER_AVATAR`] (32 → 18).
+fn avatar_sizes() -> (f32, f32) {
+    (SENDER_AVATAR, (SENDER_AVATAR / 2.0 + 2.0).round())
+}
+
 /// The sender avatar's disc: the exponential theme's dark `secondary`
 /// (#ffffff0f, the IDE's `cx.theme().secondary`).
 const AVATAR_DISC: u32 = 0xffffff0f;
@@ -457,7 +466,9 @@ impl HostPlugin for Host {
         // #EDE-65 lane O: THE sender avatar (the IDE's `agent_avatar`): the
         // inner icon on the secondary disc, 32 → an 18 px glyph.
         if let Some(inner) = name.strip_prefix(chat::AVATAR_ICON_PREFIX) {
-            let glyph = (size / 2.0 + 2.0).round();
+            // genUI hands an Icon's `size` enum (16), never its 32 px box:
+            // the disc is the IDE's fixed sender size.
+            let (size, glyph) = avatar_sizes();
             // A host glyph (an agent's own), else a plain icon (the
             // Assistant's brand mark, the session and person glyphs).
             let inner = self.icon_element(inner, glyph, color, _cx).or_else(|| plain_icon(inner, glyph, color))?;
@@ -3855,5 +3866,7 @@ mod sender_avatar {
             assert!(super::plain_icon(name, 18.0, white).is_some(), "{name}");
         }
         assert!(super::plain_icon("no-such-icon", 18.0, white).is_none());
+        // Whatever size genUI's Icon hands over: the IDE's 32 px disc, 18 px glyph.
+        assert_eq!(super::avatar_sizes(), (domain::transcript_grouping::layout().avatar, 18.0));
     }
 }
