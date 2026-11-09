@@ -1893,9 +1893,32 @@ final class StyleguideScreenshots: XCTestCase {
         )
         // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
-        // #EXP-1759: Back pops the item while its feed still sits pinned to
-        // the bottom (nothing scrolled yet); the row opens it again.
+        // #EXP-1759: while the item's feed still sits pinned to the bottom
+        // (nothing scrolled yet) the edge swipe pops it, the header owns its
+        // area (Back's hit point is its centre, not a corner the feed left
+        // free) and Back pops it; the row opens it again after each.
         let itemTitle = anyElement(app, identified: "session-item-title")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+            .withOffset(CGVector(dx: 2, dy: 0))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
+        XCTAssertTrue(
+            itemTitle.waitForNonExistence(timeout: Wait.nav),
+            "The edge swipe did not pop the session item while its feed was pinned to the bottom (#EXP-1759)"
+        )
+        expect(sessionRow, within: Wait.sync, "The edge swipe from the session item left no Sessions tab row")
+        sessionRow.tap()
+        expect(itemTitle, within: Wait.sync, "The Sessions tab row did not open the session again")
+        settle(2)
+        let back = app.buttons.matching(identifier: "BackButton").firstMatch
+        expect(back, within: Wait.nav, "The session item has no Back")
+        if back.responds(to: NSSelectorFromString("hitPointCoordinate")),
+           let hit = back.value(forKey: "hitPointCoordinate") as? XCUICoordinate {
+            let point = hit.screenPoint
+            XCTAssertTrue(
+                abs(point.x - back.frame.midX) < 4 && abs(point.y - back.frame.midY) < 4,
+                "The feed under the header shadows Back's centre: its hit point is \(point), its frame \(back.frame) (#EXP-1759)"
+            )
+        }
         goBack(app)
         XCTAssertTrue(
             itemTitle.waitForNonExistence(timeout: Wait.nav),
