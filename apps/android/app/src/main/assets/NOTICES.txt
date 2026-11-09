@@ -31,7 +31,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-228 third-party components are distributed as part of this build. They are
+229 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -346,10 +346,11 @@ limitations under the License.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 8 components:
+Applies to the following 9 components:
 
   com.abovevacant:epitaph 0.2.0
   io.sentry:sentry 8.63.0
+  io.sentry:sentry-android-core 8.63.0
   io.sentry:sentry-android-navigation 8.63.0
   io.sentry:sentry-android-ndk 8.63.0
   io.sentry:sentry-native-ndk 0.17.6
