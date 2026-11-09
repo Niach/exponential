@@ -478,8 +478,12 @@ final class Round1NativesTests: XCTestCase {
 
         let zones: JSONValue = .array(["Europe/Berlin", "Europe/London", "Europe/Vienna", "UTC"].map { .object(["label": .string($0), "value": .string($0)]) })
         let s = try surface(node("tz", "Select", ["label": .string("Timezone"), "triggerVariant": .string("row"), "searchable": .bool(true), "value": .string("Europe/Vienna"), "options": zones]))
+        // No `paint` here: the open popup's focus is in its search FIELD, and
+        // on iOS `paint` renders into a throwaway UIWindow whose teardown
+        // takes the first responder back: the field blurs and the popup
+        // closes (the release suite's iOS Simulator leg). `setOpen` already
+        // ran the pass the assertions read.
         s.setOpen("tz", true)
-        paint(s)
         let tzHovered = { s.liveParts("tz", "item").filter { s.states(of: $0.id).contains("hover") }.map(\.id) }
         XCTAssertEqual(tzHovered(), ["tz.item.0"])
         XCTAssertEqual(s.focusedId, "tz.search", "focus in the search field")
