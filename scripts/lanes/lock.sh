@@ -69,12 +69,15 @@ try_take_lock() {
   done
 }
 
-# How many holders <lane> admits on THIS machine: the host-local file
-# `${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots` (lines `heavy=2`), else 1.
+# How many holders <lane> admits on THIS machine (lines `heavy=2`), else 1:
+# the machine's config `${XDG_CONFIG_HOME:-$HOME/.config}/exponential/lane-slots`
+# (survives a reboot), then `${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots`
+# (a one-off override; the later line wins).
 # Slot 1 is the lane's classic dir (lane_lock_dir); slot k appends `-k`'s
 # number in place of the trailing 1 (exp-perf-heavy-2, …).
 lane_slots() {
-  n=$(sed -n "s/^$1=\([0-9][0-9]*\)[[:space:]]*$/\1/p" "${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots" 2>/dev/null | tail -n 1)
+  n=$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/exponential/lane-slots" "${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots" 2>/dev/null \
+    | sed -n "s/^$1=\([0-9][0-9]*\)[[:space:]]*$/\1/p" | tail -n 1)
   case "$n" in '' | 0) echo 1 ;; *) echo "$n" ;; esac
 }
 
