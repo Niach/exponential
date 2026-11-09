@@ -12107,6 +12107,28 @@
       }
     },
     {
+      "name": "Composer/layout=stacked",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "layout": "stacked"
+        }
+      }
+    },
+    {
+      "name": "Composer/layout=flat",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "layout": "flat"
+        }
+      }
+    },
+    {
       "name": "Composer/menuKeys=true",
       "node": {
         "id": "composer",

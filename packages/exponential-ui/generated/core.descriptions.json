@@ -2677,6 +2677,9 @@
         "busy": {
           "description": "Turns submit into a stop while a reply streams."
         },
+        "layout": {
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+        },
         "menuKeys": {
           "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }

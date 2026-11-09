@@ -298,6 +298,7 @@ impl Surface {
             [0, 1, 2, 3].map(|k| pad[k] + border[k])
         });
         self.engine.set_inset(slot, inset);
+        self.engine.set_reserve(slot, overlay && n.props.get("layout").and_then(serde_json::Value::as_str) == Some("flat"));
         if n.component == "Chart" {
             visual = self.chart_colors(n, visual);
         }
