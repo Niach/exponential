@@ -2601,7 +2601,7 @@
           "description": "Submit button's accessibility label."
         },
         "attachments": {
-          "description": "Shows the attach control."
+          "description": "Shows the attach control (`attach`; a pasted image fires `attach` {files})."
         },
         "busy": {
           "description": "Turns submit into a stop while a reply streams."
@@ -2610,7 +2610,7 @@
           "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       },
-      "description": "Chat input: a growing text field, a submit button, optional attachments.",
+      "description": "Chat input: a growing text field, a submit button, optional attachments; `leading`/`trailing` slots sit in its controls row.",
       "example": {
         "placeholder": "Ask anything"
       }

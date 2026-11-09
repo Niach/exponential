@@ -119,6 +119,12 @@ struct ComposerLeaf: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(cx.model.builtinString("browse"))
                 }
+                // #EDE-65 R: the core lays the `trailing` slot out before
+                // the send disc (it paints over this leaf); the attach
+                // control sits before it (composerSlots).
+                if let t = cx.model.index(of: "\(cx.node.id).trailing") {
+                    Color.clear.frame(width: cx.model.frame(t).width, height: 1)
+                }
                 let sendW = send.width ?? sendSize
                 // Web: busy = the recipe's `when busy` opacity; an empty
                 // draft = the disabled button (`.xui-Composer-send:disabled`

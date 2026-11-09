@@ -62,6 +62,14 @@ data class SurfaceInputEvent(
 data class PickedFile(val name: String, val size: Long, val type: String)
 
 /**
+ * #EDE-65 R (interactions-round1.json composerPaste): images pasted into
+ * Composer [componentId] ([name] = its id): [files] = their name, size and
+ * type (the `attach` payload), [uris] = where their bytes are (content URIs
+ * the app's ContentResolver opens), in the same order.
+ */
+data class UploadEvent(val surfaceId: String, val componentId: String, val name: String, val files: List<PickedFile>, val uris: List<String>)
+
+/**
  * A FileUpload asked for files (its drop zone or Browse was pressed):
  * `accept` = the MIME / extension list, `multiple` = more than one. The
  * host shows its picker, keeps the bytes and answers [done] with what was
@@ -229,6 +237,9 @@ interface HostPlugin {
      * Default: nothing (the SDK has no file access of its own).
      */
     fun pickFiles(request: FilePickRequest) {}
+
+    /** #EDE-65 R: images pasted into a Composer (it fired `attach` {files}): read and upload the bytes. Default: nothing. */
+    fun onUpload(event: UploadEvent) {}
 }
 
 /**

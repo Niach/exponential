@@ -4463,6 +4463,10 @@
       "group": "input",
       "lite": true,
       "children": "none",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
       "props": {
         "placeholder": {
           "type": "string"
@@ -4493,7 +4497,8 @@
         "submit",
         "change",
         "stop",
-        "key"
+        "key",
+        "attach"
       ]
     },
     "Row": {

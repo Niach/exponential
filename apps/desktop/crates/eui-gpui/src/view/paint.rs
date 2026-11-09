@@ -1503,9 +1503,19 @@ impl SurfaceView {
         let empty = self.fields.get(&n.id).is_none_or(|f| f.value(cx).trim().is_empty());
         let mut out = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
         if let Some(field) = self.fields.get(&n.id) {
+            // #EDE-65 R: a pasted image fires `attach` {files} (composerPaste).
+            let paste = {
+                let (view, id) = (cx.entity().downgrade(), n.id.clone());
+                move |item: &gpui::ClipboardItem, _: &mut Window, cx: &mut gpui::App| {
+                    // Files without an image do nothing (no path as text).
+                    let images = super::composer_paste::clipboard_images(item);
+                    let taken = !images.is_empty() && view.update(cx, |this, cx| this.composer_paste(&id, images, cx)).unwrap_or(false);
+                    taken || super::composer_paste::clipboard_has_files(item)
+                }
+            };
             let el = match &field.input {
-                super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(w)).h(px(field_h)).into_any_element(),
-                super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(w)).h(px(field_h)).into_any_element(),
+                super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(w)).h(px(field_h)).on_paste(paste).into_any_element(),
+                super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(w)).h(px(field_h)).on_paste(paste).into_any_element(),
             };
             // The field claims its presses (see `field_element`).
             out = out.child(
@@ -1530,6 +1540,11 @@ impl SurfaceView {
                     .on_click(cx.listener(move |this, _, _, cx| this.fire(idx, "attach", None, cx)))
                     .child(icons::concept(lcx.host, "ui-attach", 16.0, att.color.unwrap_or(lcx.ink))),
             );
+        }
+        // #EDE-65 R: the core lays the `trailing` slot out before the send
+        // disc; the attach control sits before it (composerSlots).
+        if let Some(t) = self.cache.index_of(&format!("{}.trailing", n.id)).and_then(|i| self.frames.get(i as usize)) {
+            bar = bar.child(div().flex_none().w(px(t.w)).h(px(1.0)));
         }
         let label = self.composer_labels(n).0;
         let fid = n.id.clone();
