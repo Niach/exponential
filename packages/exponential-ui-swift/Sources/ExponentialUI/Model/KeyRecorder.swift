@@ -159,13 +159,18 @@ extension SurfaceModel {
         return Self.isKeyRecorderField(n)
     }
 
+    /// The facade names a macro CONTAINER part by its macro only (no
+    /// `part`, no recipe props): the field is the KeyRecorder's one
+    /// pressable node, `<id>.field`.
     static func isKeyRecorderField(_ n: NodeInfo) -> Bool {
-        n.part == "field" && (n.ownerComponent == "KeyRecorder" || n.macroName == "KeyRecorder")
+        n.macroName == "KeyRecorder" && n.pressable && n.id.hasSuffix(".field")
     }
 
-    /// The field records (its `recording` recipe prop, read live).
+    /// The field records: its `recording` recipe prop, read live through
+    /// the macro's `$a11y.pressed` (`{props.recording|false}`).
     public func keyRecorderRecording(_ index: Int) -> Bool {
-        isKeyRecorderField(index) && ownerProps(index)["recording"]?.bool == true
+        guard let n = node(index), Self.isKeyRecorderField(n) else { return false }
+        return n.accessibility?["pressed"]?.bool == true
     }
 
     /// A press of the field (the generic press: the core starts only while idle).
