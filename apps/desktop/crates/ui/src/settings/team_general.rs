@@ -28,7 +28,7 @@ use crate::toast::{self, Toast};
 use crate::native_dialog::{self, AlertEnter, AlertSpec};
 use crate::navigation::Navigation;
 
-use super::doc::{and, faded, hex, not, path, IdeToasts, Ink, LINE, SM, VALUE_ALPHA, XS};
+use super::doc::{and, faded, hex, not, path, IdeToasts, Ink, SM, VALUE_ALPHA, XS};
 use super::{active_team, is_owner, open_url, team_delete_error_message};
 
 /// #EXP-1645: why a picked file never goes out (the server's own words,
@@ -1455,6 +1455,10 @@ impl HostPlugin for PanePlugin {
     }
 
     fn media_options(&self) -> eui_core::host::MediaOptions {
+        // The bench's picture is a data URL (headless has no transport).
+        #[cfg(test)]
+        return Default::default();
+        #[cfg(not(test))]
         self.media.media_options()
     }
 
@@ -1495,7 +1499,6 @@ struct Chrome {
     /// The Remove ghost's glyph.
     muted: String,
     list_hover: String,
-    mono: String,
 }
 
 impl Chrome {
@@ -1509,13 +1512,13 @@ impl Chrome {
             danger_button_hover: hex(theme.button_danger_hover),
             track: hex(theme.muted.opacity(0.35)),
             chip_stroke: premultiplied_hex(theme.primary.opacity(0.4)),
-            chip_fill: hex(theme.primary.opacity(0.1)),
+            // The 10% wash on the byte gpui lands on (25, not 25.5 rounded up).
+            chip_fill: hex(theme.primary.opacity(25. / 255.)),
             button_fg: hex(theme.button_foreground),
             button_fill: premultiplied_hex(theme.input_background()),
             button_stroke: hex(theme.input),
             muted: hex(theme.muted_foreground),
             list_hover: hex(theme.list_hover),
-            mono: theme::terminal::FONT_FAMILY.to_string(),
         }
     }
 }
@@ -1539,13 +1542,14 @@ fn column(id: &str, gap: f32, visible: Value, children: Vec<Value>) -> Value {
 /// write is out or the text differs.
 fn name_row(ink: &Ink) -> Value {
     let input = json!({"id": "name", "component": "Input", "visible": path("/pane/owner"), "props": {"variant": "row", "label": "Name", "name": "name", "placeholder": "Team name", "value": path("/pane/name")},
-        "style": {"flexGrow": 1, "minWidth": 0}});
+        "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "width": 0, "minWidth": 0}});
     // The field's own 14 px end padding stays; the caption sits `gap_3`
     // after the value, the row's `px_4` after it.
     let mut caption = ink.text("name_caption", path("/pane/caption"), XS, &ink.muted);
+    caption["visible"] = and(path("/pane/owner"), path("/pane/hasCaption"));
     caption["style"]["flexShrink"] = json!(0);
     caption["style"]["marginLeft"] = json!(ink.r(0.75) - ink.r(1.));
-    let caption = json!({"id": "name_caption_slot", "component": "Box", "visible": and(path("/pane/owner"), path("/pane/hasCaption")), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "paddingRight": ink.r(1.)}, "children": [caption]});
+    caption["style"]["marginRight"] = json!(ink.r(1.));
     let field = json!({"id": "name_row", "component": "Box", "visible": path("/pane/owner"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0}, "children": [input, caption]});
     // A member reads the name: the disabled field's value at half its ink.
     let read_only = read_only_row(ink, "name_read", "Name", path("/pane/name"), false, path("/pane/member"));
@@ -1559,6 +1563,10 @@ fn read_only_row(ink: &Ink, id: &str, label: &str, value: Value, chevron: bool, 
     text["props"]["lines"] = json!(1);
     text["style"]["minWidth"] = json!(0);
     text["style"]["flexShrink"] = json!(1);
+    if chevron {
+        // The picker's ghost `Button` run: `text_sm` on its 1.25 rem line.
+        text["style"]["lineHeight"] = json!(ink.r(1.25));
+    }
     let mut trailing = vec![text];
     if chevron {
         let glyph = ink.r(1.);
@@ -1566,7 +1574,14 @@ fn read_only_row(ink: &Ink, id: &str, label: &str, value: Value, chevron: bool, 
     }
     let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.5), "flexGrow": 1, "minWidth": 0}, "children": trailing});
     let label = json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground)]});
-    ink.shell(id, false, visible, vec![label, control])
+    let mut row = ink.shell(id, false, visible, vec![label, control]);
+    if !chevron {
+        // The disabled field's text ends half a point further right.
+        row["style"].as_object_mut().expect("a style").remove("paddingHorizontal");
+        row["style"]["paddingLeft"] = json!(ink.r(1.));
+        row["style"]["paddingRight"] = json!(ink.r(1.) + 30.);
+    }
+    row
 }
 
 /// #EXP-1645 (team-image.json): the label, the 28 px mark, the Upload pill,
@@ -1584,13 +1599,17 @@ fn image_row(ink: &Ink, chrome: &Chrome) -> Value {
                 "style": {"width": side, "height": side, "borderRadius": side * spec.mark.radius_fraction}},
             {"id": "image_glyph", "component": "Icon", "visible": path("/pane/image/none"), "props": {"name": spec.mark.glyph}, "style": {"width": side, "height": side, "color": ink.foreground}},
         ]});
-    let upload = ink.pill_button("image_upload", None, json!(spec.copy.upload), path("/pane/image/disabled"), json!({"name": "upload"}));
+    let mut upload = ink.pill_button("image_upload", None, json!(spec.copy.upload), path("/pane/image/disabled"), json!({"name": "upload"}));
+    // gpui centres the label's line half a point lower than the flex centre.
+    for pill in upload.iter_mut() {
+        pill["children"][0]["style"]["paddingTop"] = json!(1);
+    }
     let remove = |dim: bool| {
         let id = if dim { "image_remove_dim" } else { "image_remove" };
         let visible = if dim { and(path("/pane/image/has"), path("/pane/image/disabled")) } else { and(path("/pane/image/has"), not(path("/pane/image/disabled"))) };
         let mut button = json!({"id": id, "component": "Box", "visible": visible, "accessibility": {"label": spec.copy.remove},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": side, "height": side, "borderRadius": chrome.radius},
-            "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": 14, "height": 14, "color": chrome.muted}}]});
+            "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": 12, "height": 12, "color": chrome.muted}}]});
         if !dim {
             button["props"] = json!({"pressable": true});
             button["on"] = json!({"press": {"event": {"name": "removeImage"}}});
@@ -1649,10 +1668,11 @@ fn prompt(ink: &Ink, chrome: &Chrome) -> Value {
             {"id": "prompt_status_spinner", "component": "Spinner", "visible": path("/pane/prompt/spinning"), "style": {"width": spinner, "height": spinner, "color": ink.muted, "flexShrink": 0}},
             word,
         ]});
-    let size = ink.r(XS);
-    let field = json!({"id": "prompt", "component": "Textarea", "props": {"label": "", "name": "prompt", "rows": 10, "autosize": true, "maxRows": 40,
+    // The raw monospace field (`variant: code`: chromeless in the group,
+    // the code type), 10 rows growing to 40.
+    let field = json!({"id": "prompt", "component": "Textarea", "props": {"label": TEAM_PROMPT_TITLE, "name": "prompt", "variant": "code", "rows": 10, "autosize": true, "maxRows": 40,
             "value": path("/pane/prompt/value"), "placeholder": path("/pane/prompt/placeholder"), "disabled": path("/pane/prompt/disabled")},
-        "style": {"width": "100%", "paddingHorizontal": ink.r(1.), "paddingVertical": ink.r(0.75), "fontFamily": chrome.mono, "fontSize": size, "lineHeight": size * LINE}});
+        "style": {"width": "100%"}});
     let counter = |id: &str, color: &str, visible: Value| {
         let mut text = ink.text(id, path("/pane/prompt/counter"), XS, color);
         text["visible"] = visible;
