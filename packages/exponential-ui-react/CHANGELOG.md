@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): no label part, the field's `aria-label` is the label. Snapshots re-recorded (every Textarea gains `data-r-variant="field"`).
 - Select `description` (#EXP-1629): under a field trigger; in a row the `labels` column (label + hint) and the `control` column (value + chevron); the trigger's `aria-describedby` names it.
 - Composer `leading` / `trailing` slots and image paste (#EDE-65 R), React's: the slots sit in the controls row (`.xui-composer-leading` before the attach control, `.xui-composer-trailing` before send); a paste with image files fires `attach` {files} and calls `host.onUpload(images, {nodeId, name: <the Composer's id>})`, a paste with other files only is prevented, text pastes as before.
