@@ -31,7 +31,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-121 third-party components are distributed as part of this build. They are
+119 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -793,56 +793,14 @@ MIT
 
 Applies to the following 2 components:
 
-  hashbrown 0.14.5
-    Copyright (c) 2016 Amanieu d'Antras
-    MIT elected from `MIT OR Apache-2.0`
-  hashbrown 0.17.1
-    Copyright (c) 2016 Amanieu d'Antras
-    MIT elected from `MIT OR Apache-2.0`
+  libsqlite3-sys 0.39.1
+    Copyright (c) 2014 The rusqlite developers
+  rusqlite 0.41.1
+    Copyright (c) 2014 The rusqlite developers
 
 ..............................................................................
 
-Copyright (c) 2016 Amanieu d'Antras
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 2 components:
-
-  libsqlite3-sys 0.30.1
-    Copyright (c) 2014-2021 The rusqlite developers
-  rusqlite 0.32.1
-    Copyright (c) 2014-2021 The rusqlite developers
-
-..............................................................................
-
-Copyright (c) 2014-2021 The rusqlite developers
+Copyright (c) 2014 The rusqlite developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1471,45 +1429,6 @@ Applies to the following component:
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  ahash 0.8.12
-    Copyright (c) 2018 Tom Kaitchuck
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2018 Tom Kaitchuck
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -2415,7 +2334,46 @@ MIT
 
 Applies to the following component:
 
-  hashlink 0.9.1
+  hashbrown 0.17.1
+    Copyright (c) 2016 Amanieu d'Antras
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2016 Amanieu d'Antras
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  hashlink 0.12.2
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -3340,45 +3298,6 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  zerocopy 0.8.52
-    Copyright 2023 The Fuchsia Authors
-    MIT elected from `BSD-2-Clause OR Apache-2.0 OR MIT`
-
-..............................................................................
-
-Copyright 2023 The Fuchsia Authors
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
 Unicode-3.0
 ------------------------------------------------------------------------------
 
@@ -3429,6 +3348,38 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+
+
+------------------------------------------------------------------------------
+Zlib
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  foldhash 0.2.0
+    Copyright (c) 2024 Orson Peters
+
+..............................................................................
+
+Copyright (c) 2024 Orson Peters
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
 
 
 ------------------------------------------------------------------------------
@@ -3502,8 +3453,6 @@ Elections made in this build
 
   adler2 2.0.1
     MIT elected from `0BSD OR MIT OR Apache-2.0`
-  ahash 0.8.12
-    MIT elected from `MIT OR Apache-2.0`
   anyhow 1.0.103
     MIT elected from `MIT OR Apache-2.0`
   arrayvec 0.7.8
@@ -3554,11 +3503,9 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   getrandom 0.4.3
     MIT elected from `MIT OR Apache-2.0`
-  hashbrown 0.14.5
-    MIT elected from `MIT OR Apache-2.0`
   hashbrown 0.17.1
     MIT elected from `MIT OR Apache-2.0`
-  hashlink 0.9.1
+  hashlink 0.12.2
     MIT elected from `MIT OR Apache-2.0`
   heck 0.5.0
     MIT elected from `MIT OR Apache-2.0`
@@ -3660,8 +3607,6 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   version_check 0.9.5
     MIT elected from `MIT/Apache-2.0`
-  zerocopy 0.8.52
-    MIT elected from `BSD-2-Clause OR Apache-2.0 OR MIT`
 
 
 ==============================================================================
