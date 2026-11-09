@@ -124,7 +124,7 @@ export function composeExponential(): ThemeSource {
   dark.successForeground = `#052e16`
   light.destructiveForeground ??= `#ffffff`
   dark.destructiveForeground ??= light.foreground
-  const shadow = (a: string) => ({
+  const shadow = (a: string, ring: string) => ({
     none: [],
     sm: [{ x: 0, y: 1, blur: 2, spread: 0, color: hex(`rgb(0 0 0 / ${a})`) }],
     md: [{ x: 0, y: 4, blur: 12, spread: -2, color: hex(`rgb(0 0 0 / ${a})`) }],
@@ -134,6 +134,14 @@ export function composeExponential(): ThemeSource {
     popover: [
       { x: 0, y: 10, blur: 15, spread: -3, color: `#0000001a` as const },
       { x: 0, y: 4, blur: 6, spread: -4, color: `#0000001a` as const },
+    ],
+    // #EXP-1760: gpui-component's popover surface (`popover_style`, the IDE's
+    // icon and colour pickers): the foreground at 10 % as a 1 px ring outside
+    // the box, then shadcn's `md` at 10 %.
+    popoverRing: [
+      { x: 0, y: 0, blur: 0, spread: 1, color: ring },
+      { x: 0, y: 4, blur: 6, spread: -1, color: `#0000001a` as const },
+      { x: 0, y: 2, blur: 4, spread: -2, color: `#0000001a` as const },
     ],
   })
   const s = design.size
@@ -146,8 +154,8 @@ export function composeExponential(): ThemeSource {
     name: `Exponential`,
     extends: `neutral`,
     modes: {
-      light: { color: light, shadow: shadow(`0.08`) },
-      dark: { color: dark, shadow: shadow(`0.4`) },
+      light: { color: light, shadow: shadow(`0.08`, `${hex(light.foreground!).slice(0, 7)}1a`) },
+      dark: { color: dark, shadow: shadow(`0.4`, `${hex(dark.foreground!).slice(0, 7)}1a`) },
     },
     tokens: {
       spacing: { none: 0, ...numbers(design.spacing), xl3: 48 },

@@ -173,6 +173,9 @@
                 },
                 "popover": {
                   "$ref": "#/$defs/shadow"
+                },
+                "popoverRing": {
+                  "$ref": "#/$defs/shadow"
                 }
               }
             }
@@ -316,6 +319,9 @@
                   "$ref": "#/$defs/shadow"
                 },
                 "popover": {
+                  "$ref": "#/$defs/shadow"
+                },
+                "popoverRing": {
                   "$ref": "#/$defs/shadow"
                 }
               }
@@ -468,6 +474,9 @@
                 },
                 "popover": {
                   "$ref": "#/$defs/shadow"
+                },
+                "popoverRing": {
+                  "$ref": "#/$defs/shadow"
                 }
               }
             }
@@ -611,6 +620,9 @@
                   "$ref": "#/$defs/shadow"
                 },
                 "popover": {
+                  "$ref": "#/$defs/shadow"
+                },
+                "popoverRing": {
                   "$ref": "#/$defs/shadow"
                 }
               }

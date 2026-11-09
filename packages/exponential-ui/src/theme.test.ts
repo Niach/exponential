@@ -279,6 +279,14 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     expect(builtinTheme(`orange`).modes.dark.color.ghostHover).toBe(`#ffffff0e`)
   })
 
+  test(`#EXP-1760 popoverRing: gpui-component's popover surface in exponential, popover elsewhere`, () => {
+    const ring = builtinTheme(`exponential`).modes.dark.shadow.popoverRing!
+    expect(ring[0]).toEqual({ x: 0, y: 0, blur: 0, spread: 1, color: `#fafafa1a` })
+    expect(ring).toHaveLength(3)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].shadow.popoverRing).toEqual(builtinTheme(id).modes[mode].shadow.popover)
+  })
+
   test(`the exponential MessageBubble is the IDE's message_bubble`, () => {
     const exp = builtinTheme(`exponential`)
     const bubble = (side: string) => resolveRecipe(exp, { component: `MessageBubble`, part: `bubble`, props: { side } }, `dark`)

@@ -121,6 +121,22 @@
                 "spread": -2,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -223,6 +239,22 @@
               }
             ],
             "popover": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ],
+            "popoverRing": [
               {
                 "x": 0,
                 "y": 4,
@@ -8124,6 +8156,29 @@
                 "spread": -4,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -8217,6 +8272,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -15833,8 +15911,8 @@
             },
             {
               "style": {
-                "width": 14,
-                "height": 14
+                "width": 12.25,
+                "height": 12.25
               }
             }
           ],
@@ -15842,7 +15920,7 @@
             {
               "style": {
                 "borderRadius": "$radius.md",
-                "boxShadow": "$shadow.popover",
+                "boxShadow": "$shadow.popoverRing",
                 "borderWidth": 0,
                 "padding": 7,
                 "gap": 3.5
@@ -15853,7 +15931,16 @@
             {
               "style": {
                 "gap": 5.25,
-                "maxWidth": 260.75
+                "width": 267,
+                "maxWidth": 267
+              }
+            }
+          ],
+          "pick": [
+            {
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ]
@@ -15879,13 +15966,21 @@
               "style": {
                 "backgroundColor": "#ffffff08"
               }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff12"
+              }
             }
           ],
           "content": [
             {
               "style": {
                 "borderRadius": "$radius.md",
-                "boxShadow": "$shadow.popover",
+                "boxShadow": "$shadow.popoverRing",
                 "borderWidth": 0,
                 "padding": 14,
                 "gap": 3.5
@@ -17215,6 +17310,22 @@
                 "spread": -2,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -17296,6 +17407,22 @@
               }
             ],
             "popover": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ],
+            "popoverRing": [
               {
                 "x": 0,
                 "y": 4,
@@ -25908,6 +26035,29 @@
                 "spread": -4,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -26001,6 +26151,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -33617,8 +33790,8 @@
             },
             {
               "style": {
-                "width": 14,
-                "height": 14
+                "width": 12.25,
+                "height": 12.25
               }
             }
           ],
@@ -33626,7 +33799,7 @@
             {
               "style": {
                 "borderRadius": "$radius.md",
-                "boxShadow": "$shadow.popover",
+                "boxShadow": "$shadow.popoverRing",
                 "borderWidth": 0,
                 "padding": 7,
                 "gap": 3.5
@@ -33637,7 +33810,16 @@
             {
               "style": {
                 "gap": 5.25,
-                "maxWidth": 260.75
+                "width": 267,
+                "maxWidth": 267
+              }
+            }
+          ],
+          "pick": [
+            {
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ]
@@ -33663,13 +33845,21 @@
               "style": {
                 "backgroundColor": "#ffffff08"
               }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff12"
+              }
             }
           ],
           "content": [
             {
               "style": {
                 "borderRadius": "$radius.md",
-                "boxShadow": "$shadow.popover",
+                "boxShadow": "$shadow.popoverRing",
                 "borderWidth": 0,
                 "padding": 14,
                 "gap": 3.5

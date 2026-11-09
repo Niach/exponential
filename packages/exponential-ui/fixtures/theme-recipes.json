@@ -73144,6 +73144,59 @@
     },
     {
       "component": "IconPicker",
+      "part": "pick",
+      "props": {
+        "allowNone": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "IconPicker",
       "part": "grid",
       "props": {
         "allowNone": false
@@ -73161,13 +73214,15 @@
           "light": {
             "default": {
               "gap": 5.25,
-              "maxWidth": 260.75
+              "width": 267,
+              "maxWidth": 267
             }
           },
           "dark": {
             "default": {
               "gap": 5.25,
-              "maxWidth": 260.75
+              "width": 267,
+              "maxWidth": 267
             }
           }
         },
@@ -73183,13 +73238,15 @@
           "light": {
             "default": {
               "gap": 5.25,
-              "maxWidth": 260.75
+              "width": 267,
+              "maxWidth": 267
             }
           },
           "dark": {
             "default": {
               "gap": 5.25,
-              "maxWidth": 260.75
+              "width": 267,
+              "maxWidth": 267
             }
           }
         }
@@ -73277,15 +73334,15 @@
           "light": {
             "default": {
               "color": "#737373",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           },
           "dark": {
             "default": {
               "color": "#a1a1a1",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           }
         },
@@ -73305,15 +73362,15 @@
           "light": {
             "default": {
               "color": "#737373",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           },
           "dark": {
             "default": {
               "color": "#a1a1a1",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           }
         }
@@ -73401,15 +73458,15 @@
           "light": {
             "default": {
               "color": "#171717",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           },
           "dark": {
             "default": {
               "color": "#e5e5e5",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           }
         },
@@ -73429,15 +73486,15 @@
           "light": {
             "default": {
               "color": "#c2410c",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           },
           "dark": {
             "default": {
               "color": "#fb923c",
-              "width": 14,
-              "height": 14
+              "width": 12.25,
+              "height": 12.25
             }
           }
         }
@@ -73460,11 +73517,17 @@
           "light": {
             "default": {
               "backgroundColor": "#ffffff08"
+            },
+            "open": {
+              "backgroundColor": "#ffffff12"
             }
           },
           "dark": {
             "default": {
               "backgroundColor": "#ffffff08"
+            },
+            "open": {
+              "backgroundColor": "#ffffff12"
             }
           }
         },
@@ -73480,11 +73543,17 @@
           "light": {
             "default": {
               "backgroundColor": "#ffffff08"
+            },
+            "open": {
+              "backgroundColor": "#ffffff12"
             }
           },
           "dark": {
             "default": {
               "backgroundColor": "#ffffff08"
+            },
+            "open": {
+              "backgroundColor": "#ffffff12"
             }
           }
         }
