@@ -47,7 +47,7 @@ bun run dev:site / build:site    # exponential.at (apps/site)
 scripts/lanes/lane.sh <ios|android|heavy> <owner> -- <cmd>   # device + heavy-build lanes
 ```
 
-Lane locks (`scripts/lanes/lock.sh`): work only after your own `take_lock`; free one only with `release_lock <dir> <owner>`, never `rm` (it refuses a lock another owner holds).
+Lane locks (`scripts/lanes/lock.sh`): work only after your own `take_lock`; free one only with `release_lock <dir> <owner>`, never `rm` (it refuses a lock another owner holds); pixel benches, captures and perf runs use `--own-target` (the shared `CARGO_TARGET_DIR` can hand you another worktree's build: `scripts/lanes/README.md`).
 
 Never lint/format. Schema change = edit `packages/db-schema/src/schema.ts`, `bun run migrate:generate && bun run migrate`; custom triggers in `apps/web/src/db/out/custom/0001_triggers.sql` apply at boot (`applyCustomSql`; `bun dev` does not run it: apply by hand in dev). Enum change = `contract.json` + regenerate ×4. Icon change = `packages/icons/icons.json` + regenerate; `pickable`/`devicePickable` are APPEND-ONLY. New styleguide entry = five sites (sections.json, entries/index.ts, entries/<id>.tsx, page.ts ENTRY_BAND, desktop styleguide twin). Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (mirror `crates/ui/src/changelog.rs`).
 
