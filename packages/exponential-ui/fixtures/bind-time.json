@@ -53298,7 +53298,20 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
+                },
+                "recipe": {
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "template": {
+                  "component": "key_recorder.field.value.key",
+                  "path": "/value"
                 },
                 "visible": {
                   "@call": "lt",
@@ -53313,17 +53326,6 @@
                       }
                     }
                   }
-                },
-                "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": false
-                  }
-                },
-                "template": {
-                  "component": "key_recorder.field.value.key",
-                  "path": "/value"
                 }
               }
             ],
@@ -53394,18 +53396,20 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.xs",
+                      "alignSelf": "flex-start"
+                    },
+                    "accessibility": {
+                      "role": "group"
                     },
                     "template": {
                       "component": "key_recorder.field.value.key",
                       "path": "/value"
                     },
                     "recipe": {
-                      "macro": "KeyRecorder",
-                      "part": "value",
-                      "props": {
-                        "recording": false
-                      }
+                      "macro": "KbdGroup",
+                      "part": "root",
+                      "props": {}
                     }
                   }
                 ],
@@ -53711,21 +53715,21 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
+                },
+                "recipe": {
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 },
                 "visible": {
                   "@call": "not",
                   "args": {
                     "value": {
-                      "@path": "/recording"
-                    }
-                  }
-                },
-                "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": {
                       "@path": "/recording"
                     }
                   }
@@ -54024,14 +54028,16 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.xs",
+                      "alignSelf": "flex-start"
+                    },
+                    "accessibility": {
+                      "role": "group"
                     },
                     "recipe": {
-                      "macro": "KeyRecorder",
-                      "part": "value",
-                      "props": {
-                        "recording": false
-                      }
+                      "macro": "KbdGroup",
+                      "part": "root",
+                      "props": {}
                     }
                   }
                 ],
@@ -54204,11 +54210,15 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.xs",
+                      "alignSelf": "flex-start"
+                    },
+                    "accessibility": {
+                      "role": "group"
                     },
                     "recipe": {
-                      "macro": "KeyRecorder",
-                      "part": "value",
+                      "macro": "KbdGroup",
+                      "part": "root",
                       "props": {}
                     }
                   }
@@ -54393,14 +54403,16 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
                 },
                 "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": false
-                  }
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 }
               }
             ],
@@ -54545,14 +54557,16 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.xs",
+                      "alignSelf": "flex-start"
+                    },
+                    "accessibility": {
+                      "role": "group"
                     },
                     "recipe": {
-                      "macro": "KeyRecorder",
-                      "part": "value",
-                      "props": {
-                        "recording": false
-                      }
+                      "macro": "KbdGroup",
+                      "part": "root",
+                      "props": {}
                     }
                   }
                 ],
@@ -54698,14 +54712,16 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.xs",
+                      "alignSelf": "flex-start"
+                    },
+                    "accessibility": {
+                      "role": "group"
                     },
                     "recipe": {
-                      "macro": "KeyRecorder",
-                      "part": "value",
-                      "props": {
-                        "recording": false
-                      }
+                      "macro": "KbdGroup",
+                      "part": "root",
+                      "props": {}
                     }
                   }
                 ],
@@ -54849,14 +54865,16 @@
                       "display": "flex",
                       "flexDirection": "row",
                       "alignItems": "center",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.xs",
+                      "alignSelf": "flex-start"
+                    },
+                    "accessibility": {
+                      "role": "group"
                     },
                     "recipe": {
-                      "macro": "KeyRecorder",
-                      "part": "value",
-                      "props": {
-                        "recording": false
-                      }
+                      "macro": "KbdGroup",
+                      "part": "root",
+                      "props": {}
                     }
                   }
                 ],

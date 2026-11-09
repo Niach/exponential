@@ -31,7 +31,8 @@ object KbdMetrics {
 /**
  * THE keycap outside a surface (the painter draws the `Kbd` macro inside
  * one): 20 dp tall, at least 20 dp wide, 4 dp side padding, the `radius.sm`
- * corner, the muted fill, 12 sp medium muted text.
+ * corner, the `accent` fill with no border (the theme's `recipes.Kbd`),
+ * 12 sp medium muted text.
  */
 @Composable
 fun Kbd(label: String, modifier: Modifier = Modifier) {
@@ -42,7 +43,7 @@ fun Kbd(label: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .height(KbdMetrics.Height)
             .defaultMinSize(minWidth = KbdMetrics.Height)
-            .background(tokens.muted, shape)
+            .background(tokens.accent, shape)
             .padding(horizontal = KbdMetrics.HorizontalPadding),
     ) {
         BasicText(

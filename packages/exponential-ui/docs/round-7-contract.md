@@ -571,9 +571,9 @@ combination…`), `error`. **Events.** `start`, `stop`, `key`.
 **Parts.** `root` (column, items at the start, gap xs) → `field` (a pressable
 Box row, gap xs, padding sm × xs, radius md, hairline border; role button,
 `aria-pressed` = recording) holding `none` (muted `$string.keyRecorderNone`,
-idle with no value), `value` (the value caps: `$each` over a literal array, a
-data template over a bound one), `placeholder` (recording, nothing held),
-`held` (recording: the pending caps + the muted `ellipsis` `…`); then
+idle with no value), `value` (a `KbdGroup` of the value caps), `placeholder`
+(recording, nothing held), `held` (recording: the `pending` KbdGroup of the
+held caps + the muted `ellipsis` `…`); then
 `error` (role alert). Recipe prop `recording` (every part): neutral = a
 transparent border, `$color.ring` while recording; `error` destructive, sm.
 The `exponential` theme takes the IDE's numbers (gpui-component at a 14 px

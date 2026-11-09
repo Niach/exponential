@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Input `variant: "row"` (#EXP-1629): a Group row (label inside, the value end-aligned at 70%); the exponential theme's row is the IDE's (14 px rem). Through the Solid painter.
 - Select `triggerVariant: row`, `align` and `popupWidth` (#EXP-1629) through the Solid painter.
 - `KeyRecorder` (#EXP-1629) through the Solid painter.
 

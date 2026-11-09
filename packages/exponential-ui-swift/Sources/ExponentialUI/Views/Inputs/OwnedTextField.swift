@@ -27,8 +27,23 @@ struct OwnedTextField {
     /// The owner Input's `type` (catalog enum `inputType`; "" = not an
     /// Input): keyboard, masking, autofill and autocorrection.
     let inputType: String
+    /// #EXP-1629: the one-line text's (and placeholder's) alignment; a
+    /// `row` Input ends its value (`.natural` = the platform default).
+    var textAlignment: NSTextAlignment = .natural
 
     var secure: Bool { inputType == "password" }
+
+    /// The placeholder's attributes: its colour and font, plus the field's
+    /// alignment when it is not the default.
+    var placeholderAttributes: [NSAttributedString.Key: Any] {
+        var attrs: [NSAttributedString.Key: Any] = [.foregroundColor: placeholderColor, .font: font]
+        if textAlignment != .natural {
+            let p = NSMutableParagraphStyle()
+            p.alignment = textAlignment
+            attrs[.paragraphStyle] = p
+        }
+        return attrs
+    }
 }
 
 /// What an Input `type` asks of the platform field (Compose `keyboardTypeOf`
@@ -174,7 +189,8 @@ extension OwnedTextField: UIViewRepresentable {
             field.tintColor = color
             field.isEnabled = !disabled
             field.accessibilityLabel = accessibilityLabel
-            field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
+            field.textAlignment = textAlignment
+            field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: placeholderAttributes)
             Self.apply(InputTraits(type: inputType, kind: kind), to: field)
             let coordinator = context.coordinator
             field.onKey = { name, shift in coordinator.parent.key(name, shift: shift) }
@@ -444,7 +460,8 @@ extension OwnedTextField: NSViewRepresentable {
             field.isEnabled = !disabled
             (field as? CenteredTextField)?.selectsOnPress = InputTraits(type: inputType, kind: kind).selectsOnFocus
             field.setAccessibilityLabel(accessibilityLabel)
-            field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
+            field.alignment = textAlignment
+            field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: placeholderAttributes)
             if wantsWrite, field.stringValue != text {
                 field.stringValue = text
                 // A model write (an echo, an action's `set`) leaves the cursor at the END.
