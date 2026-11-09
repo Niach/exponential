@@ -744,7 +744,12 @@ impl LocalExecutor {
         let identity = self.identity();
         let device_id = self.device_id();
         let now = time::now();
-        let ctx = parity::SendContext { team_id: &self.team_id, identity: &identity, device_id: &device_id, existing, now: &now };
+        // The send's attachments as stored (their lines go into the body).
+        let attachments = match input.get("attachmentIds").and_then(Value::as_array) {
+            Some(ids) => ids.iter().filter_map(Value::as_str).filter_map(|id| self.store.row("attachments", id).ok().flatten()).collect(),
+            None => Vec::new(),
+        };
+        let ctx = parity::SendContext { team_id: &self.team_id, identity: &identity, device_id: &device_id, existing, attachments, now: &now };
         let (rows, (session_id, message_id)) = parity::send_rows(&input, &ctx, &mut new_id);
         for (table, row) in rows {
             self.write(table, row)?;
