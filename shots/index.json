@@ -2898,6 +2898,15 @@
         "sha256": "1b1640d3e7bb40584f13a134c4e43ac45e43e5ec9d282749dad4a0b16b41789e"
       }
     },
+    "exponential-ui-color-picker": {
+      "ios": {
+        "file": "shots/exponential-ui-color-picker/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 13778,
+        "sha256": "3e87d9a8fbe278ceb40910b39351ffed2bbcba634754757957803064015667db"
+      }
+    },
     "exponential-ui-composer": {
       "android": {
         "file": "shots/exponential-ui-composer/android.webp",
@@ -3425,6 +3434,15 @@
         "height": 1800,
         "bytes": 13244,
         "sha256": "860cd13b8ed28f348749858602aaec6e8e219554aa326386d1291f779f318da1"
+      }
+    },
+    "exponential-ui-icon-picker": {
+      "ios": {
+        "file": "shots/exponential-ui-icon-picker/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 29704,
+        "sha256": "a576906b32ea0916e04ed87b31a2782e030911b092598473f787d14344338b98"
       }
     },
     "exponential-ui-image": {
