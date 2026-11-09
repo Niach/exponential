@@ -1012,6 +1012,15 @@ impl<'a> GpuiMeasure<'a> {
             Some(x) if x <= 0.0 => 120.0,
             Some(x) => x,
         };
+        // #EXP-1762: `flat` = one row; the field wraps at the width the send
+        // disc (and the attach control) leave (the core already took the
+        // slots' width off `wrap`), the row is the taller of field and disc.
+        if str_prop(props, "layout") == "flat" {
+            let att = if props.get("attachments").and_then(Value::as_bool) == Some(true) { eui_core::measure::COMPOSER_ATTACH_W + gap } else { 0.0 };
+            let fw = (w - send - gap - att).max(1.0);
+            let (_, th, _) = self.para(&text, &field_ts, Some(fw), None);
+            return (w, th.clamp(min_h, 200.0).max(send));
+        }
         let (_, th, _) = self.para(&text, &field_ts, Some(w.max(1.0)), None);
         (w, th.clamp(min_h, 200.0) + gap + send)
     }

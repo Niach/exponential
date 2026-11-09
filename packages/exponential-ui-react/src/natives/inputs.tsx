@@ -537,8 +537,13 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
   }
   const placeholder = str(props.placeholder)
   const submitLabel = str(props.submitLabel) || ctx.t(`send`)
+  // #EXP-1762: `flat` = one row: the leading slot LEFT of the field, the
+  // controls right of it (bottom-aligned while the field grows upward).
+  const flat = str(props.layout) === `flat`
+  const leading = slots.leading ? <div className="xui-composer-leading">{slots.leading}</div> : null
   return (
     <div {...(rootProps as Record<string, unknown>)} data-busy={busy ? `true` : undefined}>
+      {flat && leading ? <div className="xui-composer-bar">{leading}</div> : null}
       <textarea
         ref={ref}
         {...(part(`field`, field.focused && `focus`) as Record<string, string>)}
@@ -580,7 +585,7 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
         }}
       />
       <div className="xui-composer-bar">
-        {slots.leading ? <div className="xui-composer-leading">{slots.leading}</div> : null}
+        {flat ? null : leading}
         {bool(props.attachments) ? (
           <button type="button" {...(part(`attachment`) as Record<string, string>)} aria-label={ctx.t(`browse`)} onClick={() => void emit(`attach`)}>
             <BuiltinIcon slot="Composer.attachment" />

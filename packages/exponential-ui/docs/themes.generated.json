@@ -3964,7 +3964,8 @@
       ],
       "props": [
         "attachments",
-        "busy"
+        "busy",
+        "layout"
       ]
     },
     {

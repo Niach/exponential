@@ -9970,6 +9970,42 @@
       }
     ]
   },
+  "Composer\/layout=flat" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/layout=stacked" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
   "Composer\/menuKeys=false" : {
     "height" : 72,
     "nodes" : [

@@ -3921,6 +3921,14 @@
           "style": {
             "borderColor": "$color.ring"
           }
+        },
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "gap": "$spacing.xs"
+          }
         }
       ],
       "field": [
@@ -3931,6 +3939,14 @@
             "fontFamily": "$type.family.sans",
             "color": "$color.foreground",
             "minHeight": "$control.buttonMd"
+          }
+        },
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "minHeight": 0
           }
         }
       ],

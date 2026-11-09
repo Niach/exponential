@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer `layout: "flat"` (#EXP-1762): the field sits between the `leading` slot and the attach control / `trailing` / send, centred on the disc while one line, the row's full height once it grows; the measure wraps it at that width.
 - Composer slots + paste (#EDE-65 R): the attach control moves before the core-laid `trailing` slot; a paste into the field (`Textarea::on_paste`) with images (copied image files, a raw clipboard image written to a temporary `image.<ext>`) fires `attach` {files} and `on_upload` (`name` = the Composer's id), files without an image insert nothing. `SurfaceView::composer_paste`, `clipboard_images`, `clipboard_has_files`.
 - Select (#EXP-1629): the row's `button` lends its hover to the value, placeholder and chevron inside it (theirs alone is never reported); a `multiple` popup opens with the cursor on its first chosen option. Against `Picker::multi` in a `glass_picker_row` at the real 14 px rem: 0 px at rest, hovered and after a pick (both close); open, only the popup's shadow ring (≤ 8 levels, the single picker's too) differs.
 

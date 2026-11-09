@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer `layout: "flat"` (#EXP-1762): a flat, slotted Composer's measure gets the content width minus its slot wrappers (each + the bar's gap), the slots' width added back to the answer, so its field wraps where it is painted; `COMPOSER_ATTACH_W` (32) for the painters.
 - Template items build cheaper (#LOGS-7): an item instantiates its template by reference (no copy per item) and `with_suffix` copies each node once instead of its whole subtree at every depth. A long chat's List re-windows in about half the time; the built trees are the same.
 - Select `description` (#EXP-1629): a `field` Select shows it under the trigger (the form description); a `row` trigger with one is the `labels` column (the `label`, then the `description` at most `layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH` 460, wrapping; it shrinks) and the trailing `control` column (the `value` + `chevron`, end-aligned; its recipe `minWidth` holds it). The row trigger's recipes take `minHeight` + `paddingVertical` instead of `height`, so the row grows with the hint.
 

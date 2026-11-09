@@ -809,6 +809,51 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
     }
 }
 
+/// #EXP-1762 composerSlots `layout: "flat"` at the core: the field shares
+/// the row with the slots, so the Composer's measure gets the width they
+/// leave (each slot wrapper + one row gap off its width; the
+/// measure keeps the disc's own share); a stacked one gets the full width.
+#[test]
+fn a_flat_composer_measures_its_field_at_the_width_the_slots_leave() {
+    use eui_core::measure::DirectMeasure;
+    let f = fixture();
+    let k = &f["composerSlots"];
+    let both = k["cases"][0]["slots"].clone();
+    for layout in ["flat", "stacked"] {
+        let mut composer = k["surface"].clone();
+        composer["props"]["layout"] = json!(layout);
+        composer["slots"] = both.clone();
+        let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [composer]}));
+        s.set_viewport(400.0, 0.0, None);
+        let wraps = std::cell::RefCell::new(Vec::new());
+        let mut m = DirectMeasure(
+            |leaf: &eui_core::measure::LeafRequest, wrap: Option<f32>| match leaf.component {
+                "Composer" => {
+                    if let Some(w) = wrap.filter(|w| *w > 0.0) {
+                        wraps.borrow_mut().push(w);
+                    }
+                    // Like a painter's: max-content wide, 120 at min-content.
+                    (match wrap { None => 10_000.0, Some(w) if w <= 0.0 => 120.0, Some(w) => w }, 36.0)
+                }
+                "Ring" => (16.0, 16.0),
+                _ => (36.0, 36.0),
+            },
+            7,
+        );
+        let out = s.layout(&mut m);
+        let nodes = s.nodes();
+        let frame = |id: &str| out.frames.iter().find(|f| nodes[f.index as usize].id == id).map(|f| (f.x, f.w)).unwrap_or_else(|| panic!("{layout}: no frame for {id}"));
+        // A leaf's measure gets its border-box width (each painter takes its
+        // own padding + border off), less the slots on a flat one.
+        let (_, cw) = frame("c");
+        let xs = eui_core::theme::resolve_token(s.theme().unwrap(), &json!("$spacing.xs"), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
+        let want = if layout == "flat" { cw - (frame("c.leading").1 + xs) - (frame("c.trailing").1 + xs) } else { cw };
+        let last = *wraps.borrow().last().unwrap_or_else(|| panic!("{layout}: measured at a width"));
+        assert!((last - want).abs() < 0.01, "{layout}: the field measures at {last}, want {want}");
+        assert!((frame("c").1 - 400.0).abs() < 0.01, "{layout}: the composer keeps its full width");
+    }
+}
+
 /// #EDE-65 R composerPaste at the core: what a painter sends for a paste
 /// (image files = `attach` {files: the images}; files without one =
 /// nothing; else the field's own edit = `change`) fires like the reference. Which clipboard a paste carries and

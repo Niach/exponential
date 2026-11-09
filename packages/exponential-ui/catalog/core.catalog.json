@@ -5867,6 +5867,15 @@
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
         },
+        "layout": {
+          "type": "enum",
+          "values": [
+            "stacked",
+            "flat"
+          ],
+          "default": "stacked",
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+        },
         "menuKeys": {
           "type": "boolean",
           "default": false,

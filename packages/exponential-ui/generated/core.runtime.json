@@ -4487,6 +4487,14 @@
           "type": "boolean",
           "default": false
         },
+        "layout": {
+          "type": "enum",
+          "values": [
+            "stacked",
+            "flat"
+          ],
+          "default": "stacked"
+        },
         "menuKeys": {
           "type": "boolean",
           "default": false,

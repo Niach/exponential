@@ -746,9 +746,14 @@ const composerSlotsFixture = (fixture as unknown as { composerSlots: { surface: 
 
 /** The controls row's children by fixture name, start → end. */
 function composerRowOrder(root: ParentNode): string[] {
-  const bar = root.querySelector(`[data-xui-id="c"] .xui-composer-bar`)!
-  return Array.from(bar.children).map((el) => {
+  // #EXP-1762: a flat composer's row is its own children (the field between
+  // the leading bar and the controls bar).
+  const host = root.querySelector(`[data-xui-id="c"]`)!
+  const flat = host.getAttribute(`data-r-layout`) === `flat`
+  const row = flat ? Array.from(host.children).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
+  return row.map((el) => {
     const c = el.className
+    if (c.includes(`xui-Composer-field`)) return `field`
     if (c.includes(`xui-composer-leading`)) return `leading`
     if (c.includes(`xui-composer-trailing`)) return `trailing`
     if (c.includes(`xui-Composer-attachment`)) return `attachment`

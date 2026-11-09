@@ -3934,6 +3934,14 @@
               "style": {
                 "borderColor": "$color.ring"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
             }
           ],
           "field": [
@@ -3944,6 +3952,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -12684,6 +12700,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.border",
@@ -12699,6 +12723,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -21215,6 +21247,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.xl2",
                 "borderWidth": "$border.thick",
@@ -21230,6 +21270,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -30280,6 +30328,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.border",
@@ -30295,6 +30351,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
