@@ -3476,8 +3476,8 @@
         "file": "shots/exponential-ui-input/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 46644,
-        "sha256": "ad89b2c50b483739f303dfe9d278f94b4420309c2ddf359376cd29ae73b1d76d"
+        "bytes": 46192,
+        "sha256": "3457e5f33a6f1989d383325ec90ac14be92d8091bba04d7a01ca85b28f6fa39e"
       },
       "ios": {
         "file": "shots/exponential-ui-input/ios.webp",
@@ -4964,9 +4964,9 @@
       "desktop": {
         "file": "shots/exponential-ui-textarea/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 25430,
-        "sha256": "2befbaf38d6d6ed13de794aa8c60ca2a88cd735de715c8b8352226bf3e26769e"
+        "height": 1125,
+        "bytes": 39146,
+        "sha256": "8e38e72974392a86c93eddacc4c066a3c3a3ffccf2b75df1c6334d5f9e0fffe5"
       },
       "ios": {
         "file": "shots/exponential-ui-textarea/ios.webp",
