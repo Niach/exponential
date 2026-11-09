@@ -357,6 +357,11 @@ export interface TrainRepoConfig {
    *  (GitHub: workflow file names). Empty = no CI. */
   ci?: { workflows: string[] }
   generated: Array<ResolveRule & { verify?: string[] }>
+  /** #LOGS-2 (`repoPolicy.lockfiles`): a Merge now runs CI when a lock the
+   *  unit touches composes to a blob other than its head's, or a manifest
+   *  it changed sits under a paired lock (`lock` = the file name, in the
+   *  manifest's dir or an ancestor) the train moved. */
+  lockfiles?: { paths: string[]; manifests?: Array<{ paths: string[]; lock: string }> }
 }
 
 export const TRAIN_PIPELINE_CHECK = fixture.pipeline.check
@@ -398,6 +403,9 @@ export interface TrainUnitOutcome {
    *  alone, so only an earlier unit of this batch (not landed) is in the
    *  way: no bounce. Absent = `base`. */
   against?: `base` | `batch`
+  /** #LOGS-2, composed only: the lockfiles that drifted from the unit's
+   *  head (`repoPolicy.lockfiles`). Absent = none. */
+  drifted?: string[]
 }
 
 /** The `exp-train` result's JSON. */
@@ -426,6 +434,27 @@ export interface TrainVerdict {
 }
 
 const PASSING = new Set([`success`, `neutral`, `skipped`])
+
+/** COMPOSE's CI mode (`pipeline.checksModes`). A Merge now is untested
+ *  only when nothing was resolved and no lockfile drifted from its unit's
+ *  head: either way the tree is one nobody tested, so CI runs (#LOGS-2). */
+export function trainChecksMode(input: {
+  mode: `test` | `untested`
+  composed: boolean
+  /** Any composed unit's `resolved` non-empty. */
+  resolved: boolean
+  /** Any composed unit's `drifted` non-empty (`repoPolicy.lockfiles`). */
+  drifted: boolean
+  /** A lone unit whose composed tree is its tested_sha's. */
+  proven: boolean
+  workflows: readonly string[]
+}): TrainChecksMode {
+  if (!input.composed) return `none`
+  if (input.mode === `untested` && !input.resolved && !input.drifted) return `skipped`
+  if (input.proven) return `proven`
+  return input.workflows.length > 0 ? `dispatched` : `none`
+}
+
 
 /** The pipeline's result + the forge's checks at its head (oldest first:
  *  the newest per name wins) + the base branch's required check names. */

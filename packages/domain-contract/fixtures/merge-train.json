@@ -1820,7 +1820,55 @@
         "strategy": "regenerate",
         "command": "bun run notices"
       }
-    ]
+    ],
+    "lockfiles": {
+      "paths": [
+        "**/Cargo.lock",
+        "bun.lock",
+        "**/package-lock.json",
+        "**/Package.resolved",
+        "**/gradle.lockfile",
+        "**/libs.versions.toml"
+      ],
+      "manifests": [
+        {
+          "paths": [
+            "**/Cargo.toml"
+          ],
+          "lock": "Cargo.lock"
+        },
+        {
+          "paths": [
+            "**/package.json"
+          ],
+          "lock": "bun.lock"
+        },
+        {
+          "paths": [
+            "**/package.json"
+          ],
+          "lock": "package-lock.json"
+        },
+        {
+          "paths": [
+            "**/Package.swift"
+          ],
+          "lock": "Package.resolved"
+        },
+        {
+          "paths": [
+            "**/build.gradle.kts"
+          ],
+          "lock": "gradle.lockfile"
+        },
+        {
+          "paths": [
+            "**/build.gradle.kts"
+          ],
+          "lock": "libs.versions.toml"
+        }
+      ]
+    }
   },
   "resolver": [
     {
@@ -1949,7 +1997,7 @@
     }
   ],
   "pipeline": {
-    "$comment": "EXP-1708: THE TRAIN PIPELINE, provider-neutral (GitHub: `.github/workflows/train.yml` via workflow_dispatch; eCode later runs the same contract). The engine is GENERIC (`scripts/merge-train`: compose.ts, the CLI the pipeline runs from the BASE's checkout, never a unit's): nothing here names this repo; the repo speaks only through `.exponential/merge-train.json` (`setup`, `ci.workflows`, `generated`). DISPATCH: the worker starts ONE run per batch attempt (a re-run or a bisect half = a NEW train_id) with the string inputs `inputs`: `train_id` (the merge_trains row id, [A-Za-z0-9._-]), `base` (the base branch name), `base_sha` (the base the batch composes on = the fast-forward's expected old sha), `mode` (`test` | `untested`: Merge now and teams without CI compose without CI), `units` (JSON, the batch in queue order: [{prs: [{number, head_sha, title, author?}] bottom first, tested_sha?}]; `title` = the final squash title, used once as `{title} (#{number})`; `author` = `Name <email>`; `tested_sha` = a commit whose REQUIRED checks the worker saw green, sent for a lone unit only (GitHub: the PR head)). COMPOSE (runner with git; no build): from base_sha, each PR of each unit in order = a squash merge of head_sha onto the train tip, committed with that title and author. Conflicted paths go through `resolveConflicts` with the repo's `generated`, and so do the unit's paths of a regenerate/renumber rule BOTH the train and the unit changed since their merge base even when git merged them cleanly (two units' generated outputs are stale together; two migrations would share a number); resolved = every rule's file picks first (prepend-union: both sides' prepended entries, the later unit's first; renumber: the base side kept, the later unit's added numbered files under the rule dropped; regenerate: the base side; json-union: deep union, the later unit wins a key, arrays union in order; take-later: the later unit's file, its deletion included), then `setup` once, then each step's `command` in policy order; a renumber's regenerated files matching its `verify` globs must equal the dropped ones' contents (only the name may change), else conflict. Unmatched paths, a failing command or a failed verify = that WHOLE unit is `conflict` with its files (unmatched ones, else the rule's paths): the tip resets to before the unit and composing goes on with the next unit. REF: `exp-train/<train_id>` is force-pushed: its head = the composed sha; no unit composed = ONE empty marker commit on base_sha (never lands). The batch diff travels as `base_sha`: CI computes `git diff base_sha head` and runs only the jobs its own path filters hit. CI: mode test and ≥ 1 unit composed: `proven` when the batch is ONE unit with tested_sha and the composed tree equals tested_sha's tree (no run); else every `ci.workflows` entry is started on the ref with input `base_sha` = `dispatched` (no workflows = `none`); mode untested = `skipped`; nothing composed = `none`. The pipeline never waits for CI. REPORT: ONE result named `check` (`exp-train`) on the ref's head (GitHub: a check run, external_id = train_id, its output.text = the `outcome` JSON; conclusion success when ≥ 1 unit composed, else failure; infra trouble = `error` set, `head` null, conclusion failure, posted on the marker commit when it could still push, else the run fails without one: the worker sees the run completed with no result = error). THE VERDICT (`trainVerdict`, `verdicts`): the worker reads the forge's checks at `head` and the base branch's REQUIRED check names from the forge (GitHub: the branch rules' required_status_checks; NOTHING hard-coded), then: no result yet = pending; error = error; nothing composed = conflict; checks proven/skipped/none or no required checks = green; dispatched: any required check completed with a conclusion other than success/neutral/skipped = red (at once, the rest may still run), any missing or unfinished = pending, else green. `composed` = the units that ride (green = land them by fast-forwarding base to head; red = re-run/bisect per `bisect`), `conflicts` = the units that bounce (`train_conflict`) whatever the state.",
+    "$comment": "EXP-1708: THE TRAIN PIPELINE, provider-neutral (GitHub: `.github/workflows/train.yml` via workflow_dispatch; eCode later runs the same contract). The engine is GENERIC (`scripts/merge-train`: compose.ts, the CLI the pipeline runs from the BASE's checkout, never a unit's): nothing here names this repo; the repo speaks only through `.exponential/merge-train.json` (`setup`, `ci.workflows`, `generated`). DISPATCH: the worker starts ONE run per batch attempt (a re-run or a bisect half = a NEW train_id) with the string inputs `inputs`: `train_id` (the merge_trains row id, [A-Za-z0-9._-]), `base` (the base branch name), `base_sha` (the base the batch composes on = the fast-forward's expected old sha), `mode` (`test` | `untested`: Merge now and teams without CI compose without CI), `units` (JSON, the batch in queue order: [{prs: [{number, head_sha, title, author?}] bottom first, tested_sha?}]; `title` = the final squash title, used once as `{title} (#{number})`; `author` = `Name <email>`; `tested_sha` = a commit whose REQUIRED checks the worker saw green, sent for a lone unit only (GitHub: the PR head)). COMPOSE (runner with git; no build): from base_sha, each PR of each unit in order = a squash merge of head_sha onto the train tip, committed with that title and author. Conflicted paths go through `resolveConflicts` with the repo's `generated`, and so do the unit's paths of a regenerate/renumber rule BOTH the train and the unit changed since their merge base even when git merged them cleanly (two units' generated outputs are stale together; two migrations would share a number); resolved = every rule's file picks first (prepend-union, entry-aware: when base→train and base→unit are each ONE pure insertion and both fit one common split point (the earliest), the file = the base's prefix + the unit's inserted block + the train's inserted block + the base's rest, so each block stays whole entries; a `const <NAME>_<N>` the unit's block declares that the train's file already declares is renumbered to the next free N when the block names it only there; anything else (an edit, a deletion, two insertion points, a name left declared twice) = conflict, never a line union (#LOGS-2: a line union fused three entries into one object); renumber: the base side kept, the later unit's added numbered files under the rule dropped; regenerate: the base side; json-union: deep union, the later unit wins a key, arrays union in order; take-later: the later unit's file, its deletion included), then `setup` once, then each step's `command` in policy order; a renumber's regenerated files matching its `verify` globs must equal the dropped ones' contents (only the name may change), else conflict. Unmatched paths, a failing command or a failed verify = that WHOLE unit is `conflict` with its files (unmatched ones, else the rule's paths): the tip resets to before the unit and composing goes on with the next unit. REF: `exp-train/<train_id>` is force-pushed: its head = the composed sha; no unit composed = ONE empty marker commit on base_sha (never lands). The batch diff travels as `base_sha`: CI computes `git diff base_sha head` and runs only the jobs its own path filters hit. CI: mode test and ≥ 1 unit composed: `proven` when the batch is ONE unit with tested_sha and the composed tree equals tested_sha's tree (no run); else every `ci.workflows` entry is started on the ref with input `base_sha` = `dispatched` (no workflows = `none`); mode untested = `skipped` only when, for every composed unit, its `resolved` is empty AND its `drifted` is empty: a Merge now whose compose had to rewrite a conflicted file, or whose lockfile drifted, runs as mode test (`proven` / `dispatched` / `none`), so CI runs on the composed ref and the verdict waits for it (`trainChecksMode`, `checksModes`; #LOGS-2). LOCKFILES (the repo's `lockfiles`, NOTHING hard-coded; this repo: `repoPolicy.lockfiles`): a unit's `drifted` = every path it changed since its merge base with the tip that matches `lockfiles.paths` and whose composed blob differs from the blob at that PR's head_sha (#LOGS-2: #2412 moved apps/ede/Cargo.lock on master, #2420's Merge now merged its own Cargo.lock edit CLEANLY onto it, no rule fired, `cargo fetch --locked` failed on master), plus every lock the TRAIN changed since that merge base named `manifests[].lock` and sitting in the dir or an ancestor dir of a manifest (`manifests[].paths`) the unit changed (a manifest edited against a lock that moved under it); omitted on the outcome when empty. KNOWN GAP: the manifest pairing is by file name and ancestry only: a Cargo workspace member outside its lock's tree, a lock under a different name, or a manifest whose lock is never committed is not paired; nothing composed = `none`. The pipeline never waits for CI. REPORT: ONE result named `check` (`exp-train`) on the ref's head (GitHub: a check run, external_id = train_id, its output.text = the `outcome` JSON; conclusion success when ≥ 1 unit composed, else failure; infra trouble = `error` set, `head` null, conclusion failure, posted on the marker commit when it could still push, else the run fails without one: the worker sees the run completed with no result = error). THE VERDICT (`trainVerdict`, `verdicts`): the worker reads the forge's checks at `head` and the base branch's REQUIRED check names from the forge (GitHub: the branch rules' required_status_checks; NOTHING hard-coded), then: no result yet = pending; error = error; nothing composed = conflict; checks proven/skipped/none or no required checks = green; dispatched: any required check completed with a conclusion other than success/neutral/skipped = red (at once, the rest may still run), any missing or unfinished = pending, else green. `composed` = the units that ride (green = land them by fast-forwarding base to head; red = re-run/bisect per `bisect`), `conflicts` = the units that bounce (`train_conflict`) whatever the state.",
     "ref": "exp-train/<train_id>",
     "check": "exp-train",
     "inputs": [
@@ -2389,6 +2437,48 @@
         }
       },
       {
+        "name": "merge now with a resolved conflict waits for its CI",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                7
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": [
+                "changelog"
+              ]
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "in_progress",
+            "conclusion": null
+          }
+        ],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "pending",
+          "head": "h1",
+          "composed": [
+            [
+              7
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
         "name": "no required checks = lands untested",
         "outcome": {
           "train": "t1",
@@ -2602,6 +2692,118 @@
           ],
           "conflicts": []
         }
+      }
+    ],
+    "checksModes": [
+      {
+        "name": "merge now, clean compose = skipped (instant)",
+        "input": {
+          "mode": "untested",
+          "composed": true,
+          "resolved": false,
+          "proven": false,
+          "drifted": false,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "skipped"
+      },
+      {
+        "name": "merge now, a clean lockfile merge onto a moved base = dispatched",
+        "input": {
+          "mode": "untested",
+          "composed": true,
+          "resolved": false,
+          "proven": false,
+          "drifted": true,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "dispatched"
+      },
+      {
+        "name": "merge now, the same lockfile unit onto an unmoved base = skipped",
+        "input": {
+          "mode": "untested",
+          "composed": true,
+          "resolved": false,
+          "proven": false,
+          "drifted": false,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "skipped"
+      },
+      {
+        "name": "merge now, a resolved conflict = dispatched",
+        "input": {
+          "mode": "untested",
+          "composed": true,
+          "resolved": true,
+          "proven": false,
+          "drifted": false,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "dispatched"
+      },
+      {
+        "name": "merge now, a resolved conflict, no workflows = none",
+        "input": {
+          "mode": "untested",
+          "composed": true,
+          "resolved": true,
+          "proven": false,
+          "drifted": false,
+          "workflows": []
+        },
+        "expected": "none"
+      },
+      {
+        "name": "test, a proven lone unit = proven",
+        "input": {
+          "mode": "test",
+          "composed": true,
+          "resolved": false,
+          "proven": true,
+          "drifted": false,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "proven"
+      },
+      {
+        "name": "test = dispatched",
+        "input": {
+          "mode": "test",
+          "composed": true,
+          "resolved": true,
+          "proven": false,
+          "drifted": false,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "dispatched"
+      },
+      {
+        "name": "nothing composed = none",
+        "input": {
+          "mode": "untested",
+          "composed": false,
+          "resolved": false,
+          "proven": false,
+          "drifted": false,
+          "workflows": [
+            "ci.yml"
+          ]
+        },
+        "expected": "none"
       }
     ]
   },
