@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use crate::rows::MessageRow;
-use crate::session_tree::SessionChatRow;
+use crate::session_tree::{CardSurface, SessionChatRow};
 use uicore_model::chat::{ChatOption, ChatRowInput};
 
 /// `HH:MM` (local) of a wire timestamp; empty when unparseable.
@@ -17,6 +17,16 @@ pub fn clock(at: Option<&str>) -> String {
         .and_then(chrono::DateTime::from_timestamp_millis)
         .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
         .unwrap_or_default()
+}
+
+/// A card's surface as the Embed draws it (`{version?, root, data}`);
+/// `answered` = the data model as the person answered it, which a closed
+/// plan or question card shows instead of the card's own (the IDE's
+/// `ensure_closed_surface`).
+fn embed_surface(surface: Option<&CardSurface>, answered: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let surface = surface?;
+    let surface = CardSurface { data: answered.filter(|data| data.is_object()).cloned().or_else(|| surface.data.clone()), ..surface.clone() };
+    serde_json::to_value(surface).ok()
 }
 
 /// The domain's chat rows as the chat model's; `messages` = the rows'
@@ -42,14 +52,15 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             title: card.name.clone(),
             text: card.kind_word.clone(),
             target: Some(card.session_id.clone()),
+            surface: None,
         },
         SessionChatRow::Report { id, session_id, text, .. } => {
-            ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()) }
+            ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()), surface: None }
         }
         SessionChatRow::Suggestions { id, session_id, header, .. } => {
-            ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()) }
+            ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()), surface: None }
         }
-        SessionChatRow::Question { id, question, options, custom, multi, answer, answers, answered, dismissed, .. } => ChatRowInput::Question {
+        SessionChatRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, dismissed, .. } => ChatRowInput::Question {
             id: id.clone(),
             question: question.clone(),
             options: options.iter().map(|o| ChatOption { label: o.label.clone(), description: o.description.clone() }).collect(),
@@ -57,9 +68,10 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             multi: *multi,
             waiting: !*answered && *dismissed != Some(true),
             answer: answers.as_ref().filter(|a| !a.is_empty()).map(|a| a.join(", ")).or_else(|| answer.clone()),
+            surface: embed_surface(surface.as_ref(), surface_data.as_ref()),
         },
         // The plan row (session_chat `plan_row`): the plan's label, its status word.
-        SessionChatRow::Plan { id, session_id, plan, decision, fresh, .. } => ChatRowInput::Card {
+        SessionChatRow::Plan { id, session_id, plan, surface, decision, fresh, surface_data, .. } => ChatRowInput::Card {
             id: id.clone(),
             icon: if decision.as_deref() == Some("approved") { "ui-check" } else { "coding-plan" }.into(),
             title: crate::plan_page::plan_row_label(plan),
@@ -68,6 +80,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
                 Some(decision) => crate::ask_dock::plan_decision_label(decision, *fresh),
             },
             target: Some(session_id.clone()),
+            surface: embed_surface(surface.as_ref(), surface_data.as_ref()),
         },
         SessionChatRow::Subagent { id, title, status } => ChatRowInput::Line {
             id: id.clone(),
@@ -87,14 +100,37 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             let placeholder = &*crate::sealed::PLACEHOLDER;
             ChatRowInput::Pill { id: id.clone(), icon: placeholder.icon.clone(), label: placeholder.text(*reason).to_string() }
         }
-        SessionChatRow::Surface { id, session_id, title, .. } => ChatRowInput::Card {
+        SessionChatRow::Surface { id, session_id, title, surface } => ChatRowInput::Card {
             id: id.clone(),
             icon: "ui-widget".into(),
             title: title.clone().unwrap_or_else(|| crate::plan_card::PLAN_CARD.copy.surface.clone()),
             text: String::new(),
             target: Some(session_id.clone()),
+            surface: embed_surface(Some(surface), None),
         },
     })
+}
+
+/// What an Embed's inner `event` on a chat card asks of the host (lane Q,
+/// `ede_chat {action: card, messageId, name, context}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardReply {
+    /// The person's next message into `session_id` (the IDE's surface card:
+    /// `chats::surface_reply`).
+    Send { session_id: String, text: String },
+}
+
+/// THE card rule the IDE follows: an `exponential_show` surface's `reply`
+/// event with text posts that text as the person's next message; a plan's or
+/// question's inline surface has no transport (plan-card.json: its events
+/// stay in the card, the options and the plan page answer it), and every
+/// other event is ignored.
+pub fn card_reply(rows: &[SessionChatRow], message_id: &str, name: Option<&str>, context: Option<&serde_json::Value>) -> Option<CardReply> {
+    let text = crate::chats::surface_reply(name, context)?;
+    match rows.iter().find(|row| row.id() == message_id)? {
+        SessionChatRow::Surface { session_id, .. } => Some(CardReply::Send { session_id: session_id.clone(), text }),
+        _ => None,
+    }
 }
 
 /// The agent CLI a session's `cli` names for the `/` menu (the IDE's
@@ -191,12 +227,79 @@ pub fn commit_emoji(draft: &str) -> Option<String> {
     Some(format!("{}{}", &draft[..token.start], emoji.unicode))
 }
 
+/// What a key the composer hands the open menu does (genUI's Composer
+/// `menuKeys` → `key` {key}), the IDE's composer menus (`move_slash`,
+/// `move_completion`, `on_slash_*`): the arrows move the highlight over the
+/// menu's `len` rows, wrapping; Enter and Tab pick the highlighted row (the
+/// same path as its press); Escape shuts the menu for the draft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuKey {
+    Highlight(usize),
+    Pick(usize),
+    Dismiss,
+    Ignore,
+}
+
+pub fn menu_key(key: &str, selected: usize, len: usize) -> MenuKey {
+    if len == 0 {
+        return MenuKey::Ignore;
+    }
+    let selected = selected.min(len - 1);
+    match key {
+        "ArrowUp" => MenuKey::Highlight((selected + len - 1) % len),
+        "ArrowDown" => MenuKey::Highlight((selected + 1) % len),
+        "Enter" | "Tab" => MenuKey::Pick(selected),
+        "Escape" => MenuKey::Dismiss,
+        _ => MenuKey::Ignore,
+    }
+}
+
+/// Marks the highlighted row of a `/chatMenu` (`selected`, the Row's active
+/// state) and returns its index. A rebuilt menu keeps the IDE's rules: the
+/// `/` menu its row, clamped to the new rows (`keep`, `refresh_slash`); the
+/// typeahead starts over at its first (`refresh_completion`).
+pub fn highlight(menu: &mut serde_json::Value, previous: usize, keep: bool) -> usize {
+    let Some(rows) = menu.get_mut("rows").and_then(serde_json::Value::as_array_mut) else { return 0 };
+    let selected = if keep { previous.min(rows.len().saturating_sub(1)) } else { 0 };
+    for (index, row) in rows.iter_mut().enumerate() {
+        row["selected"] = serde_json::Value::Bool(index == selected);
+    }
+    selected
+}
+
 /// A prompt without a curated icon (the IDE's generic prompt glyph).
 const PROMPT_ICON: &str = "action-default";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_arrows_wrap_the_highlight_and_enter_tab_pick_escape_dismisses() {
+        assert_eq!(menu_key("ArrowDown", 0, 3), MenuKey::Highlight(1));
+        assert_eq!(menu_key("ArrowDown", 2, 3), MenuKey::Highlight(0), "down wraps to the first");
+        assert_eq!(menu_key("ArrowUp", 0, 3), MenuKey::Highlight(2), "up wraps to the last");
+        assert_eq!(menu_key("Enter", 1, 3), MenuKey::Pick(1));
+        assert_eq!(menu_key("Tab", 1, 3), MenuKey::Pick(1));
+        assert_eq!(menu_key("Enter", 7, 3), MenuKey::Pick(2), "a stale highlight clamps");
+        assert_eq!(menu_key("Escape", 1, 3), MenuKey::Dismiss);
+        assert_eq!(menu_key("Enter", 0, 0), MenuKey::Ignore, "no rows, no menu");
+        assert_eq!(menu_key("Home", 0, 3), MenuKey::Ignore);
+    }
+
+    #[test]
+    fn the_slash_menu_keeps_its_highlight_the_typeahead_starts_over() {
+        let mut menu = slash_menu("/", Some("claude"), &[]);
+        assert_eq!(highlight(&mut menu, 2, true), 2);
+        assert_eq!((menu["rows"][2]["selected"].as_bool(), menu["rows"][0]["selected"].as_bool()), (Some(true), Some(false)));
+        let mut narrowed = slash_menu("/co", Some("claude"), &[]);
+        let len = narrowed["rows"].as_array().unwrap().len();
+        assert_eq!(highlight(&mut narrowed, 99, true), len - 1, "clamped to the new rows");
+        let mut emoji = mention_menu("nice :ta", &[], &[]).unwrap();
+        assert_eq!(highlight(&mut emoji, 3, false), 0);
+        assert_eq!(emoji["rows"][0]["selected"], true);
+        assert_eq!(highlight(&mut serde_json::json!({"open": false, "rows": []}), 3, true), 0);
+    }
 
     #[test]
     fn colon_lists_emoji_and_a_closed_shortcode_commits() {
@@ -314,5 +417,85 @@ mod tests {
         assert_eq!(title, &crate::plan_page::plan_row_label("# Lazy-load the editor\n\nsteps"));
         assert_eq!(text, &crate::plan_page::PLAN_PAGE.copy.needs_you);
         assert_eq!(target.as_deref(), Some("s"));
+    }
+
+    fn card_surface() -> CardSurface {
+        CardSurface {
+            version: Some("1.0".into()),
+            root: serde_json::json!({"id": "r", "component": "Text", "props": {"text": {"@path": "/pick"}}}),
+            data: Some(serde_json::json!({"pick": "none"})),
+        }
+    }
+
+    #[test]
+    fn a_show_card_carries_its_surface_with_its_own_data() {
+        let row = SessionChatRow::Surface { id: "m1".into(), session_id: "s".into(), title: None, surface: card_surface() };
+        let ChatRowInput::Card { title, surface, target, .. } = &rows(&[row], &HashMap::new(), |_| None)[0] else { panic!() };
+        assert_eq!(title, &crate::plan_card::PLAN_CARD.copy.surface, "no title = the Preview word");
+        assert_eq!(target.as_deref(), Some("s"));
+        let surface = surface.as_ref().expect("a surface");
+        assert_eq!((surface["version"].as_str(), &surface["root"]["component"], &surface["data"]["pick"]), (Some("1.0"), &serde_json::json!("Text"), &serde_json::json!("none")));
+    }
+
+    #[test]
+    fn a_closed_card_s_surface_shows_what_the_person_answered() {
+        let answered = Some(serde_json::json!({"pick": "debug"}));
+        let plan = SessionChatRow::Plan {
+            id: "p".into(),
+            session_id: "s".into(),
+            plan: "# Plan".into(),
+            questions: vec![],
+            surface: Some(card_surface()),
+            decision: Some("approved".into()),
+            fresh: false,
+            answers: None,
+            feedback: None,
+            surface_data: answered.clone(),
+        };
+        let question = SessionChatRow::Question {
+            id: "q".into(),
+            session_id: "s".into(),
+            question: "Which?".into(),
+            options: vec![],
+            custom: false,
+            multi: false,
+            surface: Some(card_surface()),
+            answer: None,
+            answers: None,
+            surface_data: None,
+            answered: false,
+            dismissed: None,
+        };
+        let session = SessionChatRow::Report { id: "r".into(), session_id: "s".into(), text: "Report".into(), summary: String::new(), xref: crate::session_tree::SessionXref { kind: "report".into(), session_id: "s".into(), name: "Child".into(), agent_id: None } };
+        let out = rows(&[plan, question, session], &HashMap::new(), |_| None);
+        let ChatRowInput::Card { surface: Some(plan), .. } = &out[0] else { panic!("{out:?}") };
+        assert_eq!(plan["data"], answered.unwrap(), "the answered model wins");
+        let ChatRowInput::Question { surface: Some(question), .. } = &out[1] else { panic!("{out:?}") };
+        assert_eq!(question["data"]["pick"], "none", "an open card shows its own data");
+        assert!(matches!(&out[2], ChatRowInput::Card { surface: None, .. }), "a report has no surface");
+    }
+
+    #[test]
+    fn a_show_card_s_reply_posts_its_text_and_a_plan_s_surface_has_no_transport() {
+        let surface = SessionChatRow::Surface { id: "m1".into(), session_id: "s1".into(), title: None, surface: card_surface() };
+        let plan = SessionChatRow::Plan {
+            id: "p".into(),
+            session_id: "s1".into(),
+            plan: "# Plan".into(),
+            questions: vec![],
+            surface: Some(card_surface()),
+            decision: None,
+            fresh: false,
+            answers: None,
+            feedback: None,
+            surface_data: None,
+        };
+        let rows = [surface, plan];
+        let reply = serde_json::json!({"text": " Ship "});
+        assert_eq!(card_reply(&rows, "m1", Some("reply"), Some(&reply)), Some(CardReply::Send { session_id: "s1".into(), text: "Ship".into() }));
+        assert_eq!(card_reply(&rows, "m1", Some("other"), Some(&reply)), None, "only reply answers");
+        assert_eq!(card_reply(&rows, "m1", Some("reply"), Some(&serde_json::json!({"text": " "}))), None, "a blank reply posts nothing");
+        assert_eq!(card_reply(&rows, "p", Some("reply"), Some(&reply)), None, "a plan's surface stays in its card");
+        assert_eq!(card_reply(&rows, "gone", Some("reply"), Some(&reply)), None);
     }
 }
