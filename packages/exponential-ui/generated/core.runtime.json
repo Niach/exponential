@@ -4470,12 +4470,18 @@
         "busy": {
           "type": "boolean",
           "default": false
+        },
+        "menuKeys": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
         }
       },
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ]
     },
     "Row": {
