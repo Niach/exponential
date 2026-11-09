@@ -1,3 +1,4 @@
+import { startSpan } from "@sentry/core"
 import "@dotenvx/dotenvx/config"
 import { promisify } from "node:util"
 import { gzip } from "node:zlib"
@@ -281,10 +282,19 @@ export async function proxyElectricRequest(
   }
   try {
     const start = performance.now()
-    const response = await proxyElectricRequestInner(
-      originUrl,
-      signal,
-      acceptEncoding
+    // #LOGS-2: the upstream call as its own span (the fetch inside is a
+    // child http.client span); a no-op while diagnostics are off.
+    const response = await startSpan(
+      {
+        name: `electric.shape ${originUrl.searchParams.get(`table`) ?? `?`}`,
+        op: `electric.proxy`,
+        attributes: { "electric.live": !isSnapshot },
+      },
+      async (span) => {
+        const res = await proxyElectricRequestInner(originUrl, signal, acceptEncoding)
+        span.setAttribute(`http.response.status_code`, res.status)
+        return res
+      }
     )
     recordElectricUpstream({
       live: !isSnapshot,

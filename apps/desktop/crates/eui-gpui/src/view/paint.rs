@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use eui_core::layout_tree::{LayerClass, NodeKind};
 use eui_core::surface::{Layer, PlacedNode};
+use gpui_component::scroll::{Scrollbar, ScrollbarAxis};
 use gpui::{canvas, div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, Div, ExternalPaths, Hsla, MouseButton, SharedString, Stateful, Window};
 use serde_json::{json, Value};
 
@@ -105,17 +106,6 @@ pub(crate) fn group_dim(mut style: PaintStyle, ink: Hsla, under: Option<Hsla>, d
     style.bg = style.bg.map(|c| c.opacity(dim));
     style.border_color = style.border_color.map(|c| c.opacity(dim));
     (style, under.blend(inked.opacity(dim)))
-}
-
-/// The scrollbar thumb `(offset, length)` along a track `len` long.
-pub fn thumb_geometry(viewport: f32, content: f32, offset: f32, len: f32) -> Option<(f32, f32)> {
-    if content <= viewport + 0.5 || viewport <= 0.0 {
-        return None;
-    }
-    let thumb = (len * viewport / content).clamp(20.0_f32.min(len), len);
-    let travel = (len - thumb).max(0.0);
-    let at = if content > viewport { travel * (offset / (content - viewport)).clamp(0.0, 1.0) } else { 0.0 };
-    Some((at, thumb))
 }
 
 impl SurfaceView {
@@ -305,7 +295,7 @@ impl SurfaceView {
         // `native: true`: the platform control paints the part itself.
         // Round 8: gpui-component's checkbox has no mixed state, so a MIXED
         // box always paints the eUI look (the dash).
-        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
+        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Checkbox", Some("box" | "checkbox")));
         let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
         // A dimmed (disabled) Button / Toggle fades as ONE layer on the web:
         // its label never shows its own fill through it. On an opaque
@@ -435,7 +425,7 @@ impl SurfaceView {
             el = el.child(self.shimmer_band(&a.name, band as f32, w, h, radii));
         }
         if let Some(s) = self.scrolls.get(&index).copied() {
-            el = self.scroll_container(el, index, n, s, w, h, ink, cx);
+            el = self.scroll_container(el, index, n, s, w, h, cx);
         }
         if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() {
             let ring = theme_color(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "ring").unwrap_or(ink.opacity(0.5));
@@ -606,10 +596,10 @@ impl SurfaceView {
     }
 
     /// A scroll container: wheel / trackpad scroll the core's offset (a
-    /// scroll at an edge chains to the host), overlay scrollbars show the
-    /// position and drag.
+    /// scroll at an edge chains to the host), the IDE's overlay scrollbar
+    /// shows the position and drags.
     #[allow(clippy::too_many_arguments)]
-    fn scroll_container(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, s: eui_core::surface::ScrollOutput, w: f32, h: f32, ink: Hsla, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn scroll_container(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, s: eui_core::surface::ScrollOutput, w: f32, h: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let overflows_y = s.scroll_y && s.content_height > h + 0.5;
         let overflows_x = s.scroll_x && s.content_width > w + 0.5;
         if !overflows_x && !overflows_y {
@@ -617,60 +607,23 @@ impl SurfaceView {
         }
         let id = n.id.clone();
         el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
-        // EXP-1555: no scrollbars at rest (the web hides them): a
-        // non-blocking overlay tracks the pointer over the container; the
-        // bars show while it hovers, scrolls or drags a thumb.
-        let hid = n.id.clone();
-        el = el.child(
+        // #EXP-1629: the IDE's own scrollbar over the container
+        // (`view/scrollbar.rs`), fed the core's offset.
+        let handle = self.scrollbars.borrow_mut().entry(n.id.clone()).or_default().clone();
+        handle.sync(index, (s.offset_x, s.offset_y), (s.content_width, s.content_height));
+        let axis = match (overflows_x, overflows_y) {
+            (true, true) => ScrollbarAxis::Both,
+            (true, false) => ScrollbarAxis::Horizontal,
+            _ => ScrollbarAxis::Vertical,
+        };
+        el.child(
             div()
-                .id(SharedString::from(format!("{}.scroll-hover", n.id)))
                 .absolute()
                 .top_0()
                 .left_0()
                 .size_full()
-                .on_hover(cx.listener(move |this, h: &bool, _, cx| this.scroll_hovered(&hid, *h, cx))),
-        );
-        if !self.scrollbars_shown(&n.id) {
-            return el;
-        }
-        let color = ink.opacity(0.28);
-        if let Some((at, len)) = overflows_y.then(|| thumb_geometry(h, s.content_height, s.offset_y, h - 4.0)).flatten() {
-            let (sid, ratio) = (n.id.clone(), (s.content_height - h) / (h - 4.0 - len).max(1.0));
-            let start = s.offset_y;
-            let bar = div()
-                .id(SharedString::from(format!("{}.scrollbar-y", n.id)))
-                .absolute()
-                .top(px(2.0 + at))
-                .w(px(6.0))
-                .h(px(len))
-                .rounded_full()
-                .bg(color)
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.scroll_drag_start(&sid, true, f32::from(ev.position.y), start, ratio, cx);
-                }));
-            el = el.child(if self.rtl { bar.left(px(2.0)) } else { bar.right(px(2.0)) });
-        }
-        if let Some((at, len)) = overflows_x.then(|| thumb_geometry(w, s.content_width, s.offset_x, w - 4.0)).flatten() {
-            let (sid, ratio) = (n.id.clone(), (s.content_width - w) / (w - 4.0 - len).max(1.0));
-            let start = s.offset_x;
-            el = el.child(
-                div()
-                    .id(SharedString::from(format!("{}.scrollbar-x", n.id)))
-                    .absolute()
-                    .bottom(px(2.0))
-                    .left(px(2.0 + at))
-                    .h(px(6.0))
-                    .w(px(len))
-                    .rounded_full()
-                    .bg(color)
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.scroll_drag_start(&sid, false, f32::from(ev.position.x), start, ratio, cx);
-                    })),
-            );
-        }
-        el
+                .child(Scrollbar::new(&handle).id(SharedString::from(format!("{}.scrollbar", n.id))).axis(axis).viewport_from_layout()),
+        )
     }
 
     /// Pointer / hover handlers of a node.
@@ -1004,11 +957,6 @@ impl SurfaceView {
             ("QrScanner", _) => self.paint_qr_scanner(&lcx, index, window, cx),
             ("Unknown", _) => natives::unknown(&lcx),
             ("Checkbox", Some("box" | "checkbox")) if style.native && !is_mixed(n) => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
-            // #EXP-1629: the native switch is THE switch the SDK's controls
-            // paint (`controls::web_switch`), so a host whose theme asks for
-            // it draws exactly its own screens' switch. No handler: the press
-            // stays the core's, and the recipe's opacity dims it.
-            ("Switch", Some("track")) if style.native => crate::controls::web_switch(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
             ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n), is_mixed(n)),
             ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked(n)),
             ("Radio", Some("dot")) => {
@@ -1974,15 +1922,6 @@ mod tests {
         assert_eq!(inherit_radii([0.0; 4], (4.0, 4.0, 192.0, 92.0), &card), [8.0; 4], "an inset child takes the radius minus the inset");
         assert_eq!(inherit_radii([0.0; 4], (20.0, 20.0, 20.0, 20.0), &card), [0.0; 4], "a child away from the corners keeps square ones");
         assert_eq!(inherit_radii([16.0, 0.0, 0.0, 0.0], (0.0, 0.0, 10.0, 10.0), &card)[0], 16.0, "its own larger radius wins");
-    }
-
-    #[test]
-    fn scrollbar_thumbs_track_the_offset() {
-        assert_eq!(thumb_geometry(100.0, 100.0, 0.0, 96.0), None);
-        let (at, len) = thumb_geometry(100.0, 400.0, 0.0, 96.0).unwrap();
-        assert_eq!((at, len), (0.0, 24.0));
-        let (at, _) = thumb_geometry(100.0, 400.0, 300.0, 96.0).unwrap();
-        assert_eq!(at, 72.0);
     }
 }
 

@@ -140,6 +140,9 @@ let sharedDependencies: [TargetDependency] = [
     .external(name: "cmark-gfm-extensions"),
     // NEW-69: the call screen draws THE VoiceWave (`VoiceWaveView`).
     .external(name: "ExponentialUIPrimitives"),
+    // #LOGS-2: crash/hang/performance reporting (`Observability.swift`), the
+    // app targets only: ExpCore and the extensions stay free of it.
+    .external(name: "Sentry"),
 ] + surfaceDependencies
 
 // ExpCore: iOS(+iPad) data/sync/domain layer. Foundation/GRDB/Security/

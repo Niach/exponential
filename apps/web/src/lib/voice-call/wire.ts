@@ -13,7 +13,7 @@ export const MAX_FRAME_BYTES = VOICE_CALL_WIRE.maxFrameBytes
 const HEADER_BYTES = 3
 
 /** One audio frame: kind, sequence, packet. */
-export function audioFrame(kind: number, seq: number, packet: Uint8Array): Uint8Array {
+export function audioFrame(kind: number, seq: number, packet: Uint8Array): Uint8Array<ArrayBuffer> {
   const frame = new Uint8Array(HEADER_BYTES + packet.length)
   frame[0] = kind
   frame[1] = (seq >> 8) & 0xff
