@@ -159,6 +159,8 @@ public final class SurfaceModel {
     /// send button draws disabled while its composer is empty, web's `:disabled`).
     var composerFillTick = 0
     @ObservationIgnored var layerReturn: [String: String] = [:]
+    /// #EXP-1629: the option under each open Select's cursor (by owner id).
+    @ObservationIgnored var selectCursor: [String: String] = [:]
     @ObservationIgnored var openLayerKeys: [String] = []
     @ObservationIgnored var justDismissed: String?
     @ObservationIgnored var hoverDelay: Task<Void, Never>?

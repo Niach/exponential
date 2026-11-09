@@ -32,6 +32,7 @@ import at.exponential.ui.model.press
 import at.exponential.ui.model.scrollTo
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
+import at.exponential.ui.model.setSelectCursor
 import at.exponential.ui.model.segmentedValues
 import at.exponential.ui.model.searchKey
 
@@ -345,6 +346,8 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
         }
         (owner == "Select" || owner == "TimePicker") && n.part == "item" -> roving(model, n, key, vertical)?.let { t ->
             model.focusRequest = model.node(t)?.id
+            // #EXP-1629: the arrows move the Select popup's cursor too.
+            if (owner == "Select") n.owner?.let { o -> model.node(t)?.let { model.setSelectCursor(o, it.id) } }
             return true
         }
         (owner == "DatePicker" || owner == "DateRangePicker") && n.part == "day" -> return calendarKey(model, n, key, shift, h)

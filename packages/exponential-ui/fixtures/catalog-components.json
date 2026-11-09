@@ -11025,6 +11025,121 @@
       }
     },
     {
+      "name": "Select/triggerVariant=field",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "field"
+        }
+      }
+    },
+    {
+      "name": "Select/triggerVariant=row",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "row"
+        }
+      }
+    },
+    {
+      "name": "Select/align=start",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "align": "start"
+        }
+      }
+    },
+    {
+      "name": "Select/align=center",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "align": "center"
+        }
+      }
+    },
+    {
+      "name": "Select/align=end",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "align": "end"
+        }
+      }
+    },
+    {
       "name": "Select/disabled=true",
       "node": {
         "id": "select",
