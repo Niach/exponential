@@ -16,25 +16,20 @@
 //! [`SignInLinkOutcome`] global. The desktop registers no passkeys (no native
 //! WebAuthn ceremony): adding one is a web errand, removing one works here.
 //!
-//! #EXP-1629: the section is a document on eUI's native host binding
-//! (`eui_gpui::binding`): the section keeps its state, [`SignInMethodsSection::project`]
-//! is its data model at `/pane`, [`document`] the tree (the IDE's bands, flat
-//! rows and outline buttons written in), and every press an action back to
-//! the section (the confirms and the change-email dialog need its window).
-//! Apple's monochrome mark and Google's full-colour "G" are the IDE's own
-//! assets, painted through the host's icon hooks ([`MarksPlugin`]).
+//! #EXP-1629: the section's bands are part of the Account pane's document
+//! ([`super::account`]): the section keeps its state and writes,
+//! [`SignInMethodsSection::project`] is its share of the data model at
+//! `/pane`, [`document`] its nodes (the IDE's bands, flat rows and outline
+//! buttons written in), and every press an action the pane hands back to
+//! [`SignInMethodsSection::action`] (the confirms and the change-email
+//! dialog need its window). Apple's monochrome mark and Google's
+//! full-colour "G" are the IDE's own assets, painted through the host's
+//! icon hooks ([`marks_plugin`]).
 
 use std::rc::Rc;
 
-use eui_gpui::{
-    binding::{Binding, BindingHost},
-    host::HostPlugin,
-    view::{SurfaceView, SurfaceViewOptions},
-};
-use gpui::{
-    div, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement as _, Render,
-    Styled as _, Subscription, Window,
-};
+use eui_gpui::host::HostPlugin;
+use gpui::{App, ClipboardItem, Entity, IntoElement as _, Styled as _, Subscription, Window};
 use gpui_component::{ActiveTheme as _, IconNamed as _};
 use serde_json::{json, Value};
 
@@ -47,15 +42,12 @@ use crate::navigation::Navigation;
 use crate::oauth::SignInLinkOutcome;
 use crate::queries;
 
-use super::doc::{and, empty_state, failed_state, hex, not, path, skeleton, IdeToasts, Ink, SM, XS};
+use super::doc::{and, empty_state, failed_state, hex, not, path, skeleton, Ink, SM, XS};
 use super::open_url;
 use super::storage::format_created_date;
 
 /// The methods band when its load failed (FEED-79: the empty state + Retry).
 const NO_SIGN_IN_METHODS: &str = "No sign-in methods";
-
-/// The data-model path the section's projection is written at.
-const PATH: &str = "/pane";
 
 /// The host icon names of the two marks the IDE paints itself.
 const MARK_APPLE: &str = "sign-in-apple";
@@ -100,13 +92,11 @@ pub struct SignInMethodsSection {
     /// The bench's web account page (headless has no team or account).
     #[cfg(test)]
     shot_manage_url: Option<String>,
-    binding: Entity<Binding<Value>>,
-    view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SignInMethodsSection {
-    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
         let outcome_seq = cx
             .try_global::<SignInLinkOutcome>()
             .map(|outcome| outcome.seq)
@@ -117,31 +107,6 @@ impl SignInMethodsSection {
             // may even have been closed and reopened since the click.
             cx.observe_global::<SignInLinkOutcome>(|this, cx| this.adopt_link_outcome(cx)),
         ];
-        // Every action leaves the binding for the section: the confirms and
-        // the change-email dialog open on its window.
-        let section = cx.weak_entity();
-        let handle = window.window_handle();
-        let binding = cx.new(|_| {
-            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
-            binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["row", "addPasskey", "copy", "retry"] {
-                let section = section.clone();
-                binding.on_action(name, move |_, event, cx| {
-                    let context = |key: &str| event.context.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
-                    let (kind, key) = (context("kind"), context("key"));
-                    let section = section.clone();
-                    // Deferred: the binding is mid-update and these write it.
-                    cx.defer(move |cx| {
-                        let _ = handle.update(cx, |_, window, cx| {
-                            let _ = section.update(cx, |section, cx| section.action(name, &kind, &key, window, cx));
-                        });
-                    });
-                    None
-                });
-            }
-            binding
-        });
-        let view = mount(document(&Ink::of(cx), &Chrome::of(cx)), &binding, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -154,8 +119,6 @@ impl SignInMethodsSection {
             retry_pressed: false,
             #[cfg(test)]
             shot_manage_url: None,
-            binding,
-            view,
             _subscriptions: subscriptions,
         }
     }
@@ -204,7 +167,7 @@ impl SignInMethodsSection {
         self.refetch(cx);
     }
 
-    fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+    pub(super) fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
         let account_id = sync::Store::global(cx)
             .session(cx)
             .account_id()
@@ -314,7 +277,7 @@ impl SignInMethodsSection {
 
     /// A document action: `row` (the `kind` of the row's button on the row
     /// `key`), `addPasskey`, `copy`, `retry`.
-    fn action(&mut self, name: &str, kind: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    pub(super) fn action(&mut self, name: &str, kind: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match (name, kind) {
             ("row", "change") => self.open_change_email(window, cx),
             ("row", "link") => {
@@ -544,7 +507,7 @@ impl SignInMethodsSection {
     }
 
     /// The state as the document binds it.
-    fn project(&self, cx: &App) -> Value {
+    pub(super) fn project(&self, cx: &App) -> Value {
         let ready = self.methods();
         let mut methods = Vec::new();
         let mut passkeys = Vec::new();
@@ -569,16 +532,6 @@ impl SignInMethodsSection {
             "copyUrl": self.copy_url.clone().unwrap_or_default(),
             "addPasskey": self.manage_url(cx).is_some(),
         })
-    }
-}
-
-impl Render for SignInMethodsSection {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "SignInMethodsSection").entered();
-        self.ensure_loaded(cx);
-        let projection = self.project(cx);
-        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
-        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
@@ -759,8 +712,10 @@ fn list(ink: &Ink, chrome: &Chrome, list: &str, visible: Value) -> Value {
         "children": [{"id": format!("{list}_wrap"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]})
 }
 
-/// The section's tree.
-fn document(ink: &Ink, chrome: &Chrome) -> Value {
+/// The section's two bands (methods, passkeys), each a node of the Account
+/// pane's column.
+pub(super) fn document(ink: &Ink, cx: &App) -> [Value; 2] {
+    let chrome = &Chrome::of(cx);
     // Opener degradation: the caption over the URL in its hairline box
     // (`px_2` / `py_1`, `text_xs` muted, clipped) and the Copy pill.
     let mut caption = ink.text("copy_caption", json!("Couldn't open your browser. Open this link manually:"), SM, &ink.muted);
@@ -798,9 +753,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
         empty_state(ink, "passkeys_empty", "auth-passkey", crate::empty_state_copy::PASSKEYS, path("/pane/noPasskeys")),
         skeleton("passkeys_skeleton", path("/pane/loading")),
     ]);
-    // The two sections, `gap_6` apart.
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%"},
-        "children": [methods, passkeys]})
+    [methods, passkeys]
 }
 
 /// The IDE's plugin, plus the two sign-in marks it paints itself: Apple's
@@ -828,29 +781,9 @@ impl HostPlugin for MarksPlugin {
     }
 }
 
-/// The section's document as a [`SurfaceView`] in the Exponential theme, its
-/// actions routed to `binding`, everything else to [`MarksPlugin`].
-fn mount(tree: Value, binding: &Entity<Binding<Value>>, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
-    let ide: Rc<dyn HostPlugin> = Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None });
-    let inner: Rc<dyn HostPlugin> = Rc::new(MarksPlugin(ide));
-    let host: Rc<dyn HostPlugin> = Rc::new(BindingHost::new(binding, inner));
-    let options = SurfaceViewOptions {
-        surface_id: "settings-sign-in-methods".into(),
-        theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
-        mode: eui_core::theme::Mode::Dark,
-        host,
-        settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
-        ..Default::default()
-    };
-    let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("the sign-in methods document parses");
-    let view = cx.new(|cx| {
-        let mut view = SurfaceView::new(options, window, cx);
-        let outcome = view.set_nested(tree, cx);
-        debug_assert!(outcome.issues.is_empty(), "the sign-in methods document: {:?}", outcome.issues);
-        view
-    });
-    binding.update(cx, |binding, cx| binding.attach(&view, cx));
-    view
+/// The IDE's plugin with the two sign-in marks.
+pub(super) fn marks_plugin() -> Rc<dyn HostPlugin> {
+    Rc::new(MarksPlugin(Rc::new(super::doc::ide_plugin())))
 }
 
 /// Web copy, word for word (`sign-in-methods-section.tsx`).
