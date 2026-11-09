@@ -645,6 +645,62 @@ function wideTableProps(): Record<string, unknown> {
   }
 }
 
+/** FEED-202: the Autotax Expenses screen's ledger: dd.MM.yy dates, EUR
+ *  amounts, an EÜR category and the receipt status. */
+const EXPENSES = [
+  { id: `e1`, date: `2026-11-03`, vendor: `Hetzner Online`, euer_line: `software`, receipt_status: `booked`, net: 38.66, vat: 7.73, gross: 46.39, updatedAt: `2026-11-04T09:12:00Z` },
+  { id: `e2`, date: `2026-10-28`, vendor: `ÖBB Ticket`, euer_line: `travel`, receipt_status: `received`, net: 74.17, vat: 7.42, gross: 81.59, updatedAt: `2026-10-29T17:40:00Z` },
+  { id: `e3`, date: `2026-10-21`, vendor: `Libro`, euer_line: `office`, receipt_status: `missing`, net: 20.75, vat: 4.15, gross: 24.9, updatedAt: `2026-10-21T11:05:00Z` },
+]
+
+/** FEED-202: a Table with its sum row (`totals`). */
+function totalsTableProps(): Record<string, unknown> {
+  return {
+    columns: [
+      { key: `vendor`, label: `Vendor` },
+      { key: `date`, label: `Date`, type: `date`, format: `dd.MM.yy`, width: 104 },
+      { key: `net`, label: `Net`, type: `currency`, currency: `EUR`, decimals: 2, align: `end`, width: 96 },
+      { key: `gross`, label: `Gross`, type: `currency`, currency: `EUR`, decimals: 2, align: `end`, width: 96 },
+    ],
+    rows: EXPENSES,
+    totals: true,
+  }
+}
+
+/** FEED-202: the host-filled RecordTable of an `expense` kind (columns =
+ *  date dd.MM.yy, vendor, euer_line as Category, receipt_status as Receipt,
+ *  net / vat / gross in EUR; search, the receipt_status filter, totals). */
+function expensesRecordTableProps(): Record<string, unknown> {
+  const eur = { type: `currency`, align: `end`, currency: `EUR`, decimals: 2, width: 96, sortable: true }
+  return {
+    kind: `expense`,
+    title: `Expenses`,
+    search: true,
+    searchValue: ``,
+    filterLabel: `Receipt status`,
+    filterOptions: [{ label: `$string.all`, value: `` }, ...[`missing`, `received`, `booked`].map((v) => ({ label: v, value: v }))],
+    filterValue: ``,
+    totals: true,
+    cols: [
+      { key: `date`, label: `Date`, sortable: true, type: `date`, format: `dd.MM.yy`, width: 104 },
+      { key: `vendor`, label: `Vendor`, sortable: true, truncate: true },
+      { key: `euer_line`, label: `Category`, sortable: true, truncate: true },
+      { key: `receipt_status`, label: `Receipt`, sortable: true, truncate: true },
+      { key: `net`, label: `Net`, ...eur },
+      { key: `vat`, label: `VAT`, ...eur },
+      { key: `gross`, label: `Gross`, ...eur },
+      { key: `updatedAt`, label: `Updated`, type: `relativeTime`, width: 136, sortable: true },
+      { key: `menu`, label: ``, type: `slot`, slot: `menu`, width: 80 },
+    ],
+    rows: EXPENSES,
+    count: `3 records`,
+    fields: [],
+    path: `/recordTable/expenses/editor/draft`,
+    editorOpen: false,
+    deleteOpen: false,
+  }
+}
+
 /** Every visible component: its example, then every enum value of every enum
  *  prop and both values of every boolean prop, over the example, then its
  *  STATE_CASES. */
@@ -1078,6 +1134,15 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Table: [{
     label: `wide · scrolls`,
     node: { id: `wide`, component: `Table`, props: wideTableProps() },
+  }, {
+    label: `totals · dd.MM.yy · EUR`,
+    node: { id: `totals`, component: `Table`, props: totalsTableProps() },
+  }],
+  // FEED-202: the Autotax Expenses screen: column objects, search, the
+  // receipt_status filter and the totals row.
+  RecordTable: [{
+    label: `Autotax Expenses · search · filter · totals`,
+    node: { id: `expenses`, component: `RecordTable`, props: expensesRecordTableProps() },
   }],
   // VAPP-279: the strip (the IDE's work tabs): icons, the active one, the
   // close glyph on hover / always, the +, and a narrow strip folding into `+N`.
@@ -1100,6 +1165,9 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     node: { id: `search`, component: `Input`, props: { name: `q`, label: ``, type: `search`, placeholder: `Search` } },
   }],
 }
+
+/** FEED-202: specimens wider than 720 (the Expenses ledger's columns). */
+const SPECIMEN_MAX_WIDTH: Record<string, number> = { RecordTable: 1040 }
 
 /** VAPP-162: specimens whose cases sit side by side and wrap: the root's
  *  style and each case's (a phone-like CallSurface column, 360 at most, the
@@ -1245,7 +1313,7 @@ function specimenNode(name: string, all: ComponentCase[]): NestedNode {
     component: `Box`,
     style: wrap
       ? { display: `flex`, flexDirection: `row`, flexWrap: `wrap`, alignItems: `flex-start`, gap: `$spacing.lg`, padding: `$spacing.xl` }
-      : { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
+      : { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: SPECIMEN_MAX_WIDTH[name] ?? 720 },
     children: specimenCases(name, all).map((c, i) => ({
       id: `${root}-case-${i}`,
       component: `Stack`,

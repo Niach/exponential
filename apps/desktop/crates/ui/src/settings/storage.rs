@@ -22,16 +22,13 @@
 //! table never blocks on it, and the self-hosted `unlimited` plan renders no
 //! bar at all (web parity: `plan !== 'unlimited'`).
 
-use gpui::{
-    div, AnyElement, App, Entity,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
-};
-use gpui_component::{
-    button::ButtonVariant,
-    h_flex,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use std::rc::Rc;
+
+use eui_gpui::{binding::Binding, view::SurfaceView};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window};
+use gpui_component::{button::ButtonVariant, ActiveTheme as _};
+use serde_json::{json, Value};
+
 use crate::toast::Toast;
 use sync::Store;
 
@@ -45,7 +42,7 @@ use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{section, settings_skeleton};
+use super::doc::{and, empty_state, failed_state, hex, mount, not, path, skeleton, IdeToasts, Ink, SM, XS};
 
 struct Loaded {
     list: Result<AttachmentsListForTeamOutput, String>,
@@ -75,11 +72,17 @@ pub struct StoragePane {
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on open or after a write fails quietly.
     retry_pressed: bool,
+    /// #EXP-1629: the pane's document and the binding its projection rides.
+    view: Entity<SurfaceView>,
+    binding: Entity<Binding<Value>>,
+    /// The pictures' team (`settings_bench`).
+    #[cfg(test)]
+    shot_team: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl StoragePane {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // The list itself is a server read; the issue-identifier and
         // uploaded-by joins read the synced issues/users collections, so a
         // sync delta re-renders the rows.
@@ -89,6 +92,44 @@ impl StoragePane {
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
         ];
+        // The actions leave the binding for the pane: a delete or a sweep
+        // confirms in a native alert, a preview opens over the window.
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["retry", "sweep", "delete", "issue", "preview"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| match name {
+                                "retry" => pane.retry_load(cx),
+                                "sweep" => {
+                                    let candidates = match &pane.load {
+                                        Load::Ready(Loaded { list: Ok(list), .. }) => list.attachments.iter().filter(|row| row.is_image && !row.referenced).count(),
+                                        _ => 0,
+                                    };
+                                    if candidates > 0 && !pane.busy {
+                                        pane.confirm_sweep(candidates, window, cx);
+                                    }
+                                }
+                                _ => pane.row_action(name, &key, window, cx),
+                            });
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let theme = cx.theme();
+        let (track, list_hover) = (hex(theme.muted.opacity(0.35)), hex(theme.list_hover));
+        let view = mount("settings-storage", document(&Ink::of(cx), &track, &list_hover), &binding, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -97,6 +138,10 @@ impl StoragePane {
             generation: 0,
             busy: false,
             retry_pressed: false,
+            view,
+            binding,
+            #[cfg(test)]
+            shot_team: None,
             _subscriptions: subscriptions,
         }
     }
@@ -316,360 +361,252 @@ impl StoragePane {
         open_alert(window, cx, spec);
     }
 
-    /// One attachment row: type icon, filename, size, owning issue
-    /// identifier, uploader, created date, status chip, delete. Identifier
-    /// and uploader join from the synced collections — a trashed board's
-    /// issues are out of sync and widget screenshots have no uploader, so
-    /// those cells read a dash (web parity).
-    fn render_row(
-        &self,
-        row: &TeamAttachmentRow,
-        identifier: Option<String>,
-        uploader: Option<String>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let muted = cx.theme().muted_foreground;
-        let status = attachment_status(row.is_image, &row.content_type, row.referenced);
-        let row_for_delete = row.clone();
-
-        // Image filenames open the in-app lightbox (EXP-316) — same
-        // `open_image_preview` path as the editor's attachment chips;
-        // markdown filenames open the in-app preview (EXP-1003, web parity).
-        let attachment_url = format!("/api/attachments/{}", row.id);
-        let markdown = is_markdown_attachment(Some(&row.content_type), Some(&row.filename));
-        let previewable = (row.is_image || markdown)
-            && queries::absolute_api_url(cx, &attachment_url).is_some();
-        let filename_cell: AnyElement = if previewable {
-            let label = row.filename.clone();
-            let markdown_target = markdown.then(|| MarkdownPreviewTarget {
-                attachment_id: row.id.clone(),
-                filename: row.filename.clone(),
-                size_bytes: row.size_bytes,
-                team_id: active_team_id(&self.nav, cx),
-            });
-            div()
-                .id(SharedString::from(format!("storage-preview-{}", row.id)))
-                .role(gpui::Role::Button)
-                .aria_label(SharedString::from(row.filename.clone()))
-                .min_w_0()
-                .text_sm()
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .cursor_pointer()
-                .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-                .on_click(move |_, window, cx| match &markdown_target {
-                    Some(target) => open_markdown_preview(target.clone(), window, cx),
-                    None => crate::image_preview::open_image_preview(
-                        attachment_url.clone(),
-                        label.clone(),
-                        None,
-                        None,
-                        window,
-                        cx,
-                    ),
-                })
-                .child(SharedString::from(row.filename.clone()))
-                .into_any_element()
-        } else {
-            div()
-                .min_w_0()
-                .text_sm()
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(SharedString::from(row.filename.clone()))
-                .into_any_element()
-        };
-
-        // The owning issue as the web cell's mono ACTION pill, `#IDENT`
-        // (web `<Pill mode="action" className="font-mono">#{identifier}`,
-        // EXP-1557: the status-glyph issue chip it wore read as a different
-        // component) — clicking leaves Settings for the issue's detail
-        // screen. Unresolved identifiers (trashed board, not yet synced)
-        // stay a dash.
-        let issue_cell: AnyElement = match identifier {
-            Some(identifier) => {
-                let issue_id = row.issue_id.clone();
-                crate::surface::glass_pill(
-                    SharedString::from(format!("storage-issue-{}", row.id)),
-                    crate::surface::PillSize::Sm,
-                    crate::surface::PillMode::Action,
-                    cx,
-                )
-                .font_family(cx.theme().mono_font_family.clone())
-                .child(SharedString::from(format!("#{identifier}")))
-                .on_click(move |_, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::IssueDetail {
-                            issue_id: issue_id.clone(),
-                        },
-                    );
-                })
-                .into_any_element()
-            }
-            None => div()
-                .text_xs()
-                .text_color(muted)
-                .child("—")
-                .into_any_element(),
-        };
-
-        // EXP-1076: an attachment is an ENTITY, so the list is the hairline
-        // LADDER (`list_row` + `flat_row`, the web `SETTINGS_LIST_CLASS`
-        // twin) rather than the inset-grouped block a form's fields wear.
-        // The cells stay a fixed GRID inside the row — every column but the
-        // filename carries a definite width, so size/issue/author/date/status
-        // stack in straight columns instead of each row laying its own cells
-        // out around its own content (which is what made the table zig-zag).
-        crate::surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Icon::from(icon_for_content_type(Some(&row.content_type)))
-                            .xsmall()
-                            .text_color(muted)
-                            .flex_shrink_0(),
-                    )
-                    .child(filename_cell),
-            )
-            .child(
-                div()
-                    .w(gpui::px(STORAGE_COL_SIZE))
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(format_bytes(row.size_bytes))),
-            )
-            .child(
-                h_flex()
-                    .w(gpui::px(STORAGE_COL_ISSUE))
-                    .flex_shrink_0()
-                    .child(issue_cell),
-            )
-            .child(
-                div()
-                    .w(gpui::px(STORAGE_COL_AUTHOR))
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(SharedString::from(uploader.unwrap_or_else(|| "—".to_string()))),
-            )
-            .child(
-                div()
-                    .w(gpui::px(STORAGE_COL_DATE))
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .whitespace_nowrap()
-                    .child(SharedString::from(format_created_date(&row.created_at))),
-            )
-            .child(
-                h_flex()
-                    .w(gpui::px(STORAGE_COL_STATUS))
-                    .flex_shrink_0()
-                    .child(status_chip(
-                        SharedString::from(format!("storage-status-{}", row.id)),
-                        status,
-                        cx,
-                    )),
-            )
-            .child(
-                // EXP-862: a row's trash is a GHOST glyph, never a circle.
-                crate::controls::ghost_icon_button(
-                    SharedString::from(format!("storage-delete-{}", row.id)),
-                    Icon::from(ExpIcon::Trash2),
-                    cx,
-                )
-                    .accessibility_label(format!("Delete {}", row.filename))
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_delete(&row_for_delete, window, cx);
-                    })),
-            )
+    /// The team the pane shows (the pictures pin one: the headless store
+    /// syncs none).
+    fn team_id(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(team) = &self.shot_team {
+            return Some(team.clone());
+        }
+        active_team_id(&self.nav, cx)
     }
-}
 
-impl Render for StoragePane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
-                crate::empty_state_copy::NO_TEAM_SELECTED,
-                cx,
-            ));
-        };
-        self.ensure_loaded(&team_id, cx);
-
-        // Web parity: the bulk Sweep rides the band's trailing slot; there
-        // is no Refresh — the list fetches on open and refetches after every
-        // delete and sweep.
-        let candidates = match &self.load {
-            Load::Ready(Loaded { list: Ok(list), .. }) => list
-                .attachments
-                .iter()
-                .filter(|row| row.is_image && !row.referenced)
-                .count(),
-            _ => 0,
-        };
-        let sweep_label = if candidates > 0 {
-            format!("Sweep unreferenced images ({candidates})")
-        } else {
-            "Sweep unreferenced images".to_string()
-        };
-        let sweep = crate::surface::glass_pill_button(
-            "storage-sweep",
-            crate::surface::PillSize::Sm,
-            cx,
-        )
-        .icon(Icon::from(crate::icons::registry::UI_CLEAN).xsmall())
-        .label(SharedString::from(sweep_label))
-        .disabled(candidates == 0 || self.busy)
-        .on_click(cx.listener(move |this, _, window, cx| {
-            this.confirm_sweep(candidates, window, cx);
-        }))
-        .into_any_element();
-        let mut body = section(cx).child(crate::surface::glass_section_header(
-            "Storage",
-            Some(sweep),
-            cx,
-        ));
-
+    /// The pane as the document binds it; the issue identifier and the
+    /// uploader join from the synced issues/users collections — a trashed
+    /// board's issues are out of sync and widget screenshots have no
+    /// uploader, so those cells read a dash (web parity).
+    fn project(&self, team: bool, cx: &App) -> Value {
+        let mut out = json!({"noTeam": !team, "loading": false, "failed": false, "ready": false, "busy": self.busy, "empty": false, "rows": [], "hasMeter": false, "meter": Value::Null, "summary": "", "candidates": 0});
+        if !team {
+            return out;
+        }
         match &self.load {
-            Load::Idle | Load::Loading => {
-                body = body.child(settings_skeleton("storage-skeleton", cx));
-            }
-            // A failed load (FEED-79): the empty state + Retry, no toast.
-            Load::Ready(Loaded { list: Err(_), .. }) => {
-                body = body.child(crate::action_error::load_failed_state(
-                    "storage-retry",
-                    gpui_component::Icon::new(crate::icons::registry::UI_ATTACH),
-                    crate::empty_state_copy::ATTACHMENTS,
-                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                    cx,
-                ));
-            }
-            Load::Ready(Loaded {
-                list: Ok(list),
-                plan,
-            }) => {
+            Load::Idle | Load::Loading => out["loading"] = json!(true),
+            Load::Ready(Loaded { list: Err(_), .. }) => out["failed"] = json!(true),
+            Load::Ready(Loaded { list: Ok(list), plan }) => {
+                out["ready"] = json!(true);
                 // Web `UsageBar`: shown for every billed plan (`plan !==
                 // 'unlimited'`); a null storage limit reads "… / unlimited"
                 // with no track. Self-hosted (`unlimited`) and a failed
                 // billing probe render no meter at all — the totalBytes
                 // summary below always carries the usage.
-                let meter = plan
-                    .as_ref()
-                    .filter(|plan| plan.plan != "unlimited")
-                    .map(|plan| {
-                        super::usage_bar(
-                            "Attachment storage",
-                            super::format_storage(plan.usage.storage_mb),
-                            plan.limits.storage_mb.map(super::format_storage),
-                            plan.limits
-                                .storage_mb
-                                .filter(|limit| *limit > 0.)
-                                .map(|limit| plan.usage.storage_mb / limit),
-                            cx,
-                        )
-                    });
-                let rows = list.attachments.clone();
-                let total_bytes = list.total_bytes;
+                if let Some(plan) = plan.as_ref().filter(|plan| plan.plan != "unlimited") {
+                    let current = super::format_storage(plan.usage.storage_mb);
+                    let amount = match plan.limits.storage_mb.map(super::format_storage) {
+                        Some(limit) => format!("{current} / {limit}"),
+                        None => format!("{current} / unlimited"),
+                    };
+                    let fraction = plan.limits.storage_mb.filter(|limit| *limit > 0.).map(|limit| (plan.usage.storage_mb / limit).clamp(0., 1.));
+                    out["hasMeter"] = json!(true);
+                    out["meter"] = json!({"amount": amount, "track": fraction.is_some(), "width": format!("{}%", fraction.unwrap_or(0.) * 100.)});
+                }
+                let rows = &list.attachments;
                 // EXP-878 / EXP-1557: draft files are private and never
                 // listed, but they are the team's bytes — the summary names
                 // them like web's "(incl. … in unsaved drafts)".
-                let drafts = (list.draft_bytes > 0).then(|| {
-                    format!(" (incl. {} in unsaved drafts)", format_bytes(list.draft_bytes))
-                });
+                let drafts = (list.draft_bytes > 0).then(|| format!(" (incl. {} in unsaved drafts)", format_bytes(list.draft_bytes))).unwrap_or_default();
                 let plural = if rows.len() == 1 { "" } else { "s" };
-
-                body = body.children(meter);
-
-                // The usage summary line (the sweep sits in the band).
-                body = body.child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(format!(
-                            "{} attachment{plural} · {}{}",
-                            rows.len(),
-                            format_bytes(total_bytes),
-                            drafts.unwrap_or_default()
-                        ))),
-                );
-
-                if rows.is_empty() {
-                    body = body.child(crate::controls::empty_state_list(
-                        gpui_component::Icon::new(crate::icons::registry::UI_ATTACH),
-                        crate::empty_state_copy::ATTACHMENTS,
-                        cx,
-                    ));
-                } else {
-                    let collections = Store::global(cx).collections().clone();
-                    let joins: Vec<(Option<String>, Option<String>)> = {
-                        let issues = collections.issues.read(cx);
-                        let users = collections.users.read(cx);
-                        rows.iter()
-                            .map(|row| {
-                                let identifier = issues
-                                    .get(&row.issue_id)
-                                    .map(|issue| issue.identifier.clone());
-                                // Web parity: `uploader?.name || uploader?.
-                                // email || —` — a null uploader_id (widget
-                                // screenshots) or an unsynced user row reads
-                                // a dash.
-                                let uploader = row
-                                    .uploader_id
-                                    .as_deref()
-                                    .and_then(|id| users.get(id))
-                                    .and_then(|user| {
-                                        user.name
-                                            .clone()
-                                            .filter(|name| !name.is_empty())
-                                            .or_else(|| {
-                                                user.email
-                                                    .clone()
-                                                    .filter(|email| !email.is_empty())
-                                            })
-                                    });
-                                (identifier, uploader)
-                            })
-                            .collect()
-                    };
-                    // EXP-1076: the gapless ladder under the band.
-                    let list: Vec<gpui::Div> = rows
-                        .iter()
-                        .zip(joins.into_iter())
-                        .map(|(row, (identifier, uploader))| {
-                            crate::surface::list_row(
-                                self.render_row(row, identifier, uploader, cx),
-                            )
+                out["summary"] = json!(format!("{} attachment{plural} · {}{drafts}", rows.len(), format_bytes(list.total_bytes)));
+                out["empty"] = json!(rows.is_empty());
+                out["candidates"] = json!(rows.iter().filter(|row| row.is_image && !row.referenced).count());
+                let collections = Store::global(cx).collections();
+                let issues = collections.issues.read(cx);
+                let users = collections.users.read(cx);
+                out["rows"] = rows
+                    .iter()
+                    .map(|row| {
+                        let identifier = issues.get(&row.issue_id).map(|issue| format!("#{}", issue.identifier));
+                        // Web parity: `uploader?.name || uploader?.email || —`.
+                        let uploader = row
+                            .uploader_id
+                            .as_deref()
+                            .and_then(|id| users.get(id))
+                            .and_then(|user| user.name.clone().filter(|name| !name.is_empty()).or_else(|| user.email.clone().filter(|email| !email.is_empty())));
+                        // Image filenames open the in-app lightbox (EXP-316),
+                        // markdown ones the in-app preview (EXP-1003).
+                        let markdown = is_markdown_attachment(Some(&row.content_type), Some(&row.filename));
+                        let previewable = (row.is_image || markdown) && queries::absolute_api_url(cx, &format!("/api/attachments/{}", row.id)).is_some();
+                        json!({
+                            "key": row.id,
+                            "icon": icon_name(Some(&row.content_type)),
+                            "filename": row.filename,
+                            "deleteLabel": format!("Delete {}", row.filename),
+                            "previewable": previewable,
+                            "size": format_bytes(row.size_bytes),
+                            "hasIssue": identifier.is_some(),
+                            "identifier": identifier.unwrap_or_default(),
+                            "author": uploader.unwrap_or_else(|| "—".to_string()),
+                            "date": format_created_date(&row.created_at),
+                            "status": attachment_status(row.is_image, &row.content_type, row.referenced),
                         })
-                        .collect();
-                    body = body.child(v_flex().w_full().min_w_0().children(list));
-                }
+                    })
+                    .collect();
             }
         }
+        let candidates = out["candidates"].as_u64().unwrap_or(0);
+        out["sweepLabel"] = json!(if candidates > 0 { format!("Sweep unreferenced images ({candidates})") } else { "Sweep unreferenced images".to_string() });
+        out["sweepDisabled"] = json!(candidates == 0 || self.busy);
+        out
+    }
 
-        v_flex().child(body)
+    /// A row action (`preview`, `issue`, `delete`) on the attachment `key`.
+    fn row_action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Load::Ready(Loaded { list: Ok(list), .. }) = &self.load else { return };
+        let Some(row) = list.attachments.iter().find(|row| row.id == key).cloned() else { return };
+        match name {
+            "delete" if !self.busy => self.confirm_delete(&row, window, cx),
+            // The owning issue's pill leaves Settings for its detail screen.
+            "issue" => crate::navigation::navigate(window, cx, crate::navigation::Screen::IssueDetail { issue_id: row.issue_id.clone() }),
+            "preview" => {
+                let url = format!("/api/attachments/{}", row.id);
+                if is_markdown_attachment(Some(&row.content_type), Some(&row.filename)) {
+                    let target = MarkdownPreviewTarget { attachment_id: row.id.clone(), filename: row.filename.clone(), size_bytes: row.size_bytes, team_id: active_team_id(&self.nav, cx) };
+                    open_markdown_preview(target, window, cx);
+                } else {
+                    crate::image_preview::open_image_preview(url, row.filename.clone(), None, None, window, cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = crate::navigation::nav_for_window(window, cx);
+        Self::new(nav, window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, load: ShotLoad, cx: &mut gpui::Context<Self>) {
+        self.shot_team = Some("team-shots".into());
+        self.loaded_team = self.shot_team.clone();
+        self.account_id = Store::global(cx).session(cx).account_id().map(str::to_string);
+        self.load = Load::Ready(match load {
+            ShotLoad::Ready(list, plan) => Loaded { list: Ok(list), plan },
+            ShotLoad::Failed => Loaded { list: Err("offline".into()), plan: None },
+        });
+        cx.notify();
+    }
+}
+
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) enum ShotLoad {
+    Ready(AttachmentsListForTeamOutput, Option<TeamPlanOut>),
+    Failed,
+}
+
+/// [`icon_for_content_type`]'s glyph by name (the document's `Icon`).
+fn icon_name(content_type: Option<&str>) -> &'static str {
+    match icon_for_content_type(content_type) {
+        ExpIcon::Image => "image",
+        ExpIcon::Play => "play",
+        ExpIcon::FileText => "file-text",
+        ExpIcon::Package => "package",
+        _ => "file",
+    }
+}
+
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// The pane's tree: the band with the Sweep pill, the usage meter, the
+/// summary line, then the attachment ladder (EXP-1076: an attachment is an
+/// ENTITY, so flat gapless rows under the band, each a fixed GRID of cells
+/// — every column but the filename carries a definite width so the columns
+/// line up down the list) or the skeleton / failed / empty states.
+fn document(ink: &Ink, track: &str, list_hover: &str) -> Value {
+    let sweep = ink.pill_button("sweep", Some("ui-clean"), path("/pane/sweepLabel"), path("/pane/sweepDisabled"), json!({"name": "sweep"}));
+    let sweep = json!({"id": "sweep_slot", "component": "Box", "style": {"display": "flex", "flexShrink": 0}, "children": sweep});
+    let band = ink.band("band", "Storage", Some(sweep));
+
+    // Web `UsageBar` (`settings::usage_bar`): label left, "current / limit"
+    // right (`gap_1` over a 6px capsule track).
+    let meter = json!({"id": "meter", "component": "Box", "visible": path("/pane/hasMeter"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25)},
+        "children": [
+            {"id": "meter_head", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "space-between"},
+                "children": [ink.text("meter_label", json!("Attachment storage"), SM, &ink.foreground), ink.text("meter_amount", path("/pane/meter/amount"), XS, &ink.muted)]},
+            {"id": "meter_track", "component": "Box", "visible": path("/pane/meter/track"), "style": {"height": 6, "width": "100%", "borderRadius": 9999, "backgroundColor": track},
+                "children": [{"id": "meter_fill", "component": "Box", "style": {"height": "100%", "width": path("/pane/meter/width"), "borderRadius": 9999, "backgroundColor": ink.primary}}]},
+        ]});
+    let mut summary = ink.text("summary", path("/pane/summary"), SM, &ink.muted);
+    summary["visible"] = path("/pane/ready");
+    summary["style"]["width"] = json!("100%");
+    summary["style"]["minWidth"] = json!(0);
+
+    let cell = |id: &str, width: f32, child: Value| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": width, "flexShrink": 0}, "children": [child]});
+    let muted = |id: &str, text: Value, width: f32| {
+        let mut t = ink.text(id, text, XS, &ink.muted);
+        t["props"]["lines"] = json!(1);
+        t["style"]["width"] = json!(width);
+        t["style"]["flexShrink"] = json!(0);
+        t
+    };
+    let filename = |id: &str, press: bool| {
+        let mut t = ink.text(id, path("filename"), SM, &ink.foreground);
+        t["props"]["lines"] = json!(1);
+        t["style"]["minWidth"] = json!(0);
+        t["style"]["flexShrink"] = json!(1);
+        if press {
+            t["style"]["cursor"] = json!("pointer");
+            t["style"][":hover"] = json!({"backgroundColor": ink.fill_active});
+            json!({"id": format!("{id}_press"), "component": "Box", "visible": path("previewable"), "props": {"pressable": true}, "accessibility": {"label": path("filename")}, "on": {"press": {"event": {"name": "preview", "context": {"key": path("key")}}}}, "style": {"display": "flex", "minWidth": 0, "flexShrink": 1}, "children": [t]})
+        } else {
+            t["visible"] = not(path("previewable"));
+            t
+        }
+    };
+    let mut dash = ink.text("row_issue_none", json!("—"), XS, &ink.muted);
+    dash["visible"] = not(path("hasIssue"));
+    let mut issue = ink.pill("row_issue_pill", path("identifier"), true, Some(json!({"name": "issue", "context": {"key": path("key")}})));
+    issue["visible"] = path("hasIssue");
+    let row = json!({"id": "row", "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": [
+            {"id": "row_lead", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "gap": ink.r(0.5)},
+                "children": [
+                    {"id": "row_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": ink.r(0.75), "height": ink.r(0.75), "color": ink.muted, "flexShrink": 0}},
+                    filename("row_file", true),
+                    filename("row_file_plain", false),
+                ]},
+            muted("row_size", path("size"), COL_SIZE),
+            {"id": "row_issue", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": COL_ISSUE, "flexShrink": 0}, "children": [issue, dash]},
+            muted("row_author", path("author"), COL_AUTHOR),
+            muted("row_date", path("date"), COL_DATE),
+            cell("row_status", COL_STATUS, ink.pill("row_status_pill", path("status"), false, None)),
+            // EXP-862: a row's trash is a GHOST glyph, never a circle.
+            // a11y: named by the caller ("Delete <filename>", the node's accessibility label).
+            ink.ghost_icon_button("row_delete", "trash-2", path("deleteLabel"), json!({"name": "delete", "context": {"key": path("key")}}), list_hover),
+        ]});
+    let rows = json!({"id": "rows", "component": "List", "visible": and(path("/pane/ready"), not(path("/pane/empty"))), "props": {"gap": "none"},
+        "template": {"component": "row_wrap", "path": "/pane/rows", "key": "key"},
+        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]});
+
+    let section = json!({"id": "section", "component": "Box", "visible": not(path("/pane/noTeam")), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
+        "children": [
+            band,
+            skeleton("skeleton", path("/pane/loading")),
+            // A failed load (FEED-79): the empty state + Retry, no toast.
+            failed_state(ink, "failed", "ui-attach", crate::empty_state_copy::ATTACHMENTS, path("/pane/failed")),
+            meter,
+            summary,
+            empty_state(ink, "empty", "ui-attach", crate::empty_state_copy::ATTACHMENTS, and(path("/pane/ready"), path("/pane/empty"))),
+            rows,
+        ]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [section, empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]})
+}
+
+impl Render for StoragePane {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "StoragePane").entered();
+        let team = self.team_id(cx);
+        if let Some(team_id) = &team {
+            self.ensure_loaded(team_id, cx);
+        }
+        let projection = self.project(team.is_some(), cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
@@ -678,16 +615,16 @@ impl Render for StoragePane {
 // down the list. The widths are the widest realistic content plus a little
 // air: "403.2 KB", "#APP-123", "Aug 30, 2026", "Unreferenced".
 /// Size cell.
-const STORAGE_COL_SIZE: f32 = 80.;
+const COL_SIZE: f32 = 80.;
 /// The `#IDENT` chip cell.
-const STORAGE_COL_ISSUE: f32 = 120.;
+const COL_ISSUE: f32 = 120.;
 /// Uploader cell (ellipsised).
-const STORAGE_COL_AUTHOR: f32 = 120.;
+const COL_AUTHOR: f32 = 120.;
 /// Created-date cell.
-const STORAGE_COL_DATE: f32 = 90.;
+const COL_DATE: f32 = 90.;
 /// Status-chip cell — fixed so the trailing delete button never zig-zags
 /// with the chip's label length.
-const STORAGE_COL_STATUS: f32 = 104.;
+const COL_STATUS: f32 = 104.;
 
 /// The row's status label (web parity): "File" for anything that is not an
 /// image, a video or audio; otherwise "In use" / "Unreferenced".
@@ -702,12 +639,6 @@ fn attachment_status(is_image: bool, content_type: &str, referenced: bool) -> &'
     } else {
         "Unreferenced"
     }
-}
-
-/// The status chip = the shared small READONLY glass pill (web `Pill`).
-fn status_chip(id: SharedString, label: &'static str, cx: &App) -> impl IntoElement {
-    use crate::surface::{PillMode, PillSize};
-    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx).child(label)
 }
 
 /// Web `formatDate` ("Jul 1, 2026"): month + day + year of the timestamp in

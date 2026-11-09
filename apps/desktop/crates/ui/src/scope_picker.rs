@@ -320,6 +320,7 @@ impl ScopePicker {
 
 impl Render for ScopePicker {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ScopePicker").entered();
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         v_flex()

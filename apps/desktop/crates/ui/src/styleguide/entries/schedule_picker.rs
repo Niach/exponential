@@ -45,6 +45,7 @@ impl SchedulePickerDemo {
 
 impl Render for SchedulePickerDemo {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SchedulePickerDemo").entered();
         surface::glass_group_rows(self.schedule.render_rows(
             "sg-schedule",
             |view: &mut Self| &mut view.schedule,
@@ -80,6 +81,7 @@ mod tests {
 
         impl Render for Host {
             fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Host").entered();
                 div().child(render(window, cx))
             }
         }

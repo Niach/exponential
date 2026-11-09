@@ -290,6 +290,7 @@ impl MarkdownPreview {
 
 impl Render for MarkdownPreview {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MarkdownPreview").entered();
         let (attachment_id, label) = (self.target.attachment_id.clone(), self.target.save_label());
         v_flex()
             .size_full()

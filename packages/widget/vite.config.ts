@@ -8,7 +8,7 @@ import { legalBanner } from "./src/legal-banner"
 // so Nitro serves them in dev and copies them into .output/public for prod.
 const outDir = resolve(__dirname, `../../apps/web/public/widget/v1`)
 
-// Two-pass build (`vite build` then `vite build --mode loader`): Rollup's
+// Two-pass build (`vite build` then `vite build --mode loader`): Rolldown's
 // IIFE output does not support multiple entries in one pass. IIFE (classic
 // scripts, not ESM) is deliberate — module scripts are always fetched in CORS
 // mode on third-party pages, which is an avoidable failure class.
@@ -40,16 +40,14 @@ export default defineConfig(({ mode }) => {
         formats: [`iife`],
         fileName: () => (isLoader ? `loader.js` : `widget.js`),
       },
-      rollupOptions: {
-        output: { inlineDynamicImports: true, banner: legalBanner },
+      rolldownOptions: {
+        // `postBanner` lands AFTER minification, so the notices survive
+        // whatever the minifier does with comments: a bundle served to third
+        // parties must not lose them to a default changing underneath us
+        // (EXP-377).
+        output: { codeSplitting: false, postBanner: legalBanner },
       },
     },
-    // Rollup's banner is part of the chunk esbuild minifies, so it only
-    // survives because it is a `/*!` legal comment AND we keep them inline.
-    // Left explicit rather than relying on esbuild's default for the transform
-    // API — a bundle served to third parties must not lose its notices to a
-    // default changing underneath us (EXP-377).
-    esbuild: { legalComments: `inline` },
     test: {
       environment: `happy-dom`,
       environmentOptions: {

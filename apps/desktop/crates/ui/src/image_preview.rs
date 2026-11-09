@@ -178,6 +178,7 @@ impl MediaPreview {
 
 impl Render for MediaPreview {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MediaPreview").entered();
         let busy = media_tile::is_opening(&self.tile.attachment_id);
         let poster = self
             .tile
@@ -471,6 +472,7 @@ impl gpui::Focusable for ImagePreview {
 
 impl Render for ImagePreview {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ImagePreview").entered();
         use gpui::InteractiveElement as _;
         let url = self.url.clone();
         let slot = self.images.update(cx, |cache, cx| cache.slot(&url, cx));
@@ -617,6 +619,7 @@ impl gpui::Focusable for GuideViewer {
 
 impl Render for GuideViewer {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "GuideViewer").entered();
         use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
         let Some(state) = self.state() else {
             return div().size_full().into_any_element();
@@ -811,6 +814,7 @@ impl gpui::Focusable for PictureGallery {
 
 impl Render for PictureGallery {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "PictureGallery").entered();
         use gpui::InteractiveElement as _;
         let Some(picture) = self.pictures.get(self.index).cloned() else {
             return div().size_full().into_any_element();

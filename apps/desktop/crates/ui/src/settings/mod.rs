@@ -34,7 +34,9 @@
 //! snippet, the domain allowlist and the theme editor). SLOP-4: the helpdesk
 //! pane beside it is gone with the helpdesk.
 
-mod about;
+pub(crate) mod about;
+// #EXP-1629: what the panes' eUI documents share.
+mod doc;
 mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
@@ -46,7 +48,7 @@ pub(crate) mod app_mcp;
 mod new_agent;
 mod agents;
 mod agents_index;
-mod api_keys;
+pub(crate) mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
@@ -62,9 +64,9 @@ mod mcp_server_dialog;
 mod statuses;
 mod local_repos;
 mod members;
-mod all_boards;
+pub(crate) mod all_boards;
 mod change_email_dialog;
-mod sign_in_methods;
+pub(crate) mod sign_in_methods;
 pub(crate) mod notifications_prefs;
 // NEW-67: Settings → Personal → Voice (`fixtures/voice.json`).
 pub(crate) mod voice_prefs;
@@ -74,11 +76,11 @@ pub(crate) mod prompts;
 pub(crate) mod skills;
 mod board_detail;
 pub(crate) mod repositories;
-mod sessions;
-mod storage;
+pub(crate) mod sessions;
+pub(crate) mod storage;
 pub(crate) mod team_general;
 mod tools;
-mod widget;
+pub(crate) mod widget;
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
 /// same 40px as the team switcher above it. It was a ~28px text row, which
@@ -761,8 +763,8 @@ impl SettingsView {
         let issues = cx.new(|cx| IssuesPane::new(nav.clone(), cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
-        let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
-        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), cx));
+        let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
+        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), window, cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let agent_detail =
@@ -771,18 +773,18 @@ impl SettingsView {
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
-        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
+        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
         let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
-        let sessions = cx.new(SessionsPane::new);
+        let sessions = cx.new(|cx| SessionsPane::new(window, cx));
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
         let voice = cx.new(VoicePrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
-        let about = cx.new(|_| AboutPane::new());
+        let about = cx.new(|cx| AboutPane::new(window, cx));
 
         // The section nav + header depend on role (owner gating) —
         // re-render when membership/team data moves.
@@ -931,6 +933,7 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SettingsView").entered();
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -1256,6 +1259,7 @@ impl SettingsNavPanel {
 
 impl Render for SettingsNavPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);

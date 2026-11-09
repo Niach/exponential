@@ -4,11 +4,16 @@ import {
   HeadContent,
   Scripts,
   createRootRoute,
+  useRouter,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { Toaster, TooltipProvider } from "@exp/ui"
 import { LinkToast } from "@/lib/link-toast"
-import { SessionProvider } from "@/hooks/use-session"
+import { SessionProvider, useSession } from "@/hooks/use-session"
+import {
+  setObservedUser,
+  startClientObservability,
+} from "@/lib/observability/client"
 import { APP_TITLE, appUrl } from "@/lib/page-title"
 
 import "../styles.css?url"
@@ -127,6 +132,7 @@ function RootComponent() {
 
   return (
     <SessionProvider>
+      <ObservabilityBridge />
       <TooltipProvider>
         {/* The Toaster comes BEFORE the Outlet: effects run in tree order,
             and sonner's Toaster only subscribes in an effect and never
@@ -140,6 +146,16 @@ function RootComponent() {
       </TooltipProvider>
     </SessionProvider>
   )
+}
+
+// #LOGS-2: starts the (lazily loaded) diagnostics SDK once and keeps its
+// user = the signed-in user's id, nothing else. Renders nothing.
+function ObservabilityBridge() {
+  const router = useRouter()
+  const userId = useSession().data?.user?.id ?? null
+  React.useEffect(() => startClientObservability(router), [router])
+  React.useEffect(() => setObservedUser(userId), [userId])
+  return null
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {

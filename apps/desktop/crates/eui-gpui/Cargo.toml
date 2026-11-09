@@ -34,6 +34,8 @@ net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 overlay-anchor = []
 
 [dependencies]
+# #LOGS-2: lag spans (no subscriber = no cost).
+tracing = "0.1"
 eui-core = { path = "../eui-core", version = "0.19.1" }
 gpui.workspace = true
 gpui-component.workspace = true

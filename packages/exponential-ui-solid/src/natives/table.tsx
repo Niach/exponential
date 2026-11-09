@@ -14,7 +14,7 @@
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
 import { displayString, tableRowKeys, WINDOW_THRESHOLD, type UiNode } from "@exponential_app/eui"
-import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, tableMinWidth, tableTemplate, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
+import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, tableMinWidth, tableTemplate, tableTotals, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { bindAttrs } from "../bind-attrs"
 import { WindowedList, type WindowedListHandle } from "../list"
@@ -203,6 +203,7 @@ export function TableNative(props: NativeProps): JSX.Element {
     const v = row?.[c.key]
     const missing = v === undefined || v === null || v === ``
     const decimals = c.decimals === undefined ? undefined : num(c.decimals)
+    const format = typeof c.format === `string` && c.format ? c.format : undefined
     const n = cellNumber(v)
     const text = (s: string) => (s === `` ? null : s)
     switch (c.type) {
@@ -215,9 +216,9 @@ export function TableNative(props: NativeProps): JSX.Element {
       case `percent`:
         return text(Number.isFinite(n) ? ctx.formatter.percent(n, { decimals }) : ``)
       case `date`:
-        return text(missing ? `` : ctx.formatter.date(v))
+        return text(missing ? `` : ctx.formatter.date(v, format ? { format } : {}))
       case `dateTime`:
-        return text(missing ? `` : ctx.formatter.date(v, { time: true }))
+        return text(missing ? `` : ctx.formatter.date(v, format ? { format } : { time: true }))
       case `relativeTime`:
         return text(missing ? `` : ctx.formatter.relativeTime(v, ctx.now()))
       case `boolean`:
@@ -327,12 +328,18 @@ export function TableNative(props: NativeProps): JSX.Element {
     )
   }
 
+  // FEED-202: the sum row under the body (`totals`): each number and
+  // currency column's sum over the rows in its cell format, the first
+  // column `$string.total` when it sums nothing; parts `row` / `cell` with
+  // `total: true`.
+  const showTotals = () => bool(props.props.totals) && rows().length > 0
+  const sums = createMemo(() => (showTotals() ? tableTotals(rows(), columns()) : []))
   const caption = () => str(props.props.caption)
   return (
     <div
       {...props.rootProps}
       role={interactive() ? `grid` : `table`}
-      aria-rowcount={rows().length + 1}
+      aria-rowcount={rows().length + 1 + (showTotals() ? 1 : 0)}
       aria-multiselectable={selectable() === `multiple` || undefined}
       aria-describedby={caption() ? `${props.domId}.caption` : undefined}
       aria-label={caption() ? undefined : ((props.rootProps[`aria-label`] as string | undefined) ?? ctx.t(`table`))}
@@ -402,6 +409,29 @@ export function TableNative(props: NativeProps): JSX.Element {
           </Show>
         </Show>
       </div>
+      <Show when={showTotals()}>
+        <div role="rowgroup" style={css({ minWidth: minWidth() })}>
+          <div role="row" aria-rowindex={rows().length + 2} {...part.atWith(`row`, `#totals`, { total: true })} style={css({ gridTemplateColumns: template() })}>
+            <Show when={selectable() === `multiple`}>
+              <div role="cell" class="xui-table-check" />
+            </Show>
+            <Index each={columns()}>
+              {(c, ci) => {
+                const sum = () => sums()[ci]
+                const content = () => {
+                  const s = sum()
+                  return s !== null && s !== undefined ? formatted(c(), { [c().key]: s }) : ci === 0 ? ctx.t(`total`) : null
+                }
+                return (
+                  <div role="cell" {...part.atWith(`cell`, `#totals.${ci}`, { align: c().align ?? `start`, total: true })} data-type={sum() !== null && sum() !== undefined ? c().type : `text`} data-truncate={c().truncate ? `true` : undefined}>
+                    {c().truncate ? <span class="xui-table-text">{content()}</span> : content()}
+                  </div>
+                )
+              }}
+            </Index>
+          </div>
+        </div>
+      </Show>
       <Show when={caption()}>
         <div {...part(`caption`)} id={`${props.domId}.caption`}>
           {caption()}

@@ -693,6 +693,10 @@
           "type": "boolean",
           "default": false,
           "description": "One line with an ellipsis; cells wrap otherwise."
+        },
+        "format": {
+          "type": "string",
+          "description": "Date pattern (dd.MM.yy)."
         }
       }
     },
@@ -4040,7 +4044,7 @@
         "*"
       ],
       "slotScope": "row",
-      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "props": {
         "columns": {
           "type": "array",
@@ -4109,6 +4113,11 @@
           "type": "boolean",
           "default": false,
           "description": "Pins the header while rows scroll."
+        },
+        "totals": {
+          "type": "boolean",
+          "default": false,
+          "description": "Totals."
         }
       },
       "events": [
@@ -6613,7 +6622,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
       "props": {
         "kind": {
           "type": "string",
@@ -6626,10 +6635,21 @@
         },
         "columns": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "The fields shown, in order; default every schema field."
+          "description": "Fields/columns."
+        },
+        "search": {
+          "type": "boolean",
+          "default": false,
+          "description": "Search."
+        },
+        "filter": {
+          "type": "string",
+          "description": "Enum filter."
+        },
+        "totals": {
+          "type": "boolean",
+          "default": false,
+          "description": "Totals."
         },
         "add": {
           "type": "boolean",
@@ -6735,6 +6755,32 @@
             "shape": "option"
           },
           "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "searchValue": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "filterValue": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "filterLabel": {
+          "type": "string",
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "filterOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
           "description": "Filled by the host.",
           "host": true
         }

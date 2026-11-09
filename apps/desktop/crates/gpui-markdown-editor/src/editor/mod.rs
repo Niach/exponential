@@ -245,6 +245,7 @@ impl Editor {
         markdown: String,
         document_base_dir: Option<PathBuf>,
     ) -> Self {
+        let _span = tracing::debug_span!("markdown.parse", bytes = markdown.len()).entered();
         let options = MarkdownEditorOptions {
             environment: MarkdownEditorEnvironment {
                 document_base_dir,

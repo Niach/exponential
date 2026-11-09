@@ -31,12 +31,11 @@
 use std::rc::Rc;
 
 use eui_gpui::{
-    binding::{Binding, BindingHost, Mutation, Toasts},
-    host::{ActionEvent, HostPlugin},
-    view::{SurfaceView, SurfaceViewOptions},
+    binding::{Binding, Mutation},
+    host::ActionEvent,
+    view::SurfaceView,
 };
-use gpui::{div, App, AppContext as _, Entity, Hsla, IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window};
-use gpui_component::ActiveTheme as _;
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window};
 use serde_json::{json, Value};
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
@@ -47,6 +46,7 @@ use domain::contract::{
     NOTIFICATION_TYPE_SESSION_BLOCKED,
 };
 
+use super::doc::{and, eq, failed_state, mount, not, path, skeleton, IdeToasts, Ink, SM, XS};
 use crate::coding_flow::CodingHub;
 use crate::queries;
 
@@ -178,134 +178,6 @@ fn project(state: &Prefs) -> Value {
     })
 }
 
-/// `#rrggbbaa` of a chrome colour (the document's literal styles).
-fn hex(color: Hsla) -> String {
-    let c = color.to_rgb();
-    let byte = |v: f32| (v.clamp(0., 1.) * 255.).round() as u8;
-    format!("#{:02x}{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b), byte(c.a))
-}
-
-fn path(p: &str) -> Value {
-    json!({"@path": p})
-}
-
-fn not(value: Value) -> Value {
-    json!({"@call": "not", "args": {"value": value}})
-}
-
-fn eq(a: Value, b: Value) -> Value {
-    json!({"@call": "eq", "args": {"a": a, "b": b}})
-}
-
-fn and(a: Value, b: Value) -> Value {
-    json!({"@call": "and", "args": {"values": [a, b]}})
-}
-
-/// The colours and metrics the document writes in: the IDE's glass chrome
-/// (`surface::glass_group_rows`, `glass_toggle_row`, `glass_picker_row`) in
-/// px. gpui's sizes are rems and the IDE's root sets the rem to the theme's
-/// font size, so `px_4` / `text_sm` are read through [`Ink::rem`]; a gpui
-/// text line is `phi` × its size ([`LINE`]).
-struct Ink {
-    rem: f32,
-    foreground: String,
-    hint: String,
-    value: String,
-    muted: String,
-    muted_glyph: String,
-    primary: String,
-    fill_row: String,
-    stroke_row: String,
-    fill_card: String,
-    stroke_card: String,
-    code: String,
-    radius_lg: f32,
-    radius_md: f32,
-}
-
-/// The IDE's translucent inks (`foreground.opacity(…)`) as the node's
-/// opacity over the solid colour: a `#rrggbbaa` byte rounds 0.5 to 0.502.
-const HINT_ALPHA: f32 = 0.5;
-const VALUE_ALPHA: f32 = 0.7;
-const GLYPH_ALPHA: f32 = 0.6;
-
-/// `node` drawn at `alpha` (see [`HINT_ALPHA`]).
-fn faded(mut node: Value, alpha: f32) -> Value {
-    node["style"]["opacity"] = json!(alpha);
-    node
-}
-
-/// gpui's default line height (`phi()`), relative to the font size.
-const LINE: f32 = 1.618_034;
-/// gpui `text_sm` / `text_xs`, in rems.
-const SM: f32 = 0.875;
-const XS: f32 = 0.75;
-
-impl Ink {
-    fn of(cx: &App) -> Self {
-        let chrome = crate::controls::ide_chrome();
-        let theme = cx.theme();
-        Self {
-            rem: f32::from(theme.font_size),
-            foreground: hex(theme.foreground),
-            hint: hex(theme.foreground),
-            value: hex(theme.foreground),
-            muted: hex(theme.muted_foreground),
-            muted_glyph: hex(theme.muted_foreground),
-            primary: hex(theme.primary),
-            fill_row: hex(chrome.fill_row),
-            stroke_row: hex(chrome.stroke_row),
-            fill_card: hex(chrome.fill_card),
-            stroke_card: hex(chrome.stroke_card),
-            code: hex(theme.muted),
-            radius_lg: chrome.radius_lg,
-            radius_md: chrome.radius_md,
-        }
-    }
-
-    /// `rems` in px.
-    fn r(&self, rems: f32) -> f32 {
-        self.rem * rems
-    }
-
-    /// A text run at `rems` (`SM`, `XS`) in gpui's line height.
-    fn text(&self, id: &str, text: Value, rems: f32, color: &str) -> Value {
-        let size = self.r(rems);
-        json!({"id": id, "component": "Text", "props": {"text": text}, "style": {"fontSize": size, "lineHeight": size * LINE, "color": color}})
-    }
-
-    /// `glass_group`: the radius-12 `fill_row` block.
-    fn group(&self, id: &str, children: Vec<Value>) -> Value {
-        json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": self.radius_lg, "backgroundColor": self.fill_row, "overflow": "hidden"}, "children": children})
-    }
-
-    /// The hairline a group row draws above itself (`glass_row_divider`).
-    fn divider(&self, id: &str, visible: Value) -> Value {
-        json!({"id": id, "component": "Box", "visible": visible, "style": {"height": 1, "flexShrink": 0, "backgroundColor": self.stroke_row}})
-    }
-
-    /// The row's hairline where `shown`: the IDE draws it as the row's top
-    /// border, so a disabled row's dims with it (two nodes, `disabled`
-    /// picks).
-    fn row_dividers(&self, id: &str, shown: Value, disabled: Value) -> [Value; 2] {
-        [self.divider(id, and(shown.clone(), not(disabled.clone()))), faded(self.divider(&format!("{id}_dim"), and(shown, disabled)), 0.5)]
-    }
-
-    /// `glass_row_shell`: `px_4` / `py_3`, centred, `gap_3`. A disabled row
-    /// dims WHOLE (EXP-1557), so each row is drawn twice and `dim` picks.
-    fn shell(&self, id: &str, dim: bool, visible: Value, children: Vec<Value>) -> Value {
-        json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": self.r(0.75), "paddingHorizontal": self.r(1.), "paddingVertical": self.r(0.75), "opacity": if dim { 0.5 } else { 1.0 }}, "children": children})
-    }
-
-    /// The label column (`gap_0p5`): the label over its muted hint.
-    fn label_column(&self, id: &str, label: Value, hint: Value, grow: bool) -> Value {
-        let mut hint = faded(self.text(&format!("{id}_hint"), hint, XS, &self.hint), HINT_ALPHA);
-        hint["style"]["maxWidth"] = json!(eui_gpui::controls::ROW_DESCRIPTION_MAX_W);
-        json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": self.r(0.125), "minWidth": 0, "flexGrow": if grow { 1 } else { 0 }, "flexShrink": 1},
-            "children": [self.text(&format!("{id}_label"), label, SM, &self.foreground), hint]})
-    }
-}
-
 /// One switch row of the list (a template instance over `/pane/rows`).
 fn toggle_row(ink: &Ink, dim: bool) -> Value {
     let id = if dim { "row_dim" } else { "row_live" };
@@ -315,27 +187,6 @@ fn toggle_row(ink: &Ink, dim: bool) -> Value {
         json!({"id": format!("{id}_switch"), "component": "Switch", "props": {"label": "", "name": "pref", "checked": path("checked"), "disabled": path("disabled")},
             "on": {"change": {"event": {"name": "toggle", "context": {"key": path("key")}}}}}),
     ])
-}
-
-/// A picker row (`glass_picker_row`): the value at 70% with its chevron
-/// (a small ghost `Button`: `text_sm`, `gap_1`, a `size_4` glyph), opening
-/// the single-select menu.
-#[allow(clippy::too_many_arguments)]
-fn picker_row(ink: &Ink, id: &str, dim: bool, visible: Value, label: &str, hint: &str, value: Value, action: &str, items: Vec<Value>) -> Value {
-    let glyph = ink.r(1.);
-    let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "cursor": "pointer"},
-        "children": [
-            faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), VALUE_ALPHA),
-            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA}},
-        ]});
-    let control = if dim {
-        trigger
-    } else {
-        json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": items, "align": "end"}, "on": {"select": {"event": {"name": action}}}, "children": [trigger]})
-    };
-    let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": [control]});
-    ink.shell(id, dim, visible, vec![ink.label_column(&format!("{id}_text"), json!(label), json!(hint), false), control])
 }
 
 /// The pane's tree.
@@ -366,62 +217,21 @@ fn document(ink: &Ink) -> Value {
         "children": [{"id": "row", "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
             "children": row_children}]})]);
 
-    let skeleton = json!({"id": "skeleton", "component": "Skeleton", "visible": path("/pane/loading"), "props": {"rows": crate::feedback::SKELETON_ROWS, "rowHeight": super::SETTINGS_ROW_H}});
-    // `action_error::load_failed_state`: `controls::empty_state_list` (a
-    // 20px muted glyph over the `text_sm` title, `gap_1p5`, `px_3` / `py_6`)
-    // with the `text_xs` primary Retry link under it.
-    let mut retry = ink.text("failed_retry_text", json!(crate::feedback::RETRY), XS, &ink.primary);
-    retry["style"]["cursor"] = json!("pointer");
-    // `text_center` on the column: each run centres inside its box, which
-    // gpui rounds up to a whole pixel.
-    retry["style"]["textAlign"] = json!("center");
-    let mut title = ink.text("failed_title", json!(NO_PREFERENCES), SM, &ink.muted);
-    title["style"]["textAlign"] = json!("center");
-    let failed = json!({"id": "failed", "component": "Box", "visible": path("/pane/failed"),
-        "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(1.5), "width": "100%"},
-        "children": [
-            {"id": "failed_icon", "component": "Icon", "props": {"name": "settings-notifications"}, "style": {"width": 20, "height": 20, "color": ink.muted_glyph, "opacity": GLYPH_ALPHA}},
-            title,
-            {"id": "failed_retry", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "retry"}}}, "children": [retry]},
-        ]});
+    let skeleton = skeleton("skeleton", path("/pane/loading"));
+    let failed = failed_state(ink, "failed", "settings-notifications", NO_PREFERENCES, path("/pane/failed"));
 
     let digest_items: Vec<Value> = DIGESTS.iter().map(|(value, label)| json!({"label": label, "value": value, "kind": "checkbox", "checked": eq(path("/pane/digest/value"), json!(value))})).collect();
     let hour_items: Vec<Value> = (0..24).map(|hour| json!({"label": format!("{hour}:00"), "value": hour.to_string(), "kind": "checkbox", "checked": eq(path("/pane/digest/hour"), json!(hour))})).collect();
     let disabled = path("/pane/digest/disabled");
     let daily = path("/pane/digest/daily");
-    let delivery = |dim: bool| picker_row(ink, if dim { "delivery_dim" } else { "delivery" }, dim, if dim { disabled.clone() } else { not(disabled.clone()) }, "Delivery", "How often the digest goes out.", path("/pane/digest/label"), "digest", digest_items.clone());
-    let send_time = |dim: bool| picker_row(ink, if dim { "hour_dim" } else { "hour" }, dim, and(daily.clone(), if dim { disabled.clone() } else { not(disabled.clone()) }), "Send time", "Full hours only, in your timezone.", path("/pane/digest/hourLabel"), "hour", hour_items.clone());
+    let delivery = |dim: bool| ink.picker_row(if dim { "delivery_dim" } else { "delivery" }, dim, if dim { disabled.clone() } else { not(disabled.clone()) }, "Delivery", Some("How often the digest goes out."), path("/pane/digest/label"), "digest", digest_items.clone());
+    let send_time = |dim: bool| ink.picker_row(if dim { "hour_dim" } else { "hour" }, dim, and(daily.clone(), if dim { disabled.clone() } else { not(disabled.clone()) }), "Send time", Some("Full hours only, in your timezone."), path("/pane/digest/hourLabel"), "hour", hour_items.clone());
     let mut digest = ink.group("digest", [vec![delivery(false), delivery(true)], ink.row_dividers("hour_divider", daily.clone(), disabled.clone()).to_vec(), vec![send_time(false), send_time(true)]].concat());
     digest["visible"] = path("/pane/ready");
 
     // `settings::section`: `gap_2`.
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
         "children": [alert, rows, skeleton, failed, digest]})
-}
-
-/// The theme the pane paints in: the Exponential theme, its Switch the
-/// IDE's own (`controls::web_switch`, 36×20, painted natively), not the
-/// theme's 32px track, until #EXP-1745 gives genUI's Switch that look.
-// drop with EXP-1745
-fn pane_theme() -> Option<std::sync::Arc<eui_core::theme::ResolvedTheme>> {
-    let mut theme = (*eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID)?).clone();
-    let rule = eui_core::theme::RecipeRule { when: None, style: serde_json::from_value(json!({"width": 36, "height": 20, "native": true})).ok()? };
-    theme.recipes.entry("Switch".into()).or_default().entry("track".into()).or_default().push(rule);
-    Some(std::sync::Arc::new(theme))
-}
-
-/// The IDE's toasts for a failed write.
-struct IdeToasts;
-
-impl Toasts for IdeToasts {
-    fn failed(&self, title: &str, detail: Option<&str>, cx: &mut App) {
-        let toast = crate::toast::Toast::error(title.to_string());
-        let toast = match detail.and_then(crate::action_error::description_of) {
-            Some(detail) => toast.description(detail),
-            None => toast,
-        };
-        crate::toast::show_in_active_window(toast, cx);
-    }
 }
 
 /// The optimistic write of `edit` with the mutation carrying only what
@@ -531,24 +341,7 @@ impl NotificationsPrefsPane {
             });
             binding
         });
-        let inner: Rc<dyn HostPlugin> = Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None });
-        let host: Rc<dyn HostPlugin> = Rc::new(BindingHost::new(&binding, inner));
-        let options = SurfaceViewOptions {
-            surface_id: "settings-notifications".into(),
-            theme: pane_theme(),
-            mode: eui_core::theme::Mode::Dark,
-            host,
-            settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
-            ..Default::default()
-        };
-        let tree: eui_core::NestedNode = serde_json::from_value(document(&Ink::of(cx))).expect("the notifications document parses");
-        let view = cx.new(|cx| {
-            let mut view = SurfaceView::new(options, window, cx);
-            let outcome = view.set_nested(tree, cx);
-            debug_assert!(outcome.issues.is_empty(), "the notifications document: {:?}", outcome.issues);
-            view
-        });
-        binding.update(cx, |binding, cx| binding.attach(&view, cx));
+        let view = mount("settings-notifications", document(&Ink::of(cx)), &binding, window, cx);
         let subscriptions = vec![cx.observe(&hub, |this, hub, cx| {
             let on = hub.read(cx).settings.os_notifications;
             this.binding.update(cx, |binding, cx| binding.update_state(|state| state.os_notifications = on, cx));
@@ -665,6 +458,7 @@ impl NotificationsPrefsPane {
 
 impl Render for NotificationsPrefsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "NotificationsPrefsPane").entered();
         self.ensure_loaded(cx);
         div().w_full().min_w_0().child(self.view.clone())
     }
@@ -739,6 +533,11 @@ mod tests {
             code: "#27272aff".into(),
             radius_lg: 12.,
             radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "Lilex".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
         };
         let tree: eui_core::NestedNode = serde_json::from_value(document(&ink)).expect("parses");
         assert_eq!(tree.id, "root");

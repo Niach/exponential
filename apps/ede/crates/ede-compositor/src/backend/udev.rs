@@ -230,7 +230,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
                 // sleep" row), so nothing cached before is trusted.
                 udev.cursor_buffers.clear();
                 for device in udev.devices.values_mut() {
-                    if let Err(e) = device.manager.activate(false) {
+                    if let Err(e) = device.manager.lock().activate(false) {
                         tracing::error!("DRM resume failed: {e}");
                     }
                     for s in device.surfaces.values_mut() {
@@ -363,6 +363,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     // A wake-up each second: the recovery screen (#EDE-16) appears on an
     // idle desktop without waiting for input.
     event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, _| TimeoutAction::ToDuration(Duration::from_secs(1)))?;
+    super::watch_main_loop(&event_loop.handle());
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
     // Clean frames submit nothing, so an idle desktop stays idle.
@@ -436,7 +437,7 @@ fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> R
     u.gpus.as_mut().add_node(render_node, gbm.clone())?;
 
     let allocator = GbmAllocator::new(gbm.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-    let exporter = GbmFramebufferExporter::new(gbm.clone(), Some(render_node));
+    let exporter = GbmFramebufferExporter::new(gbm.clone(), render_node.into());
     let render_formats = u
         .gpus
         .single_renderer(&render_node)?
@@ -606,7 +607,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         let (mm_w, mm_h) = info.size().unwrap_or((0, 0));
         let output = Output::new(
             name.clone(),
-            PhysicalProperties { size: (mm_w as i32, mm_h as i32).into(), subpixel: Subpixel::Unknown, make: "Unknown".into(), model: name.clone() },
+            PhysicalProperties { size: (mm_w as i32, mm_h as i32).into(), subpixel: Subpixel::Unknown, make: "Unknown".into(), model: name.clone(), serial_number: "Unknown".into() },
         );
         let global = output.create_global::<Ede>(&state.display_handle);
         for m in info.modes() {
@@ -631,7 +632,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         }
 
         let Ok(mut renderer) = u.gpus.single_renderer(&device.render_node) else { continue };
-        let drm_output = match device.manager.initialize_output::<_, OutputElements<UdevRenderer<'_>>>(
+        let drm_output = match device.manager.lock().initialize_output::<_, OutputElements<UdevRenderer<'_>>>(
             crtc,
             mode,
             &[info.handle()],
@@ -663,7 +664,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
             );
             let render = DmabufFeedbackBuilder::new(device.render_node.dev_id(), render_formats.clone()).build().ok();
             let scanout = DmabufFeedbackBuilder::new(device.render_node.dev_id(), render_formats)
-                .add_preference_tranche(node.dev_id(), Some(smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout), plane_formats)
+                .add_preference_tranche(node.dev_id(), smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout, plane_formats, 4u32..=u32::MAX)
                 .build()
                 .ok();
             render.zip(scanout)
@@ -728,6 +729,8 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     let Some(surface) = device.surfaces.get_mut(&crtc) else { return };
     let output = surface.output.clone();
     let Some(output_geo) = state.space.output_geometry(&output) else { return };
+    // #LOGS-2: the frame's time, elements through the queued flip.
+    let frame_started = std::time::Instant::now();
 
     let render_node = device.render_node;
     let renderer = if render_node == primary {
@@ -823,6 +826,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                     state.loop_handle.remove(t);
                 }
                 super::frame_done(state, &output);
+                ede_observability::record_frame(&output.name(), frame_started.elapsed());
             }
             Err(e) => {
                 // #EDE-65: smithay counted this frame as shown (the slot's
