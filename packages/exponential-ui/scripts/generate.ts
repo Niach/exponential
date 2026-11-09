@@ -757,7 +757,7 @@ const windowBody = (id: string): NestedNode => ({
 const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Box: [text(`t1`, `A Box lays its children out by style.`), text(`t2`, `Flex, grid, spacing and colours come from the whitelist.`, `muted`)],
   Stack: [
-    { id: `a`, component: `Avatar`, props: { name: `Ada Lovelace`, size: `sm` } },
+    { id: `a`, component: `Avatar`, props: { name: `Ada Lovelace`, seed: `demo-ada`, size: `sm` } },
     text(`t`, `Ada Lovelace`),
     { id: `b`, component: `Badge`, props: { text: `Owner`, variant: `outline` } },
   ],
@@ -928,9 +928,9 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
   ],
   CallSurface: [
-    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
-    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },
-    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, status: `03:10`, muted: true }, style: { minHeight: 480 } } },
+    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
+    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },
+    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `talking`, status: `03:10`, muted: true }, style: { minHeight: 480 } } },
   ],
   Plan: [
     { label: `state · proposed`, node: { id: `plan`, component: `Plan`, props: { title: `Here's my plan`, description: `I'll use your mouse and keyboard for about two minutes.`, state: `proposed`, approveLabel: `Yes, do it`, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `pending` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `pending` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }] }, style: { maxWidth: 480 } } },
@@ -1510,7 +1510,7 @@ function railTreeCases(): ComponentCase[] {
 /** #EXP-1736: the sender's avatar left of an incoming bubble (an `out` one
  *  drops the slot), with the press that opens the sender. */
 function messageBubbleCases(): ComponentCase[] {
-  const avatar: NestedNode = { id: `bubble-avatar`, component: `Avatar`, props: { name: `Release agent` } }
+  const avatar: NestedNode = { id: `bubble-avatar`, component: `Avatar`, props: { name: `Release agent`, seed: `agent-release` } }
   const props = { text: `Merged; the tag is pushed.`, author: `Release agent`, time: `18:04`, href: `https://ui.exponential.at` }
   return [
     { name: `MessageBubble/avatar:in`, node: { id: `bubble`, component: `MessageBubble`, props, slots: { avatar } } },

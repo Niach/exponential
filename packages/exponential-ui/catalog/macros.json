@@ -4839,6 +4839,7 @@
                     "props": {
                       "name": "{props.name}",
                       "src": "{props.avatar}",
+                      "seed": "{props.seed}",
                       "size": "lg"
                     }
                   }

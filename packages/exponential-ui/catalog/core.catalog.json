@@ -3979,6 +3979,11 @@
           "bindable": true,
           "description": "Picture URL."
         },
+        "seed": {
+          "type": "string",
+          "bindable": true,
+          "description": "Their id: the avatar hue."
+        },
         "state": {
           "type": "enum",
           "enum": "callState",
@@ -4035,6 +4040,7 @@
       ],
       "example": {
         "name": "Assistant",
+        "seed": "agent-assistant",
         "state": "talking",
         "activity": "speaking",
         "level": 0.6,
