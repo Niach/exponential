@@ -101,6 +101,17 @@ export function composeExponential(): ThemeSource {
   if (links.length < 2) throw new Error(`styles.css lacks the light + dark --link`)
   light.link = links[0]!
   dark.link = links[1]!
+  // #EDE-65: the stronger stroke (an outgoing bubble's edge) is the IDE's
+  // glass STROKE_STRONG in dark; light takes the next neutral step past
+  // `border` (#e5e5e5 → neutral-300), as the dark pair steps 10% → 12%.
+  dark.borderStrong = hex(design.glass.strokeStrong)
+  light.borderStrong = `#d4d4d4`
+  // #EXP-1629: a ghost button's hover (the picker row's value button) is
+  // gpui-component's ghost hover: the accent at half in dark (the glass
+  // active fill's alpha halved), the light accent (neutral-100) in light.
+  const active = hex(design.glass.fillActive)
+  dark.ghostHover = `${active.slice(0, 7)}${Math.round(parseInt(active.slice(7, 9) || `ff`, 16) / 2).toString(16).padStart(2, `0`)}` as `#${string}`
+  light.ghostHover = `#f5f5f5`
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -218,6 +229,9 @@ export function themeSchema(): Record<string, unknown> {
     gap: numOrToken([`spacing`]),
     marginTop: numOrToken([`spacing`]),
     marginBottom: numOrToken([`spacing`]),
+    // #EDE-65: MessageBubble/bubble's leading corner and width cap.
+    borderTopLeftRadius: numOrToken([`radius`, `spacing`]),
+    maxWidth: { anyOf: [...numOrToken([`control`, `spacing`]).anyOf, { type: `string`, pattern: `^[0-9]+(\\.[0-9]+)?%$` }] },
     width: numOrToken([`control`, `spacing`, `border`]),
     height: numOrToken([`control`, `spacing`, `border`]),
     minWidth: numOrToken([`control`, `spacing`]),

@@ -154,7 +154,7 @@
         "fixtures/bind-time.json"
       ],
       "unit": "case",
-      "cases": 110,
+      "cases": 115,
       "check": "Expand the input; for every dataset run the bind pass: the bound tree, every `set` press and the per-row slot cells equal the fixture (reducer `issues` too for `extra`)."
     },
     {

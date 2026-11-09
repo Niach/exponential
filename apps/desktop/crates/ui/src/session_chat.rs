@@ -939,6 +939,13 @@ pub(crate) fn clock(at: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
+/// [`clock`] of an epoch-ms instant (a feed row's `at`).
+pub(crate) fn clock_ms(at: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(at)
+        .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
 /// The display name of a message author: a member's label, else `Someone`.
 pub(crate) fn member_name(user_id: Option<&str>, cx: &App) -> String {
     let Some(user_id) = user_id else {

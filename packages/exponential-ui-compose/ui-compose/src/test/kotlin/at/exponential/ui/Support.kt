@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.SurfaceInputEvent
+import at.exponential.ui.host.UploadEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.measure.FontResolver
 import at.exponential.ui.measure.TextShaper
@@ -86,9 +87,14 @@ class RecordingHost : HostPlugin {
     val inputs = ArrayList<SurfaceInputEvent>()
     val urls = ArrayList<String>()
     val unknowns = ArrayList<String>()
+    val uploads = ArrayList<UploadEvent>()
 
     override fun onAction(event: SurfaceActionEvent) {
         actions.add(event)
+    }
+
+    override fun onUpload(event: UploadEvent) {
+        uploads.add(event)
     }
 
     override fun onInput(event: SurfaceInputEvent) {

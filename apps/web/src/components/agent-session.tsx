@@ -95,6 +95,7 @@ import {
   STARTING_COPY,
   SkeletonRows,
   MessageBubble,
+  userMessageTime,
   SenderAvatar,
   TranscriptRow,
   transcriptSenderName,
@@ -453,6 +454,14 @@ export function AgentSessionView({
   )
   const suggestionRows = useMemo(() => chatRows.filter((row) => row.type === `suggestions`), [chatRows])
   const queuedRows = useMemo(() => chatRows.filter((row) => row.type === `message`), [chatRows])
+  // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
+  const messageTime = useCallback(
+    (row: { id: string }) => {
+      const at = sessionMessages.find((message) => message.id === row.id)?.createdAt
+      return at ? userMessageTime(new Date(at)) : null
+    },
+    [sessionMessages]
+  )
   const dockedIds = useMemo(
     () => (suggestions ? chatDockedIds(suggestionRows, noSessionName) : NO_DOCKED),
     [suggestions, suggestionRows]
@@ -827,6 +836,7 @@ export function AgentSessionView({
             side={layout?.side === `other` ? `in` : `out`}
             author={bubbleName}
             onPress={link && onOpenSession ? () => onOpenSession(link) : undefined}
+            time={item.at ? userMessageTime(item.at) : null}
           />
         )
       }
@@ -916,6 +926,7 @@ export function AgentSessionView({
           attachmentSrc={attachmentUrl}
           chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
           viewerId={viewerId}
+          messageTime={messageTime}
           onUnqueue={(rowId) => void unqueue(rowId)}
           onOpenSession={onOpenSession}
           suggestions={suggestions}
@@ -1848,12 +1859,15 @@ const UserMessageBubble = memo(function UserMessageBubble({
   side = `out`,
   author = null,
   onPress,
+  time = null,
 }: {
   text: string
   /** #EXP-1736: `in` = another session's input (its bubble, its name). */
   side?: `in` | `out`
   author?: string | null
   onPress?: () => void
+  /** #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json). */
+  time?: string | null
 }) {
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
@@ -1874,7 +1888,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
     <>
       {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
           viewer's own turn). */}
-      <MessageBubble side={side} author={author} onPress={onPress}>
+      <MessageBubble side={side} author={author} onPress={onPress} time={time}>
       <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}

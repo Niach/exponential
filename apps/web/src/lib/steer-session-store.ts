@@ -2472,6 +2472,8 @@ export function createSteerSessionStore(
         id: nextId++,
         kind: `user_message` as const,
         text,
+        // #EXP-1756: the echo's bubble time until the wire twin lands.
+        at: Date.now(),
         seq: currentSeq,
       }
       // Keyed to its row: a `queue` frame naming this text takes both back.

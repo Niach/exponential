@@ -9,6 +9,7 @@ import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.SurfaceFunctionCallEvent
 import at.exponential.ui.host.SurfaceInputEvent
+import at.exponential.ui.host.UploadEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.num
@@ -120,6 +121,28 @@ fun SurfaceModel.command(json: String) {
 /** Scroll list `id` so the item at DATA index `index` shows (`start | center | end | nearest`). */
 fun SurfaceModel.scrollToIndex(id: String, index: Int, align: String? = null) {
     dispatch(surface.scrollToIndex(id, index.toUInt(), align))
+}
+
+/**
+ * #EDE-65 R (interactions-round1.json composerPaste): a paste into Composer
+ * [index] carrying [files] (with their content [uris], same order; read off
+ * the clipboard, `composerClipboard`): the images (`image/`, clipboard
+ * order) go to [HostPlugin.onUpload] (`name` = the Composer's id) and fire
+ * `attach` {files: [{name, size, type}]}. `true` = taken (files present:
+ * the field inserts nothing, also when none is an image); `false` = no
+ * files, the field's own paste.
+ */
+fun SurfaceModel.composerPaste(index: Int, files: List<PickedFile>, uris: List<String> = emptyList()): Boolean {
+    if (files.isEmpty()) return false
+    val n = node(index) ?: return true
+    if (n.component != "Composer") return true
+    val picked = files.indices.filter { files[it].type.startsWith("image/") }
+    if (picked.isEmpty()) return true
+    val images = picked.map { files[it] }
+    host.onUpload(UploadEvent(id, n.id, n.id, images, picked.mapNotNull { uris.getOrNull(it) }))
+    val list = JsonValue.Arr(images.map { JsonValue.Obj(mapOf("name" to JsonValue.Str(it.name), "size" to JsonValue.Num(it.size.toDouble()), "type" to JsonValue.Str(it.type))) })
+    fire(index, "attach", JsonValue.Obj(mapOf("files" to list)))
+    return true
 }
 
 /** Files the host picked (or dropped) for FileUpload `componentId`: the surface gets `upload {files}` (name, size, type). */

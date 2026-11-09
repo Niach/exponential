@@ -15833,7 +15833,7 @@
     ]
   },
   "MessageBubble\/example" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -15841,19 +15841,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -15861,8 +15861,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -15871,8 +15871,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -15881,8 +15881,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -15891,8 +15891,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],
@@ -15901,7 +15901,7 @@
     ]
   },
   "MessageBubble\/href" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -15909,19 +15909,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
           0,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -15929,8 +15929,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          13,
-          9,
+          15,
+          11,
           168,
           20
         ],
@@ -15939,8 +15939,8 @@
       {
         "component" : "Box",
         "frame" : [
-          141,
-          31,
+          143,
+          33,
           40,
           20
         ],
@@ -15949,8 +15949,8 @@
       {
         "component" : "Text",
         "frame" : [
-          141,
-          31,
+          143,
+          33,
           40,
           20
         ],
@@ -15959,7 +15959,7 @@
     ]
   },
   "MessageBubble\/pressable=false" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -15967,19 +15967,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -15987,8 +15987,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -15997,8 +15997,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -16007,8 +16007,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -16017,8 +16017,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],
@@ -16027,7 +16027,7 @@
     ]
   },
   "MessageBubble\/pressable=true" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -16035,19 +16035,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -16055,8 +16055,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -16065,8 +16065,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -16075,8 +16075,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -16085,8 +16085,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],
@@ -16095,7 +16095,7 @@
     ]
   },
   "MessageBubble\/side=in" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -16103,19 +16103,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Box",
         "frame" : [
           0,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -16123,8 +16123,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          13,
-          9,
+          15,
+          11,
           168,
           20
         ],
@@ -16133,8 +16133,8 @@
       {
         "component" : "Box",
         "frame" : [
-          141,
-          31,
+          143,
+          33,
           40,
           20
         ],
@@ -16143,8 +16143,8 @@
       {
         "component" : "Text",
         "frame" : [
-          141,
-          31,
+          143,
+          33,
           40,
           20
         ],
@@ -16153,7 +16153,7 @@
     ]
   },
   "MessageBubble\/side=out" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -16161,19 +16161,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -16181,8 +16181,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -16191,8 +16191,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -16201,8 +16201,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -16211,8 +16211,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],
@@ -16221,7 +16221,7 @@
     ]
   },
   "MessageBubble\/status=read" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -16229,19 +16229,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -16249,8 +16249,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -16259,8 +16259,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -16269,8 +16269,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -16279,8 +16279,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],
@@ -16289,7 +16289,7 @@
     ]
   },
   "MessageBubble\/status=sending" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -16297,19 +16297,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -16317,8 +16317,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -16327,8 +16327,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -16337,8 +16337,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -16347,8 +16347,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],
@@ -16357,7 +16357,7 @@
     ]
   },
   "MessageBubble\/status=sent" : {
-    "height" : 60,
+    "height" : 64,
     "nodes" : [
       {
         "component" : "Box",
@@ -16365,19 +16365,19 @@
           0,
           0,
           390,
-          60
+          64
         ],
         "id" : "message_bubble"
       },
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff1c",
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          196,
+          192,
           0,
-          194,
-          60
+          198,
+          64
         ],
         "id" : "message_bubble.bubble",
         "radius" : 16
@@ -16385,8 +16385,8 @@
       {
         "component" : "Markdown",
         "frame" : [
-          209,
-          9,
+          207,
+          11,
           168,
           20
         ],
@@ -16395,8 +16395,8 @@
       {
         "component" : "Box",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           58,
           20
         ],
@@ -16405,8 +16405,8 @@
       {
         "component" : "Text",
         "frame" : [
-          319,
-          31,
+          317,
+          33,
           40,
           20
         ],
@@ -16415,8 +16415,8 @@
       {
         "component" : "Icon",
         "frame" : [
-          363,
-          34,
+          361,
+          36,
           14,
           14
         ],

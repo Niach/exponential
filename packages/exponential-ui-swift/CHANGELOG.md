@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer slots + paste (#EDE-65 R): `ComposerLeaf` keeps the core-laid `trailing` slot's width free before the send disc (the attach control sits before it; the slots paint over the leaf); a paste (UIKit `paste(_:)`, also offered for an image-only pasteboard; AppKit `paste(_:)`) reads `ComposerPasteboard.files()` and `SurfaceModel.composerPaste` fires `attach` {files} for the images and calls `onUpload` (`name` = the Composer's id); files without an image insert nothing.
 - Select (#EXP-1629, the IDE's multi picker): a row's value button (the core's `button` part) lends its pointer hover to the value, placeholder and chevron inside it; a `multiple` popup opens with the cursor on its first chosen option.
 
 ## 0.21.0 (2026-11-09)

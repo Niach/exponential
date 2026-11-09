@@ -8,6 +8,7 @@ import at.exponential.ui.host.ClosureHost
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.InputKind
 import at.exponential.ui.host.NoHost
+import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.SurfaceInputEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
@@ -23,6 +24,7 @@ import at.exponential.ui.model.keyRecorderRecording
 import at.exponential.ui.model.checked
 import at.exponential.ui.model.composerKey
 import at.exponential.ui.model.composerMenuKey
+import at.exponential.ui.model.composerPaste
 import at.exponential.ui.model.composerSubmit
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.INPUT_DEBOUNCE_MS
@@ -654,6 +656,94 @@ class InteractionTest {
             val want = c["events"]?.array.orEmpty()
             assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
             assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            assertEquals("$name: /draft", c["draft"] ?: JsonValue.Null, m.data["draft"] ?: JsonValue.Null)
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `composerSlots` (#EDE-65 R): through
+     * the MODEL (the core's layout), the slot roots sit in the controls row
+     * in `order` (start → end, mirrored in RTL), centred on the send disc's
+     * row (`c.sendSpace`), inside the composer; `trailing` ends before the
+     * disc; a press on a slot child fires its own action. The attach
+     * control's place is the leaf's (`ComposerLeaf`: before `trailing`).
+     */
+    @Test
+    fun composerSlotCasesSitInTheControlsRow() = runTest {
+        val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertEquals(7, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val rtl = c["direction"]?.string == "rtl"
+            val surface = f["surface"]!!.obj!!
+            val slots = c["slots"]?.obj.orEmpty()
+            val composer = surface + ("props" to JsonValue.Obj(surface["props"]!!.obj!! + c["props"]?.obj.orEmpty())) + (if (slots.isEmpty()) emptyMap<String, JsonValue>() else mapOf<String, JsonValue>("slots" to JsonValue.Obj(slots)))
+            val tree = JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Box"), "style" to JsonValue.Obj(mapOf("display" to JsonValue.Str("flex"), "flexDirection" to JsonValue.Str("column"), "direction" to JsonValue.Str(if (rtl) "rtl" else "ltr"))), "children" to JsonValue.Arr(listOf(JsonValue.Obj(composer)))))
+            val host = RecordingHost()
+            val m = SurfaceModel("composer_slots", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(tree.json)
+            m.setViewport(390f, 800f)
+            val cf = m.frame(m.idx("c"))
+            if (slots.isEmpty()) {
+                assertNull("$name: no row without slots", m.indexOf("c.bar"))
+                continue
+            }
+            val send = m.frame(m.idx("c.sendSpace"))
+            val along = ArrayList<Pair<Float, String>>()
+            for ((slot, id) in listOf("leading" to "plus", "trailing" to "ring")) {
+                val i = m.indexOf(id)
+                if (i == null) {
+                    assertNull("$name: $slot laid out", slots[slot])
+                    continue
+                }
+                val b = m.frame(i)
+                assertEquals("$name: $slot centred on the disc", send.center.y, b.center.y, 0.01f)
+                assertTrue("$name: $slot inside the composer", b.left >= cf.left - 0.01f && b.right <= cf.right + 0.01f && b.top >= cf.top - 0.01f && b.bottom <= cf.bottom + 0.01f)
+                along.add((if (rtl) -b.right else b.left) to slot)
+                if (slot == "trailing") assertTrue("$name: trailing before the disc", if (rtl) b.left >= send.right else b.right <= send.left)
+            }
+            val order = c["order"]?.array.orEmpty().mapNotNull { it.string }.filter { it == "leading" || it == "trailing" }
+            assertEquals("$name: order", order, along.sortedBy { it.first }.map { it.second })
+            for (step in c["steps"]?.array.orEmpty()) m.press(step["press"]!!.string!!)
+            runCurrent()
+            assertEquals("$name: events", c["events"]?.array.orEmpty().map { it["name"]?.string }, host.actions.map { it.name })
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `composerPaste` (#EDE-65 R): through
+     * the MODEL, [composerPaste] with the clipboard's files (what the field
+     * reads off the system clipboard, `composerClipboard`); not taken +
+     * text = the field's own edit. The fired actions, the uploads (named by
+     * the Composer) and /draft.
+     */
+    @Test
+    fun composerPasteCasesAttachImages() = runTest {
+        val f = Fixtures.json("interactions-round1.json")["composerPaste"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertEquals(5, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("composer_paste", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            m.setViewport(390f, 800f)
+            val field = m.idx("c")
+            val files = c["clipboard"]?.get("files")?.array.orEmpty().map { PickedFile(it["name"]!!.string!!, it["size"]!!.number!!.toLong(), it["type"]!!.string!!) }
+            val taken = m.composerPaste(field, files, files.map { "content://clip/${it.name}" })
+            val text = c["clipboard"]?.get("text")?.string
+            if (!taken && text != null) m.fieldEdited(field, (m.data["draft"]?.string ?: "") + text)
+            advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+            runCurrent()
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            assertEquals("$name: uploads", c["uploads"]?.array.orEmpty().map { it.string }, host.uploads.flatMap { u -> u.files.map { it.name } })
+            assertTrue("$name: the upload names the Composer", host.uploads.all { it.componentId == "c" && it.name == "c" && it.uris.size == it.files.size })
             assertEquals("$name: /draft", c["draft"] ?: JsonValue.Null, m.data["draft"] ?: JsonValue.Null)
         }
     }

@@ -43,7 +43,9 @@
             "chart6": "#7c3aed",
             "chart7": "#db2777",
             "chart8": "#0891b2",
-            "link": "#171717"
+            "link": "#171717",
+            "borderStrong": "#e5e5e5",
+            "ghostHover": "#f5f5f5"
           },
           "shadow": {
             "none": [],
@@ -157,7 +159,9 @@
             "chart6": "#a78bfa",
             "chart7": "#f472b6",
             "chart8": "#22d3ee",
-            "link": "#e5e5e5"
+            "link": "#e5e5e5",
+            "borderStrong": "#ffffff1a",
+            "ghostHover": "#262626"
           },
           "shadow": {
             "none": [],
@@ -7956,7 +7960,9 @@
             "chart6": "#7c3aed",
             "chart7": "#db2777",
             "chart8": "#0891b2",
-            "link": "#2b59c8"
+            "link": "#2b59c8",
+            "borderStrong": "#d4d4d4",
+            "ghostHover": "#f5f5f5"
           },
           "shadow": {
             "none": [],
@@ -8049,7 +8055,9 @@
             "chart6": "#a78bfa",
             "chart7": "#f472b6",
             "chart8": "#22d3ee",
-            "link": "#5f8bea"
+            "link": "#5f8bea",
+            "borderStrong": "#ffffff1f",
+            "ghostHover": "#ffffff0e"
           },
           "shadow": {
             "none": [],
@@ -12257,7 +12265,7 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "backgroundColor": "#ffffff0e"
+                "backgroundColor": "$color.ghostHover"
               }
             }
           ]
@@ -16115,6 +16123,29 @@
                 "backgroundColor": "$color.secondary",
                 "color": "$color.secondaryForeground"
               }
+            },
+            {
+              "style": {
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": 16,
+                "borderTopLeftRadius": 16,
+                "paddingHorizontal": 14,
+                "paddingVertical": 10,
+                "maxWidth": "62%"
+              }
+            },
+            {
+              "when": {
+                "side": "out"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground",
+                "borderColor": "$color.borderStrong"
+              }
             }
           ],
           "author": [
@@ -16129,6 +16160,11 @@
             {
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10
               }
             }
           ],
@@ -16823,7 +16859,9 @@
             "chart6": "#a855f7",
             "chart7": "#ec4899",
             "chart8": "#22c55e",
-            "link": "#7c3aed"
+            "link": "#7c3aed",
+            "borderStrong": "#e9d5ff",
+            "ghostHover": "#ffe4e6"
           },
           "shadow": {
             "none": [],
@@ -16916,7 +16954,9 @@
             "chart6": "#d8b4fe",
             "chart7": "#f9a8d4",
             "chart8": "#86efac",
-            "link": "#c4b5fd"
+            "link": "#c4b5fd",
+            "borderStrong": "#4c3a7a",
+            "ghostHover": "#4c1d95"
           },
           "shadow": {
             "none": [],
@@ -25405,7 +25445,9 @@
             "chart6": "#0d9488",
             "chart7": "#db2777",
             "chart8": "#65a30d",
-            "link": "#2b59c8"
+            "link": "#2b59c8",
+            "borderStrong": "#d4d4d4",
+            "ghostHover": "#f5f5f5"
           },
           "shadow": {
             "none": [],
@@ -25498,7 +25540,9 @@
             "chart6": "#2dd4bf",
             "chart7": "#f472b6",
             "chart8": "#a3e635",
-            "link": "#5f8bea"
+            "link": "#5f8bea",
+            "borderStrong": "#ffffff1f",
+            "ghostHover": "#ffffff0e"
           },
           "shadow": {
             "none": [],
@@ -29706,7 +29750,7 @@
                 "triggerVariant": "row"
               },
               "style": {
-                "backgroundColor": "#ffffff0e"
+                "backgroundColor": "$color.ghostHover"
               }
             }
           ]
@@ -33564,6 +33608,29 @@
                 "backgroundColor": "$color.secondary",
                 "color": "$color.secondaryForeground"
               }
+            },
+            {
+              "style": {
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": 16,
+                "borderTopLeftRadius": 16,
+                "paddingHorizontal": 14,
+                "paddingVertical": 10,
+                "maxWidth": "62%"
+              }
+            },
+            {
+              "when": {
+                "side": "out"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground",
+                "borderColor": "$color.borderStrong"
+              }
             }
           ],
           "author": [
@@ -33578,6 +33645,11 @@
             {
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10
               }
             }
           ],

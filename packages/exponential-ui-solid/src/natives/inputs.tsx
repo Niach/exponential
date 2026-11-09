@@ -16,7 +16,7 @@
 // and, inside a <form>, Radix's hidden BUBBLE inputs after the control.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
-import { boundPath, composerMenuKey, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
+import { boundPath, composerMenuKey, composerPaste, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
 import { checkboxAriaChecked, checkboxPress } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
@@ -840,6 +840,16 @@ export function ComposerNative(props: NativeProps): JSX.Element {
           field.edit(e.currentTarget.value)
           void props.emit(`change`, { value: e.currentTarget.value }, { value: e.currentTarget.value })
         }}
+        onPaste={(e) => {
+          // #EDE-65 R: a pasted image fires `attach` {files}; files without
+          // one do nothing; text stays the field's own.
+          const paste = composerPaste(e.clipboardData)
+          if (!paste.take) return
+          e.preventDefault()
+          if (paste.images.length === 0) return
+          void ctx.host.onUpload?.(paste.images, { nodeId: props.domId, name: props.node.id })
+          void props.emit(`attach`, { files: paste.files })
+        }}
         onKeyDown={(e) => {
           // #EDE-65: an IME composition's keys are the IME's; menuKeys hands the
           // arrows, Enter, Tab and Escape to the host's menu.
@@ -858,11 +868,17 @@ export function ComposerNative(props: NativeProps): JSX.Element {
         }}
       />
       <div class="xui-composer-bar">
+        <Show when={props.node.slots?.leading}>
+          <div class="xui-composer-leading">{props.slots.leading}</div>
+        </Show>
         {bool(props.props.attachments) ? (
           <button type="button" {...part(`attachment`)} aria-label={ctx.t(`browse`)} onClick={() => void props.emit(`attach`)}>
             <BuiltinIcon slot="Composer.attachment" />
           </button>
         ) : null}
+        <Show when={props.node.slots?.trailing}>
+          <div class="xui-composer-trailing">{props.slots.trailing}</div>
+        </Show>
         <button type="button" {...part(`send`, busy() && `pressed`)} aria-label={busy() ? ctx.t(`stop`) : submitLabel()} disabled={!busy() && field.value.trim() === ``} onClick={submit}>
           {busy() ? <BuiltinIcon slot="Composer.stop" /> : <BuiltinIcon slot="Composer.send" />}
         </button>

@@ -137,11 +137,16 @@ impl EmbedSpawn {
     /// The Embed leaf at `wrap` (`None` = max-content: the host's width;
     /// `Some(0)` = min-content: no width): the child's height at that width.
     pub(crate) fn measure(&self, embeds: &Embeds, id: &str, surface: &Value, wrap: Option<f32>, window: &mut Window, cx: &mut App) -> (f32, f32) {
-        let child = self.child(embeds, id, surface, window, cx);
         let width = match wrap {
             Some(w) if w > 0.0 && w.is_finite() => w,
             _ => self.width,
         };
+        // #EDE-65 lane O: a leaf the host paints itself has no nested surface.
+        if let Some(height) = self.host.host_leaf_height(id, width, window, cx) {
+            embeds.borrow_mut().remove(id);
+            return (if wrap == Some(0.0) { 0.0 } else { width }, height.max(0.0));
+        }
+        let child = self.child(embeds, id, surface, window, cx);
         let height = f32::from(child.update(cx, |v, cx| v.measure_at(Some(width), window, cx)).height);
         if let Some(c) = embeds.borrow_mut().get_mut(id) {
             c.measured = Some((width, height));
@@ -238,9 +243,25 @@ impl SurfaceView {
         if self.ghosting.get() {
             return None;
         }
+        // #EDE-65 lane O: the host's own row (it claimed the leaf's measure).
+        if !self.embeds.borrow().contains_key(&n.id) {
+            if let Some(own) = self.host.host_leaf(&n.id, window, cx) {
+                return Some(div().size_full().child(own).into_any_element());
+            }
+        }
         let surface = n.props.get("surface").cloned().unwrap_or(Value::Null);
         let child = self.embed_spawn().child(&self.embeds, &n.id, &surface, window, cx);
         Some(div().size_full().child(child).into_any_element())
+    }
+
+    /// #EDE-65 lane O: the host's own leaf `id`
+    /// ([`HostPlugin::host_leaf_height`]) changed height: it measures again.
+    pub fn host_leaf_resized(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(i) = self.cache.index_of(id) {
+            self.surface.mark_dirty(i);
+            self.changed = true;
+            cx.notify();
+        }
     }
 
     /// #EDE-65: the nested view Embed `id` paints (a test and automation

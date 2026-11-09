@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer `leading` / `trailing` slots and image paste (#EDE-65 R): the slots sit in the controls row (leading at the start, trailing before send); a paste with image files fires `attach` {files} and calls `host.onUpload`, a paste with other files only is prevented. `composer-slots.test.tsx` replays `composerSlots` + `composerPaste`.
 - Select (#EXP-1629, the IDE's multi picker), React's: the row's `button` part (its hover lent to the value, placeholder and chevron), a `multiple` popup's cursor on its first chosen option. Parity cases: multiple with a choice / with none.
 
 ## 0.21.0 (2026-11-09)

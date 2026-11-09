@@ -5617,7 +5617,7 @@ impl SteerSessionView {
             // #EXP-1736: a person's prompt = THE bubble, the viewer's own
             // (right); a session's input (`Message from …` / `Report from
             // …`) = that session's bubble (left, its body alone).
-            FeedKind::UserMessage { text, .. } => {
+            FeedKind::UserMessage { text, at, .. } => {
                 let layout = self.item_layout(item.id);
                 let own = layout.map_or(true, |layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
                 let parsed = domain::transcript_grouping::cross_session_input(text)
@@ -5635,7 +5635,8 @@ impl SteerSessionView {
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
                         body: self.render_user_message(item.id, body, cx),
-                        time: String::new(),
+                        // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
+                        time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                         own,
                         name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
                         link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
