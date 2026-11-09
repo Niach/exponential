@@ -427,8 +427,9 @@ fn picker_trigger(ink: &Ink, id: &str, value: Value, action: &str, items: Vec<Va
     let mut text = faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), alpha);
     text["props"]["lines"] = json!(1);
     text["style"]["maxWidth"] = json!(240);
-    // The Button centres its content box one device pixel higher.
-    text["style"]["paddingBottom"] = json!(1);
+    // The Button sets its value half a point higher than the box centre.
+    text["style"]["marginTop"] = json!(-0.5);
+    text["style"]["marginBottom"] = json!(0.5);
     let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
         // A Medium ghost Button's content: `gap_2` between the value and its chevron.
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "cursor": "pointer"},
@@ -522,12 +523,12 @@ fn push_to_talk(inks: &Inks) -> Value {
         "props": {"label": copy.push_to_talk, "value": at("keys"), "recording": at("recording"), "pending": at("pending"), "placeholder": copy.shortcut_record},
         "on": {"start": {"event": {"name": "pttStart"}}, "stop": {"event": {"name": "pttStop"}}, "key": {"event": {"name": "pttKey"}}}});
     // gpui-component's XSmall ghost Button: `h_5` / `px_1`, the `text_xs`
-    // label at line height 1.
+    // label at line height 1 (half a point under the box centre).
     let size = ink.r(XS);
     let clear = json!({"id": "ptt_clear", "component": "Box", "visible": at("clear"), "props": {"pressable": true}, "accessibility": {"label": copy.shortcut_clear},
         "on": {"press": {"event": {"name": "pttClear"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": ink.r(1.25), "paddingHorizontal": ink.r(0.25), "cursor": "pointer"},
-        "children": [{"id": "ptt_clear_text", "component": "Text", "props": {"text": copy.shortcut_clear}, "style": {"fontSize": size, "lineHeight": size, "color": ink.foreground}}]});
+        "children": [{"id": "ptt_clear_text", "component": "Text", "props": {"text": copy.shortcut_clear}, "style": {"fontSize": size, "lineHeight": size, "color": ink.foreground, "marginTop": 0.5, "marginBottom": -0.5}}]});
     let here = json!({"id": "ptt_here", "component": "Box", "visible": at("here"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25)}, "children": [recorder, clear]});
     let keys = json!({"id": "ptt_keys", "component": "KbdGroup", "visible": and(at("readOnly"), at("bound")), "props": {"keys": at("keys")}});
     let mut none = ink.text("ptt_none", json!(copy.shortcut_none), SM, &ink.muted);
