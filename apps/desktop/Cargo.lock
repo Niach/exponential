@@ -2824,6 +2824,7 @@ dependencies = [
 name = "ede-shell"
 version = "0.14.143"
 dependencies = [
+ "anyhow",
  "api",
  "base64 0.22.1",
  "chrono",
