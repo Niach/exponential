@@ -232,6 +232,32 @@ extension SurfaceModel {
         fire(id: nodeId, EmbedCard.event, payload: EmbedCard.payload(name: event.name, context: event.context))
     }
 
+    /// The FIXED measure never asks the painter: after a pass, every Embed's
+    /// nested surface lays out at the Embed's content width and its size
+    /// becomes the core's override; a changed size measures the Embed again
+    /// (the pass that follows).
+    func settleFixedEmbeds() {
+        var sizes: [String: CGSize] = [:]
+        var dirty: [Int] = []
+        for n in nodes where !n.removed && n.component == "Embed" && n.part == nil {
+            let e = style(n.index).insets
+            let content = frame(n.index).width - e.leading - e.trailing
+            let size = embedSize(id: n.id, props: n.props, wrap: content > 0 ? content : nil)
+            sizes[n.id] = size
+            if fixedEmbedSizes[n.id] != size { dirty.append(n.index) }
+        }
+        let gone = fixedEmbedSizes.keys.contains { sizes[$0] == nil }
+        fixedEmbedSizes = sizes
+        for i in dirty { _ = surface.markDirty(index: UInt32(i)) }
+        if !dirty.isEmpty || gone { layoutNeeded = true }
+    }
+
+    /// The overrides as `layoutFixed` takes them (nil = none).
+    var fixedEmbedSizesJSON: String? {
+        guard !fixedEmbedSizes.isEmpty else { return nil }
+        return JSONValue.object(fixedEmbedSizes.mapValues { .object(["w": .number(Double($0.width)), "h": .number(Double($0.height))]) }).json
+    }
+
     /// Cards whose Embed left the surface unmount.
     func pruneEmbeds() {
         guard !embeds.isEmpty else { return }

@@ -26,26 +26,7 @@ final class SnapshotTests: XCTestCase {
             // passes none).
             m.setToday("2000-01-01")
             try m.setNested(json: c["node"]!.json)
-            var rows: [JSONValue] = []
-            for n in m.nodes {
-                let f = m.frame(n.index)
-                let s = m.style(n.index)
-                var row: [String: JSONValue] = [
-                    "id": .string(n.id),
-                    "component": .string(n.component),
-                    "frame": .array([f.minX, f.minY, f.width, f.height].map { .number(Double(($0 * 100).rounded() / 100)) }),
-                ]
-                if let p = n.part { row["part"] = .string(p) }
-                if n.hidden { row["hidden"] = .bool(true) }
-                if let bg = m.style(n.index).backgroundHex { row["bg"] = .string(bg) }
-                // The core's uniform width (Compose's `boxStyle.borderWidth`): a
-                // per-side border (an AppBar's bottom rule) records none.
-                if let b = s.coreBorderWidth, b > 0 { row["border"] = .number(Double(b)) }
-                if s.radius > 0 { row["radius"] = .number(Double(s.radius)) }
-                if let o = s.opacity { row["opacity"] = .number(o) }
-                if !n.partStates.isEmpty { row["states"] = .array(n.partStates.map { .string($0) }) }
-                rows.append(.object(row))
-            }
+            let rows = Self.rows(m)
             snapshot[name] = .object(["height": .number(Double(m.surfaceSize.height)), "nodes": .array(rows)])
         }
         let data = try JSONSerialization.data(withJSONObject: JSONValue.object(snapshot).any, options: [.prettyPrinted, .sortedKeys])
@@ -67,6 +48,38 @@ final class SnapshotTests: XCTestCase {
             let got = at < textLines.count ? textLines[at] : "<end>"
             XCTFail("component snapshot drifted at line \(at + 1): stored `\(want)`, painted `\(got)`; compare \(tmp.path) with \(Self.path.path) (EXPONENTIAL_UI_RECORD=1 swift test rewrites it)")
         }
+    }
+
+    /// The painted rows of `m`, offset by `origin`; an Embed's nested
+    /// surface (#EDE-65) follows its row, placed in the Embed's content box
+    /// and tagged with the Embed's id (its ids are its own).
+    static func rows(_ m: SurfaceModel, origin: CGPoint = .zero, embed: String? = nil) -> [JSONValue] {
+        var rows: [JSONValue] = []
+        for n in m.nodes {
+            let f = m.frame(n.index).offsetBy(dx: origin.x, dy: origin.y)
+            let s = m.style(n.index)
+            var row: [String: JSONValue] = [
+                "id": .string(n.id),
+                "component": .string(n.component),
+                "frame": .array([f.minX, f.minY, f.width, f.height].map { .number(Double(($0 * 100).rounded() / 100)) }),
+            ]
+            if let embed { row["embed"] = .string(embed) }
+            if let p = n.part { row["part"] = .string(p) }
+            if n.hidden { row["hidden"] = .bool(true) }
+            if let bg = s.backgroundHex { row["bg"] = .string(bg) }
+            // The core's uniform width (Compose's `boxStyle.borderWidth`): a
+            // per-side border (an AppBar's bottom rule) records none.
+            if let b = s.coreBorderWidth, b > 0 { row["border"] = .number(Double(b)) }
+            if s.radius > 0 { row["radius"] = .number(Double(s.radius)) }
+            if let o = s.opacity { row["opacity"] = .number(o) }
+            if !n.partStates.isEmpty { row["states"] = .array(n.partStates.map { .string($0) }) }
+            rows.append(.object(row))
+            if n.component == "Embed", n.part == nil, let nested = m.embeds[n.id]?.model {
+                let e = s.insets
+                rows += Self.rows(nested, origin: CGPoint(x: f.minX + e.leading, y: f.minY + e.top), embed: n.id)
+            }
+        }
+        return rows
     }
 
     /// Fractional numbers in their SHORTEST round-trip form: Foundation's

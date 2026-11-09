@@ -212,6 +212,9 @@ public final class SurfaceModel {
     @ObservationIgnored public static var benchCounters: BenchCounters?
     /// #EDE-65: the mounted cards of the Embed nodes, by node id (`Model/Embed.swift`).
     @ObservationIgnored var embeds: [String: EmbedMount] = [:]
+    /// #EDE-65: under the FIXED measure, the Embeds' nested sizes the core
+    /// takes as overrides (`layoutFixed`'s `{id: {w, h}}`).
+    @ObservationIgnored var fixedEmbedSizes: [String: CGSize] = [:]
     /// Conformance: called with every node index a `NodeView` paints.
     @ObservationIgnored var paintProbe: ((Int) -> Void)?
     /// The text field that has focus.
@@ -420,7 +423,7 @@ public final class SurfaceModel {
         var out: FfiLayout
         while true {
             let kinds = lastKinds
-            if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: nil, wrap: true) {
+            if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: fixedEmbedSizesJSON, wrap: true) {
                 out = fixed
             } else {
                 let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, memo: memoizeMeasures ? measureMemo : nil, mediaAllowed: { [unowned self] src in
@@ -503,6 +506,7 @@ public final class SurfaceModel {
         syncToasts()
         reportUnknowns()
         echoFields()
+        if fixedMeasure { settleFixedEmbeds() }
         inPass = false
         // Bookkeeping above may have changed states (focus into a layer):
         // the core raised events or needs another pass. Bounded.
