@@ -5,7 +5,7 @@ import UIKit
 
 // #FEED-191 RESULTS TAB ×iOS (fixtures/results-tab.json; web
 // `packages/ui/src/results-tab.tsx` + `components/chat/chat-results`): the
-// chat screen's last pager page. Top: the PR block while the chat has its
+// session screen's Results tab (#EXP-1732). Top: the PR block while the chat has its
 // ONE pull request (`guidePullRequest`): the Stack band + THE StackRail when it
 // sits in a linear open stack, then ONE Changes row opening THE review page
 // (the complete diff, back row `‹ Results`). Then the results INLINE
@@ -103,6 +103,17 @@ struct ChatResultsPage: View {
     /// THE fold over the chat's own messages, and each result's raw card
     /// (its surface). Only a session's own cards are read.
     private var fold: (results: [ResultsTab.Result], cards: [String: TreeMessageCard]) {
+        Self.foldResults(rootId: rootId, rows: rows, now: now)
+    }
+
+    /// #EXP-1732: the Results tab's results (the header tab's count).
+    static func results(rootId: String, rows: ChatRows, now: Date) -> [ResultsTab.Result] {
+        foldResults(rootId: rootId, rows: rows, now: now).results
+    }
+
+    private static func foldResults(
+        rootId: String, rows: ChatRows, now: Date
+    ) -> (results: [ResultsTab.Result], cards: [String: TreeMessageCard]) {
         var cards: [String: TreeMessageCard] = [:]
         let messages = rows.messages.compactMap { row -> ResultsTab.MessageInput? in
             guard row.card != nil, row.authorSessionId == row.sessionId,

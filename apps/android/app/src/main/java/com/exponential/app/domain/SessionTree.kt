@@ -236,11 +236,6 @@ object SessionTree {
             "reported" to "Reported to",
         )
         const val TEST_ID_XREF = "chat-xref"
-        /** #EXP-1433: the strip's ONE group tab (its accessible name + the cap
-         *  of its open label, dp). */
-        const val TEST_ID_GROUP = "chat-strip-group"
-        const val STRIP_GROUP = "Issues and sessions"
-        const val STRIP_GROUP_MAX_WIDTH = 160
     }
 
     /** S-3 inter-session links: a compact header naming ANOTHER session (the
@@ -1620,61 +1615,6 @@ object SessionTree {
         }
         return if (items.isEmpty()) null else ComposerReplies(newest.id, items)
     }
-
-    // ── EXP-1334: the chat strip never scrolls ────────────────────────────
-
-    /**
-     * Which chips get drawn, in order; the rest collapse into one "+N" (the
-     * desktop's `partition_tabs`): chips pack in order until the next would
-     * not fit; the overflow chip's width is reserved only once something
-     * overflows; the ACTIVE chip is always visible; one chip always survives.
-     */
-    fun partitionTabs(
-        widths: List<Float>,
-        available: Float,
-        gap: Float,
-        overflowW: Float,
-        activeIndex: Int?,
-    ): List<Int> {
-        val count = widths.size
-        val room = maxOf(available, 0f)
-        val total = widths.sum() + gap * maxOf(count - 1, 0)
-        if (total <= room) return widths.indices.toList()
-        val budget = maxOf(room - overflowW - gap, 0f)
-        val visible = mutableListOf<Int>()
-        var used = if (activeIndex == null) 0f else widths[activeIndex]
-        var chips = if (activeIndex == null) 0 else 1
-        for (index in 0 until count) {
-            if (index == activeIndex) {
-                visible.add(index)
-                continue
-            }
-            val next = used + widths[index] + (if (chips > 0) gap else 0f)
-            if (next > budget && chips > 0) break
-            visible.add(index)
-            used = next
-            chips += 1
-        }
-        if (activeIndex != null && activeIndex !in visible) visible.add(activeIndex)
-        if (visible.isEmpty() && count > 0) visible.add(0)
-        return visible
-    }
-
-    enum class StripMode(val wire: String) { Chips("chips"), Group("group") }
-
-    /** #EXP-1433: [count] = the issues + sessions the group menu lists. */
-    data class ChatStripMode(val mode: StripMode, val count: Int)
-
-    /**
-     * #EXP-1433 (session-chat.json `stripModeCases`): the strip between
-     * Conversation and Results. `chips` = at most one issue and no session
-     * (that issue keeps its chip); `group` = ONE icon tab for every issue and
-     * session, [ChatStripMode.count] of them, opening THE menu of their rows.
-     */
-    fun chatStripMode(issues: Int, sessions: Int): ChatStripMode = ChatStripMode(
-        mode = if (issues <= 1 && sessions == 0) StripMode.Chips else StripMode.Group,
-        count = issues + sessions,
-    )
 
     /** EXP-1309/1318 (`chat-list.json` `copy.words`): a Chats row's ONE
      *  quiet word ([wire] = the fixture key). EXP-1339: [Merged] has NO text

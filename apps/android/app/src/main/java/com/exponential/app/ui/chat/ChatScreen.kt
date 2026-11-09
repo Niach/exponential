@@ -77,7 +77,9 @@ import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.session.SessionLiveTail
-import com.exponential.app.ui.components.TabPager
+import com.exponential.app.ui.components.PageViewModelStore
+import com.exponential.app.domain.SessionScreen
+import androidx.activity.compose.BackHandler
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.IssueScreen
@@ -107,17 +109,17 @@ import java.time.format.DateTimeFormatter
  * EXP-1296 (Model v3): THE conversation screen for a chat root
  * OR an agent root (`chat/{sessionId}`), `session-chat.json`.
  *
- * A chat: the title (EXP-1316: derived, never renamed), then ONE tab strip
- * = the phone pager — Conversation · one chip per linked issue · "+" (link /
- * file an issue) · the session chips (EXP-1343: each a page = its raw work + composer) ·
- * Results. #EXP-1662: a chat holding a plan adds the plan tab after
- * Conversation ([PlanPageContent] under the header + strip). Conversation = the
- * root's rows (THE session card per session, the person's bubbles, the agent's
- * prose, THE session view's question card answered in place, THE plan row,
- * subagent / picture / event rows) over THE composer box; an issue page = that issue's [IssueScreen] embedded; Results = the tree's results under its PR block.
- * The header carries the Merge capsule of its PR. An AGENT channel is the same screen with the
- * agent's icon + name (settings affordance) and the conversation only, its
- * messages as comment rows. A live session page puts Stop in the header.
+ * #EXP-1732 (session-screen.json): THE session screen, phones = NARROW. The
+ * header band (back, the lead disc, the title over `status · device ·
+ * trigger`, the Merge pill, THE gear for an agent / the Assistant, `…`) over
+ * THE segmented tabs Chat · Issues · Sessions · Results (a muted count each).
+ * Layout `chat` = the conversation (the root's rows over THE Dock + THE
+ * composer; plans and questions inline), `tab` = the tab's body replacing it
+ * (Issues = THE issue rows led by `+`, Sessions = THE tree rows, Results =
+ * the tree's results under its PR block), `item` = a pushed page over the
+ * tab (an issue's [IssueScreen] embedded, a session's raw work + composer, a
+ * plan's [PlanPageContent]) with its `‹` back. The gear pushes the agent's
+ * settings page.
  */
 @Composable
 fun ChatScreen(
@@ -136,7 +138,6 @@ fun ChatScreen(
     val root by viewModel.root.collectAsStateWithLifecycle()
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val users by viewModel.users.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
@@ -151,10 +152,6 @@ fun ChatScreen(
     val isMember by viewModel.isMember.collectAsStateWithLifecycle()
     val startDevices by viewModel.startDevices.collectAsStateWithLifecycle()
     val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()
-    // EXP-1521: only WHETHER there is a live tail; the tail collects the
-    // relay state itself, so the agent's `turn` ticks recompose the tail
-    // alone, never the whole chat (transcript and composer).
-    val hasLiveTail by viewModel.hasLiveTail.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val noticeToaster = LocalToaster.current
@@ -174,15 +171,22 @@ fun ChatScreen(
     }
     LaunchedEffect(viewModel.rootId, newestAgentMessage) { viewModel.markRead() }
 
-    var selectedKey by rememberSaveable { mutableStateOf(chatInitialTabKey(viewModel.initialTab)) }
-    // #EXP-1662 (plan-page.json): the plan a row or a way in opened (else
-    // `planTabTarget`), any plan of the tree, kept while the tab is shown.
-    var pinnedPlan by rememberSaveable { mutableStateOf(viewModel.initialPlan) }
-    // #FEED-191 (plan-page.json `planTabTarget`'s `kept`): the plan the tab
-    // showed during THIS visit of the chat, kept until the person leaves the
-    // chat (saveable, so rotation keeps it; leaving pops the entry and a
-    // decided plan has no chip on the way back); tab switches keep it.
-    var keptPlan by rememberSaveable { mutableStateOf<String?>(null) }
+    // #EXP-1732 (session-screen.json): the requested tab (`?tab=`, legacy
+    // values map through `legacyTabs`) and the opened item (`open` + its id;
+    // `?plan=` opens that plan).
+    var requestedTab by rememberSaveable { mutableStateOf(viewModel.initialTab) }
+    var openKind by rememberSaveable {
+        mutableStateOf(if (viewModel.initialPlan != null) SessionScreen.Open.Plan.wire else null)
+    }
+    var openId by rememberSaveable { mutableStateOf(viewModel.initialPlan) }
+    val openItem: (SessionScreen.Open, String) -> Unit = { kind, id ->
+        openKind = kind.wire
+        openId = id
+    }
+    val closeItem: () -> Unit = {
+        openKind = null
+        openId = null
+    }
     var menuFor by remember { mutableStateOf<ChatTabMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
@@ -190,50 +194,28 @@ fun ChatScreen(
     var mergeNowConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
     val tree by viewModel.tree.collectAsStateWithLifecycle()
 
-    // THE session composer's state = the ROOT session's view model (the same
-    // live relay state the session view reads: config, usage, queue, turn).
-    val rootSession = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
-        key = "session:${viewModel.rootId}",
-    ) { factory -> factory.create(viewModel.rootId) }
-    LaunchedEffect(rootSession) { rootSession.ensureConnected() }
-    // The ring opens THE session view's Usage sheet (account switch included).
-    var usageSheetOpen by remember { mutableStateOf(false) }
-
     val statusById = remember(issues, statuses) {
         issues.associate { it.id to IssueStatusResolver.resolve(it, statuses) }
     }
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val issueTitles = remember(syncedIssues) { syncedIssues.associate { it.id to it.title } }
-    val shownPlan = remember(view?.rows, pinnedPlan, messagesById, keptPlan) {
-        chatShownPlan(view?.rows.orEmpty(), pinnedPlan, messagesById, keptPlan)
+    // #EXP-1662 / #EXP-1732: the plan a row or a way in opened (`open: plan`),
+    // any plan of the tree.
+    val openedPlan = remember(view?.rows, openKind, openId, messagesById) {
+        if (openKind == SessionScreen.Open.Plan.wire) chatOpenedPlan(view?.rows.orEmpty(), openId, messagesById) else null
     }
-    // `kept` follows the tab's target whenever it is non-null (a pressed row
-    // pins its plan, so it lands here too).
-    LaunchedEffect(shownPlan?.id) { shownPlan?.id?.let { keptPlan = it } }
-    // A plan of this tree opens the tab in place (a session page's row);
-    // anything else takes the host's way in.
+    // A plan of this tree opens in place as the pushed item (a session
+    // page's row too); anything else takes the host's way in.
     val outerOpenPlan = LocalOpenPlanPage.current
     val latestMessages by rememberUpdatedState(messagesById)
+    val latestOpenItem by rememberUpdatedState(openItem)
     val openPlanHere = remember(outerOpenPlan) {
         OpenPlanPage { sessionId, messageId ->
             if (latestMessages.containsKey(messageId)) {
-                pinnedPlan = messageId
-                selectedKey = PLAN_TAB_KEY
+                latestOpenItem(SessionScreen.Open.Plan, messageId)
             } else {
                 outerOpenPlan.open(sessionId, messageId)
             }
-        }
-    }
-    // #EXP-1380: one instance per change of its inputs, so the transcript's
-    // rows skip recomposition while the screen's other state moves.
-    val metaFor: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta? = remember(users, messagesById) {
-        { row ->
-            val user = row.authorId?.let { users[it] }
-            ChatRowMeta(
-                authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
-                time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
-                user = user,
-            )
         }
     }
     val rootRow = root
@@ -253,10 +235,6 @@ fun ChatScreen(
     } else {
         null
     }
-    // EXP-1649: an agent's conversation reads the same placeholder as web.
-    val placeholder = view?.composer?.placeholder
-        ?: SessionTree.ChatCopy.PLACEHOLDER
-
     // EXP-1307: the Guide's ONE PR behind the header `…`.
     val guidePr = SessionTree.guidePullRequest(pullRequests)
 
@@ -286,22 +264,25 @@ fun ChatScreen(
             com.exponential.app.ui.components.ChatLeadDisc(lead = chatLead, agent = rootRow?.cli, size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC.dp)
         }
     }
-    val headerSubtitle = if (agent != null) {
-        SessionTree.agentChatSubtitle(rootRow?.model?.takeIf { it.isNotBlank() }?.let(::modelLabel))
-    } else {
-        listOfNotNull(chatStateWord(view), deviceLabel).joinToString(" · ")
+    // #EXP-1732 (session-screen.json `subtitle`): `status · device · trigger`
+    // (an agent's first enabled trigger's summary), blanks dropped.
+    val trigger = remember(agentDefinition?.triggers, agent != null) {
+        if (agent == null) {
+            null
+        } else {
+            com.exponential.app.domain.parseAgentTriggers(agentDefinition?.triggers)
+                .firstOrNull { it.enabled }
+                ?.let { com.exponential.app.domain.AgentSettings.triggerSummary(it) }
+        }
     }
-    // #EXP-1688 (web `ChatHeaderTitle`): needs input = amber, working = the
-    // foreground, otherwise the muted default.
-    val headerSubtitleColor = when {
-        agent != null -> null
-        view?.needsYou == true -> com.exponential.app.ui.issue.NeedsInputAmber
-        view?.busy == true -> MaterialTheme.colorScheme.onSurface
-        else -> null
-    }
+    val stateWord = chatStateWord(viewModel.rootId, tree)
+    val headerSubtitle = SessionScreen.subtitle(stateWord, deviceLabel, trigger)
+    val headerSubtitleColor = chatStateTone(stateWord)
     val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
         com.exponential.app.ui.components.agentMenuItems(
             com.exponential.app.domain.Chats.agentMenuEntries(busy = rootRow?.busy == true, isOwner = isOwner)
+                // chats.json `agentMenu` locks Settings; it opens exactly what
+                // THE gear opens (#EXP-1732: the agent's settings page).
                 .filter { it != com.exponential.app.domain.Chats.AgentMenuEntry.Settings || onOpenAgentSettings != null },
         ) { entry ->
             when (entry) {
@@ -371,26 +352,62 @@ fun ChatScreen(
         }
     }.orEmpty()
 
-    // EXP-760 ×4: a `#IDENTIFIER` (and, in the conversation, a BARE one) of a
-    // synced same-team issue is a pill; one linked here opens its tab.
-    val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
-    // EXP-1347: every issue ref inside the chat (its pages, nested issue
-    // tabs and embedded session pages included) takes this one handler.
-    val openIssueHere: (String) -> Unit = { id ->
-        if (statusById.containsKey(id)) selectedKey = "issue:$id" else currentOnOpenIssue(id)
+    // #EXP-1732 (session-screen.json): the Issues / Sessions tabs' rows and
+    // THE screen (kind, tabs + counts, the active tab, the opened item).
+    // Sessions = EVERY session under the root, off the raw tree (never the
+    // view's visible subset); Issues = the view's tree of issues (an agent's
+    // view carries none: its linked issues).
+    val isAgentChat = agent != null
+    val items = remember(view?.tabs, isAgentChat, tree, issues) {
+        val sessions = sessionScreenTreeItems(viewModel.rootId, tree.map(SessionTree::session), emptyList()).sessions
+        val treeIssues = if (isAgentChat) {
+            issues.map { SessionScreenIssue(it.id, it.identifier, 0) }
+        } else {
+            sessionScreenItems(view?.tabs.orEmpty(), null).issues
+        }
+        SessionScreenItems(treeIssues, sessions)
     }
-    val issueRefHandler = remember(linkCandidates, statusById) {
+    val resultsCount = remember(tree, messages, viewModel.rootId) { chatResultsCount(viewModel.rootId, tree, messages) }
+    val kind = SessionScreen.kind(
+        agentId = if (agent != null) rootRow?.agentId else null,
+        // An app's editor session renders as AppEditorScreen (its Preview /
+        // Data / Versions bodies live there); a chat route reads it as its agent.
+        appId = null,
+        assistant = agent?.assistant == true,
+    )
+    val screen = SessionScreen.screen(
+        kind = kind,
+        wide = false,
+        requested = requestedTab,
+        open = openKind,
+        counts = SessionScreen.Counts(issues = items.issues.size, sessions = items.sessions.size, results = resultsCount),
+    )
+    // A requested `settings` (the gear's item) is the agent's settings PAGE
+    // on a phone: push it once and forget the request.
+    LaunchedEffect(screen.open) {
+        if (screen.open == SessionScreen.Open.Settings) {
+            closeItem()
+            if (requestedTab == SessionScreen.Open.Settings.wire) requestedTab = null
+            rootRow?.agentId?.takeIf { it.isNotEmpty() }?.let { id -> onOpenAgentSettings?.invoke(id) }
+        }
+    }
+
+    // EXP-760 ×4: a `#IDENTIFIER` (and, in the conversation, a BARE one) of a
+    // synced same-team issue is a pill; one of this tree opens in place.
+    val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    // EXP-1347: every issue ref inside the chat (its pages, nested issues and
+    // embedded session pages included) takes this one handler.
+    val openIssueHere: (String) -> Unit = { id ->
+        if (statusById.containsKey(id) || items.issue(id) != null) openItem(SessionScreen.Open.Issue, id) else currentOnOpenIssue(id)
+    }
+    val issueRefHandler = remember(linkCandidates, statusById, items) {
         IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target -> openIssueHere(target.issueId) }
     }
 
-    // N-12: THE Dock (dock.json): the suggested-tasks rows with an open item
-    // ride the Dock. S-3: a waiting plan or question stays inline.
-    val dockedIds = remember(view) { chatDockedIds(view?.rows.orEmpty()) }
     // #EXP-1464 (chat-row-action.json `open`): a session opens where it
-    // lives (inbox-route.json `sessionTarget`, [sessionTargetRoute]): my agent
-    // conversation root = its channel, a chat root = its chat, a chat's
-    // child or anything under an agent = its own session view. A session of
-    // THIS chat's strip opened in place before this ([ChatContent]).
+    // lives (inbox-route.json `sessionTarget`): my agent conversation root =
+    // its channel, a chat root = its chat, a chat's child or anything under
+    // an agent = its own session view (a Dock suggestion's started session).
     val openChatSession: (String) -> Unit = { id ->
         when (val target = if (id == viewModel.rootId) null else viewModel.sessionTarget(id)) {
             is InboxRoute.SessionTarget.Agent -> onOpenChat(id)
@@ -400,12 +417,8 @@ fun ChatScreen(
             null -> if (viewModel.isOtherRoot(id)) onOpenChat(id) else onOpenSession(id)
         }
     }
-    val rowActions = ChatRowActions(
-        blocked = viewModel::isBlocked,
-        waitingCard = { id ->
-            remember(id) { viewModel.waitingCard(id) }.collectAsStateWithLifecycle(null).value
-        },
-    )
+    // EXP-1323: the root's suggested tasks (THE Dock card while one is open:
+    // Start, Start all, Do it here, Start on…, Start with…, File, Dismiss).
     val suggestionActions = ChatSuggestionActions(
         onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
         onStartAll = viewModel::startAllSuggestions,
@@ -417,19 +430,6 @@ fun ChatScreen(
         models = DomainContract.codingModelValues.map { it to modelLabel(it) },
         pending = suggestionPending,
     )
-    val onAnswer: ChatAnswer = { id, answer, settled ->
-        viewModel.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
-    }
-    val onDecidePlan: ChatPlanDecision = { id, d, settled ->
-        viewModel.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
-    }
-
-    // Inline `@email` mention pills in the chat rows: the team's synced
-    // members (issue detail's resolver); unknown addresses stay plain text.
-    val mentionResolver = remember(teamUsers) {
-        MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
-    }
-
     // #EXP-1545 (dock.json CHAT QUEUE): each Live child's Queue (its
     // per-session relay slots, LOCAL FIRST); the Dock shows ONE tasks card.
     val childDocks by viewModel.childDocks.collectAsStateWithLifecycle()
@@ -443,14 +443,7 @@ fun ChatScreen(
             ).takeIf { child.slots }
         }
     }
-    val treeNames = remember(view) {
-        buildMap {
-            view?.tabs.orEmpty().filterIsInstance<SessionTree.ChatTab.SessionTab>().forEach { tab ->
-                put(tab.sessionId, tab.name)
-                tab.nested.forEach { put(it.sessionId, it.name) }
-            }
-        }
-    }
+    val treeNames = remember(items) { items.sessions.associate { it.sessionId to it.name } }
     var childTodoOpen by rememberSaveable { mutableStateOf(true) }
     var childCompletedOpen by rememberSaveable { mutableStateOf(false) }
     val chatDock: (com.exponential.app.ui.session.SessionDock) -> com.exponential.app.ui.session.SessionDock = { sd ->
@@ -501,6 +494,51 @@ fun ChatScreen(
             }
         }
     }
+    // A viewer who cannot steer the chat reads the suggestions (no actions):
+    // every card then sits inline, none on the Dock.
+    val dockSuggestions = if (canSteer) suggestionActions else null
+    // EXP-1323 / #EXP-1732: a suggestions card with an open item (and actions)
+    // rides the Dock; every other one (settled: the started session's card,
+    // `Sent here`, `Filed EXP-9`) sits inline at the END of the root's
+    // transcript, or under its empty-feed placeholder.
+    val inlineSuggestions = remember(view?.rows, dockSuggestions != null) {
+        val rows = view?.rows.orEmpty()
+        val docked = if (dockSuggestions != null) chatSuggestionSources(rows).map { it.id }.toSet() else emptySet()
+        rows.filterIsInstance<SessionTree.SessionChatRow.Suggestions>().filter { it.id !in docked }
+    }
+    val rootFooter: (@Composable () -> Unit)? = if (inlineSuggestions.isEmpty()) {
+        null
+    } else {
+        {
+            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                inlineSuggestions.forEach { row ->
+                    key(row.id) { ChatSuggestionsCard(row = row, actions = dockSuggestions, onOpenSession = openChatSession) }
+                }
+            }
+        }
+    }
+    // #EXP-1732: the Chat tab's Dock = the root's own (its Queue, else a Live
+    // child's) plus the root's suggested tasks, over THE composer.
+    val rootDock: @Composable (com.exponential.app.ui.session.SessionDock) -> Unit = { sd ->
+        val sessionDock = chatDock(sd)
+        ChatDock(
+            rows = view?.rows.orEmpty(),
+            sources = sessionDock.sources,
+            sessionSheet = sessionDock.sheet,
+            action = sessionDock.action,
+            suggestions = dockSuggestions,
+            onOpenSession = openChatSession,
+        )
+    }
+    val onDecidePlan: ChatPlanDecision = { id, d, settled ->
+        viewModel.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
+    }
+
+    // Inline `@email` mention pills in the chat rows: the team's synced
+    // members (issue detail's resolver); unknown addresses stay plain text.
+    val mentionResolver = remember(teamUsers) {
+        MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
+    }
 
     // #EXP-1674: links in a chat's prose open like everywhere else.
     val appLinkHandler = rememberAppLinkHandler(root?.teamId)
@@ -521,71 +559,24 @@ fun ChatScreen(
             ChatContent(
                 view = view,
                 agent = agent,
-                // #EXP-1736: the conversation's own sender + the viewer.
-                chatSender = view?.let { v ->
-                    com.exponential.app.domain.TranscriptGrouping.Chat(
-                        sessionId = v.rootId,
-                        title = agent?.name ?: v.title,
-                        agentId = rootRow?.agentId?.takeIf { agent != null && it.isNotEmpty() },
-                        originSessionId = null,
-                    )
+                screen = screen,
+                items = items,
+                openId = openId,
+                onSelectTab = { tab ->
+                    requestedTab = tab.wire
+                    closeItem()
                 },
-                viewerId = me,
-                selectedKey = selectedKey,
-                onSelectKey = { selectedKey = it },
-                plan = shownPlan?.let { PlanPageState(it, messagesById[it.id]?.card) },
-                onPlanLeft = { if (selectedKey != PLAN_TAB_KEY) pinnedPlan = null },
+                onOpen = openItem,
+                onCloseItem = closeItem,
+                plan = openedPlan?.let { PlanPageState(it, messagesById[it.id]?.card) },
                 issueStatus = { statusById[it] },
-                meta = metaFor,
-                // #EXP-1464: a session card opens where its session lives.
-                onOpenCard = { card -> openChatSession(card.sessionId) },
-                rowActions = rowActions,
-                onAnswer = onAnswer,
+                rootId = viewModel.rootId,
                 onDecidePlan = onDecidePlan,
-                dockedIds = dockedIds,
                 issueTitle = { id -> issueTitles[id] },
-                canUnqueue = { row -> row.authorId != null && row.authorId == me },
-                onUnqueue = viewModel::unqueue,
                 onBack = onBack,
-                onAdd = { menuFor = ChatTabMenuTarget(null) },
-                onIssueMenu = { menuFor = ChatTabMenuTarget(it) },
-                // THE session composer (dispatcher roots): the session view's
-                // box targeting the ROOT, fed by the root's live state.
-                composer = { expanded, onExpandedChange ->
-                    SessionComposer(
-                        viewModel = rootSession,
-                        expanded = expanded,
-                        onExpandedChange = onExpandedChange,
-                        placeholder = placeholder,
-                        capsuleTestTag = "chat-composer-capsule",
-                        // S-3: an agent chat's composer = surface `agent`
-                        // (its + carries Model ›).
-                        surface = if (agent != null) {
-                            com.exponential.app.domain.ComposerMenuSurface.Agent
-                        } else {
-                            com.exponential.app.domain.ComposerMenuSurface.Session
-                        },
-                        // Queued rows already sit in the Conversation (EXP-1317).
-                        showQueue = false,
-                        onOpenUsage = { usageSheetOpen = true },
-                        modifier = Modifier.testTag(SessionTree.ChatCopy.TEST_ID_COMPOSER),
-                        // N-12: THE Dock: the tree's waiting cards, then the
-                        // root's Queue and banners (its queued rows sit in the
-                        // Conversation), over the composer that never leaves.
-                        dock = { rootDock ->
-                            // #EXP-1545: the root's Queue, else a Live child's.
-                            val sessionDock = chatDock(rootDock)
-                            ChatDock(
-                                rows = view?.rows.orEmpty(),
-                                sources = sessionDock.sources,
-                                sessionSheet = sessionDock.sheet,
-                                action = sessionDock.action,
-                                suggestions = suggestionActions,
-                                onOpenSession = openChatSession,
-                            )
-                        },
-                    )
-                },
+                onAddIssue = { menuFor = ChatTabMenuTarget(null) },
+                // Only a LINKED issue (a root row) unlinks; a nested one has no link.
+                onIssueMenu = { issue -> if (issue.depth == 0) menuFor = ChatTabMenuTarget(issue) },
                 issuePage = { issueId, padding ->
                     ChatIssuePage(
                         issueId = issueId,
@@ -604,6 +595,8 @@ fun ChatScreen(
                         padding = padding,
                         onOpenIssue = openIssueHere,
                         onOpenOrigin = { id, isRoot -> if (isRoot) onOpenChat(id) else onOpenSession(id) },
+                        dock = if (sessionId == viewModel.rootId) rootDock else null,
+                        feedFooter = if (sessionId == viewModel.rootId) rootFooter else null,
                     )
                 },
                 headerLead = headerLead,
@@ -613,47 +606,38 @@ fun ChatScreen(
                 menuGroups = listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
                 headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name, agentIcon = if (a.assistant) null else a.icon, agentColor = a.color) } },
-                onSurfaceReply = { text -> viewModel.send(text) },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {
                     { ChatHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checksItem = guideChecksItem, member = isMember) }
                 } else {
                     null
                 },
-                onOpenSession = openChatSession,
-                // S-3: an inter-session link PUSHES that session (another
-                // root as its chat, any other session as its view).
-                onOpenXref = openChatSession,
-                initialCard = viewModel.initialCard,
-                resultsPage = if (agent == null) {
-                    { padding ->
-                        ChatResultsPage(
-                            rootId = viewModel.rootId,
-                            sessions = tree,
-                            messages = messages,
-                            onReply = viewModel::sendTo,
-                            pullRequests = pullRequests,
-                            teamPullRequests = teamPullRequests,
-                            pullRequestIssues = pullRequestIssues,
-                            issues = syncedIssues,
-                            padding = padding,
-                            onOpenChat = { id -> if (id != viewModel.rootId) onOpenChat(id) },
-                        )
-                    }
+                // #EXP-1732: THE gear pushes the agent's (the Assistant's) settings page.
+                gear = if (screen.gear && onOpenAgentSettings != null) {
+                    { rootRow?.agentId?.takeIf { it.isNotEmpty() }?.let { id -> onOpenAgentSettings?.invoke(id) } }
                 } else {
                     null
                 },
-                suggestions = suggestionActions,
-                tail = if (hasLiveTail) { { ChatLiveTail(viewModel, root) } } else null,
+                initialCard = viewModel.initialCard,
+                // #EXP-1732: every kind has Results (an agent's tree too).
+                resultsPage = { padding ->
+                    ChatResultsPage(
+                        rootId = viewModel.rootId,
+                        sessions = tree,
+                        messages = messages,
+                        onReply = viewModel::sendTo,
+                        pullRequests = pullRequests,
+                        teamPullRequests = teamPullRequests,
+                        pullRequestIssues = pullRequestIssues,
+                        issues = syncedIssues,
+                        padding = padding,
+                        onOpenChat = { id -> if (id != viewModel.rootId) onOpenChat(id) },
+                    )
+                },
             )
         }
     }
 
-    SessionUsageSheet(
-        viewModel = rootSession,
-        open = usageSheetOpen,
-        onDismiss = { usageSheetOpen = false },
-    )
     menuFor?.let { target ->
         ChatTabMenuSheet(
             issue = target.issue,
@@ -669,7 +653,7 @@ fun ChatScreen(
             },
             onUnlink = { issue ->
                 menuFor = null
-                if (selectedKey == "issue:${issue.issueId}") selectedKey = "conversation"
+                if (openKind == SessionScreen.Open.Issue.wire && openId == issue.issueId) closeItem()
                 viewModel.unlinkIssue(issue.issueId)
             },
             onDismiss = { menuFor = null },
@@ -753,13 +737,26 @@ internal fun chatLeadOf(view: SessionTree.ChatView?, pullRequests: List<PullRequ
     }
 }
 
-/** The chat header's state word ×4 (web `ChatHeaderTitle`, iOS
- *  `ChatStripTabs.subtitle`): `needs input` (chat-list.json
- *  `words.needsInput`) while it needs you, `working…` while busy, else none. */
-internal fun chatStateWord(view: SessionTree.ChatView?): String? = when {
-    view == null -> null
-    view.needsYou -> SessionTree.ChatRowWord.NeedsInput.text
-    view.busy -> com.exponential.app.domain.Chats.Copy.PREVIEW_WORKING
+/** The chat header's state word ×4 (#EXP-1732 session-screen.json STATUS
+ *  WORD, `statusCases`): THE TREE's lowercase word, never dropped. */
+internal fun chatStateWord(rootId: String, tree: List<com.exponential.app.data.db.SessionEntity>): String =
+    SessionScreen.status(
+        tree.map {
+            SessionScreen.StatusInput(
+                status = it.status,
+                busy = it.busy,
+                needsInput = it.needsInput,
+                root = it.id == rootId,
+            )
+        },
+    )
+
+/** The word's tone (#EXP-1688, web `ChatHeaderTitle`): needs input = amber,
+ *  working = the foreground, else null (the muted default). */
+@Composable
+internal fun chatStateTone(word: String): Color? = when (word) {
+    SessionScreen.Copy.Status.NEEDS_INPUT -> com.exponential.app.ui.issue.NeedsInputAmber
+    SessionScreen.Copy.Status.WORKING -> MaterialTheme.colorScheme.onSurface
     else -> null
 }
 
@@ -770,159 +767,85 @@ internal fun clockTime(wire: String): String? {
 }
 
 /**
- * The chat screen's whole layout, stateless: the header band and the
- * pager. EXP-1316: the header IS the detail chrome ([WorkTopBar] in
- * [HeaderEdgeChrome]): `‹ · title (one line, lock) · …` with the tab strip
- * inside the band, the pages scrolling UNDER it (the conversation registers
- * as the blur's source). The reply box floats over the conversation's tail
- * ([composer] = THE [FloatingComposer], in a [FloatingBarEdge]). An agent
- * channel wears the same band without a strip. The issue + Guide pages come
- * in as slots and take the Scaffold padding themselves.
+ * #EXP-1732 THE session screen's whole layout, stateless (phones = NARROW,
+ * session-screen.json `sessionScreen`'s `layout`). `chat` / `tab`: the header
+ * band = THE chat header ([ChatHeader] in its edge chrome: `‹`, the lead
+ * disc, the title over the subtitle, the Merge pill, THE gear, `…`) with
+ * [SessionScreenTabs] under it, the body scrolling UNDER the band: Chat = the
+ * ROOT's own session view ([sessionPage] of [rootId]: its raw work with the
+ * traces, its cards, THE Dock and THE composer), always; Issues / Sessions =
+ * THE rows (every session UNDER the root); Results =
+ * [resultsPage]. `item` = a pushed page over the tab: `‹` + the item's name
+ * over the opened issue / session / plan (system Back pops it).
  */
 @Composable
 fun ChatContent(
     view: SessionTree.ChatView?,
     agent: ChatAgent?,
-    selectedKey: String,
-    onSelectKey: (String) -> Unit,
+    /** session-screen.json `sessionScreen` (narrow). */
+    screen: SessionScreen.Screen,
+    /** The Issues / Sessions tabs' rows ([sessionScreenItems]). */
+    items: SessionScreenItems,
+    /** The opened item's id (an issue, a session, a plan message). */
+    openId: String?,
+    onSelectTab: (SessionScreen.Tab) -> Unit,
+    onOpen: (SessionScreen.Open, String) -> Unit,
+    onCloseItem: () -> Unit,
     issueStatus: (String) -> ResolvedIssueStatus?,
-    meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta?,
-    onOpenCard: (SessionTree.SessionCard) -> Unit,
-    onAnswer: ChatAnswer,
+    /** The root session: the Chat tab is ITS session view. */
+    rootId: String,
+    /** An opened plan's decision. */
     onDecidePlan: ChatPlanDecision,
-    canUnqueue: (SessionTree.SessionChatRow.MessageRow) -> Boolean,
-    onUnqueue: (messageId: String) -> Unit,
     onBack: (() -> Unit)?,
-    onAdd: (() -> Unit)?,
-    onIssueMenu: ((SessionTree.ChatTab.IssueTab) -> Unit)?,
-    /** THE floating reply box, folded or expanded. */
-    composer: @Composable (expanded: Boolean, onExpandedChange: (Boolean) -> Unit) -> Unit,
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
-    /** EXP-1343: a session chip's page = that session's raw work + its
-     *  composer (the session view's body, no own header). */
+    /** The Issues tab's `+` (THE Menu: Link an issue, New issue); null hides it. */
+    onAddIssue: (() -> Unit)? = null,
+    /** An issue row's long-press (its menu: Unlink). */
+    onIssueMenu: ((SessionScreenIssue) -> Unit)? = null,
+    /** EXP-1343: a session's own view = its raw work + its composer (the
+     *  session view's body, no own header): the root's = the Chat tab, a
+     *  descendant's = an opened item. */
     sessionPage: @Composable (sessionId: String, padding: PaddingValues) -> Unit = { _, _ -> },
     /** Session 58cb32df (chats.json): THE chat header — its lead disc, the
-     *  subtitle (state · device; an agent: `Agent` · its model) and the `…`
-     *  entries (the chat's menu, then the Guide's Close PR). S-3: no Stop. */
+     *  subtitle and the `…` entries (the chat's menu, then the Guide's). */
     headerLead: @Composable () -> Unit = {},
     headerSubtitle: String? = null,
     headerSubtitleColor: Color? = null,
     menu: List<com.exponential.app.ui.components.ChatMenuItem> = emptyList(),
     menuGroups: List<List<com.exponential.app.ui.components.ChatMenuItem>> = emptyList(),
-    /** A surface card's `reply` → the person's next message. */
-    onSurfaceReply: ((String) -> Unit)? = null,
-    /** EXP-1323: a report line / a started suggestion opens that session. */
-    onOpenSession: ((sessionId: String) -> Unit)? = null,
-    /** EXP-1323: the suggested tasks cards' actions (null = read-only). */
-    suggestions: ChatSuggestionActions? = null,
-    /** EXP-1323: the live tail above the composer (Tasks card + status line). */
-    tail: (@Composable () -> Unit)? = null,
-    /** EXP-1334: an issue's title (the strip's full tier). */
+    /** An issue's title (the Issues rows). */
     issueTitle: (String) -> String? = { null },
-    /** THE ask dock: the waiting cards' ids (drawn in the composer's slot). */
-    dockedIds: Set<String> = emptySet(),
     /** NEW-69: the agent chat's telephone in the header (null = none). */
     headerCall: (@Composable () -> Unit)? = null,
     /** S-3: the header's action slot left of `…` (the chat's Merge). */
     headerAction: (@Composable () -> Unit)? = null,
+    /** #EXP-1732: THE gear (null = none: a chat). */
+    gear: (() -> Unit)? = null,
     /** S-3: an inter-session link pushes that session (null = inert). */
     onOpenXref: ((sessionId: String) -> Unit)? = null,
-    /** results-tab.json: the strip's last tab's page (null = no Results tab,
-     *  an agent channel). */
+    /** results-tab.json: the Results tab's body (null = an empty tab). */
     resultsPage: (@Composable (padding: PaddingValues) -> Unit)? = null,
     /** needs-you.json: a way in names a waiting card: the Conversation centres
-     *  it once, when the chat is there (THE waiting chip's pick). */
+     *  it once, when the chat is there. */
     initialCard: String? = null,
-    /** #EXP-1464: what an expanding session row needs (null = rows only open). */
-    rowActions: ChatRowActions? = null,
-    /** #EXP-1662 (plan-page.json): the plan the plan tab shows (null = no tab). */
+    /** #EXP-1662 (plan-page.json): the opened plan (`open: plan`). */
     plan: PlanPageState? = null,
-    /** The pager rested off the plan tab: an opened plan is forgotten. */
-    onPlanLeft: () -> Unit = {},
-    /** #EXP-1736: the Conversation's own sender (session, title, agent). */
-    chatSender: com.exponential.app.domain.TranscriptGrouping.Chat? = null,
-    /** #EXP-1736: the viewer (their bubbles sit right). */
-    viewerId: String? = null,
 ) {
-    // results-tab.json: the host appends the Results tab after the
-    // last chip (never part of session-chat.json `tabs`): the phones'
-    // pager's last page.
-    // #EXP-1662: the plan tab right after Conversation. An agent channel has no
-    // strip but for this: its two pages while it holds a plan.
-    val hasPlan = plan != null
-    val stripTabs = remember(view?.tabs, agent != null, resultsPage != null, hasPlan) {
-        view?.tabs?.let { tabs ->
-            when {
-                agent != null -> Chats.AgentChat.tabs(hasPlan).map { if (it == "plan") SessionTree.ChatTab.Plan else SessionTree.ChatTab.Conversation }
-                else -> chatTabsWithPlan(if (agent == null && resultsPage != null) tabs + SessionTree.ChatTab.Results else tabs, hasPlan)
-            }
-        }
-    }
-    val hasStrip = agent == null || hasPlan
-    // An agent channel is the conversation only. NEW-6 (N-1) / NEW-46: a
-    // chat with ONE session (the root alone) IS that session: the
-    // Conversation tab's page is the root's session page (one page).
-    val mainSessionId = if (agent != null) null else view?.mainSessionId
-    // #EXP-1433: the strip's issues + sessions (chips = the one issue, group
-    // = everything behind ONE tab); phones page Conversation · (the one
-    // issue | the item opened from the group) · Results.
-    val stripItems = remember(stripTabs, mainSessionId) { chatStripItems(stripTabs.orEmpty(), mainSessionId) }
-    // NEW-46: "conversation" on a single-session chat = the main page.
-    val pageKey = if (mainSessionId != null && selectedKey == "conversation") "session:$mainSessionId" else selectedKey
-    // session-chat.json STRIP: the item opened from the group is a page
-    // only while it is open (web `chatPages`: the shown page). It stays
-    // through a drag away (no mid-drag jump) and goes once the pager settles
-    // on another page ([chatGroupOpenAfterSettle]).
-    var groupOpen by rememberSaveable { mutableStateOf<String?>(null) }
-    val groupMode = stripItems.single == null
-    val openNow = pageKey.takeIf { groupMode && stripItems.tabOf(it) != null }
-    LaunchedEffect(openNow) { if (openNow != null) groupOpen = openNow }
-    val open = openNow ?: groupOpen?.takeIf { groupMode && stripItems.tabOf(it) != null }
-    val pages = remember(hasStrip, stripTabs, mainSessionId, open) {
-        chatMainPages(chatPages(if (hasStrip) stripTabs else null, open, mainSessionId), mainSessionId)
-    }
-    // A tab that left the strip (an issue unlinked elsewhere) falls back to
-    // the first page: the conversation, or the main session's page.
-    val selected = pages.firstOrNull { chatTabKey(it) == pageKey }
-        ?: pages.firstOrNull()
-        ?: SessionTree.ChatTab.Conversation
-    // EXP-1343 / #EXP-1433: a session of this chat's strip opens IN PLACE
-    // (its page); any other (another root's card) keeps its own route.
-    val openSessionHere: (String) -> Boolean = { id ->
-        val key = "session:$id"
-        if (stripItems.tabOf(key) != null || pages.any { chatTabKey(it) == key }) {
-            onSelectKey(key)
-            true
-        } else {
-            false
-        }
-    }
-    var composerExpanded by rememberSaveable { mutableStateOf(false) }
-    // #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING cards
-    // (`chatPendingAsks`, Conversation order) as the phones' ONE button; a
-    // pick shows the Conversation, centres that card and rings it for
-    // `constants.highlightMs`.
-    val waitingChips = remember(view?.rows, agent != null) {
-        if (agent != null || view == null) {
-            emptyList()
-        } else {
-            // #EXP-1662: a plan's chip is the plan tab; these are the questions.
-            val questions = AskDock.chatPendingAsks(view.rows) { null }.filter { it.kind != AskDock.Kind.Plan }
-            WaitingCards.waitingChips(WaitingCards.inputs(questions), phone = true).chips
-        }
-    }
+    // needs-you.json: a way in's waiting card is centred in the root's
+    // session view (its feed honours [LocalCardScrollRequest]) and rung for `constants.highlightMs`.
     var cardScroll by remember { mutableStateOf<com.exponential.app.ui.session.CardScrollRequest?>(null) }
     LaunchedEffect(cardScroll) {
         if (cardScroll == null) return@LaunchedEffect
         kotlinx.coroutines.delay(WaitingCards.Constants.HIGHLIGHT_MS)
         cardScroll = null
     }
+    val latestScreen by rememberUpdatedState(screen)
     val pickWaiting: (String) -> Unit = { id ->
-        if (pageKey != "conversation" && pageKey != "session:$mainSessionId") onSelectKey("conversation")
+        if (latestScreen.open != null) onCloseItem()
+        if (latestScreen.active != SessionScreen.Tab.Chat) onSelectTab(SessionScreen.Tab.Chat)
         cardScroll = com.exponential.app.ui.session.CardScrollRequest(id, (cardScroll?.nonce ?: 0) + 1)
     }
-    // needs-you.json: a row's `card`: once, when the chat is there.
     var initialCardDone by rememberSaveable { mutableStateOf(false) }
     val chatLoaded = view != null
     LaunchedEffect(initialCard, chatLoaded) {
@@ -931,16 +854,58 @@ fun ChatContent(
             pickWaiting(initialCard)
         }
     }
-    // plan-page.json (#FEED-191): a decision taken ON the Plan tab returns to
-    // the Conversation once it succeeds, so the agent is seen working on; one
-    // from the Conversation stays there (its call never comes through here).
-    val latestPageKey by rememberUpdatedState(pageKey)
-    val decideOnPlanTab: ChatPlanDecision = { id, decision, settled ->
+    // plan-page.json (#FEED-191): a decision taken ON the opened plan returns
+    // to the Conversation once it succeeds, so the agent is seen working on;
+    // one from the Conversation stays there (its call never comes through here).
+    val decideOnPlanItem: ChatPlanDecision = { id, decision, settled ->
         onDecidePlan(id, decision) { ok ->
             settled(ok)
-            if (ok && latestPageKey == PLAN_TAB_KEY) onSelectKey("conversation")
+            if (ok && latestScreen.open == SessionScreen.Open.Plan) onCloseItem()
         }
     }
+
+    if (screen.layout == SessionScreen.Layout.Item) {
+        // THE pushed page: `‹` + the item's name; system Back pops it.
+        BackHandler(onBack = onCloseItem)
+        val title = when (screen.open) {
+            SessionScreen.Open.Issue -> openId?.let { items.issue(it)?.identifier }.orEmpty()
+            SessionScreen.Open.Session -> openId?.let { items.session(it)?.name }.orEmpty()
+            SessionScreen.Open.Plan -> PlanPage.Copy.TITLE
+            SessionScreen.Open.Settings -> SessionScreen.Copy.SETTINGS
+            null -> ""
+        }
+        Scaffold(
+            modifier = modifier,
+            containerColor = Color.Transparent,
+            topBar = { ChatHeader(title = title, subtitle = null, lead = {}, onBack = onCloseItem) },
+        ) { padding ->
+            key(screen.open, openId) {
+                // Each item owns its view models: they die with the item.
+                PageViewModelStore {
+                    val id = openId
+                    when (screen.open) {
+                        SessionScreen.Open.Issue -> if (id != null) issuePage(id, padding)
+                        SessionScreen.Open.Session -> if (id != null) sessionPage(id, padding)
+                        SessionScreen.Open.Plan -> {
+                            if (plan != null) {
+                                PlanPageContent(
+                                    state = plan,
+                                    onDecidePlan = decideOnPlanItem,
+                                    topInset = padding.calculateTopPadding(),
+                                    bottomInset = padding.calculateBottomPadding(),
+                                )
+                            } else {
+                                ChatPageSkeleton(padding.calculateTopPadding())
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+        }
+        return
+    }
+
     Scaffold(
         modifier = modifier,
         containerColor = Color.Transparent,
@@ -955,30 +920,9 @@ fun ChatContent(
                 menuGroups = menuGroups,
                 call = headerCall,
                 action = headerAction,
-                // An agent's chat is the conversation only: no strip, but for
-                // the plan tab while it holds a plan (#EXP-1662).
-                tabs = if (hasStrip && view != null) {
-                    {
-                        ChatTabStrip(
-                            tabs = stripTabs.orEmpty(),
-                            // NEW-46: the main session's page shows the
-                            // Conversation tab selected.
-                            selectedKey = chatTabKey(selected).let {
-                                if (mainSessionId != null && it == "session:$mainSessionId") "conversation" else it
-                            },
-                            onSelect = onSelectKey,
-                            onAdd = onAdd,
-                            issueStatus = issueStatus,
-                            issueTitle = issueTitle,
-                            onIssueMenu = onIssueMenu,
-                            onOpenSession = { id -> openSessionHere(id) },
-                            mainSessionId = mainSessionId,
-                            waiting = waitingChips,
-                            onPickWaiting = pickWaiting,
-                            planWaiting = plan?.row?.decision == null && hasPlan,
-                            planDecision = plan?.row?.decision,
-                        )
-                    }
+                gear = gear,
+                tabs = if (view != null) {
+                    { SessionScreenTabs(tabs = screen.tabs, active = screen.active, onSelect = onSelectTab) }
                 } else {
                     null
                 },
@@ -993,122 +937,37 @@ fun ChatContent(
         }
         val topInset = padding.calculateTopPadding()
         val bottomInset = padding.calculateBottomPadding()
+        val listPadding = PaddingValues(top = topInset + 8.dp, bottom = bottomInset + 16.dp)
         CompositionLocalProvider(
             com.exponential.app.ui.session.LocalCardScrollRequest provides cardScroll,
             com.exponential.app.ui.session.LocalCardHighlight provides cardScroll?.id,
         ) {
-        TabPager(
-            pages = pages,
-            selected = selected,
-            onSelect = { onSelectKey(chatTabKey(it)) },
-            key = { chatTabKey(it) },
-            modifier = Modifier.fillMaxSize(),
-            // EXP-1343: each page owns its view models: they die with the
-            // page instead of piling up per swipe. #EXP-1387: the neighbours
-            // stay composed, an issue or session page as cheap skeleton rows
-            // until it settles (session-chat.json: only the visible page
-            // holds live models), so a swipe's first frame never builds one.
-            beyondViewportPageCount = 1,
-            pageViewModels = true,
-            onSettled = { tab ->
-                groupOpen = chatGroupOpenAfterSettle(groupOpen, chatTabKey(tab))
-                if (tab != SessionTree.ChatTab.Plan) onPlanLeft()
-            },
-            neighbour = { tab ->
-                when (tab) {
-                    is SessionTree.ChatTab.IssueTab, is SessionTree.ChatTab.SessionTab -> {
-                        { ChatPageSkeleton(topInset) }
-                    }
-                    else -> null
-                }
-            },
-        ) { tab ->
-            when (tab) {
-                SessionTree.ChatTab.Conversation -> {
-                    var bandHeightPx by remember { mutableIntStateOf(0) }
-                    val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            // The band sits on the nav bar (its own padding
-                            // below); consuming it keeps imePadding from
-                            // re-adding it (the session view's rule).
-                            .consumeWindowInsets(PaddingValues(bottom = bottomInset))
-                            .imePadding(),
-                    ) {
-                        ChatConversation(
-                            rows = view.rows,
-                            rootId = view.rootId,
-                            meta = meta,
-                            onOpenCard = { card -> if (!openSessionHere(card.sessionId)) onOpenCard(card) },
-                            onAnswer = onAnswer,
-                            onDecidePlan = onDecidePlan,
-                            canUnqueue = canUnqueue,
-                            onUnqueue = onUnqueue,
-                            agent = agent,
-                            modifier = Modifier.fillMaxSize().detailHazeSource(),
-                            contentPadding = PaddingValues(
-                                start = 16.dp,
-                                end = 16.dp,
-                                top = topInset + 16.dp,
-                                bottom = bandClearance + 12.dp,
-                            ),
-                            jumpBottomInset = bandClearance,
-                            onOpenSession = onOpenSession?.let { open -> { id -> if (!openSessionHere(id)) open(id) } },
-                            suggestions = suggestions,
-                            tail = tail,
-                            dockedIds = dockedIds,
-                            onSurfaceReply = onSurfaceReply,
-                            origin = view.origin,
-                            // #EXP-1464: a session of this chat opens in place.
-                            onOpenXref = onOpenXref?.let { open -> { id -> if (!openSessionHere(id)) open(id) } },
-                            rowActions = rowActions,
-                            chat = chatSender,
-                            viewerId = viewerId,
-                        )
-                        FloatingBarEdge(
-                            bottomInset = bottomInset,
-                            // An expanded composer card is its own surface.
-                            visible = !composerExpanded,
-                            // EXP-1676: the transcript never shows under the band.
-                            ground = true,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(bottom = bottomInset),
-                        ) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
-                            ) {
-                                composer(composerExpanded) { composerExpanded = it }
-                            }
-                        }
-                    }
-                }
-                is SessionTree.ChatTab.IssueTab -> issuePage(tab.issueId, padding)
-                is SessionTree.ChatTab.SessionTab -> sessionPage(tab.sessionId, padding)
-                SessionTree.ChatTab.Results -> resultsPage?.invoke(padding)
-                SessionTree.ChatTab.Plan -> plan?.let { shown ->
-                    key(shown.row.id) {
-                        PlanPageContent(
-                            state = shown,
-                            onDecidePlan = decideOnPlanTab,
-                            topInset = topInset,
-                            bottomInset = bottomInset,
-                        )
-                    }
-                }
-                SessionTree.ChatTab.Add -> Unit
+            when (screen.active) {
+                // #EXP-1732: the Chat tab = the ROOT's own session view (its
+                // raw work + traces, its cards, THE Dock, THE composer).
+                SessionScreen.Tab.Chat -> sessionPage(rootId, padding)
+                SessionScreen.Tab.Issues -> SessionIssuesBody(
+                    issues = items.issues,
+                    issueStatus = issueStatus,
+                    issueTitle = issueTitle,
+                    onOpen = { id -> onOpen(SessionScreen.Open.Issue, id) },
+                    onAdd = onAddIssue,
+                    contentPadding = listPadding,
+                    onMenu = onIssueMenu,
+                )
+                SessionScreen.Tab.Sessions -> SessionSessionsBody(
+                    sessions = items.sessions,
+                    onOpen = { id -> onOpen(SessionScreen.Open.Session, id) },
+                    contentPadding = listPadding,
+                )
+                SessionScreen.Tab.Results -> resultsPage?.invoke(padding)
+                else -> Unit
             }
-        }
         }
     }
 }
 
-/** #EXP-1387: an issue or session page while it is a neighbour (the iOS
- *  chat pager's stand-in): skeleton rows under the header band. */
+/** #EXP-1387: an item while it loads: skeleton rows under the header band. */
 @Composable
 private fun ChatPageSkeleton(topInset: Dp) {
     Box(Modifier.fillMaxSize().padding(top = topInset)) {
@@ -1117,98 +976,32 @@ private fun ChatPageSkeleton(topInset: Dp) {
 }
 
 /**
- * EXP-1343 / #EXP-1433 (session-chat.json STRIP): the phone pager's pages
- * = Conversation · (#EXP-1662: the plan) · (chips: the ONE issue | group: the item [open] from the
- * group's sheet, only while it is open) · Results (the last page). The "+"
- * and the group tab are never pages. null [tabs] (an agent channel, or
- * nothing loaded) = the conversation alone.
+ * #EXP-1662 / #EXP-1732 (plan-page.json): the OPENED plan (`open: plan`):
+ * the root's plan row [id], else any plan message of the tree (a child
+ * session's); null = not synced yet.
  */
-internal fun chatPages(
-    tabs: List<SessionTree.ChatTab>?,
-    open: String? = null,
-    mainSessionId: String? = null,
-): List<SessionTree.ChatTab> {
-    if (tabs == null) return listOf(SessionTree.ChatTab.Conversation)
-    val items = chatStripItems(tabs, mainSessionId)
-    val middle = items.single?.let { SessionTree.ChatTab.IssueTab(it.issueId, it.identifier) }
-        ?: open?.let(items::tabOf)
-    return buildList {
-        if (SessionTree.ChatTab.Conversation in tabs) add(SessionTree.ChatTab.Conversation)
-        if (SessionTree.ChatTab.Plan in tabs) add(SessionTree.ChatTab.Plan)
-        middle?.let(::add)
-        if (SessionTree.ChatTab.Results in tabs) add(SessionTree.ChatTab.Results)
-    }
-}
-
-/** #EXP-1662: [tabs] with the plan tab right after Conversation. */
-internal fun chatTabsWithPlan(tabs: List<SessionTree.ChatTab>, hasPlan: Boolean): List<SessionTree.ChatTab> =
-    if (!hasPlan) {
-        tabs
-    } else {
-        buildList {
-            for (tab in tabs) {
-                add(tab)
-                if (tab == SessionTree.ChatTab.Conversation) add(SessionTree.ChatTab.Plan)
-            }
-        }
-    }
-
-/**
- * #EXP-1662 (plan-page.json): the plan the tab shows: the plan a row or a way
- * in opened ([pinned], the root's rows or any message of the tree), else
- * `planTabTarget` over the Conversation's plan rows with this visit's [kept]
- * (#FEED-191: a decided plan leaves the strip once the person left); null =
- * no tab.
- */
-internal fun chatShownPlan(
+internal fun chatOpenedPlan(
     rows: List<SessionTree.SessionChatRow>,
-    pinned: String?,
+    id: String?,
     messages: Map<String, SessionTree.Message>,
-    kept: String? = null,
 ): SessionTree.SessionChatRow.Plan? {
-    val plans = rows.filterIsInstance<SessionTree.SessionChatRow.Plan>()
-    pinned?.let { id ->
-        val row = plans.firstOrNull { it.id == id } ?: messages[id]?.let(SessionTree::askRow) as? SessionTree.SessionChatRow.Plan
-        if (row != null) return row
-    }
-    val target = PlanPage.planTabTarget(plans.map { PlanPage.TabPlan(it.id, it.decision) }, kept)
-    return plans.firstOrNull { it.id == target }
+    if (id == null) return null
+    return rows.filterIsInstance<SessionTree.SessionChatRow.Plan>().firstOrNull { it.id == id }
+        ?: messages[id]?.let(SessionTree::askRow) as? SessionTree.SessionChatRow.Plan
 }
 
-/**
- * #EXP-1433 (session-chat.json STRIP, web `chatPages`): the group's open
- * item once the pager RESTS on [settledKey]: kept while it is the shown page,
- * dropped the moment another page is (Conversation, Results).
- */
-internal fun chatGroupOpenAfterSettle(open: String?, settledKey: String): String? =
-    open?.takeIf { it == settledKey }
+/** What THE menu acts on: the "+" (null) or a linked issue's row. */
+private data class ChatTabMenuTarget(val issue: SessionScreenIssue?)
 
-/**
- * NEW-46: [pages] with the single-session chat's Conversation page REPLACED,
- * in place, by the root's own session page (one page, never a duplicate);
- * null [mainSessionId] = the pages as they are.
- */
-internal fun chatMainPages(
-    pages: List<SessionTree.ChatTab>,
-    mainSessionId: String?,
-): List<SessionTree.ChatTab> {
-    if (mainSessionId == null) return pages
-    val main = SessionTree.ChatTab.SessionTab(mainSessionId, name = "", markState = SessionTree.SessionState.Idle)
-    return pages.map { if (it == SessionTree.ChatTab.Conversation) main else it }.distinctBy(::chatTabKey)
-}
-
-/** What THE menu acts on: the "+" (null) or an issue tab. */
-private data class ChatTabMenuTarget(val issue: SessionTree.ChatTab.IssueTab?)
-
-/** The "+" / an issue tab's menu as a phone sheet: Link an issue, New
- *  issue, and on an issue tab Unlink <IDENT>. */
+/** The "+" / an issue row's menu as a phone sheet: Link an issue, New
+ *  issue, and on an issue row Unlink <IDENT>. */
 @Composable
 private fun ChatTabMenuSheet(
-    issue: SessionTree.ChatTab.IssueTab?,
+    issue: SessionScreenIssue?,
     canFile: Boolean,
     onLink: () -> Unit,
     onNewIssue: () -> Unit,
-    onUnlink: (SessionTree.ChatTab.IssueTab) -> Unit,
+    onUnlink: (SessionScreenIssue) -> Unit,
     onDismiss: () -> Unit,
 ) {
     GlassSheet(title = issue?.identifier, onDismiss = onDismiss, modifier = Modifier.testTag("chat-tab-menu")) {
@@ -1334,11 +1127,4 @@ private fun ChatHeaderMerge(
             )
         }
     }
-}
-
-/** EXP-1521: the chat's live tail, the ONE place that reads the relay state. */
-@Composable
-private fun ChatLiveTail(viewModel: ChatViewModel, root: com.exponential.app.data.db.SessionEntity?) {
-    val activity by viewModel.liveActivity.collectAsStateWithLifecycle()
-    activity?.let { SessionLiveTail(it, root) }
 }

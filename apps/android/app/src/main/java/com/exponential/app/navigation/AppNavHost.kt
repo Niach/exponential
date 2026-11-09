@@ -1197,7 +1197,8 @@ private fun AuthenticatedNav(
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
-                // chats.json `agentMenuCases`: an agent chat's menu opens its settings.
+                // chats.json `agentMenuCases` + #EXP-1732 THE gear: an agent
+                // chat's settings page (the gear's pushed item on a phone).
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
@@ -1239,6 +1240,8 @@ private fun AuthenticatedNav(
                         if (here != null) popUpTo(here) { inclusive = true }
                     }
                 },
+                // #EXP-1732: THE gear pushes the agent's settings page.
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
         composable(Routes.PROMPTS_SETTINGS) {

@@ -6,7 +6,7 @@
 //! * `fixtures/session-card.json`   → [`session_card`] (THE session card);
 //! * `fixtures/session-chat.json` → [`build_session_chat`] (the chat
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
-//!   (the Guide's ONE PR) + [`chat_strip_mode`] (the strip, #EXP-1433);
+//!   (the Guide's ONE PR);
 //! * `fixtures/chat-list.json`   → [`partition_chats`] (the Chats page:
 //!   Needs you · Running · Recent, live trees nested, EXP-1323) +
 //!   [`chats_list_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
@@ -161,9 +161,6 @@ pub struct ChatCopy {
     /// thought or done (`{reason}` = the ACP stopReason).
     #[serde(rename = "emptyTurn")]
     pub empty_turn: String,
-    /// #EXP-1433: the strip's group tab accessible name.
-    #[serde(rename = "stripGroup")]
-    pub strip_group: String,
 }
 
 /// S-3: `session-chat.json` `copy.xref` (the [`SessionXref`] lead).
@@ -237,8 +234,6 @@ pub struct ChatTestIds {
     pub live_tail: String,
     /// S-3: an inter-session link header.
     pub xref: String,
-    /// #EXP-1433: the strip's ONE group tab.
-    pub group: String,
 }
 
 /// `fixtures/session-chat.json` minus its cases.
@@ -247,8 +242,6 @@ pub struct ChatTestIds {
 pub struct ChatSpec {
     pub copy: ChatCopy,
     pub test_ids: ChatTestIds,
-    /// #EXP-1433: the active group tab's label truncates at this width (px).
-    pub strip_group_max_width: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -1544,33 +1537,6 @@ pub fn partition_tabs(
         visible.push(0);
     }
     visible
-}
-
-/// #EXP-1433: [`chat_strip_mode`]'s mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StripMode {
-    /// At most one issue and no session: that issue keeps its chip.
-    Chips,
-    /// ONE icon tab for every issue and session, opening THE Menu of rows.
-    Group,
-}
-
-/// #EXP-1433 (session-chat.json `stripModeCases`): the strip between
-/// Conversation and Results.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ChatStripMode {
-    pub mode: StripMode,
-    /// Issues + sessions (the group menu's row count).
-    pub count: usize,
-}
-
-/// #EXP-1433: `chips` while at most ONE issue and NO session, else `group`.
-pub fn chat_strip_mode(issues: usize, sessions: usize) -> ChatStripMode {
-    ChatStripMode {
-        mode: if issues <= 1 && sessions == 0 { StripMode::Chips } else { StripMode::Group },
-        count: issues + sessions,
-    }
 }
 
 /// Depth-first walk of a forest given each node's FOLD parent (None = a
@@ -3096,22 +3062,6 @@ mod tests {
             partition_tabs(&widths, 100., 4., 30., None)
         );
         assert_eq!(partition_tabs(&[], 100., 4., 30., Some(0)), Vec::<usize>::new());
-    }
-
-    /// #EXP-1433: `session-chat.json` `stripModeCases`, whole values.
-    #[test]
-    fn chat_strip_mode_matches_the_fixture() {
-        let fixture = fixture(SESSION_CHAT_JSON);
-        let cases = fixture["stripModeCases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let input = &case["input"];
-            let count = |key: &str| input[key].as_u64().unwrap() as usize;
-            let mode = chat_strip_mode(count("issues"), count("sessions"));
-            assert_whole(&mode, &case["expected"], case["name"].as_str().unwrap());
-        }
-        assert_eq!(SESSION_CHAT.strip_group_max_width, 160);
-        assert_eq!(SESSION_CHAT.test_ids.group, "chat-strip-group");
     }
 
     /// S-3: `session-chat.json` `chatModeCases` (TS `chatMode`).

@@ -370,27 +370,6 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Chats.agentChatSubtitle(modelLabel: ""), subtitle)
     }
 
-    /// chats.json `agentChat`: an agent posted a plan: the tab stays open and
-    /// the strip holds Conversation + the plan.
-    func testAgentChatTabsAndPages() throws {
-        let block = try XCTUnwrap(try fixture()["agentChat"] as? [String: Any])
-        XCTAssertEqual(Chats.agentChatTabs(holdsPlan: false), block["tabs"] as? [String])
-        XCTAssertEqual(Chats.agentChatTabs(holdsPlan: true), block["planTabs"] as? [String])
-        let tabCases = try XCTUnwrap(block["tabCases"] as? [[String: Any]])
-        XCTAssertFalse(tabCases.isEmpty)
-        for testCase in tabCases {
-            let holdsPlan = try XCTUnwrap(testCase["holdsPlan"] as? Bool)
-            XCTAssertEqual(Chats.agentChatTabs(holdsPlan: holdsPlan), testCase["expected"] as? [String], string(testCase["name"]) ?? "")
-        }
-        let pageCases = try XCTUnwrap(block["pageCases"] as? [[String: Any]])
-        XCTAssertFalse(pageCases.isEmpty)
-        for testCase in pageCases {
-            let selected = try XCTUnwrap(testCase["selected"] as? String)
-            let holdsPlan = try XCTUnwrap(testCase["holdsPlan"] as? Bool)
-            XCTAssertEqual(Chats.agentChatPage(selected: selected, holdsPlan: holdsPlan), testCase["expected"] as? String, string(testCase["name"]) ?? "")
-        }
-    }
-
     func testWindowCases() throws {
         for testCase in try cases("windowCases") {
             let name = string(testCase["name"]) ?? ""

@@ -373,3 +373,14 @@ private fun ResultsReview(files: List<Diff.File>, padding: PaddingValues, onBack
         )
     }
 }
+
+/** #EXP-1732 (session-screen.json `count`): the Results tab's count = the
+ *  fold's results of the root's tree. */
+internal fun chatResultsCount(
+    rootId: String,
+    sessions: List<SessionEntity>,
+    messages: List<SessionTree.Message>,
+): Int {
+    val inputs = resultsTabInputs(sessions, messages)
+    return ResultsTab.resultsTab(System.currentTimeMillis(), rootId, inputs.first, inputs.second).size
+}

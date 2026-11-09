@@ -1194,7 +1194,7 @@
       "web": {
         "route": "/t/$teamSlug/sessions/$chatId",
         "anchor": {
-          "testId": "chat-tabs",
+          "testId": "session-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -7371,7 +7371,7 @@
       "webMobile": {
         "route": "/t/$teamSlug/sessions/$sessionId",
         "anchor": {
-          "testId": "chat-tabs",
+          "testId": "session-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 2500,
@@ -7407,7 +7407,7 @@
       "web": {
         "route": "/t/$teamSlug/agents/$agentId",
         "anchor": {
-          "text": "Label the Android ones too",
+          "testId": "session-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 1200

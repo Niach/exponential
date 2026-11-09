@@ -179,8 +179,6 @@ final class StyleguideScreenshots: XCTestCase {
     private static let agentName = "Triage"
     /// #EXP-1735: the seeded lead Assistant's member (the demo user).
     private static let leadName = "Alex Carter"
-    /// `DEMO_AGENT_REQUEST`, the person's ask in Triage's channel.
-    private static let agentRequest = "Label the Android ones too"
     /// The cold-start chat's child session (`DEMO_SESSION_ID`).
     private static let sessionTitle = "Profile the launch path"
     /// Its id (`DEMO_SESSION_ID`): the strip chip of its chat page.
@@ -1399,24 +1397,23 @@ final class StyleguideScreenshots: XCTestCase {
                 let editItem = anyElement(app, identified: "app-menu-edit")
                 expect(editItem, within: Wait.nav, "Ops desk's menu has no Edit app")
                 editItem.tap()
-                let menu = anyElement(app, identified: "app-editor-menu")
-                expect(menu, within: Wait.sync, "Ops desk's editor has no … menu")
-                menu.tap()
-                let settingsItem = anyElement(app, identified: "app-menu-settings")
-                expect(settingsItem, within: Wait.nav, "Ops desk's editor menu has no Settings")
-                settingsItem.tap()
+                // #EXP-1732: Settings = THE gear's page (an opened item).
+                let gear = anyElement(app, identified: "session-gear")
+                expect(gear, within: Wait.sync, "Ops desk's editor has no gear")
+                gear.tap()
                 let sheet = anyElement(app, identified: "app-editor-settings")
-                expect(sheet, within: Wait.sync, "Ops desk's Settings sheet never opened")
+                expect(sheet, within: Wait.sync, "Ops desk's Settings page never opened")
                 expect(anyElement(app, identified: "app-settings-share-links"), within: Wait.network, "Ops desk's Settings drew no Public links")
                 snapshot("sg_app-settings-links", settle: 2)
                 if ScreenshotShots.isWanted("sg_app-settings-automations") {
-                    // Inside the sheet's scroller, down to its last groups.
+                    // Inside the page's scroller, down to its last groups.
                     let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
                     from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
                     expect(anyElement(app, identified: "app-settings-webhooks"), within: Wait.nav, "Ops desk's Settings drew no Webhooks")
                     snapshot("sg_app-settings-automations", settle: 2)
                 }
-                dismissSheet(app, whileVisible: sheet)
+                goBack(app)
+                settle(1)
                 goBack(app)
                 settle(1)
             }
@@ -1432,9 +1429,12 @@ final class StyleguideScreenshots: XCTestCase {
             let publish = anyElement(app, identified: "app-editor-publish")
             expect(publish, within: Wait.nav, "Team dashboard's menu has no Publish: is its head ahead of the published version?")
             snapshot("sg_app-publish", settle: 2)
-            let versionsItem = anyElement(app, identified: "app-menu-versions")
-            expect(versionsItem, within: Wait.nav, "Team dashboard's menu has no Versions")
-            versionsItem.tap()
+            // #EXP-1732: Versions is a tab (the menu keeps Publish, Export, Delete).
+            dismissSheet(app, whileVisible: publish)
+            settle(1)
+            let versionsTab = anyElement(app, identified: "session-tabs-versions")
+            expect(versionsTab, within: Wait.nav, "Team dashboard's editor has no Versions tab")
+            versionsTab.tap()
             let versions = anyElement(app, identified: "app-editor-versions")
             expect(versions, within: Wait.sync, "Team dashboard's Versions never opened")
             expect(anyElement(app, containing: "Migrating records"), within: Wait.sync, "Versions drew no sweep line: reseed (a Publish supersedes it)")
@@ -1445,8 +1445,6 @@ final class StyleguideScreenshots: XCTestCase {
                 preview.tap()
                 expect(anyElement(app, identified: "app-editor-viewing"), within: Wait.sync, "Preview opened no viewing banner")
                 snapshot("sg_app-version-preview", settle: 3)
-            } else {
-                dismissSheet(app, whileVisible: versions)
             }
             goBack(app)
             settle(1)
@@ -1454,7 +1452,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         if wanted(["sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo"]) {
             openAppEditor(app, slug: "crm")
-            let dataTab = anyElement(app, identified: "app-editor-tabs-data")
+            let dataTab = anyElement(app, identified: "session-tabs-data")
             expect(dataTab, within: Wait.sync, "CRM's editor has no Data tab")
             dataTab.tap()
             expect(anyElement(app, identified: "app-data-row"), within: Wait.sync, "CRM's Data tab drew no record")
@@ -1526,7 +1524,7 @@ final class StyleguideScreenshots: XCTestCase {
         let edit = anyElement(app, identified: "app-menu-edit")
         expect(edit, within: Wait.nav, "The \(slug) row's menu has no Edit app")
         edit.tap()
-        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The \(slug) editor drew no tabs")
+        expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The \(slug) editor drew no tabs")
     }
 
     /// The run view's tab bar (`previewScreens`): one screen.
@@ -1577,9 +1575,9 @@ final class StyleguideScreenshots: XCTestCase {
         let editItem = anyElement(app, identified: "app-menu-edit")
         expect(editItem, within: Wait.nav, "The run view's menu has no Edit app")
         editItem.tap()
-        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview control")
+        expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The editor drew no session tabs")
         if ScreenshotShots.isWanted("sg_app") {
-            let previewTab = anyElement(app, identified: "app-editor-tabs-preview")
+            let previewTab = anyElement(app, identified: "session-tabs-preview")
             expect(previewTab, within: Wait.nav, "The editor's control has no Preview segment")
             previewTab.tap()
             expect(
@@ -1593,7 +1591,7 @@ final class StyleguideScreenshots: XCTestCase {
             // VAPP-178 (app-records.json `dataTab`, PHONES): the Data
             // segment = the kind picker + Add record over the seeded
             // records' grouped list.
-            let dataTab = anyElement(app, identified: "app-editor-tabs-data")
+            let dataTab = anyElement(app, identified: "session-tabs-data")
             expect(dataTab, within: Wait.nav, "The editor's control has no Data segment")
             dataTab.tap()
             expect(
@@ -1608,18 +1606,26 @@ final class StyleguideScreenshots: XCTestCase {
             )
             snapshot("sg_app-data", settle: 2)
         }
-        // #EXP-1650: the menu sheets open over the Chat segment (web-mobile).
-        if ["sg_app-versions", "sg_app-settings", "sg_app-export"].map(ScreenshotShots.isWanted).contains(true) {
-            let chatTab = anyElement(app, identified: "app-editor-tabs-chat")
+        // #EXP-1650: the menu sheet opens over the Chat segment (web-mobile).
+        if ["sg_app-settings", "sg_app-export"].map(ScreenshotShots.isWanted).contains(true) {
+            let chatTab = anyElement(app, identified: "session-tabs-chat")
             expect(chatTab, within: Wait.nav, "The editor's control has no Chat segment")
             chatTab.tap()
             settle(1)
         }
         if ScreenshotShots.isWanted("sg_app-versions") {
-            walkAppMenuSheet(app, item: "app-menu-versions", sheet: "app-editor-versions", shot: "sg_app-versions")
+            // #EXP-1732: Versions = a tab of THE session screen.
+            let versionsTab = anyElement(app, identified: "session-tabs-versions")
+            expect(versionsTab, within: Wait.nav, "The editor has no Versions tab")
+            versionsTab.tap()
+            expect(anyElement(app, identified: "app-editor-versions"), within: Wait.sync, "The Versions tab drew no list")
+            snapshot("sg_app-versions", settle: 2)
+            let chatTab = anyElement(app, identified: "session-tabs-chat")
+            if chatTab.exists { chatTab.tap() }
+            settle(1)
         }
         if ScreenshotShots.isWanted("sg_app-settings") {
-            walkAppMenuSheet(app, item: "app-menu-settings", sheet: "app-editor-settings", shot: "sg_app-settings")
+            walkAppSettings(app)
         }
         if ScreenshotShots.isWanted("sg_app-export") {
             walkAppExport(app)
@@ -1631,27 +1637,18 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// VAPP-177 (apps.json PHONES): the editor header's … (`app-editor-menu`)
-    /// → `item` → its sheet (`sheet`, gated on the container) → `shot` →
-    /// dismissed; ends on the editor.
+    /// #EXP-1732 (session-screen.json `gear`): the editor header's gear
+    /// (`session-gear`) → the app's settings page (an opened item, gated on
+    /// its container) → `sg_app-settings` → back; ends on the editor.
     @MainActor
-    private func walkAppMenuSheet(_ app: XCUIApplication, item: String, sheet: String, shot: String) {
-        let menu = anyElement(app, identified: "app-editor-menu")
-        expect(menu, within: Wait.nav, "The \(Self.appName) editor has no … menu")
-        menu.tap()
-        let entry = anyElement(app, identified: item)
-        expect(entry, within: Wait.nav, "The editor's … menu has no \(item)")
-        entry.tap()
-        let container = anyElement(app, identified: sheet)
-        expect(container, within: Wait.sync, "\(item) opened no \(sheet) sheet")
-        if shot == "sg_app-versions" {
-            snapshot("sg_app-versions", settle: 2)
-        } else {
-            snapshot("sg_app-settings", settle: 2)
-        }
-        // The fitted Versions sheet scrolls under a drag: key the dismissal
-        // on its title; the Settings sheet is full height (its own top).
-        dismissSheet(app, whileVisible: shot == "sg_app-versions" ? app.staticTexts["Versions"] : container)
+    private func walkAppSettings(_ app: XCUIApplication) {
+        let gear = anyElement(app, identified: "session-gear")
+        expect(gear, within: Wait.nav, "The \(Self.appName) editor has no gear")
+        gear.tap()
+        let container = anyElement(app, identified: "app-editor-settings")
+        expect(container, within: Wait.sync, "The gear opened no app-editor-settings page")
+        snapshot("sg_app-settings", settle: 2)
+        goBack(app)
         settle(1)
     }
 
@@ -1741,9 +1738,9 @@ final class StyleguideScreenshots: XCTestCase {
         let row = chatRow(app, containing: Self.guideTitle)
         expect(row, within: Wait.sync, "The Chats list has no \"\(Self.guideTitle)\" chat — reseed with `bun run seed:screenshots`")
         row.tap()
-        let tab = anyElement(app, identified: "chat-results-tab")
-        expect(tab, within: Wait.sync, "The chat strip drew no Results tab")
-        XCTAssertTrue(tab.isHittable, "The Results tab is off screen — the strip must never scroll")
+        let tab = anyElement(app, identified: "session-tabs-results")
+        expect(tab, within: Wait.sync, "The session screen drew no Results tab")
+        XCTAssertTrue(tab.isHittable, "The Results tab is off screen")
         tab.tap()
         expect(
             anyElement(app, identified: "chat-results-changes"),
@@ -1787,12 +1784,10 @@ final class StyleguideScreenshots: XCTestCase {
                 .firstMatch
             expect(agentRow, within: Wait.sync, "The Chats list has no \(Self.agentName) agent row")
             agentRow.tap()
-            expect(
-                anyElement(app, containing: Self.agentRequest),
-                within: Wait.sync,
-                "\(Self.agentName)'s channel never drew the seeded request"
-            )
-            snapshot("sg_agent-channel", settle: 2)
+            // #EXP-1732: THE session screen; its Chat tab = the agent
+            // root's own session view (the seeded messages are no feed).
+            expect(anyElement(app, identified: "session-tabs-chat"), within: Wait.sync, "\(Self.agentName)'s chat drew no session tabs")
+            snapshot("sg_agent-channel", settle: 3)
             goBack(app)
         }
         // A subset run that wants neither of the next two stops here: the
@@ -1804,30 +1799,27 @@ final class StyleguideScreenshots: XCTestCase {
         let coldStart = chatRow(app, containing: Self.coldStartChatTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Chats list")
         coldStart.tap()
-        // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
-        // left, the chips folded beside them (S-3: no Guide tab; the seeded
-        // question + the child's plan stay inline, not in the Dock).
-        for id in ["chat-strip-add", "chat-tab-conversation"] {
-            let pinned = anyElement(app, identified: id)
-            expect(pinned, within: Wait.sync, "The chat strip drew no \(id)")
-            XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
-        }
-        // EXP-1558: the Conversation at its newest rows, as every other
-        // client photographs it: the pending question and the child's plan
-        // row in view (#EXP-1662: a plan is ONE row here, its buttons live on
-        // the Plan tab). The jump-to-bottom button re-pins a list that opened
-        // scrolled up.
+        // #EXP-1732: THE session tabs under the header, Chat active (the
+        // seeded question + the child's plan stay inline, not in the Dock).
+        let chatSegment = anyElement(app, identified: "session-tabs-chat")
+        expect(chatSegment, within: Wait.sync, "The session screen drew no Chat tab")
+        XCTAssertTrue(chatSegment.isHittable, "The Chat tab is off screen")
+        // #EXP-1732 (owner): the Chat tab = the ROOT's own session view
+        // (its raw-work feed, its cards, THE Dock, THE composer); a child's
+        // plan and question live in that child's session (the Sessions tab).
         let jump = anyElement(app, identified: "jump-to-bottom")
         if jump.waitForExistence(timeout: 2), jump.isHittable { jump.tap() }
+        // The stub holds the root as a stored replay with an empty journal,
+        // so its feed may settle on the empty state (Android's walk alike).
         expect(
-            anyElement(app, containing: "Plan: lazy-load"),
+            app.descendants(matching: .any).matching(
+                NSPredicate(
+                    format: "identifier == %@ OR label CONTAINS %@ OR label CONTAINS %@",
+                    "agent-feed", "Waiting for activity", "No live transcript"
+                )
+            ).firstMatch,
             within: Wait.sync,
-            "The cold-start chat drew no plan row — reseed with `bun run seed:screenshots`"
-        )
-        expect(
-            anyElement(app, containing: "Cold start is at 740"),
-            within: Wait.nav,
-            "The cold-start chat drew no pending question"
+            "The cold-start chat's Chat tab drew no session view"
         )
         snapshot("sg_chat-screen", settle: 2)
         guard sessionShots.contains(where: ScreenshotShots.isWanted) else {
@@ -1839,28 +1831,25 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_session: that session's page in the chat (DEMO_SESSION_ID) ─
         // The relay stub's feed ends on an UNANSWERED question, whose card
         // waits in THE Dock (N-12). Nothing is answered.
-        // #EXP-1433: the strip holds no session chips (issues + sessions fold
-        // into ONE group tab), so its Conversation card opens the page.
-        let sessionCard = app.descendants(matching: .any)
-            .matching(identifier: "session-card")
-            .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
+        // #EXP-1732: the Sessions tab's row opens the child's session as an
+        // item pushed over the tab.
+        let sessionsTab = anyElement(app, identified: "session-tabs-sessions")
+        expect(sessionsTab, within: Wait.nav, "The session screen drew no Sessions tab")
+        sessionsTab.tap()
+        let sessionRow = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "session-sessions-row-", Self.sessionTitle
+            ))
             .firstMatch
-        // NEW-16: scroll the card BELOW the strip, then tap its centre: a
-        // card scrolled under the floating header still reads hittable, and
-        // XCUITest would tap the header's back button instead.
-        revealAndTap(
-            app,
-            sessionCard,
-            below: anyElement(app, identified: "chat-tab-conversation"),
-            "The cold-start chat drew no \"\(Self.sessionTitle)\" card"
-        )
+        expect(sessionRow, within: Wait.sync, "The Sessions tab listed no \"\(Self.sessionTitle)\" row")
+        sessionRow.tap()
         // NEW-16: a tap that missed the card lands on the header's back
         // button and pops to the Chats list; say so instead of waiting a
         // minute for a Dock that can never draw.
         settle(1)
-        if !anyElement(app, identified: "chat-tab-conversation").exists,
+        if !anyElement(app, identified: "session-item-title").exists,
            chatRow(app, containing: Self.coldStartChatTitle).exists {
-            XCTFail("Opening \"\(Self.sessionTitle)\" popped the chat back to the Chats list: the tap missed the card (header or status bar)")
+            XCTFail("Opening \"\(Self.sessionTitle)\" popped the chat back to the Chats list: the tap missed the row")
             return
         }
         // EXP-1343: a session chip of THIS chat opens as its page under
@@ -1879,10 +1868,10 @@ final class StyleguideScreenshots: XCTestCase {
             relayCard.allElementsBoundByIndex.contains(where: \.isHittable),
             "The session drew no pending question inline — is `bun run screenshots:desktop` publishing its feed?"
         )
-        // #EXP-1433: the group tab reads the open item's name.
+        // #EXP-1732: the pushed item's header names the session.
         expect(
             app.descendants(matching: .any)
-                .matching(identifier: "chat-strip-group-label")
+                .matching(identifier: "session-item-title")
                 .matching(NSPredicate(format: "label == %@", Self.sessionTitle))
                 .firstMatch,
             within: Wait.sync,
@@ -1897,7 +1886,7 @@ final class StyleguideScreenshots: XCTestCase {
         // A card under the floating strip still reads hittable, so it must
         // sit below the strip's bottom edge.
         // The names stay literal: views.test.ts reads them off the source.
-        let strip = anyElement(app, identified: "chat-tab-conversation")
+        let strip = anyElement(app, identified: "session-item-title")
         // The Work card is found by its workflow's title: the feed holds more
         // than one `work-card` (firstMatch named one far above the strip).
         let revealFeedCard = { (id: String) in
@@ -1920,8 +1909,10 @@ final class StyleguideScreenshots: XCTestCase {
             revealFeedCard("work-card")
             snapshot("sg_work-card", settle: 2)
         }
-        // Back once (the session page → the Chats list) on the system
-        // back button (`goBack`: by name, never the bar's `…`).
+        // Back twice (#EXP-1732: the pushed session item → the chat → the
+        // Chats list) on the back button (`goBack`: by name, never the `…`).
+        goBack(app)
+        settle(1)
         goBack(app)
         settle(1)
     }

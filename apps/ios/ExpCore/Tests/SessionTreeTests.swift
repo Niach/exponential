@@ -459,11 +459,6 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertNil(fixture["titleMax"])
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(testIds["tabs"], SessionTree.ChatCopy.tabsTestId)
-        XCTAssertEqual(testIds["group"], SessionTree.ChatCopy.groupTestId)
-        XCTAssertEqual(copy["stripGroup"] as? String, SessionTree.ChatCopy.stripGroup)
-        XCTAssertEqual(
-            (fixture["stripGroupMaxWidth"] as? NSNumber)?.doubleValue, SessionTree.ChatCopy.stripGroupMaxWidth
-        )
         XCTAssertEqual(testIds["conversation"], SessionTree.ChatCopy.conversationTestId)
         XCTAssertEqual(testIds["composer"], SessionTree.ChatCopy.composerTestId)
         XCTAssertEqual(copy["stack"] as? String, SessionTree.ChatCopy.stack)
@@ -544,18 +539,6 @@ final class SessionTreeTests: XCTestCase {
             root: root, sessions: [root], sessionIssues: [], issues: [], messages: [message], pullRequests: [], now: Date()
         )
         XCTAssertEqual(view.rows, [])
-    }
-
-    /// #EXP-1433: `stripModeCases` — chips (one issue, no session) or ONE group.
-    func testChatStripModeReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-chat.json"), "stripModeCases") {
-            let name = try XCTUnwrap(testCase["name"] as? String)
-            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            let mode = SessionTree.chatStripMode(
-                issues: try XCTUnwrap(input["issues"] as? Int), sessions: try XCTUnwrap(input["sessions"] as? Int)
-            )
-            assertJSON(["mode": mode.mode.rawValue, "count": mode.count] as [String: Any], testCase["expected"], name)
-        }
     }
 
     func testBuildSessionChatReplaysEveryCase() throws {

@@ -35,7 +35,7 @@ function PlanRoute() {
       return
     }
     if (!root || !rootId) return
-    const search = { tab: `plan` as const, plan: messageId }
+    const search = { open: `plan` as const, plan: messageId }
     if (root.agentId) {
       void navigate({ to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId: root.agentId }, search, replace: true })
     } else {

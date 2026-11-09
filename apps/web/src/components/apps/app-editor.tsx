@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import {
   APPS_COPY,
   APPS_EDITOR_TABS,
-  APPS_PANES,
   APPS_PREVIEW,
   APPS_TEST_IDS,
   canPublish,
-  editorTab,
   grantVersion,
   isDraftApp,
   listPill,
@@ -17,8 +15,6 @@ import {
   shownVersion,
   versionLabel,
   versionRow,
-  type AppEditorSheet,
-  type AppEditorTab,
   editorDevice,
   editorHeader,
   rollbackBody,
@@ -33,11 +29,9 @@ import {
   EmptyState,
   getActionIcon,
   GlassGroup,
-  JumpToBottomButton,
   ListRow,
   Menu,
   type MenuEntry,
-  PhoneHeaderTitle,
   Pill,
   Prompt,
   SegmentedControl,
@@ -47,14 +41,8 @@ import {
   SelectTrigger,
   SelectValue,
   SETTINGS_LIST_CLASS,
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  ChatConversation,
   toast,
   useIsMobile,
-  userMessageTime,
   type DevicePickerDevice,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
@@ -65,18 +53,26 @@ import { packageScreens, type AppAccessLevel } from "@exponential_app/eui/host"
 import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
 import { requestDeviceMove } from "@/components/session-device-move"
-import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import {
+  SESSION_SCREEN_COPY,
+  sessionScreen,
+  sessionScreenStatus,
+  sessionScreenSubtitle,
+  type SessionScreenOpen,
+  type SessionScreenTab,
+} from "@exp/domain-contract/session-screen"
+import { SessionScreenFrame } from "@/components/chat/session-screen-frame"
 import { CHAT_HEADER_TONE_CLASS } from "@/components/chat/chat-header"
 import { useEditorRunner } from "@/components/apps/editor-runner"
+import { SessionResultsTab, SessionSessionsTab, useSessionTreeRows } from "@/components/chat/session-screen-bodies"
+import { InPlaceSession } from "@/components/chat/session-body"
+import { useResultsTab } from "@/hooks/use-results-tab"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
-import { renderChatText } from "@/components/chat/chat-markdown"
-import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
-import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
-import { useTreeMessages } from "@/hooks/use-session-tree"
+import { useSessionTitles } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -92,23 +88,20 @@ import { cn } from "@/lib/utils"
 // VAPP-110 (fixtures/apps.json): THE EDITOR. Leaving the editor ENDS the
 // member's live editor session (the tree); the next send revives it.
 //
-// VAPP-177 (`editorTabs`): on md+ the header (glyph + name + the version
-// pill) ends in the Preview | Versions | Settings segmented control and the
-// body = two panes, the chat (the member's editor session: THE chat
-// conversation rows + THE session composer, no header strip) beside the
-// selected tab. Phones: Chat | Preview under the header, one pane, and the
-// header's `…` menu: Versions and Settings open THE SAME bodies as a bottom
-// sheet, Export the export sheet, Delete app the delete prompt. A version's
-// Preview shows it read-only on the Preview tab with a Restore banner;
-// Restore = a new head. VAPP-129's floating layout is gone.
-
-// VAPP-178: the Data tab (wide + phones); the shared tab type may not name it yet.
-type EditorTab = AppEditorTab
+// #EXP-1732 (session-screen.json): the editor IS THE session screen of
+// kind `app` (an app IS its agent's session): the header (the BoardGlyph,
+// the name + the version pill over ONE subtitle line, Publish, THE gear =
+// the app's settings, the `…` = Export, Delete) and THE SegmentedControl
+// Chat · Preview · Data · Versions · Sessions · Results; wide = the chat
+// (the member's editor session: THE chat conversation rows + THE session
+// composer) beside the tab's pane (default Preview), phones = one pane. A
+// version's Preview shows it read-only on the Preview tab with a Restore
+// banner; Restore = a new head. Sessions / Results run over the editor
+// session's tree (empty while there is none).
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
 const UiMoreIcon = conceptIcon(`ui-more`)
-const NavSettingsIcon = conceptIcon(`nav-settings`)
 const UiShareIcon = conceptIcon(`ui-share`)
 const UiSubmitIcon = conceptIcon(`ui-submit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
@@ -235,6 +228,7 @@ export function AppEditor({
   canManage,
   canGrant,
   requestedTab,
+  requestedOpen = null,
   requestedFrame = null,
   requestedScreen = null,
 }: {
@@ -249,6 +243,8 @@ export function AppEditor({
   canGrant: boolean
   /** VAPP-177: the route's `?tab=` (read once: no tab is kept). */
   requestedTab: string | null
+  /** #EXP-1732: the route's `?open=` (settings, a session of the tree; read once). */
+  requestedOpen?: { open: SessionScreenOpen; sessionId?: string } | null
   /** VAPP-179: the route's `?frame=` (read once; screenshots open on Phone). */
   requestedFrame?: PreviewFrame | null
   /** VAPP-218: the preview's first screen (null = the package's first); a
@@ -257,9 +253,11 @@ export function AppEditor({
 }) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const [initial] = useState(() => editorTab(requestedTab, isMobile))
-  const [tab, setTab] = useState<EditorTab>(initial.tab)
-  const [sheet, setSheet] = useState<AppEditorSheet | null>(initial.sheet)
+  // #EXP-1732: the requested tab (`?tab=` read once, legacy ids map through
+  // `legacyTabs`; `settings` opens the gear's settings) and the item open
+  // over it (settings, a session of the editor tree).
+  const [tab, setTab] = useState<string | null>(requestedTab)
+  const [opened, setOpened] = useState<{ open: SessionScreenOpen; sessionId?: string } | null>(requestedOpen)
   const [viewing, setViewing] = useState<number | null>(null)
   // VAPP-179: the preview toolbar's frame + picked template (editor lifetime only).
   const [frame, setFrame] = useState<PreviewFrame>(requestedFrame ?? (APPS_PREVIEW.defaultFrame as PreviewFrame))
@@ -270,28 +268,11 @@ export function AppEditor({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  // Crossing md keeps the pane on screen: a wide Versions/Settings tab
-  // becomes the phone's sheet over Chat, and back.
-  useEffect(() => {
-    if (isMobile) {
-      if (tab === `versions` || tab === `settings`) {
-        setSheet(tab)
-        setTab(`chat`)
-      }
-    } else if (sheet) {
-      setTab(sheet)
-      setSheet(null)
-    } else if (tab === `chat`) {
-      setTab(APPS_EDITOR_TABS.default as EditorTab)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile])
-
   // VAPP-218: a screen link while the editor is open shows the Preview tab.
   const requestedScreenName = requestedScreen?.screen ?? null
   useEffect(() => {
     if (requestedScreenName === null) return
-    setSheet(null)
+    setOpened(null)
     setTab(`preview`)
   }, [requestedScreenName])
 
@@ -338,8 +319,6 @@ export function AppEditor({
     return { id: member.userId, name, role: member.role, access: levels[member.userId] ?? `write` }
   }, [runAsId, members, runAsChoices, levels])
   const { root, teamSessions } = useEditorSession(teamId, app.id, me)
-  const messages = useTreeMessages(root?.id)
-  const follow = useFollowScroll([messages, root?.id])
   const versions = useAppVersions(app.id)
   const head = app.headVersion
   // eApps V1 (#VAPP-210): `package` = the published version's, `draftPackage`
@@ -382,16 +361,18 @@ export function AppEditor({
   // #EXP-1729 (apps.json `editorHeader`): the header's `status · device`,
   // the device = the one the composer shows, named as its Device row names it.
   const shownDevice = deviceId ? devices.devices?.find((d) => d.deviceId === deviceId) : undefined
+  const headerDeviceInput = deviceId
+    ? {
+        name: deviceRows.find((r) => r.id === deviceId)?.name ?? deviceId,
+        online: shownDevice ? deviceIsOnline(shownDevice) : false,
+      }
+    : null
   const header = editorHeader(
     root ? { status: root.status, busy: root.busy, needsInput: root.needsInput } : null,
-    deviceId
-      ? {
-          name: deviceRows.find((r) => r.id === deviceId)?.name ?? deviceId,
-          online: shownDevice ? deviceIsOnline(shownDevice) : false,
-        }
-      : null
+    headerDeviceInput
   )
-  const subtitleClass = CHAT_HEADER_TONE_CLASS[header.tone]
+  // #EXP-1732: the subtitle's device part alone (no root = no word).
+  const headerDevice = editorHeader(null, headerDeviceInput)
   // #EXP-1729: Account › and Model › (composer-menu.json, an app editor's
   // composer, always): held picks ride the next send until the root is live.
   const heldRunner = useEditorRunner(root, shownDevice)
@@ -500,12 +481,30 @@ export function AppEditor({
     }
   }
 
-  const openSession = (session: SessionRow) =>
-    void (session.parentId === null
-      ? navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } })
-      : navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } }))
+  // #EXP-1732: the editor session's tree (the Sessions tab, Results).
+  const tree = useMemo(
+    () => (root ? teamSessions.filter((row) => (row.rootId ?? row.id) === root.id) : []),
+    [teamSessions, root]
+  )
+  const { titles } = useSessionTitles(tree)
+  const sessionRows = useSessionTreeRows(tree, titles, root?.id ?? null)
+  const results = useResultsTab(teamId, root?.id ?? null)
+  const [review, setReview] = useState<{ open: boolean; file: string | null }>({ open: false, file: null })
+  /** A session of the editor tree opens IN PLACE (its Sessions tab); any
+   *  other on its own route. */
+  const openSession = (session: SessionRow) => {
+    if (root && session.id !== root.id && (session.rootId ?? session.id) === root.id) {
+      setOpened({ open: `session`, sessionId: session.id })
+      return
+    }
+    void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } })
+  }
 
-  const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
+  const glyph = (
+    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
+      <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
+    </span>
+  )
   const versionPill = (
     <Pill size="sm" className={app.publishedVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
       {listPill(app)}
@@ -524,7 +523,7 @@ export function AppEditor({
   // A version's Preview: the Preview tab showing it (phones: the sheet closes).
   const previewVersion = (number: number) => {
     setViewing(number === defaultShown ? null : number)
-    setSheet(null)
+    setOpened(null)
     setTab(`preview`)
   }
 
@@ -545,34 +544,32 @@ export function AppEditor({
     }
   }
 
-  const { rows: channelRows } = useConversationRows({ conversation: root, messages, teamSessions })
-  const { answer, pending } = useAnswerMessage()
-  const messageAt = (id: string) => {
-    const message = messages.find((row) => row.id === id)
-    return message ? new Date(message.createdAt) : null
-  }
-  const channel =
-    root && messages.length > 0 ? (
-      <ChatConversation
-        rows={channelRows}
-        renderText={renderChatText}
-        attachmentSrc={attachmentSrc}
-        chat={{ sessionId: root.id, title: app.name, agentId: null }}
-        member={(id) => (users as User[]).find((user) => user.id === id) ?? null}
-        viewerId={me ?? null}
-        messageTime={(row) => {
-          const at = messageAt(row.id)
-          return at ? userMessageTime(at) : null
-        }}
-        onOpenSession={(sessionId) => {
-          const target = teamSessions.find((row) => row.id === sessionId)
-          if (target) openSession(target)
-        }}
-        onAnswer={isMember ? (id, input) => void answer(id, input) : undefined}
-        onDecide={isMember ? (id, input) => void answer(id, input) : undefined}
-        pending={pending}
+  // #EXP-1732: the Chat pane IS the editor session's own session view (its
+  // raw work, THE Dock, the app's composer with its device menu); before the
+  // first send, the draft's starters (or the empty state) over the composer.
+  const appComposer = (opaque: boolean) =>
+    isMember ? (
+      <SessionComposer
+        teamId={teamId}
+        sessionId={root?.id ?? null}
+        appId={app.id}
+        deviceId={deviceId ?? undefined}
+        deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
+        moveDevice={device.move}
+        heldRunner={heldRunner}
+        disabled={!root && !deviceId}
+        placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
+        autoFocus={draft && !root}
+        users={users as User[]}
+        busy={root?.busy ?? false}
+        canStop
+        opaque={opaque}
+        hideReplies={opaque}
+        testId="app-composer"
+        className={opaque ? undefined : `mx-auto max-w-3xl`}
       />
-    ) : draft && !root ? (
+    ) : null
+  const empty = draft ? (
       <div className="flex flex-1 items-center justify-center py-12">
         <EmptyState icon={NavAppsIcon} title={APPS_COPY.starterTitle} size="page">
           {isMember &&
@@ -602,43 +599,27 @@ export function AppEditor({
       </div>
     )
 
-  const composer = isMember ? (
-    <SessionComposer
-      teamId={teamId}
-      sessionId={root?.id ?? null}
-      appId={app.id}
-      deviceId={deviceId ?? undefined}
-      deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
-      moveDevice={device.move}
-      heldRunner={heldRunner}
-      disabled={!root && !deviceId}
-      placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
-      autoFocus={draft && !root}
-      users={users as User[]}
-      busy={root?.busy ?? false}
-      canStop
-      testId="app-composer"
-      className="mx-auto max-w-3xl"
-    />
-  ) : null
-
-  const chat = (
+  const chat = root ? (
     <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.chat}>
-      <div className="relative min-h-0 flex-1">
-        <div ref={follow.scrollRef} onScroll={follow.onScroll} className="h-full overflow-y-auto overscroll-contain">
-          <div ref={follow.contentRef} className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-6 pb-6">
-            {channel}
-          </div>
-        </div>
-        <JumpToBottomButton
-          visible={!follow.atBottom && messages.length > 0}
-          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
-          onClick={follow.jumpToBottom}
-        />
+      <InPlaceSession
+        key={root.id}
+        row={root}
+        floating={isMobile}
+        onOpenXref={(sessionId) => {
+          const target = teamSessions.find((row) => row.id === sessionId)
+          if (target) openSession(target)
+        }}
+        composer={isMember ? appComposer : undefined}
+      />
+    </div>
+  ) : (
+    <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.chat}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-6 pb-6">{empty}</div>
       </div>
-      {composer && (
+      {isMember && (
         <div className="shrink-0 px-4 pt-2 pb-4" data-testid={APPS_TEST_IDS.composer}>
-          {composer}
+          {appComposer(false)}
         </div>
       )}
     </div>
@@ -799,170 +780,173 @@ export function AppEditor({
     />
   )
 
-  const tabOptions = (ids: readonly string[]) =>
-    ids.map((id) => ({ value: id as EditorTab, label: APPS_COPY.tabs[id as keyof typeof APPS_COPY.tabs] }))
-
-  if (isMobile) {
-    // The header's `…` (apps.json `editorTabs.menu`).
-    const menuEntries: MenuEntry[] = [
-      // eApps V1: Publish first, while the head is ahead (the wide header's button).
-      ...(showPublish
-        ? [
-            {
-              kind: `item` as const,
-              id: `publish`,
-              label: APPS_COPY.publish,
-              icon: UiSubmitIcon,
-              onSelect: () => void publish(head),
-              "data-testid": APPS_TEST_IDS.publish,
-            },
-          ]
-        : []),
-      {
-        kind: `item`,
-        id: `versions`,
-        label: APPS_COPY.menu.versions,
-        icon: UiHistoryIcon,
-        value: versions.length > 0 ? <span className="tabular-nums">{versions.length}</span> : undefined,
-        onSelect: () => setSheet(`versions`),
-        "data-testid": `${APPS_TEST_IDS.menu}-versions`,
-      },
-      {
-        kind: `item`,
-        id: `settings`,
-        label: APPS_COPY.menu.settings,
-        icon: NavSettingsIcon,
-        onSelect: () => setSheet(`settings`),
-        "data-testid": `${APPS_TEST_IDS.menu}-settings`,
-      },
-      ...(head > 0
-        ? [
-            {
-              kind: `item` as const,
-              id: `export`,
-              label: APPS_COPY.menu.export,
-              icon: UiShareIcon,
-              onSelect: () => setExportOpen(true),
-              "data-testid": `${APPS_TEST_IDS.menu}-export`,
-            },
-          ]
-        : []),
-      ...(canManage
-        ? [
-            { kind: `separator` as const, id: `sep` },
-            {
-              kind: `item` as const,
-              id: `delete`,
-              label: APPS_COPY.menu.delete,
-              icon: UiDeleteIcon,
-              destructive: true,
-              onSelect: () => setDeleteOpen(true),
-              "data-testid": `${APPS_TEST_IDS.menu}-delete`,
-            },
-          ]
-        : []),
-    ]
-    return (
-      <div className="flex h-dvh min-h-0 flex-col" data-testid={APPS_TEST_IDS.editor}>
-        <MobileDetailHeader
-          title={
-            // #EXP-1729: THE chat header (chats.json `shell.chatHeader`): the
-            // lead disc carrying the app's glyph, the name over `status ·
-            // device` in its tone; no version pill on phones.
-            <PhoneHeaderTitle
-              disc={
-                <span data-slot="chat-lead" className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
-                  {glyph}
-                </span>
-              }
-              title={app.name}
-              subtitle={<span className={subtitleClass} data-tone={header.tone}>{header.subtitle}</span>}
-            />
-          }
-          onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
-          menu={
-            <Menu
-              align="end"
-              aria-label={`${app.name} actions`}
-              title={app.name}
-              entries={menuEntries}
-              trigger={
-                <Button variant="ghost" size="icon-sm" className={HEADER_BUTTON_CLASS} aria-label={`Menu for ${app.name}`} data-testid={APPS_TEST_IDS.menu}>
-                  <UiMoreIcon />
-                </Button>
-              }
-            />
-          }
-          below={
-            <div className="px-4 pb-2" data-testid={APPS_TEST_IDS.tabs}>
-              <SegmentedControl value={tab} onValueChange={setTab} fill options={tabOptions(APPS_EDITOR_TABS.phone)} />
-            </div>
-          }
-        />
-        <div className="min-h-0 flex-1">
-          {tab === `chat` && chat}
-          {tab === `preview` && preview}
-          {tab === `data` && <div className="h-full overflow-y-auto px-4 pt-2 pb-4">{dataBody}</div>}
-        </div>
-        <Sheet open={sheet !== null} onOpenChange={(open) => !open && setSheet(null)}>
-          <SheetContent side="bottom" className="gap-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <SheetHeader className="px-4 pt-2 pb-1">
-              <SheetTitle>{sheet === `settings` ? APPS_COPY.menu.settings : APPS_COPY.menu.versions}</SheetTitle>
-            </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-2">
-              {sheet === `versions` && versionsBody}
-              {sheet === `settings` && settingsBody}
-            </div>
-          </SheetContent>
-        </Sheet>
-        {exportDialog}
-        {deletePrompt}
-        {rollbackPrompt}
-      </div>
-    )
+  // ── THE screen (session-screen.json, kind `app`) ─────────────────────────
+  const openSessionRow =
+    opened?.open === `session` ? (tree.find((row) => row.id === opened.sessionId) ?? null) : null
+  const open: SessionScreenOpen | null =
+    opened?.open === `settings` ? `settings` : openSessionRow ? `session` : null
+  const screen = sessionScreen({
+    kind: `app`,
+    wide: !isMobile,
+    requested: tab,
+    open,
+    counts: { issues: 0, sessions: sessionRows.length, results: results.results.length },
+  })
+  const pickTab = (next: SessionScreenTab) => {
+    setOpened(null)
+    setTab(next)
+  }
+  /** The opened item's `‹`: back to the tab (a requested `settings` too). */
+  const closeItem = () => {
+    setOpened(null)
+    setTab(screen.active)
   }
 
-  return (
-    <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.editor}>
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
-        {glyph}
-        {/* #EXP-1729: the chat header's title block: the name over `status · device`. */}
-        <div className="flex min-w-0 flex-col">
-          <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{app.name}</h1>
-          <span className={cn(`truncate text-xs`, subtitleClass)} data-tone={header.tone} data-testid="chat-header-subtitle">
-            {header.subtitle}
-          </span>
-        </div>
-        {versionPill}
-        <div className="flex-1" />
-        {showPublish && (
-          <Button size="sm" onClick={() => void publish(head)} pending={publishing === head} disabled={publishing !== null} data-testid={APPS_TEST_IDS.publish}>
-            {APPS_COPY.publish}
+  let pane: ReactNode = null
+  if (screen.active === `preview`) pane = preview
+  else if (screen.active === `data`) pane = <div className="h-full overflow-y-auto p-4">{dataBody}</div>
+  else if (screen.active === `versions`) pane = <div className="h-full overflow-y-auto p-4">{versionsBody}</div>
+  else if (screen.active === `sessions`)
+    pane = (
+      <SessionSessionsTab
+        rows={sessionRows}
+        activeId={openSessionRow?.id ?? null}
+        onOpen={(sessionId) => setOpened({ open: `session`, sessionId })}
+      />
+    )
+  else if (screen.active === `results`)
+    pane = (
+      <SessionResultsTab
+        teamId={teamId}
+        teamSlug={teamSlug}
+        results={results}
+        pullRequest={null}
+        canMerge={isMember}
+        review={review.open}
+        file={review.file}
+        onReview={(next, file) => setReview({ open: next, file: next ? (file ?? null) : null })}
+      />
+    )
+
+  const item: ReactNode =
+    screen.open === `settings` ? (
+      <div className="h-full overflow-y-auto p-4">{settingsBody}</div>
+    ) : screen.open === `session` && openSessionRow ? (
+      <InPlaceSession key={openSessionRow.id} row={openSessionRow} floating={isMobile} />
+    ) : null
+
+  // The header's `…` (apps.json): Export and Delete (phones: Publish first,
+  // the wide header's button).
+  const menuEntries: MenuEntry[] = [
+    ...(showPublish && isMobile
+      ? [
+          {
+            kind: `item` as const,
+            id: `publish`,
+            label: APPS_COPY.publish,
+            icon: UiSubmitIcon,
+            onSelect: () => void publish(head),
+            "data-testid": APPS_TEST_IDS.publish,
+          },
+        ]
+      : []),
+    ...(head > 0
+      ? [
+          {
+            kind: `item` as const,
+            id: `export`,
+            label: APPS_COPY.menu.export,
+            icon: UiShareIcon,
+            onSelect: () => setExportOpen(true),
+            "data-testid": `${APPS_TEST_IDS.menu}-export`,
+          },
+        ]
+      : []),
+    ...(canManage
+      ? [
+          ...(head > 0 || (showPublish && isMobile) ? [{ kind: `separator` as const, id: `sep` }] : []),
+          {
+            kind: `item` as const,
+            id: `delete`,
+            label: APPS_COPY.menu.delete,
+            icon: UiDeleteIcon,
+            destructive: true,
+            onSelect: () => setDeleteOpen(true),
+            "data-testid": `${APPS_TEST_IDS.menu}-delete`,
+          },
+        ]
+      : []),
+  ]
+  const headerMenu = (className: string) =>
+    menuEntries.length > 0 ? (
+      <Menu
+        align="end"
+        aria-label={`${app.name} actions`}
+        title={app.name}
+        entries={menuEntries}
+        trigger={
+          <Button variant="ghost" size="icon-sm" className={className} aria-label={`Menu for ${app.name}`} data-testid={APPS_TEST_IDS.menu}>
+            <UiMoreIcon />
           </Button>
-        )}
-        <div className="shrink-0" data-testid={APPS_TEST_IDS.tabs}>
-          <SegmentedControl value={tab} onValueChange={setTab} options={tabOptions(APPS_EDITOR_TABS.wide)} />
-        </div>
-      </div>
-      <div
-        className="grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: `minmax(${APPS_PANES.chatMinWidth}px, ${APPS_PANES.chat}fr) ${APPS_PANES.preview}fr` }}
-      >
-        <div className="flex min-h-0 flex-col border-r border-border">{chat}</div>
-        <div className="min-h-0 min-w-0">
-          {tab === `preview` && preview}
-          {tab === `data` && <div className="h-full overflow-y-auto p-4">{dataBody}</div>}
-          {tab === `versions` && <div className="h-full overflow-y-auto p-4">{versionsBody}</div>}
-          {tab === `settings` && <div className="h-full overflow-y-auto p-4">{settingsBody}</div>}
-        </div>
-      </div>
+        }
+      />
+    ) : null
+
+  // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word (never
+  // dropped) · apps.json `editorHeader`'s DEVICE part (the name, else `no
+  // device online`), in `editorHeader`'s tone.
+  const statusRows = root && !tree.some((row) => row.id === root.id) ? [root, ...tree] : tree
+  const subtitle = sessionScreenSubtitle({
+    status: sessionScreenStatus(
+      statusRows.map((row) => ({
+        status: row.status,
+        busy: row.busy,
+        needsInput: row.needsInput,
+        root: row.id === root?.id,
+      }))
+    ),
+    device: headerDevice.subtitle,
+    trigger: null,
+  })
+
+  return (
+    <>
+      <SessionScreenFrame
+        screen={screen}
+        testId={APPS_TEST_IDS.editor}
+        avatar={glyph}
+        title={app.name}
+        titleTrailing={versionPill}
+        subtitle={subtitle}
+        subtitleClass={CHAT_HEADER_TONE_CLASS[header.tone]}
+        trailing={
+          showPublish && !isMobile ? (
+            <Button size="sm" onClick={() => void publish(head)} pending={publishing === head} disabled={publishing !== null} data-testid={APPS_TEST_IDS.publish}>
+              {APPS_COPY.publish}
+            </Button>
+          ) : undefined
+        }
+        onGear={() => setOpened({ open: `settings` })}
+        menu={headerMenu}
+        onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
+        onTab={pickTab}
+        chat={chat}
+        pane={pane}
+        item={item}
+        onCloseItem={closeItem}
+        itemTitle={
+          screen.open === `settings`
+            ? SESSION_SCREEN_COPY.settings
+            : openSessionRow
+              ? (titles.get(openSessionRow.id) ?? ``)
+              : ``
+        }
+      />
       {exportDialog}
       {deletePrompt}
       {rollbackPrompt}
-    </div>
+    </>
   )
 }
 
 type PreviewFrame = `desktop` | `phone`
-
-const attachmentSrc = (id: string) => `/api/attachments/${id}`
