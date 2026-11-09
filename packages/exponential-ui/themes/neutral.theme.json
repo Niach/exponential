@@ -3357,7 +3357,6 @@
       "trigger": [
         {
           "style": {
-            "height": "$control.input",
             "paddingHorizontal": "$spacing.md",
             "borderRadius": "$radius.md",
             "borderWidth": "$border.hairline",
@@ -3368,6 +3367,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontFamily": "$type.family.sans",
             "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "field"
+          },
+          "style": {
+            "height": "$control.input"
           }
         },
         {
@@ -3399,8 +3406,9 @@
             "triggerVariant": "row"
           },
           "style": {
-            "height": 44,
+            "minHeight": 44,
             "paddingHorizontal": "$spacing.lg",
+            "paddingVertical": "$spacing.md",
             "gap": "$spacing.md",
             "borderWidth": 0,
             "borderRadius": "$radius.none",
@@ -3564,6 +3572,39 @@
           },
           "style": {
             "opacity": 0.7
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs"
+          }
+        }
+      ],
+      "labels": [
+        {
+          "style": {
+            "gap": "$spacing.xxs"
+          }
+        }
+      ],
+      "control": [
+        {
+          "style": {
+            "minWidth": 200,
+            "gap": "$spacing.md"
           }
         }
       ],

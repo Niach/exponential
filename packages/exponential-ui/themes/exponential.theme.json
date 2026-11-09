@@ -801,8 +801,9 @@
             "triggerVariant": "row"
           },
           "style": {
-            "height": 40.82,
+            "minHeight": 40.82,
             "paddingHorizontal": 14,
+            "paddingVertical": 10.5,
             "gap": 7,
             "fontSize": 12.25,
             "lineHeight": 17.5
@@ -881,6 +882,40 @@
           "style": {
             "opacity": 1,
             "color": "$color.accentForeground"
+          }
+        }
+      ],
+      "description": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 16.99,
+            "color": "$color.foreground",
+            "opacity": 0.5
+          }
+        }
+      ],
+      "labels": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "gap": 1.75
+          }
+        }
+      ],
+      "control": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "minWidth": 203.5,
+            "gap": 7
           }
         }
       ],

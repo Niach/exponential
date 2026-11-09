@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `description` (#EXP-1629): painted from the core's parts (the row's `labels` and `control` columns, the field's hint). Anchored popups now fit into the WINDOW around the surface (the surface's window position + the root's size, `SurfaceModel.setPopupWindow` → the core's `set_popup_bounds`), as web and the IDE do.
 - Composer slots + paste (#EDE-65 R): a slotted Composer paints its leaf and then the core-laid slot row over it; the attach control ends one `xs` gap before `trailing`. A hardware Ctrl/⌘+V or the selection toolbar's Paste reads the clipboard's content URIs (`composerClipboard`) and `SurfaceModel.composerPaste` fires `attach` {files} for the images and calls the new `HostPlugin.onUpload(UploadEvent)` (`name` = the Composer's id, `uris` = the content URIs); files without an image insert nothing. `InteractionTest`.
 - Select (#EXP-1629, the IDE's multi picker): a row's value button (the core's `button` part) lends its pointer hover to the value, placeholder and chevron inside it; a `multiple` popup (core layer and native popup) opens with the cursor on its first chosen option; the native popup's options paint their recipe border.
 

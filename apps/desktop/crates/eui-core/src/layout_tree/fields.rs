@@ -325,7 +325,9 @@ impl Builder<'_, '_> {
     /// Description and error lines under the control; `control` (the part
     /// that IS the control) gets the `invalid` state.
     fn field_close(&mut self, owner: &LNode, control: Option<u32>) {
-        if let Some(d) = str_prop(&owner.props, "description") {
+        // #EXP-1629: a `row` Select's description sits in its trigger.
+        let row_select = owner.component == "Select" && owner.props.get("triggerVariant").and_then(Value::as_str) == Some("row");
+        if let Some(d) = str_prop(&owner.props, "description").filter(|_| !row_select) {
             self.text_part(owner.index, owner, "description", d, "muted", "");
         }
         if let (Some((_, true)), Some(c)) = (self.field_message(owner.index, owner), control) {
@@ -471,8 +473,8 @@ impl Builder<'_, '_> {
     /// #EXP-1629: a `row` Select's trigger: a Group row of parts (the
     /// leading `label`, a spacer, and the `button` holding the `value`
     /// (else `placeholder`) and the `chevron`), so its popup can hang off
-    /// the value. The trigger itself
-    /// carries the text for its accessible value.
+    /// the value. The trigger itself carries the text for its accessible
+    /// value.
     fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool) -> (u32, Option<u32>) {
         let label = str_prop(&owner.props, "label").map(str::to_string);
         let t = self.part(owner, "trigger", "Box", NodeKind::Container, json!({"alignSelf": "stretch", "display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"text": text, "placeholder": placeholder, "label": label}));
@@ -481,16 +483,34 @@ impl Builder<'_, '_> {
         if self.is_open(&owner.id, &Map::new(), false) {
             self.add_state(t, "open");
         }
+        // #EXP-1629: a `description` stacks under the label in the `labels`
+        // column, which shrinks so the hint wraps; the value and chevron then
+        // sit end-aligned in the `control` column (its recipe `minWidth`).
+        let Some(description) = str_prop(&owner.props, "description") else {
+            if let Some(label) = label {
+                self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
+            }
+            self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
+            return (t, Some(self.row_value(t, owner, text, placeholder)));
+        };
+        let labels = self.part_in(t, owner, "labels", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "minWidth": 0, "flexShrink": 1}), json!({}), "");
         if let Some(label) = label {
-            self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
+            self.part_in(labels, owner, "label", "Text", NodeKind::Leaf, json!({}), json!({"text": label}), "");
         }
-        self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
-        // The IDE picker's ghost value button: the value and the chevron,
-        // the one box its hover fills.
-        let button = self.part_in(t, owner, "button", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "flexShrink": 1}), json!({}), "");
+        let d = self.part_in(labels, owner, "description", "Text", NodeKind::Leaf, json!({"maxWidth": crate::layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH}), json!({"text": description, "variant": "muted"}), "");
+        self.nodes[d as usize].lines = None;
+        let control = self.part_in(t, owner, "control", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0}), json!({}), "");
+        (t, Some(self.row_value(control, owner, text, placeholder)))
+    }
+
+    /// A `row` trigger's `button` (the IDE picker's ghost value button: the
+    /// one box its hover fills) holding the `value` (else `placeholder`) and
+    /// the `chevron`, under `parent`.
+    fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool) -> u32 {
+        let button = self.part_in(parent, owner, "button", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "flexShrink": 1}), json!({}), "");
         let value = self.part_in(button, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
         self.part_in(button, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
-        (t, Some(value))
+        value
     }
 
     /// A `yyyy-mm-dd` as the surface formatter's medium date (the raw

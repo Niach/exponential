@@ -8074,6 +8074,10 @@
           "type": "string",
           "description": "Field label."
         },
+        "description": {
+          "type": "string",
+          "description": "Muted hint (`row`: under the label)."
+        },
         "name": {
           "type": "string",
           "description": "Field's key in the submitted data."

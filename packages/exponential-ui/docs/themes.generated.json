@@ -3796,6 +3796,9 @@
         "value",
         "chevron",
         "fade",
+        "description",
+        "labels",
+        "control",
         "button"
       ],
       "props": [

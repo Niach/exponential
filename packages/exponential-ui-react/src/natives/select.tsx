@@ -17,14 +17,16 @@
 // the cursor on the first enabled option (a `multiple` one's on its first
 // chosen; the search field focused when searchable) and fades its list's bottom
 // while options sit below; an item's `hover` = the cursor, `selected` =
-// chosen.
+// chosen. A `description` is a muted hint: under a field trigger, in a
+// row UNDER the label (the `labels` column; the value and chevron then sit
+// in the trailing `control` column).
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { boundPath, listMoreBelow, openingCursorIndex, revealOption, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
-import { FieldErrors, useField } from "../form"
+import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
@@ -147,9 +149,17 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
   // #EXP-1629: a `row` trigger carries its label inside, leading.
   const row = str(props.triggerVariant) === `row`
   const label = row ? null : <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
-  const rowLabel = row ? <TextPart part={part(`label`)} text={props.label} /> : null
-  const spacer = row ? <span className="xui-Select-spacer" aria-hidden="true" /> : null
-  const chevronSlot = row ? `Select.chevron` : `Select.trigger`
+  const description = str(props.description)
+  const described = row && description !== ``
+  const rowLabel = !row ? null : described ? (
+    <div {...(part(`labels`) as Record<string, string>)}>
+      <TextPart part={part(`label`)} text={props.label} />
+      <TextPart part={part(`description`)} text={description} id={`${id}-d`} />
+    </div>
+  ) : (
+    <TextPart part={part(`label`)} text={props.label} />
+  )
+  const spacer = row && !described ? <span className="xui-Select-spacer" aria-hidden="true" /> : null
   // #EXP-1629: the row's value button lends its hover to what it holds.
   const [buttonHover, setButtonHover] = useState(false)
   const inButton = row && buttonHover && `hover`
@@ -161,22 +171,35 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     ) : (
       children
     )
+  const hint: Hint = {
+    end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
+    field: row ? null : <TextPart part={part(`description`)} text={description} id={`${id}-d`} />,
+    describedBy: joinIds(description && `${id}-d`, f.describedBy),
+  }
+  const chevronSlot = row ? `Select.chevron` : `Select.trigger`
   const triggerStates = (o: boolean) => [o && `open`, disabled && `disabled`, f.invalid && `invalid`] as const
 
   if (!multiple && !searchable) {
     const geometry = selectPopupGeometry(props, `--radix-select-trigger-width`)
     return (
-      <PlainSelect {...{ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, button, inButton }} field={f} />
+      <PlainSelect {...{ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint, inButton }} field={f} />
     )
   }
 
   return (
     <Combobox
-      {...{ node, props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, button, inButton }}
+      {...{ node, props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, hint, inButton }}
       localFilter={!optionsBound && !source}
       field={f}
     />
   )
+}
+
+/** A `description`: the row's `control` wrapper, the field's hint line, the trigger's describedby. */
+interface Hint {
+  end: (children: React.ReactNode) => React.ReactNode
+  field: React.ReactNode
+  describedBy: string | undefined
 }
 
 interface PlainSelectProps {
@@ -197,6 +220,7 @@ interface PlainSelectProps {
   label: React.ReactNode
   rowLabel: React.ReactNode
   spacer: React.ReactNode
+  hint: Hint
   chevronSlot: string
   source: string
   placeholder: string
@@ -204,12 +228,11 @@ interface PlainSelectProps {
   setPlainRoot: (el: HTMLDivElement | null) => void
   triggerStates: (o: boolean) => readonly (string | false)[]
   geometry: ReturnType<typeof selectPopupGeometry>
-  button: (children: React.ReactNode) => React.ReactNode
   inButton: string | false
   field: ReturnType<typeof useField>
 }
 
-function PlainSelect({ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, button, inButton, field: f }: PlainSelectProps) {
+function PlainSelect({ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint, inButton, field: f }: PlainSelectProps) {
   const ctx = useSurfaceContext()
   const chosen = options.find((o) => o.value === value)
   const chosenLabel = chosen ? str(chosen.label) : ``
@@ -251,12 +274,12 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
             setOpen(o)
             if (!o) setCursor(null)
           }} name={str(props.name, node.id)} dir={ctx.direction}>
-          <SelectPrimitive.Trigger ref={triggerRef} id={id} {...(part(`trigger`, ...triggerStates(open)) as Record<string, string>)} aria-invalid={f.invalid || undefined} aria-describedby={f.describedBy}>
+          <SelectPrimitive.Trigger ref={triggerRef} id={id} {...(part(`trigger`, ...triggerStates(open)) as Record<string, string>)} aria-invalid={f.invalid || undefined} aria-describedby={hint.describedBy}>
             {rowLabel}
             {/* #EXP-1629: the chosen label is the `value` part, Radix's
                 Select.Value's own span (it drops a className). */}
             {spacer}
-            {button(
+            {hint.end(
               <>
                 <span ref={valueRef}>{chosen ? <span {...(part(`value`, inButton) as Record<string, string>)} style={{ pointerEvents: `none` }}>{chosenLabel}</span> : <span {...(part(`placeholder`, inButton) as Record<string, string>)}>{placeholder}</span>}</span>
                 <SelectPrimitive.Icon asChild>
@@ -305,6 +328,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
             </SelectPrimitive.Content>
           </SelectPrimitive.Portal>
         </SelectPrimitive.Root>
+        {hint.field}
         <FieldErrors part={part} field={f} />
       </div>
   )
@@ -332,15 +356,15 @@ interface ComboboxProps {
   label: React.ReactNode
   rowLabel: React.ReactNode
   spacer: React.ReactNode
+  hint: Hint
   chevronSlot: string
   source: string
   localFilter: boolean
-  button: (children: React.ReactNode) => React.ReactNode
   inButton: string | false
   field: ReturnType<typeof useField>
 }
 
-function Combobox({ props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, localFilter, button, inButton, field }: ComboboxProps) {
+function Combobox({ props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, hint, inButton, localFilter, field }: ComboboxProps) {
   const ctx = useSurfaceContext()
   const selected = multiple ? (value as string[]) : value ? [value as string] : []
   const chosen = options.filter((o) => selected.includes(o.value))
@@ -393,7 +417,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
           aria-invalid={field.invalid || undefined}
-          aria-describedby={field.describedBy}
+          aria-describedby={hint.describedBy}
           onKeyDown={(e) => {
             if (!open && (e.key === `ArrowDown` || e.key === `ArrowUp`)) {
               e.preventDefault()
@@ -403,7 +427,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
         >
           {rowLabel}
           {spacer}
-          {button(
+          {hint.end(
             <>
               {geometry.anchorValue ? <PopoverPrimitive.Anchor asChild>{shownValue}</PopoverPrimitive.Anchor> : shownValue}
               <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
@@ -491,6 +515,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>
+      {hint.field}
       <FieldErrors part={part} field={field} />
     </div>
   )

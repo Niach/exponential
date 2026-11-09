@@ -1605,6 +1605,19 @@ mod tests {
     }
 
     #[test]
+    fn ghost_hover_is_gpui_components_ghost_hover_in_exponential_and_accent_elsewhere() {
+        // #EXP-1629 (catalog/tokens.json `color.ghostHover`).
+        let exp = builtin_theme("exponential").unwrap();
+        assert_eq!(exp.modes.dark.color["ghostHover"], "#ffffff0e");
+        assert_eq!(exp.modes.light.color["ghostHover"], "#f5f5f5");
+        for id in ["neutral", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.color["ghostHover"], t.modes.light.color["accent"]);
+            assert_eq!(t.modes.dark.color["ghostHover"], t.modes.dark.color["accent"]);
+        }
+    }
+
+    #[test]
     fn the_exponential_message_bubble_is_the_ides_message_bubble() {
         // #EDE-65: crates/ui session_chat::message_bubble.
         let exp = builtin_theme("exponential").unwrap();
