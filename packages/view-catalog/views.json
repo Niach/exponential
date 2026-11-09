@@ -7380,7 +7380,7 @@
       "webMobile": {
         "route": "/t/$teamSlug/sessions/$sessionId",
         "anchor": {
-          "testId": "session-tabs",
+          "text": "Profile the launch path",
           "timeoutMs": 30000
         },
         "settleMs": 2500,
