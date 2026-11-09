@@ -15,6 +15,7 @@ use crate::settings::sessions::SessionsPane;
 use crate::settings::api_keys::{ApiKeysPane, ShotLoad as KeysLoad};
 use crate::settings::widget::WidgetPane;
 use crate::settings::all_boards::AllBoardsPane;
+use crate::settings::sign_in_methods::{SignInMethodsSection, SignInShot};
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::shell_bench::headless;
@@ -29,6 +30,7 @@ struct Frame {
 
 impl Render for Frame {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Frame").entered();
         div().size_full().bg(cx.theme().background).p(px(24.)).child(self.pane.clone())
     }
 }
@@ -218,6 +220,92 @@ fn settings_sessions_unlimited() {
 #[ignore]
 fn settings_sessions_30_days() {
     shoot_pane("sessions-30-days", SessionsPane::for_shots, |pane, cx| pane.show(Some(30), cx));
+}
+
+fn provider(id: &str, name: &str, linked: bool, available: bool, linked_at: Option<&str>) -> api::users::SignInProvider {
+    api::users::SignInProvider { id: id.into(), name: name.into(), kind: id.into(), available, linked, linked_at: linked_at.map(Into::into) }
+}
+
+fn passkey(id: &str, name: Option<&str>, backed_up: bool) -> api::users::SignInPasskey {
+    api::users::SignInPasskey { id: id.into(), name: name.map(Into::into), created_at: Some("2026-09-02T09:00:00.000Z".into()), backed_up }
+}
+
+/// Every row kind: the email code, linked and unlinked providers, one no
+/// longer offered, the password, and two passkeys.
+fn many_ways_in() -> api::users::SignInMethods {
+    api::users::SignInMethods {
+        email: "dana@example.com".into(),
+        email_verified: true,
+        email_otp_enabled: true,
+        password_enabled: true,
+        passkey_enabled: true,
+        providers: vec![
+            provider("google", "Google", true, true, Some("2026-09-01T10:00:00.000Z")),
+            provider("apple", "Apple", false, true, None),
+            provider("github", "GitHub", false, false, None),
+            provider("acme-sso", "Acme SSO", true, false, None),
+            provider("credential", "Password", true, true, Some("2026-08-12T10:00:00.000Z")),
+        ],
+        passkeys: vec![passkey("pk1", Some("MacBook"), false), passkey("pk2", None, true)],
+        ways_in: 5,
+    }
+}
+
+/// The last way in: the code is off on this server, Google is all there is.
+fn one_way_in() -> api::users::SignInMethods {
+    api::users::SignInMethods {
+        email: "dana@example.com".into(),
+        email_verified: true,
+        email_otp_enabled: false,
+        password_enabled: false,
+        passkey_enabled: true,
+        providers: vec![provider("google", "Google", true, true, None), provider("apple", "Apple", false, true, None)],
+        passkeys: vec![],
+        ways_in: 1,
+    }
+}
+
+fn sign_in(name: &str, shot: SignInShot) {
+    shoot_pane(name, |window, cx| SignInMethodsSection::new(crate::navigation::nav_for_window(window, cx), window, cx), move |pane, cx| pane.show(shot, cx));
+}
+
+fn sign_in_shot(methods: Option<api::users::SignInMethods>) -> SignInShot {
+    SignInShot { methods, pending_link: None, copy_url: None, manage_url: Some("https://app.exponential.at/t/acme/settings/account".into()), loading: false }
+}
+
+#[test]
+#[ignore]
+fn settings_sign_in_many() {
+    sign_in("sign-in-many", sign_in_shot(Some(many_ways_in())));
+}
+
+#[test]
+#[ignore]
+fn settings_sign_in_last_way_in() {
+    sign_in("sign-in-last-way-in", SignInShot { manage_url: None, ..sign_in_shot(Some(one_way_in())) });
+}
+
+#[test]
+#[ignore]
+fn settings_sign_in_linking() {
+    let shot = SignInShot {
+        pending_link: Some("apple".into()),
+        copy_url: Some("https://app.exponential.at/api/auth/link/start?ticket=t-123&provider=apple&challenge=abc".into()),
+        ..sign_in_shot(Some(many_ways_in()))
+    };
+    sign_in("sign-in-linking", shot);
+}
+
+#[test]
+#[ignore]
+fn settings_sign_in_failed() {
+    sign_in("sign-in-failed", sign_in_shot(None));
+}
+
+#[test]
+#[ignore]
+fn settings_sign_in_loading() {
+    sign_in("sign-in-loading", SignInShot { loading: true, ..sign_in_shot(None) });
 }
 
 fn api_keys_rows() -> Vec<api::users::PersonalKeyMeta> {

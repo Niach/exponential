@@ -236,6 +236,7 @@ impl ShapeStore {
         msgs: &[ShapeMessage],
         state: Option<&ShapeState>,
     ) -> Result<()> {
+        let _span = tracing::debug_span!("sync.write_batch", shape = spec.name, messages = msgs.len()).entered();
         let mut conn = self.writer.lock().expect("writer poisoned");
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for msg in msgs {

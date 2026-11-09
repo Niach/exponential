@@ -220,6 +220,7 @@ impl InviteLinkPanel {
 
 impl Render for InviteLinkPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "InviteLinkPanel").entered();
         // Plan full: the control is REMOVED. No disabled button, no hint, no
         // upgrade pitch (the mobile/web rule — onboarding never sells).
         if self.capacity.is_full() {

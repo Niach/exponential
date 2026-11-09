@@ -599,6 +599,7 @@ const DIALOG_MIN_H: f32 = 200.;
 
 impl Render for JoinTeamView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "JoinTeamView").entered();
         // First render focuses the token field. (Embedded mode used to skip
         // this while the create-team form rendered above on the same page;
         // since EXP-470 the wizard shows Join on its own page, so it may

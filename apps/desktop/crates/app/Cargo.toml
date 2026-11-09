@@ -37,6 +37,7 @@ epilot = { path = "../epilot" }
 # worker itself (this binary re-run as `__speech-worker`).
 etalk = { path = "../etalk" }
 etalk-engine = { path = "../etalk-engine" }
+observability = { path = "../observability" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true

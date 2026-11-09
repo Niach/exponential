@@ -1621,6 +1621,7 @@ impl AppScreenView {
 
 impl Render for AppScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AppScreenView").entered();
         let _ = window;
         let Some(app) = self.app.clone() else {
             let ready = Store::try_global(cx).is_some_and(|store| store.collections().apps.read(cx).is_ready());

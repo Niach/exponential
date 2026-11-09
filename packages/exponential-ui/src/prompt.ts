@@ -38,14 +38,14 @@ export interface PromptOptions {
  *  and the basic catalog. Kept to a few lines on purpose. */
 export const PROMPT_RULES: readonly string[] = [
   // Round 9 §14.1: agents author 0.9 until the flag day.
-  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it) and updateDataModel{surfaceId, path, value} (no value removes the pointer). Keep data in the model; bind to it.`,
-  `A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item field naming it.`,
-  `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args} (live). visible: false (or a binding) hides a component.`,
-  `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context may hold bindings, read after the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below, or a namespaced host function like app.toast).`,
-  `Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything past a screen); a row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer around it.`,
+  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (no value removes it). Keep data in the model; bind to it.`,
+  `A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item's naming field.`,
+  `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args} (live). visible: false (or a binding) hides it.`,
+  `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context may hold bindings, read after the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below or a namespaced host function like app.toast).`,
+  `Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything past a screen); a control row = Toolbar, fields side by side = FieldGroup, the Cancel/submit row = FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer.`,
   `Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.`,
-  `Prefer catalog components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
-  `One default Button per screen (the FormActions submit or main action); the rest outline, secondary or ghost.`,
+  `Prefer catalog components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
+  `One default Button per screen (FormActions submit or main action); others outline, secondary or ghost.`,
 ]
 
 /** Props whose meaning is the same everywhere: described ONCE in the full
