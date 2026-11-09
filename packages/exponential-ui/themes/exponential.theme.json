@@ -1165,6 +1165,30 @@
             "height": 14
           }
         }
+      ],
+      "none": [
+        {
+          "style": {
+            "height": 17.75,
+            "paddingHorizontal": 7
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.ghostHover"
+          }
+        }
+      ],
+      "noneLabel": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 15
+          }
+        }
       ]
     },
     "ColorPicker": {

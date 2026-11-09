@@ -3108,15 +3108,26 @@
         "children": [
           {
             "part": "none",
-            "component": "Button",
+            "component": "Box",
             "$if": [
               "props.allowNone",
               "props.value"
             ],
             "props": {
-              "label": "$string.noIcon",
-              "variant": "ghost",
-              "size": "sm"
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "height": "$control.badge",
+              "paddingHorizontal": "$spacing.sm",
+              "borderRadius": "$radius.md",
+              "justifyContent": "center"
+            },
+            "$a11y": {
+              "role": "button",
+              "label": "$string.noIcon"
             },
             "$on": {
               "press": "change"
@@ -3130,9 +3141,17 @@
                 "value": ""
               }
             },
-            "style": {
-              "alignSelf": "flex-start"
-            }
+            "children": [
+              {
+                "part": "noneLabel",
+                "component": "Text",
+                "props": {
+                  "text": "$string.noIcon",
+                  "variant": "caption",
+                  "lines": 1
+                }
+              }
+            ]
           },
           {
             "part": "scroll",

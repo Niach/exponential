@@ -6811,6 +6811,23 @@
             "color": "$color.primary"
           }
         }
+      ],
+      "none": [
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "noneLabel": [
+        {
+          "style": {
+            "fontWeight": "$type.weight.medium"
+          }
+        }
       ]
     },
     "ColorPicker": {

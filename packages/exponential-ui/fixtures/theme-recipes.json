@@ -73501,6 +73501,156 @@
       }
     },
     {
+      "component": "IconPicker",
+      "part": "none",
+      "props": {
+        "allowNone": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {},
+            "hover": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {},
+            "hover": {
+              "backgroundColor": "#262626"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "height": 17.75,
+              "paddingHorizontal": 7
+            },
+            "hover": {
+              "height": 17.75,
+              "paddingHorizontal": 7,
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "height": 17.75,
+              "paddingHorizontal": 7
+            },
+            "hover": {
+              "height": 17.75,
+              "paddingHorizontal": 7,
+              "backgroundColor": "#ffffff0e"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {},
+            "hover": {
+              "backgroundColor": "#ffe4e6"
+            }
+          },
+          "dark": {
+            "default": {},
+            "hover": {
+              "backgroundColor": "#4c1d95"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "height": 17.75,
+              "paddingHorizontal": 7
+            },
+            "hover": {
+              "height": 17.75,
+              "paddingHorizontal": 7,
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "height": 17.75,
+              "paddingHorizontal": 7
+            },
+            "hover": {
+              "height": 17.75,
+              "paddingHorizontal": 7,
+              "backgroundColor": "#ffffff0e"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "IconPicker",
+      "part": "noneLabel",
+      "props": {
+        "allowNone": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "fontWeight": 500
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontWeight": 500,
+              "fontSize": 10.5,
+              "lineHeight": 15
+            }
+          },
+          "dark": {
+            "default": {
+              "fontWeight": 500,
+              "fontSize": 10.5,
+              "lineHeight": 15
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontWeight": 600
+            }
+          },
+          "dark": {
+            "default": {
+              "fontWeight": 600
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontWeight": 500,
+              "fontSize": 10.5,
+              "lineHeight": 15
+            }
+          },
+          "dark": {
+            "default": {
+              "fontWeight": 500,
+              "fontSize": 10.5,
+              "lineHeight": 15
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "ColorPicker",
       "part": "trigger",
       "props": {},

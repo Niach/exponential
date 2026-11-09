@@ -6856,6 +6856,23 @@
                 "color": "$color.primary"
               }
             }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            }
           ]
         },
         "ColorPicker": {
@@ -15916,6 +15933,43 @@
               }
             }
           ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "style": {
+                "height": 17.75,
+                "paddingHorizontal": 7
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 15
+              }
+            }
+          ],
           "content": [
             {
               "style": {
@@ -24703,6 +24757,23 @@
               },
               "style": {
                 "color": "$color.primary"
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
               }
             }
           ]
@@ -33792,6 +33863,43 @@
               "style": {
                 "width": 12.25,
                 "height": 12.25
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "style": {
+                "height": 17.75,
+                "paddingHorizontal": 7
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 15
               }
             }
           ],

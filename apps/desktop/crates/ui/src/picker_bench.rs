@@ -24,6 +24,8 @@ const ORIGIN: f32 = 24.;
 #[derive(Clone, Copy, PartialEq)]
 enum Which {
     Icon,
+    /// The icon picker with `allowNone` (its No icon row).
+    IconNone,
     Color,
 }
 
@@ -34,7 +36,7 @@ struct IdeFrame {
 impl Render for IdeFrame {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let picker: AnyElement = match self.which {
-            Which::Icon => crate::board_form::icon_picker("bench", domain::contract::BOARD_ICON_VALUES, Some("rocket"), Some("#3b82f6"), false, |_, _, _| {}, cx).into_any_element(),
+            Which::Icon | Which::IconNone => crate::board_form::icon_picker("bench", domain::contract::BOARD_ICON_VALUES, Some("rocket"), Some("#3b82f6"), self.which == Which::IconNone, |_, _, _| {}, cx).into_any_element(),
             Which::Color => crate::board_form::color_picker("bench", "#3b82f6", |_, _, _| {}, cx).into_any_element(),
         };
         div().size_full().bg(cx.theme().background).p(px(ORIGIN)).child(div().flex().child(picker))
@@ -54,6 +56,7 @@ impl Render for EuiFrame {
 fn eui_tree(which: Which, open: bool) -> Value {
     let picker = match which {
         Which::Icon => json!({"id": "ip", "component": "IconPicker", "props": {"value": "rocket", "color": "#3b82f6", "open": open}}),
+        Which::IconNone => json!({"id": "ip", "component": "IconPicker", "props": {"value": "rocket", "color": "#3b82f6", "allowNone": true, "open": open}}),
         Which::Color => json!({"id": "cp", "component": "ColorPicker", "props": {"value": "#3b82f6", "open": open}}),
     };
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start"}, "children": [picker]})
@@ -106,7 +109,7 @@ fn shoot(dir: &std::path::Path, prefix: &str, which: Which, open: bool) -> image
     if let (true, Some(surface)) = (false, eui.as_ref()) {
         // A headless click never reaches an eUI popup (settings_bench's
         // rule): press the trigger node, as the pointer would.
-        let trigger = if which == Which::Icon { "ip.trigger" } else { "cp.trigger" };
+        let trigger = if which == Which::Color { "cp.trigger" } else { "ip.trigger" };
         cx.update_window(window, |_, window, cx| {
             surface.update(cx, |view, cx| {
                 let index = view.index_of(trigger).expect("the trigger");
@@ -154,7 +157,7 @@ fn shoot(dir: &std::path::Path, prefix: &str, which: Which, open: bool) -> image
         cx.run_until_parked();
     }
     let shot = cx.capture_screenshot(window).expect("the frame");
-    let state = format!("{}-{}", if which == Which::Icon { "icon" } else { "color" }, if open { "open" } else { "closed" });
+    let state = format!("{}-{}", match which { Which::Icon => "icon", Which::IconNone => "icon-none", Which::Color => "color" }, if open { "open" } else { "closed" });
     shot.save(dir.join(format!("{prefix}-{state}.png"))).expect("the PNG");
     let image = image::RgbaImage::from_raw(shot.width(), shot.height(), shot.as_raw().to_vec()).expect("the frame's pixels");
     std::mem::forget(cx);
@@ -181,7 +184,7 @@ fn compare(which: Which, open: bool) {
         bounds = (bounds.0.min(x), bounds.1.min(y), bounds.2.max(x), bounds.3.max(y));
         pixel.0 = [255, 0, 0, 255];
     }
-    let state = format!("{}-{}", if which == Which::Icon { "icon" } else { "color" }, if open { "open" } else { "closed" });
+    let state = format!("{}-{}", match which { Which::Icon => "icon", Which::IconNone => "icon-none", Which::Color => "color" }, if open { "open" } else { "closed" });
     eprintln!("{state}: {count} pixels differ (worst level {worst}), within {bounds:?}");
     diff.save(dir.join(format!("{state}.diff.png"))).expect("the diff");
 }
@@ -252,4 +255,10 @@ fn shoot_specimen(specimen: &str, root: &str) {
 fn picker_bench_specimens() {
     shoot_specimen("exponential-ui-icon-picker", "specimen_icon_picker");
     shoot_specimen("exponential-ui-color-picker", "specimen_color_picker");
+}
+
+#[test]
+#[ignore]
+fn picker_bench_icon_none_open() {
+    compare(Which::IconNone, true);
 }

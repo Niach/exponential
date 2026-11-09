@@ -34835,15 +34835,37 @@
         "children": [
           {
             "id": "icon_picker.none",
-            "component": "Button",
+            "component": "Box",
             "props": {
-              "label": "$string.noIcon",
-              "variant": "ghost",
-              "size": "sm"
+              "pressable": true
             },
-            "children": [],
+            "children": [
+              {
+                "id": "icon_picker.none.noneLabel",
+                "component": "Text",
+                "props": {
+                  "text": "$string.noIcon",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "IconPicker",
+                  "part": "noneLabel",
+                  "props": {
+                    "allowNone": true
+                  }
+                }
+              }
+            ],
             "style": {
-              "alignSelf": "flex-start"
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "height": "$control.badge",
+              "paddingHorizontal": "$spacing.sm",
+              "borderRadius": "$radius.md",
+              "justifyContent": "center"
             },
             "recipe": {
               "macro": "IconPicker",
@@ -34851,6 +34873,10 @@
               "props": {
                 "allowNone": true
               }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "$string.noIcon"
             }
           },
           {
