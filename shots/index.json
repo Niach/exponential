@@ -3517,6 +3517,15 @@
         "sha256": "a5ebc77dfb2476609e8ecca118b183eaafe4705c73e44e9e728e098f26322050"
       }
     },
+    "exponential-ui-key-recorder": {
+      "web": {
+        "file": "shots/exponential-ui-key-recorder/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 13152,
+        "sha256": "dc886a18c0a59a0dd10db21baecd5b74afa0be59e6baa2019611e2e7eec2457d"
+      }
+    },
     "exponential-ui-kitchen-sink": {
       "android": {
         "file": "shots/exponential-ui-kitchen-sink/android.webp",
