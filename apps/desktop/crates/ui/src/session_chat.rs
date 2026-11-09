@@ -4663,6 +4663,44 @@ mod tests {
         assert!(f32::from(content.size.height) <= f32::from(bounds.size.height) + 0.5, "inside its frame: {content:?} vs {bounds:?}");
     }
 
+    /// #EDE-65 lane O (transcript-grouping.json `maxWidth.wide`): an `in`
+    /// bubble's cap is 62 % of the column RIGHT of the avatar column (32 +
+    /// 8 px), as the IDE's own bubble was, not of the whole row.
+    #[gpui::test]
+    fn an_in_bubbles_cap_is_of_the_column_right_of_the_avatar(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let long = "A reply long enough to wrap: ".repeat(12);
+        cx.update(|_, cx| {
+            let inner = view.read(cx).root_view.read(cx).inner().clone();
+            inner.update(cx, |inner, cx| {
+                inner.apply_events_for_test(
+                    vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live), steer::ViewerEvent::Activity(1, steer::ActivityEvent::narration(&long))],
+                    cx,
+                )
+            });
+        });
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let document = chat_document(&view, cx);
+        let (row, bubble) = cx.update(|_, cx| {
+            let document = document.read(cx);
+            let id = |prefix: &str| {
+                document.placed_nodes().iter().find(|n| n.id.starts_with(prefix) && !n.hidden && !n.removed).map(|n| n.id.clone()).expect(prefix)
+            };
+            let row = document.painted_bounds(&id("chat_row_agent.")).expect("the row paints");
+            let bubble = document.painted_bounds(&id("chat_agent_bubble_in.bubble.")).expect("the bubble paints");
+            (row, bubble)
+        });
+        let sizes = transcript_sizes();
+        let column = f32::from(row.size.width) - sizes.avatar - sizes.avatar_gap;
+        let cap = column * sizes.max_width.wide;
+        assert!((f32::from(bubble.size.width) - cap).abs() < 1., "bubble {} vs 62 % of {column} = {cap}", f32::from(bubble.size.width));
+        assert!((f32::from(bubble.origin.x) - f32::from(row.origin.x) - sizes.avatar - sizes.avatar_gap).abs() < 1., "right of the avatar column");
+    }
+
     /// #VAPP-258 (#EDE-65 lane O): the live reply (the run's last item, a
     /// narration, while live) is the one bubble whose Markdown streams (its
     /// unfinished tail held back), as `render_narration` did; once a row
