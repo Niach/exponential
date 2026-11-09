@@ -110,6 +110,14 @@ pub fn reload(view: &Entity<SurfaceView>, doc: &Document, cx: &mut App) {
     }
 }
 
+/// #EDE-65 lane O: a row the host paints itself (an Embed it claims by its
+/// painted id through `HostPlugin::host_leaf_height` / `host_leaf`, the way
+/// `icon_element` claims an icon) changed height: the document lays out
+/// around it again.
+pub fn host_leaf_resized(view: &Entity<SurfaceView>, id: &str, cx: &mut App) {
+    view.update(cx, |view, cx| view.host_leaf_resized(id, cx));
+}
+
 /// The document's view filling the box the host's layout gives it.
 pub fn region(view: &Entity<SurfaceView>) -> impl IntoElement {
     let surface = view.clone();

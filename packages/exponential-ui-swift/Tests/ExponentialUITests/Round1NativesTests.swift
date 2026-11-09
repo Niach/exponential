@@ -506,7 +506,7 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(m.style(field).gap, 10.5, accuracy: 0.01)
         XCTAssertEqual(m.style(field).paddingHorizontal, 14, accuracy: 0.01)
         let look = m.part("Input", "label", props: m.ownerProps(field))
-        let labelStyle = SelectTrigger.labelStyle(m.textStyle(field), look)
+        let labelStyle = InputRow.labelStyle(m.textStyle(field), look)
         XCTAssertEqual(labelStyle.fontSize, 12.25, accuracy: 0.001)
         XCTAssertEqual(labelStyle.lineHeight, 19.82, accuracy: 0.001)
         XCTAssertEqual(look.style.fontWeight, 400, "the row label is regular")
@@ -515,7 +515,7 @@ final class Round1NativesTests: XCTestCase {
 
         let measurer = SurfaceMeasurer(theme: m.theme, mode: m.mode, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
         let ts = TextStyle.body
-        let rowStyle = SelectTrigger.labelStyle(ts, m.part("Input", "label", props: ["variant": .string("row")]))
+        let rowStyle = InputRow.labelStyle(ts, m.part("Input", "label", props: ["variant": .string("row")]))
         let row = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email"), "variant": .string("row")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
         XCTAssertEqual(row.width, TextShaper.width("Email", rowStyle) + 12 + 160, accuracy: 0.01)
         XCTAssertEqual(row.height, max(ts.lineHeight, rowStyle.lineHeight), accuracy: 0.01)

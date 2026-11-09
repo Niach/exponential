@@ -276,6 +276,14 @@ impl<S: 'static> HostPlugin for BindingHost<S> {
         self.inner.icon_element(name, size, color, cx)
     }
 
+    fn host_leaf_height(&self, component_id: &str, width: f32, window: &mut gpui::Window, cx: &mut App) -> Option<f32> {
+        self.inner.host_leaf_height(component_id, width, window, cx)
+    }
+
+    fn host_leaf(&self, component_id: &str, window: &mut gpui::Window, cx: &mut App) -> Option<gpui::AnyElement> {
+        self.inner.host_leaf(component_id, window, cx)
+    }
+
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
         self.inner.on_function_call(event, cx)
     }
