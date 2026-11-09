@@ -675,7 +675,7 @@ class InteractionTest {
             val rtl = c["direction"]?.string == "rtl"
             val surface = f["surface"]!!.obj!!
             val slots = c["slots"]?.obj.orEmpty()
-            val composer = surface + ("props" to JsonValue.Obj(surface["props"]!!.obj!! + c["props"]?.obj.orEmpty())) + (if (slots.isEmpty()) emptyMap() else mapOf("slots" to JsonValue.Obj(slots)))
+            val composer = surface + ("props" to JsonValue.Obj(surface["props"]!!.obj!! + c["props"]?.obj.orEmpty())) + (if (slots.isEmpty()) emptyMap<String, JsonValue>() else mapOf<String, JsonValue>("slots" to JsonValue.Obj(slots)))
             val tree = JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Box"), "style" to JsonValue.Obj(mapOf("display" to JsonValue.Str("flex"), "flexDirection" to JsonValue.Str("column"), "direction" to JsonValue.Str(if (rtl) "rtl" else "ltr"))), "children" to JsonValue.Arr(listOf(JsonValue.Obj(composer)))))
             val host = RecordingHost()
             val m = SurfaceModel("composer_slots", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
