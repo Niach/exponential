@@ -8,7 +8,11 @@
 // to one build can be resumed against the next (better-auth 1.6 → 1.7: the
 // cached 1.6 token endpoint must keep refreshing).
 //
-//   node scripts/mcp-oauth-e2e.mjs <step> --base <url> --state <file> [--db <url>]
+//   node scripts/mcp-oauth-e2e.mjs <step> --base <url> --state <file> [--db <url>] [--bearer <token>]
+//
+//   --bearer   an instance without password login (staging): the browser
+//              carries this session token as `Authorization: Bearer` to the
+//              instance (never to other origins), so no login page is shown
 //
 //   setup    sign a test user up (password) and give them a team (needs --db)
 //   connect  fresh client: register, log in, consent, list tools
@@ -38,6 +42,7 @@ if (!step || !base || !statePath) {
   console.error(`usage: mcp-oauth-e2e.mjs <setup|connect|reuse|refresh|revoke> --base <url> --state <file> [--db <url>]`)
   process.exit(2)
 }
+const bearer = opt(`bearer`)
 const REDIRECT = `http://127.0.0.1:53682/callback`
 const mcpUrl = `${base}/api/mcp`
 
@@ -103,11 +108,21 @@ function provider(state, browser) {
   }
 }
 
+/** With --bearer: the instance's requests (and only those) carry the token. */
+async function withBearer(context) {
+  if (!bearer) return
+  const origin = new URL(base).origin
+  await context.route(`${origin}/**`, (route) =>
+    route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${bearer}` } })
+  )
+}
+
 /** Log in and consent in a real browser; returns the authorization code. */
 async function browserConsent(state, url) {
   const browserApp = await chromium.launch()
   try {
     const context = await browserApp.newContext({ ignoreHTTPSErrors: true })
+    await withBearer(context)
     const page = await context.newPage()
     let code = null
     await page.route(`${REDIRECT}**`, (route) => {
@@ -118,16 +133,18 @@ async function browserConsent(state, url) {
       return route.fulfill({ status: 200, body: `ok` })
     })
     await page.goto(url.toString())
-    await page.waitForURL(/\/auth\/login/, { timeout: 30_000 })
-    log(`login page: ${new URL(page.url()).pathname}`)
-    await page.getByRole(`button`, { name: `Continue with email` }).click()
-    await page.locator(`#email`).fill(state.user.email)
-    const password = page.locator(`#password`)
-    if (!(await password.isVisible().catch(() => false))) {
-      await page.getByRole(`button`, { name: /password/i }).first().click()
+    if (!bearer) {
+      await page.waitForURL(/\/auth\/login/, { timeout: 30_000 })
+      log(`login page: ${new URL(page.url()).pathname}`)
+      await page.getByRole(`button`, { name: `Continue with email` }).click()
+      await page.locator(`#email`).fill(state.user.email)
+      const password = page.locator(`#password`)
+      if (!(await password.isVisible().catch(() => false))) {
+        await page.getByRole(`button`, { name: /password/i }).first().click()
+      }
+      await password.fill(state.user.password)
+      await page.locator(`button[type="submit"]`).first().click()
     }
-    await password.fill(state.user.password)
-    await page.locator(`button[type="submit"]`).first().click()
     await page.waitForURL(/\/auth\/consent/, { timeout: 30_000 })
     const consentUrl = new URL(page.url())
     log(`consent page: ${consentUrl.pathname} (params: ${[...consentUrl.searchParams.keys()].join(`,`)})`)
@@ -241,9 +258,9 @@ async function revoke() {
   const browserApp = await chromium.launch()
   try {
     const context = await browserApp.newContext()
-    await context.addCookies(state.cookies)
+    if (state.cookies?.length) await context.addCookies(state.cookies)
     const res = await context.request.post(`${base}/api/trpc/mcpClients.revoke`, {
-      headers: { "content-type": `application/json`, origin: base },
+      headers: { "content-type": `application/json`, origin: base, ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) },
       data: { clientId: state.client.client_id, teamId: state.teamId },
     })
     log(`Settings revoke: ${res.status()}`)
