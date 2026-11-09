@@ -980,6 +980,20 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `name · an email`, node: { id: `email`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-jonas`, size: `default` } } },
     { label: `src · a picture`, node: { id: `picture`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `xl`, src: AVATAR_PICTURE } } },
   ],
+  // #EDE-65 R: the IDE's composer row: the "+" options Menu in `leading`,
+  // the context Ring in `trailing` (before the send disc).
+  Composer: [{
+    label: `slots · leading + trailing`,
+    node: {
+      id: `slotted`,
+      component: `Composer`,
+      props: { placeholder: `Ask anything` },
+      slots: {
+        leading: { id: `options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
+        trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm`, label: `Context` } },
+      },
+    },
+  }],
   // FEED-205: income vs expenses per month in EUR (ticks, values, tooltip),
   // then the same rows of a query in compact euros.
   Chart: [

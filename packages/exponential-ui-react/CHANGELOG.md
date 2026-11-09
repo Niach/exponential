@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer `leading` / `trailing` slots and image paste (#EDE-65 R), React's: the slots sit in the controls row (`.xui-composer-leading` before the attach control, `.xui-composer-trailing` before send); a paste with image files fires `attach` {files} and calls `host.onUpload(images, {nodeId, name: <the Composer's id>})`, a paste with other files only is prevented, text pastes as before.
 - `primitives/kbd` `Kbd`: the `accent` fill (the catalog's `Kbd` recipe; was `muted`), through the shared `KBD_CLASSES`.
 - Input `variant: "row"` (#EXP-1629): a Group row (label inside, the value end-aligned at 70%); the exponential theme's row is the IDE's (14 px rem). Snapshots re-recorded (every Input field gains `data-r-variant="field"`).
 - Embed (#EDE-65): a nested genUI surface painted in place, sandboxed: its own data model, its own surface id (`embedSurfaceId`, so inner ids never meet the host's), the host's theme, mode, strings, locale and presentation hooks only (`embedHost`); every inner event fires the Embed's `action` with `{name, context}`, an inner host function is denied, a bad `surface` paints the `embedInvalid` error Alert, a deep change of the surface remounts the card.

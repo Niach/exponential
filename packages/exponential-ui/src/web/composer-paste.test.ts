@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "bun:test"
 import { composerPaste } from "./composer-paste"
 
 const file = (name: string, size: number, type: string) => new File([`x`.repeat(size)], name, { type })
