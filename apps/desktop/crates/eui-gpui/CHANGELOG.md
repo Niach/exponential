@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - gpui revisions: zed `cc053a4a` (git) → `gpui-pre` 0.3.11 (crates.io, zed `f816e1f`); gpui-component `da4f9369` (git) → 0.9.0 (crates.io, longbridge/gpui-kit); rust 1.96.0 → 1.98.1. A breaking change for consumers: take gpui as `gpui = { package = "gpui-pre", version = "=0.3.11" }` and `gpui-component = "=0.9.0"`, drop the ztracing `[patch]` (zed relicensed it Apache-2.0) and the `cargo update --precise` step (README "gpui revisions"). Ships as the SDK's next minor.
+- One animation grid (#LOGS-3): every `with_stepped_animation` and `repaint_on_next_step` repaint lands on a tick of ONE 33.3 ms grid the app shares, and a loop's start moves back onto its step's line, so loops at different steps (a 33 ms spinner, a 90 ms sprite, a 100 ms label) share frames instead of adding up: a window redraws at most 30 times a second whatever animates. New `PULSE_STEP` (every second tick, 15 fps) for a long-lived opacity pulse. A looping keyframe `animation` (infinite iterations: a `spin`, a `pulse`) repaints on the grid instead of requesting every frame; a finite one keeps every frame. Each stepped element opens an `anim.step` trace span labelled with its id while tracing listens.
 
 ## 0.20.0 (2026-11-08)
 

@@ -114,6 +114,39 @@ const GRADLE_MODULE_ROOTS = [
 
 const COLLECTOR = `packages/licenses/scripts/collect-android.ts`
 
+// #LOGS-2: artifacts the gradle licence report drops although they ship (it
+// leaves `io.sentry:sentry-android-core` out of the productionRelease report,
+// next to its siblings). Each is added at its sibling's version from its own
+// POM in the Gradle module cache, so its licence still comes from upstream;
+// a missing POM is FATAL. Drop a row once the report lists the artifact.
+const REPORT_OMISSIONS: { name: string; versionOf: string }[] = [
+  { name: `io.sentry:sentry-android-core`, versionOf: `io.sentry:sentry` },
+]
+
+/** A report entry for an omitted artifact, read from its cached POM. */
+const omittedEntry = (name: string, version: string): ReportEntry | undefined => {
+  const [group, artifact] = name.split(`:`)
+  for (const root of GRADLE_MODULE_ROOTS) {
+    const versionDir = join(root, group, artifact, version)
+    if (!existsSync(versionDir)) continue
+    for (const sha of readdirSync(versionDir)) {
+      const pom = join(versionDir, sha, `${artifact}-${version}.pom`)
+      if (!existsSync(pom)) continue
+      const xml = readFileSync(pom, `utf8`)
+      const tag = (source: string, name: string) =>
+        source.match(new RegExp(`<${name}>([^<]*)</${name}>`))?.[1]?.trim() ?? null
+      const licensesBlock = xml.match(/<licenses>([\s\S]*?)<\/licenses>/)?.[1] ?? ``
+      const licenses = [...licensesBlock.matchAll(/<license>([\s\S]*?)<\/license>/g)].map((m) => ({
+        license: tag(m[1], `name`),
+        license_url: tag(m[1], `url`),
+      }))
+      const head = xml.replace(/<(licenses|developers|scm|dependencies)>[\s\S]*?<\/\1>/g, ``)
+      return { project: tag(head, `name`), version, url: tag(head, `url`), dependency: `${name}:${version}`, licenses }
+    }
+  }
+  return undefined
+}
+
 /** One entry of the gradle-license-plugin JSON report. */
 interface ReportEntry {
   project?: string | null
@@ -354,6 +387,17 @@ const main = (): void => {
   }
   if (!Array.isArray(report) || report.length === 0) {
     fail(`licence report is empty — did the gradle resolve actually run?`)
+  }
+
+  for (const { name, versionOf } of REPORT_OMISSIONS) {
+    const reported = (entry: ReportEntry) => (entry.dependency ?? ``).split(`:`).slice(0, 2).join(`:`)
+    if (report.some((entry) => reported(entry) === name)) continue
+    const sibling = report.find((entry) => reported(entry) === versionOf)
+    if (!sibling) continue
+    const version = (sibling.dependency ?? ``).split(`:`)[2]
+    const entry = omittedEntry(name, version)
+    if (!entry) fail(`\`${name}:${version}\` is missing from the report and its POM is not in the Gradle module cache`)
+    report.push(entry!)
   }
 
   const index = buildArtifactIndex()

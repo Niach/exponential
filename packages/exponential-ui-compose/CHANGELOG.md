@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Markdown: an image directly in a top-level paragraph's text splits the paragraph into the text before it, a block image and the text after it (edges trimmed, an empty side dropped); in a heading, list item, cell, quote or inside a span it stays its alt text (#FEED-208, `fixtures/markdown-render.json` `image_split_*`).
+
 ## 0.20.0 (2026-11-08)
 
 - Tabs `swipeable` (#FEED-200): a horizontal TOUCH swipe on the `content` pages the panels (a mouse is unchanged): the axis locks through the core's `swipeLock`, a touch starting inside a Table, Chart, Carousel, ZoomableImage, Slider, Resizable, a horizontal List / ScrollArea or an `overflowX: auto|scroll` box is left to it (`swipeBlocks`, `SurfaceModel.swipeBlockedAt`), and `swipe {phase, offset, velocity}` goes to the core (`SurfaceModel.tabSwipe`), which draws and settles. A pure-translation `transform` now animates over the node's `transition` (snaps under reduced motion), so the panels and the `thumb` settle smoothly. `fixtures/swipe.json` lock / offset / settle / blocks replay through the facade.

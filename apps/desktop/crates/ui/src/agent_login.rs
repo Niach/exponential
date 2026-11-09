@@ -74,9 +74,9 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
+use crate::feedback::Spinner;
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
 use coding::agent_login::{self, LoginProgress, LoginTarget};

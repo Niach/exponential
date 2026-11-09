@@ -291,6 +291,7 @@ pub fn init(cx: &mut App) {
     // VAPP-90: the SDK's generic controls read the IDE's token values.
     eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
+    navigation::start_dev_tour(cx);
     // EXP-105: quit-time sweep ending every `sessions` row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on
     // every client until the server staleness sweep catches it.

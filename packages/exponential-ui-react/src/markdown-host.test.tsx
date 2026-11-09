@@ -53,6 +53,16 @@ describe(`#VAPP-258 Markdown host hooks`, () => {
     expect(d.querySelector(`a.xui-Markdown-link`)!.textContent).toBe(`#ABC-1`)
   })
 
+  it(`#FEED-208: an image in a paragraph's text is a block image between its text, every url form`, () => {
+    const c = paint(`rel: ![rel](zim/x/y.jpg) root ![root](/zim/x/y.jpg)\n![abs](https://upload.example/p.png) tail`)
+    const md = c.querySelector(`.xui-md`)!
+    expect([...md.children].map((e) => e.getAttribute(`data-xui-part`))).toEqual([`Markdown/paragraph`, `Markdown/image`, `Markdown/paragraph`, `Markdown/image`, `Markdown/image`, `Markdown/paragraph`])
+    expect([...md.querySelectorAll(`.xui-Markdown-paragraph`)].map((p) => p.textContent)).toEqual([`rel:`, `root`, `tail`])
+    expect([...md.querySelectorAll(`.xui-Markdown-image`)].map((e) => e.getAttribute(`aria-label`))).toEqual([`rel`, `root`, `abs`])
+    expect(md.querySelectorAll(`img`)).toHaveLength(3)
+    expect(md.querySelectorAll(`img`)[2]!.getAttribute(`src`)).toBe(`https://upload.example/p.png`)
+  })
+
   it(`a sized block image keeps its aspect, capped at 160px; unsized = the fixed box`, () => {
     const c = paint(`![wide](${A}wide.png)`, { imageSize: (src) => (src === `${A}wide.png` ? { width: 800, height: 200 } : null) })
     const box = c.querySelector<HTMLElement>(`.xui-Markdown-image`)!
