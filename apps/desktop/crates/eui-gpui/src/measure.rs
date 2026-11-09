@@ -1316,6 +1316,12 @@ impl<'a> GpuiMeasure<'a> {
                 let gap = spacing(self.theme, "xs");
                 return (n * dot + (n - 1.0).max(0.0) * gap, dot_h, None);
             }
+            // #EXP-1629: a `row` field leads with its label (+ the gap).
+            ("Input", Some("field")) if str_prop(props, "variant") == "row" && !str_prop(props, "label").is_empty() => {
+                let lts = self.part_text("Input", "label", props, ts);
+                let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { spacing(self.theme, "md") };
+                (self.line(str_prop(props, "label"), &lts) + gap + 160.0, ts.line_height.max(lts.line_height), Some(self.line_baseline(ts)))
+            }
             ("Input", Some("field")) => (160.0, ts.line_height, Some(self.line_baseline(ts))),
             ("Textarea", Some("field")) => {
                 let (w, h) = self.textarea(leaf, inner);

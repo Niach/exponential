@@ -12,30 +12,60 @@ private func platformColor(_ c: Color) -> PlatformColor {
 
 /// An Input / Textarea `.field`: the owned text view inside the field box
 /// (the node's own visual paints the chrome).
+/// #EXP-1629: an Input `variant: row` field IS a Group row: the `label`
+/// part leading (its whole line, never shrinking), the recipe `gap`, then
+/// the text field filling the rest, end-aligned, the typed text at 70% of
+/// the field's colour (the placeholder keeps its own). The label stays the
+/// field's accessibility label.
 struct TextFieldLeaf: View {
     let cx: LeafContext
     let multiline: Bool
 
     var body: some View {
         let owner = cx.ownerProps
+        if !multiline && InputRow.isRow(cx.props) {
+            let look = cx.part("Input", "label")
+            let labelStyle = SelectTrigger.labelStyle(cx.textStyle, look)
+            let label = owner.str("label").isEmpty ? cx.props.str("label") : owner.str("label")
+            let gap = label.isEmpty ? 0 : cx.style.gap
+            let labelW = InputRow.labelWidth(label, labelStyle, width: cx.inner.width)
+            HStack(spacing: 0) {
+                if !label.isEmpty {
+                    TextLabel(label, labelStyle, color: look.color ?? cx.ink, lines: 1)
+                        .frame(width: labelW, height: labelStyle.lineHeight)
+                        .accessibilityHidden(true)
+                }
+                field(owner, color: cx.ink.opacity(InputRow.valueOpacity), alignment: cx.rtl ? .left : .right)
+                    .padding(.leading, gap)
+                    .frame(width: max(0, cx.inner.width - labelW), height: cx.inner.height)
+            }
+            .frame(width: cx.inner.width, height: cx.inner.height, alignment: .leading)
+            .offset(x: cx.inner.minX, y: cx.inner.minY)
+        } else {
+            field(owner, color: cx.ink, alignment: .natural)
+                .frame(width: cx.inner.width, height: cx.inner.height)
+                .offset(x: cx.inner.minX, y: cx.inner.minY)
+        }
+    }
+
+    private func field(_ owner: Props, color: Color, alignment: NSTextAlignment) -> OwnedTextField {
         let placeholder = cx.part(cx.node.recipeComponent, "placeholder")
         let font = ExponentialUIFonts.font(family: cx.textStyle.fontFamily, weight: cx.textStyle.fontWeight, size: cx.textStyle.fontSize)
-        OwnedTextField(
+        return OwnedTextField(
             index: cx.index,
             model: cx.model,
             multiline: multiline,
             placeholder: owner.str("placeholder"),
             font: font,
-            color: platformColor(cx.ink),
+            color: platformColor(color),
             placeholderColor: platformColor(placeholder.color ?? cx.themeColor("mutedForeground") ?? cx.ink.opacity(0.5)),
             lineHeight: cx.textStyle.lineHeight,
             disabled: cx.model.isDisabled(cx.index),
             submitsOnReturn: false,
             accessibilityLabel: owner.str("label").isEmpty ? owner.str("placeholder") : owner.str("label"),
-            inputType: multiline ? "" : owner.str("type")
+            inputType: multiline ? "" : owner.str("type"),
+            textAlignment: alignment
         )
-        .frame(width: cx.inner.width, height: cx.inner.height)
-        .offset(x: cx.inner.minX, y: cx.inner.minY)
     }
 }
 

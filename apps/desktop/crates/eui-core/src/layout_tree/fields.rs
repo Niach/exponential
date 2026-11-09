@@ -273,7 +273,7 @@ impl Builder<'_, '_> {
     }
 
     /// [`Self::field_open`]; `label: false` leaves the label to the control
-    /// (a `row` Select paints it inside its trigger).
+    /// (a `row` Select paints it inside its trigger, a `row` Input inside its field).
     fn field_open_with(&mut self, index: u32, label: bool) -> LNode {
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("gap", json!("$spacing.xs"))]);
         self.nodes[index as usize].kind = NodeKind::Container;
@@ -344,8 +344,14 @@ impl Builder<'_, '_> {
 
     /// Input / Textarea: label, the host-measured field, description, error.
     pub(crate) fn field(&mut self, index: u32) {
-        let owner = self.field_open(index);
-        let f = self.part(&owner, "field", &owner.component, NodeKind::Leaf, json!({"alignSelf": "stretch"}), Self::control_props(&owner));
+        // #EXP-1629: a `row` Input IS a Group row: the label leads inside it.
+        let row = self.nodes[index as usize].component == "Input" && self.nodes[index as usize].props.get("variant").and_then(Value::as_str) == Some("row");
+        let owner = self.field_open_with(index, !row);
+        let mut props = Self::control_props(&owner);
+        if let Some(label) = str_prop(&owner.props, "label").filter(|_| row) {
+            props["label"] = json!(label);
+        }
+        let f = self.part(&owner, "field", &owner.component, NodeKind::Leaf, json!({"alignSelf": "stretch"}), props);
         self.nodes[f as usize].pressable = !bool_prop(&owner.props, "disabled");
         self.field_close(&owner, Some(f));
     }
