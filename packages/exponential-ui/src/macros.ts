@@ -16,7 +16,7 @@
 import { TOKEN_GROUPS, sharedCatalogView } from "./catalog"
 import { applyTreeGuides } from "./tree-guides"
 import type { CatalogView } from "./catalog"
-import { evalConditionValue, evalValue, isBinding, isDynamic, present, type ExprContext } from "./expr"
+import { evalConditionValue, evalValue, isBinding, isDynamic, presenceOperand, present, type ExprContext } from "./expr"
 import type { Action, ExtensionDef, MacroChild, MacroDef, MacroTemplate, ReduceIssue, UiNode, Visible } from "./types"
 
 const MAX_DEPTH = 16
@@ -330,8 +330,14 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   if (depth > MAX_DEPTH) throw new Error(`macro ${macro}: expansion deeper than ${MAX_DEPTH}`)
   const baseProps = propsAt(node.props, null)
   // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
-  // #EXP-1674: so does an `href` (Row).
-  if ((node.on?.press || baseProps.href) && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
+  // #EXP-1674: so does an `href` (Row). #EDE-65: a BOUND href only while it
+  // resolves to a non-empty value (`cond {if: href}`, presence: null,
+  // undefined and "" leave it plain).
+  if (baseProps.pressable === undefined && view.components[macro]?.props.pressable) {
+    const href = baseProps.href
+    if (node.on?.press || (href && !isDynamic(href))) baseProps.pressable = true
+    else if (isDynamic(href)) baseProps.pressable = presenceOperand(href, undefined, { id: node.id, props: {}, vars: {} })
+  }
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues, built: [] }
   // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
   const ctx: ExprContext = { id: node.id, props: baseProps, vars: { childCount: node.children.length }, types: view.components[macro]?.props }
