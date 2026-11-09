@@ -13146,8 +13146,7 @@
                     "component": "Ring",
                     "props": {
                       "value": 0.42,
-                      "size": "sm",
-                      "label": "Context"
+                      "size": "sm"
                     }
                   }
                 }

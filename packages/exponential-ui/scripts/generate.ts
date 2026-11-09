@@ -990,7 +990,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       props: { placeholder: `Ask anything` },
       slots: {
         leading: { id: `options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
-        trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm`, label: `Context` } },
+        trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
       },
     },
   }],
