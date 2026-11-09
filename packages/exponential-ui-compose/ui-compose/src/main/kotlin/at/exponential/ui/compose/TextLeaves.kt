@@ -248,16 +248,22 @@ internal fun MenuItemLeaf(cx: LeafContext) {
     }
 }
 
-/** A Select option (the core's popup): icon + label + the check slot (the `check` glyph while selected). */
+/**
+ * A Select option (the core's popup): icon + label + the check slot (the
+ * `check` glyph while selected, the `check` part's size and colour,
+ * #EXP-1629); `hover` = the popup's cursor ([at.exponential.ui.model.setSelectCursor]).
+ */
 @Composable
 internal fun SelectItemLeaf(cx: LeafContext) {
     val selected = cx.node.selected || cx.props.flag("selected")
     val check = cx.props.str("check").ifEmpty { "ui-check" }
+    val part = cx.part("Select", "check", cx.node.partStates)
+    val size = part.width ?: 16f
     InnerBox(cx) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(max(cx.style.gap, 8f).dp), verticalAlignment = Alignment.CenterVertically) {
             cx.props["icon"]?.string?.let { IconView(it, 16f, cx.ink, cx.model, rtl = cx.rtl) }
             LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f))
-            Box(Modifier.size(16.dp)) { if (selected) IconOrGlyph(check, Glyph.Check, 16f, cx) }
+            Box(Modifier.size(size.dp)) { if (selected) IconOrGlyph(check, Glyph.Check, size, cx, part.color ?: cx.ink) }
         }
     }
 }

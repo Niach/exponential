@@ -4,6 +4,8 @@
 // (wrapping, skipping disabled), Home/End jump, printable keys type-ahead by
 // label (a 700 ms buffer; one repeated letter cycles).
 
+import { LAYOUT_CONSTANTS } from "../layout"
+
 /** The TYPE-AHEAD buffer resets after this pause (ms). */
 export const TYPEAHEAD_RESET_MS = 700
 
@@ -32,4 +34,26 @@ export function typeaheadStep(buffer: TypeaheadBuffer, key: string, now: number,
     if (!isDisabled(i) && labelOf(i).toLowerCase().startsWith(next.text)) return { buffer: next, index: i }
   }
   return { buffer: next, index: -1 }
+}
+
+/** #EXP-1629: a Select popup's alignment and width. `align` unset = `end`
+ *  for a `row` trigger, `start` for a field; `popupWidth` (px) wins, else a
+ *  row popup is the layout's `selectRowPopupWidth` and a field's at least
+ *  the trigger's width (`minWidth` = that trigger-width variable). */
+export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined } {
+  const row = props.triggerVariant === `row`
+  const align = props.align === `start` || props.align === `center` || props.align === `end` ? props.align : row ? `end` : `start`
+  const set = typeof props.popupWidth === `number` && Number.isFinite(props.popupWidth) && props.popupWidth > 0 ? props.popupWidth : undefined
+  const width = set ?? (row ? LAYOUT_CONSTANTS.selectRowPopupWidth : undefined)
+  return { align, minWidth: width === undefined ? `var(${triggerWidthVar})` : undefined, width: width === undefined ? undefined : `${width}px` }
+}
+
+/** #EXP-1629: scroll `list` (only it, never the page) so `option` is in
+ *  view, the `block: nearest` rule. */
+export function revealOption(list: HTMLElement | null | undefined, option: Element | null | undefined): void {
+  if (!list || !option) return
+  const box = list.getBoundingClientRect()
+  const at = option.getBoundingClientRect()
+  if (at.top < box.top) list.scrollTop -= box.top - at.top
+  else if (at.bottom > box.bottom) list.scrollTop += Math.min(at.bottom - box.bottom, at.top - box.top)
 }

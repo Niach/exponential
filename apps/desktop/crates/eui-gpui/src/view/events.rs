@@ -312,9 +312,45 @@ impl SurfaceView {
     }
 
     pub(crate) fn hover(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
+        // #EXP-1629: a Select option's `hover` is the cursor: the pointer
+        // moves it (one highlight), leaving keeps it.
+        if self.is_select_item(id) {
+            if hovered {
+                self.move_select_cursor(id, cx);
+            }
+            self.host.on_hover(id, hovered, cx);
+            return;
+        }
         if self.set_interaction(id, |s| s.hover = hovered) {
             self.host.on_hover(id, hovered, cx);
             cx.notify();
+        }
+    }
+
+    /// #EXP-1629: an option row of a Select's popup.
+    pub(crate) fn is_select_item(&self, id: &str) -> bool {
+        self.cache.index_of(id).and_then(|i| self.cache.node(i)).is_some_and(|n| n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item"))
+    }
+
+    /// #EXP-1629: the Select's cursor moves to option `id` (its `hover`).
+    pub(crate) fn move_select_cursor(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(owner) = self.cache.index_of(id).and_then(|i| self.cache.node(i)).and_then(|n| n.owner.clone()) else { return };
+        let mut changed = false;
+        if let Some(old) = self.select_cursor.insert(owner, id.to_string()).filter(|o| o != id) {
+            changed |= self.set_interaction(&old, |s| s.hover = false);
+        }
+        changed |= self.set_interaction(id, |s| s.hover = true);
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// #EXP-1629: the pointer over an option takes the keyboard focus along
+    /// when it sits on another option (never out of the search field).
+    pub(crate) fn select_hover_focus(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let on_option = self.focused.and_then(|i| self.cache.node(i)).is_some_and(|n| n.id != id && n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item"));
+        if on_option && self.is_select_item(id) {
+            self.focus_id(id, window, cx);
         }
     }
 
@@ -493,6 +529,17 @@ impl SurfaceView {
                 s.focus = true;
                 s.focus_visible = keyboard;
             });
+            if self.is_select_item(&id) && self.select_cursor.values().all(|c| *c != id) {
+                self.move_select_cursor(&id, cx);
+                if keyboard {
+                    let reveal = id.clone();
+                    cx.defer_in(window, move |this, _, cx| {
+                        let events = this.surface.scroll_into_view(&reveal);
+                        this.dispatch(events, None, cx);
+                        cx.notify();
+                    });
+                }
+            }
         }
         // Keyboard focus inside a hover-opened trigger (a Tooltip anchor, a
         // hover Popover trigger) is that trigger's `focus-visible`: it opens.
@@ -1240,6 +1287,11 @@ impl SurfaceView {
             let inside = self.focused.and_then(|i| self.cache.node(i)).is_none_or(|n| n.layer > 0) || self.focused.is_none();
             if inside {
                 target = self.layer_return.get(o).cloned();
+            }
+        }
+        for o in &closed {
+            if let Some(c) = self.select_cursor.remove(o) {
+                self.set_interaction(&c, |s| s.hover = false);
             }
         }
         self.open_layers = now_open;

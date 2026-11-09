@@ -26,40 +26,27 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
 import at.exponential.ui.json.flag
-import at.exponential.ui.json.list
 import at.exponential.ui.json.num
 import at.exponential.ui.json.shownText
 import at.exponential.ui.json.str
@@ -68,8 +55,6 @@ import at.exponential.ui.model.checked
 import at.exponential.ui.model.mixed
 import at.exponential.ui.model.press
 import at.exponential.ui.model.radioChecked
-import at.exponential.ui.model.selectPick
-import at.exponential.ui.model.selectValue
 import at.exponential.ui.model.sliderDrag
 import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
@@ -273,6 +258,7 @@ internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
     val ph = cx.part(component, "placeholder")
     val placeholder = cx.props.flag("placeholder")
     val muted = ph.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = 0.6f)
+    if (component == "Select") return SelectTriggerContent(cx, modifier, if (placeholder) muted else null)
     val glyph = when (component) {
         "Select" -> Glyph.ChevronsUpDown
         "TimePicker" -> Glyph.Clock
@@ -290,6 +276,57 @@ internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * #EXP-1629: a Select trigger. `field`: the `value` part (else the muted
+ * placeholder) and the `chevron` part (`Select.trigger`). `row` (a Group
+ * row): the `label` part leading, the value end-aligned and truncating,
+ * then the `Select.chevron` glyph; the parts' opacity and size are the
+ * recipe's.
+ */
+@Composable
+private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholderInk: Color?) {
+    val row = selectRowVariant(cx.props, cx.ownerProps)
+    val value = cx.part("Select", "value")
+    val chevron = cx.part("Select", "chevron")
+    val glyphSize = chevron.width ?: 16f
+    // A field's glyph keeps its 60 % ink unless the recipe says otherwise.
+    val glyphInk = (chevron.color ?: cx.ink).let { it.copy(alpha = it.alpha * (chevron.style.opacity ?: if (row) 1f else 0.6f)) }
+    val valueInk = (placeholderInk ?: value.color ?: cx.ink).let { it.copy(alpha = it.alpha * (value.style.opacity ?: 1f)) }
+    val r = cx.inner
+    LeafFrame {
+        Row(
+            modifier.fillMaxSize().padding(start = r.left.dp, end = (cx.size.width - r.right).coerceAtLeast(0f).dp),
+            horizontalArrangement = Arrangement.spacedBy(selectTriggerGap(cx.style.gap, cx.spacing("sm")).dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (row) {
+                val label = cx.part("Select", "label")
+                LeafLine(cx, selectRowLabel(cx.props, cx.ownerProps), color = label.color ?: cx.ink, ts = selectRowLabelStyle(cx.textStyle, label))
+                LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk, align = if (cx.rtl) TextAlign.Left else TextAlign.Right)
+                IconOrGlyph(cx.props.str("icon").ifEmpty { builtinIcon("Select.chevron", "ui-chevron-right") }, Glyph.ChevronRight, glyphSize, cx, glyphInk)
+            } else {
+                LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk)
+                GlyphView(Glyph.ChevronsUpDown, glyphSize, glyphInk)
+            }
+        }
+    }
+}
+
+/** #EXP-1629: is this Select a `row` trigger (the trigger's props, else the owner's)? */
+internal fun selectRowVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
+    props.str("triggerVariant").ifEmpty { ownerProps.str("triggerVariant") } == "row"
+
+/** #EXP-1629: a `row` trigger's leading label (the core's, else the owner's `label`). */
+internal fun selectRowLabel(props: Props, ownerProps: Props = emptyMap()): String =
+    props.str("label").ifEmpty { ownerProps.str("label") }
+
+/** #EXP-1629: the row label's text style: the trigger's at the `label` part's weight (regular in a row). */
+internal fun selectRowLabelStyle(ts: ResolvedTextStyle, label: at.exponential.ui.theme.PartStyle): ResolvedTextStyle =
+    ts.copy(fontWeight = label.style.fontWeight ?: 400)
+
+/** The gap between a Select trigger's text and glyph (the recipe's, at least `$spacing.sm`; the measurer's rule). */
+internal fun selectTriggerGap(recipeGap: Float, sm: Float): Float = max(recipeGap, max(sm, 0f))
 
 /** The display strings of a Select value (an array = multiple). */
 internal fun selectValues(v: JsonValue): List<String> = when (v) {
@@ -321,93 +358,14 @@ private fun Modifier.triggerGestures(cx: LeafContext): Modifier {
 /**
  * A picker `trigger` (Select, DatePicker, TimePicker, DateRangePicker): the
  * core's text and the glyph; a tap presses it. Under native overlays a
- * Select whose recipe does not paint its popup opens a Material 3
- * `DropdownMenu` anchored here ([SelectMenu]) and a DatePicker the M3 date
+ * Select whose recipe does not paint its popup opens our own popup
+ * anchored here ([SelectPopup], #EXP-1629) and a DatePicker the M3 date
  * dialog (`DatePopup`); otherwise the core opens the owner's popup layer.
  */
 @Composable
 internal fun PickerTriggerLeaf(cx: LeafContext) {
     LeafFrame {
         TriggerContent(cx, Modifier.triggerGestures(cx))
-        if (cx.node.component == "Select" && cx.model.nativePicker(cx.node)) SelectMenu(cx)
-    }
-}
-
-/**
- * The native Select menu: expanded while `model.popup` names this trigger;
- * `options` (`searchable` = a filter field on top; `multiple` = check
- * marks, the menu stays open per pick); a pick → `selectPick`.
- */
-@Composable
-private fun SelectMenu(cx: LeafContext) {
-    @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
-    val model = cx.model
-    val index = cx.index
-    val owner = cx.ownerProps
-    val values = selectValues(model.selectValue(index))
-    val multiple = owner.flag("multiple")
-    val searchable = owner.flag("searchable")
-    val expanded = model.popup == cx.node.id
-    var query by remember(cx.node.id) { mutableStateOf("") }
-    val content = cx.part("Select", "content")
-    val itemPart = cx.part("Select", "item")
-    val itemInk = itemPart.color ?: content.color ?: cx.themeColor("popoverForeground") ?: cx.ink
-    val muted = cx.themeColor("mutedForeground") ?: itemInk.copy(alpha = 0.6f)
-    val ts = cx.composeTextStyle(color = itemInk)
-    val close = {
-        query = ""
-        if (model.popup == cx.node.id) model.popup = null
-    }
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = close,
-        // Web's `min-width: var(--radix-select-trigger-width)`.
-        modifier = Modifier.widthIn(min = cx.size.width.dp),
-        containerColor = content.style.background ?: cx.themeColor("popover") ?: MenuDefaults.containerColor,
-        shape = RoundedCornerShape((content.style.radius.takeIf { it > 0f } ?: 6f).dp),
-    ) {
-        if (searchable) {
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 6.dp).width(max(cx.size.width - 24f, 120f).dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlyphView(Glyph.Search, 16f, muted)
-                BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    singleLine = true,
-                    textStyle = ts,
-                    cursorBrush = SolidColor(itemInk),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) BasicText(cx.string("search"), style = ts.copy(color = muted), maxLines = 1)
-                            inner()
-                        }
-                    },
-                )
-            }
-        }
-        val q = query.trim().lowercase()
-        for (option in owner.list("options")) {
-            // A null (or any non-object) entry is skipped, never painted as an empty row.
-            if (option !is JsonValue.Obj) continue
-            val v = option["value"] ?: JsonValue.Null
-            val text = option["label"]?.displayText ?: v.displayText
-            if (q.isNotEmpty() && !text.lowercase().contains(q)) continue
-            val chosen = values.contains(v.displayText)
-            DropdownMenuItem(
-                text = { BasicText(text, style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                onClick = {
-                    model.selectPick(index, v)
-                    if (!multiple) close()
-                },
-                enabled = option["disabled"]?.bool != true,
-                leadingIcon = if (values.isEmpty()) null else ({
-                    Box(Modifier.size(16.dp)) { if (chosen) GlyphView(Glyph.Check, 16f, itemInk) }
-                }),
-            )
-        }
+        if (cx.node.component == "Select" && cx.model.nativePicker(cx.node)) SelectPopup(cx)
     }
 }

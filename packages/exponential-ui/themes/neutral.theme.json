@@ -3296,6 +3296,20 @@
           "style": {
             "borderColor": "$color.destructive"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "height": 44,
+            "paddingHorizontal": "$spacing.lg",
+            "gap": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "label": [
@@ -3305,6 +3319,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontWeight": "$type.weight.medium",
             "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontWeight": "$type.weight.regular"
           }
         }
       ],
@@ -3419,6 +3441,32 @@
           },
           "style": {
             "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "value": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 0.7
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 0.7
           }
         }
       ]
