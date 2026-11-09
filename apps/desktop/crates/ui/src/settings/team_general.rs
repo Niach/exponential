@@ -459,7 +459,33 @@ pub struct GeneralPane {
     billing_team: Option<String>,
     billing_account: Option<String>,
     billing_generation: u64,
+    /// The bench's state (headless has no team, membership or server).
+    #[cfg(test)]
+    shot: Option<GeneralShot>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct GeneralShot {
+    /// `None` = no team selected.
+    pub team: Option<domain::rows::Team>,
+    pub owner: bool,
+    /// The team image's PNG bytes (its `icon_url` names it).
+    pub picture: Option<Vec<u8>>,
+    /// The Name field's typed text (differs from the team's = `Unsaved`).
+    pub name_draft: Option<String>,
+    pub saving: bool,
+    pub prompt: PromptShot,
+    pub billing: Option<api::billing::TeamPlanOut>,
+}
+
+#[cfg(test)]
+pub(crate) enum PromptShot {
+    Loading,
+    Failed,
+    /// The text, its last-write stamp, and whether a write is out.
+    Ready(String, Option<String>, bool),
 }
 
 impl GeneralPane {
@@ -530,16 +556,82 @@ impl GeneralPane {
             billing_team: None,
             billing_account: None,
             billing_generation: 0,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         };
         this.resync(window, cx);
         this
     }
 
+    /// The pane's team (the bench's, under test).
+    fn team(&self, cx: &App) -> Option<domain::rows::Team> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team(cx, &self.nav)
+    }
+
+    fn owner(&self, team_id: &str, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        is_owner(cx, team_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: GeneralShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if let (Some(team), Some(bytes)) = (&shot.team, &shot.picture) {
+            if let Some(url) = team.icon_url.as_deref() {
+                crate::user_avatar::seed_team_image(url, "image/png", bytes, cx);
+            }
+        }
+        if let Some(team) = &shot.team {
+            self.snapshot = Some(Snapshot { team_id: team.id.clone(), name: team.name.clone() });
+            let name = shot.name_draft.clone().unwrap_or_else(|| team.name.clone());
+            self.name_input.update(cx, |state, cx| state.set_value(name, window, cx));
+            self.prompt.team_id = Some(team.id.clone());
+            self.billing_team = Some(team.id.clone());
+        }
+        self.saving = shot.saving;
+        self.billing = match &shot.billing {
+            Some(plan) => BillingLoad::Ready(plan.clone()),
+            None => BillingLoad::Failed,
+        };
+        match &shot.prompt {
+            PromptShot::Loading => self.prompt.loading = true,
+            PromptShot::Failed => self.prompt.load_failed = true,
+            PromptShot::Ready(text, stamp, busy) => {
+                self.prompt.saved = text.trim_end().to_string();
+                self.prompt.updated_at = stamp.clone();
+                self.prompt_input.update(cx, |state, cx| {
+                    state.set_value(text.clone(), window, cx);
+                    state.set_placeholder(TEAM_PROMPT_PLACEHOLDER, window, cx);
+                });
+                if let (true, Some(team)) = (*busy, &shot.team) {
+                    prompt_saves(cx).teams.entry(team.id.clone()).or_default().queue.in_flight = Some(1);
+                }
+            }
+        }
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
     /// Kick the `billing.teamPlan` fetch when the pane is shown or the
     /// team/account changed (render-time — a hidden pane never fetches;
     /// generation-guarded like the boards repo cache).
     fn ensure_billing(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         let account_id = Store::global(cx)
             .session(cx)
             .account_id()
@@ -586,7 +678,7 @@ impl GeneralPane {
     /// Mirror the web `useEffect`: whenever the synced row (or the active
     /// team) changes, replace the local draft.
     fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(team) = active_team(cx, &self.nav) else {
+        let Some(team) = self.team(cx) else {
             return;
         };
         let snapshot = Snapshot {
@@ -1422,7 +1514,7 @@ impl GeneralPane {
 impl Render for GeneralPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "GeneralPane").entered();
-        let Some(team) = active_team(cx, &self.nav) else {
+        let Some(team) = self.team(cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
                 crate::empty_state_copy::NO_TEAM_SELECTED,
@@ -1431,7 +1523,7 @@ impl Render for GeneralPane {
         };
         // Team visibility is deliberately not configurable (v6) — the pane
         // is just the name card, billing summary and Danger Zone.
-        let owner = is_owner(cx, &team.id);
+        let owner = self.owner(&team.id, cx);
         let dirty = self.dirty(cx);
         let saving = self.saving;
 
