@@ -152,7 +152,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  *   sg_sign-in ·
  *   sg_board-empty ·
- *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
+ *   sg_board-bulk-edit · sg_issue-comments · sg_issue-reporter-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues ·
  *   sg_machine-settings · sg_chats ·
@@ -319,6 +319,9 @@ class StyleguideScreenshotsTest {
         // to it lands the newest comments on screen; matching it also proves
         // the chat actually synced instead of photographing a bare header.
         private const val SHOWCASE_COMMENT_FRAGMENT = "Deferral PR is merged"
+        /** #EXP-1754: the widget-filed issue (APP-19) and its deleted member's note. */
+        private const val WIDGET_ISSUE_TITLE = "Can't sign in on the iPad app"
+        private const val WIDGET_COMMENT_FRAGMENT = "Same spinner on an iPad Air here"
 
         // EXP-642: the same query the web and desktop `search` recipes type, so
         // the three shots of that view compare like for like.
@@ -641,6 +644,28 @@ class StyleguideScreenshotsTest {
             }
             flow.settle()
             flow.screenshot("sg_issue-comments")
+
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
+            flow.settle()
+        }
+
+        // --- #EXP-1754: APP-19, the widget-filed issue, at its comments: the
+        // reporter's reply in the hue of their name, a deleted member's note grey.
+        step("issue-reporter-comments") {
+            openBoardRoot()
+            composeRule.onAllNodes(hasText(WIDGET_ISSUE_TITLE)).onFirst().performScrollTo().performClick()
+            flow.waitFor(hasTestTag("comment-replies-header"), SYNC_TIMEOUT)
+            flow.waitFor(hasText(WIDGET_COMMENT_FRAGMENT, substring = true), SYNC_TIMEOUT)
+            composeRule.onNode(hasTestTag("comment-replies-header")).performScrollTo()
+            repeat(6) {
+                composeRule.onRoot().performTouchInput {
+                    swipeUp(startY = height * 0.7f, endY = height * 0.2f, durationMillis = 300)
+                }
+                flow.pump()
+            }
+            flow.settle()
+            flow.screenshot("sg_issue-reporter-comments")
 
             composeRule.onNode(hasContentDescription("Back")).performClick()
             flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)

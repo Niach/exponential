@@ -632,7 +632,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 719,
+          "nodes": 729,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -686,7 +686,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 506.1,
-          "nodes": 719,
+          "nodes": 729,
           "coldStartMs": 641.5,
           "memoryMb": 32.2
         },
@@ -929,7 +929,7 @@
           "coldStartMs": 66.8,
           "firstPaintMs": 44.3,
           "memoryMb": 87.8,
-          "nodes": 719
+          "nodes": 729
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -950,7 +950,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 66,
-          "restyled": 719,
+          "restyled": 729,
           "themeSwitchMs": 94.5
         },
         "resize": {
