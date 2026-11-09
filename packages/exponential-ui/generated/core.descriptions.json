@@ -1944,6 +1944,9 @@
         "value": {
           "description": "Text; bind it to a data path."
         },
+        "variant": {
+          "description": "`row` = a Group row: label, value."
+        },
         "disabled": {
           "description": "Shows it inert."
         },

@@ -10194,6 +10194,34 @@
       }
     },
     {
+      "name": "Input/variant=field",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "field"
+        }
+      }
+    },
+    {
+      "name": "Input/variant=row",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "row"
+        }
+      }
+    },
+    {
       "name": "Input/disabled=true",
       "node": {
         "id": "input",

@@ -1199,6 +1199,18 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Input: [{
     label: `label · none`,
     node: { id: `search`, component: `Input`, props: { name: `q`, label: ``, type: `search`, placeholder: `Search` } },
+  }, {
+    // #EXP-1629: the settings pane's text rows (the IDE's glass input row):
+    // an empty one showing its placeholder and one with a value, in a Group.
+    label: `variant · row (in a Group)`,
+    node: {
+      id: `voice`,
+      component: `Group`,
+      children: [
+        { id: `wake`, component: `Input`, props: { label: `Wake phrase`, name: `wake`, variant: `row`, placeholder: `Hey Exponential` } },
+        { id: `cli`, component: `Input`, props: { label: `CLI path`, name: `cli`, variant: `row`, value: `/usr/local/bin/claude` } },
+      ],
+    },
   }],
 }
 

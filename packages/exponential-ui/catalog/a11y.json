@@ -469,7 +469,7 @@
     },
     "Input": {
       "role": "textbox",
-      "notes": "textbox",
+      "notes": "textbox (`row`: the label inside the row stays its accessible name)",
       "keys": [
         "Enter: submit (fires `submit`, submits the Form)"
       ]
