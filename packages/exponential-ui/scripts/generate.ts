@@ -1856,6 +1856,13 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: { id: `download`, component: `Progress`, props: { value: { "@path": `/done` }, valueText: { "@path": `/rate` }, detail: { "@path": `/files` } } },
     datasets: [{ done: 41, rate: `41 MB/s · 12 min`, files: `3 of 8 files` }, { done: 0 }],
   },
+  // #EXP-1629: a Tooltip whose hint is bound (the settings MCP servers
+  // pane's per-row Reconnect tooltip reads the row's reason).
+  {
+    name: `Tooltip/bound:content`,
+    input: { id: `tip`, component: `Tooltip`, props: { content: { "@path": `/reason` }, side: `top` }, children: [{ id: `reconnect`, component: `Button`, props: { label: `Reconnect` } }] },
+    datasets: [{ reason: `Token expired` }, { reason: `` }, {}],
+  },
   // #EDE-65: a bubble is pressable only while its href RESOLVES to a
   // non-empty value (a URL, not null, "" or missing) or it has an on.press;
   // a literal href always is. Row follows the same rule.
