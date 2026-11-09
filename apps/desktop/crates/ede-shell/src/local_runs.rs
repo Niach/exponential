@@ -117,10 +117,24 @@ impl LocalChat {
             input.agent_id = agents.first().map(|a| a.id.clone());
             input.agents = agents;
         }
-        let Some(session) = &self.session_id else { return input };
-        let Some(root) = self.desktop.store.row("sessions", session).ok().flatten().and_then(|row| serde_json::from_value::<SessionRow>(Value::Object(row)).ok()) else {
-            return input;
-        };
+        let Some((session, root, view, messages)) = self.session_chat() else { return input };
+        let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();
+        let me = self.desktop.executor.identity();
+        if let Some(agent) = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id)) {
+            input.title = agent.name.clone();
+            input.icon = agent.icon.clone();
+        }
+        input.session_id = Some(session);
+        input.busy = root.busy;
+        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
+        input
+    }
+
+    /// The open session's chat as the domain builds it from the desktop's
+    /// store, with its messages.
+    fn session_chat(&self) -> Option<(String, SessionRow, domain::session_tree::SessionChatView, Vec<MessageRow>)> {
+        let session = self.session_id.as_ref()?;
+        let root = self.desktop.store.row("sessions", session).ok().flatten().and_then(|row| serde_json::from_value::<SessionRow>(Value::Object(row)).ok())?;
         let mut messages: Vec<MessageRow> = self
             .desktop
             .store
@@ -139,16 +153,17 @@ impl LocalChat {
             domain::session_tree::SessionChatInput { root: &root, sessions: &[&root], session_issues: &[], issues: &[], messages: &refs, pull_requests: &[], now_ms: now },
             None,
         );
-        let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();
-        let me = self.desktop.executor.identity();
-        if let Some(agent) = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id)) {
-            input.title = agent.name.clone();
-            input.icon = agent.icon.clone();
+        Some((session.clone(), root, view, messages))
+    }
+
+    /// Lane Q: an Embed's inner event on card `message_id`
+    /// (`domain::chat_document::card_reply`); a reply goes as the next message.
+    pub fn card(&mut self, message_id: &str, name: &str, context: &Value) -> Result<(), String> {
+        let Some((_, _, view, _)) = self.session_chat() else { return Ok(()) };
+        match crate::chat::card_reply(&view.rows, message_id, Some(name), Some(context)) {
+            Some(crate::chat::CardReply::Send { text, .. }) => self.send(&text),
+            None => Ok(()),
         }
-        input.session_id = Some(session.clone());
-        input.busy = root.busy;
-        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
-        input
     }
 
     /// The person's pick on a question: the desktop's runs take answers as
