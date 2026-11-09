@@ -22,7 +22,7 @@ use domain::rows::{
 };
 use domain::session_tree::{
     build_session_chat, list_agents, partition_chats, session_card, tree_order,
-    AgentRow, SessionCard, SessionChatInput, SessionChatView, ChatsListGroup, ChatsListInput,
+    AgentRow, SessionCard, SessionChatInput, SessionChatRow, SessionChatView, ChatsListGroup, ChatsListInput,
     ChatsListKey, TreeIssue,
 };
 use gpui::App;
@@ -452,10 +452,127 @@ fn sort_messages(messages: &mut [MessageRow]) {
 }
 
 /// The messages of ONE session (its own conversation), oldest first.
-pub(crate) fn messages_of_session(session_id: &str, cx: &App) -> Vec<MessageRow> {
-    let mut out: Vec<MessageRow> = keyed_messages(cx, |owner, _| owner == session_id);
-    sort_messages(&mut out);
-    out
+/// #LOGS-7: read once per change of the messages collection (a session
+/// view reads them every frame; a 5,000-message chat cloned and sorted
+/// every body on every keystroke).
+pub(crate) fn messages_of_session(session_id: &str, cx: &App) -> Rc<Vec<MessageRow>> {
+    thread_local! {
+        static MEMO: std::cell::RefCell<(Option<(gpui::EntityId, u64)>, HashMap<String, Rc<Vec<MessageRow>>>)> = Default::default();
+    }
+    let Some(store) = Store::try_global(cx) else {
+        return Rc::default();
+    };
+    let collection = &store.collections().messages;
+    let stamp = (collection.entity_id(), collection.read(cx).revision());
+    MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.0 != Some(stamp) {
+            *memo = (Some(stamp), HashMap::new());
+        }
+        if let Some(hit) = memo.1.get(session_id) {
+            return hit.clone();
+        }
+        let mut out: Vec<MessageRow> = keyed_messages(cx, |owner, _| owner == session_id);
+        sort_messages(&mut out);
+        let out = Rc::new(out);
+        memo.1.insert(session_id.to_string(), out.clone());
+        out
+    })
+}
+
+/// EXP-1398 (ask-dock.json `sessionCardsCases`): THE card set of a
+/// session's conversation as its rows (a surface card, a question / plan).
+/// #LOGS-7: derived once per change of the messages collection.
+pub(crate) fn conversation_cards(session_id: &str, cx: &App) -> Rc<Vec<SessionChatRow>> {
+    thread_local! {
+        static MEMO: std::cell::RefCell<HashMap<String, (Rc<Vec<MessageRow>>, Rc<Vec<SessionChatRow>>)>> = Default::default();
+    }
+    let messages = messages_of_session(session_id, cx);
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(session_id).filter(|(at, _)| Rc::ptr_eq(at, &messages)).map(|(_, cards)| cards.clone())) {
+        return hit;
+    }
+    let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|message| (message.id.as_str(), message)).collect();
+    let cards: Rc<Vec<SessionChatRow>> = Rc::new(
+        domain::ask_dock::session_cards(&messages)
+            .iter()
+            .filter_map(|card| {
+                let message = by_id.get(card.id.as_str())?;
+                if card.kind == domain::ask_dock::SessionCardKind::Surface {
+                    domain::session_tree::surface_card_row(message)
+                } else {
+                    domain::session_tree::ask_card_row(message)
+                }
+            })
+            .collect(),
+    );
+    MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.len() > 64 {
+            memo.clear();
+        }
+        memo.insert(session_id.to_string(), (messages.clone(), cards.clone()));
+    });
+    cards
+}
+
+/// THE chat view of `root_id` (no focus, its own tree): the session
+/// screen's model and a root view's suggested tasks read the same one.
+/// #LOGS-7: derived once per change of what it reads (and per second: a
+/// working session's card counts its elapsed seconds), never per frame or
+/// twice per change.
+pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<SessionChatView>> {
+    thread_local! {
+        static MEMO: std::cell::RefCell<HashMap<String, (([u64; 6], i64), Option<Rc<SessionChatView>>)>> = Default::default();
+    }
+    let store = Store::try_global(cx)?;
+    let collections = store.collections();
+    let at = (
+        [
+            collections.sessions.read(cx).revision(),
+            collections.session_issues.read(cx).revision(),
+            collections.messages.read(cx).revision(),
+            collections.issue_relations.read(cx).revision(),
+            collections.issues.read(cx).revision(),
+            collections.pull_requests.read(cx).revision(),
+        ],
+        now_ms.div_euclid(1000),
+    );
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(root_id).filter(|(stamp, _)| *stamp == at).map(|(_, view)| view.clone())) {
+        return hit;
+    }
+    let view = chat_view(root_id, None, now_ms, false, false, cx).map(|(view, _)| Rc::new(view));
+    MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.len() > 64 {
+            memo.clear();
+        }
+        memo.insert(root_id.to_string(), (at, view.clone()));
+    });
+    view
+}
+
+/// #EXP-1732: a root's suggested-tasks cards (its chat's `Suggestions`
+/// rows), taken from [`root_chat_view`] once per view.
+pub(crate) fn tree_suggestions(root_id: &str, now_ms: i64, cx: &App) -> Rc<Vec<SessionChatRow>> {
+    thread_local! {
+        static MEMO: std::cell::RefCell<HashMap<String, (Rc<SessionChatView>, Rc<Vec<SessionChatRow>>)>> = Default::default();
+    }
+    let Some(view) = root_chat_view(root_id, now_ms, cx) else {
+        return Rc::default();
+    };
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(root_id).filter(|(at, _)| Rc::ptr_eq(at, &view)).map(|(_, rows)| rows.clone())) {
+        return hit;
+    }
+    let rows: Rc<Vec<SessionChatRow>> =
+        Rc::new(view.rows.iter().filter(|row| matches!(row, SessionChatRow::Suggestions { .. })).cloned().collect());
+    MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.len() > 64 {
+            memo.clear();
+        }
+        memo.insert(root_id.to_string(), (view, rows.clone()));
+    });
+    rows
 }
 
 // ---------------------------------------------------------------------------
@@ -607,7 +724,7 @@ pub(crate) fn chat_view_and_messages(
     whole_tree: bool,
     cx: &App,
 ) -> Option<(SessionChatView, Vec<MessageRow>)> {
-    chat_view(root_id, focus, now_ms, whole_tree, cx)
+    chat_view(root_id, focus, now_ms, whole_tree, true, cx)
 }
 
 /// #EXP-1380: a card-less input that may name `owner` (another team
@@ -630,6 +747,7 @@ fn chat_view(
     focus: Option<&str>,
     now_ms: i64,
     whole_tree: bool,
+    own: bool,
     cx: &App,
 ) -> Option<(SessionChatView, Vec<MessageRow>)> {
     let store = Store::try_global(cx)?;
@@ -821,6 +939,9 @@ fn chat_view(
         },
         focus,
     );
+    if !own {
+        return Some((view, Vec::new()));
+    }
     // The root's own messages (an editor: the tree's), oldest first.
     let mut own: Vec<MessageRow> = keyed
         .iter()

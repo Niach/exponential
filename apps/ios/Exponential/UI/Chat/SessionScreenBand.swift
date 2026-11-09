@@ -329,20 +329,29 @@ struct SessionScreenItemPage<Content: View>: View {
     var body: some View {
         ZStack {
             AppBackground()
-            content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .workHeaderBand {
-            ChatHeader {
-                Text(title)
-                    .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("session-item-title")
-            } trailing: {
-                EmptyView()
+            // #EXP-1759: the header OWNS its band. As a safe-area inset over
+            // the body, the body's feed scrolled up beneath it, and a pinned
+            // feed's rows (real UIKit scroll content) won the hit test over
+            // the header's SwiftUI buttons: XCUITest's (and VoiceOver's) hit
+            // at Back's centre found a feed row. The band's strip still fades
+            // the body's top edge.
+            VStack(spacing: 0) {
+                ChatHeader {
+                    Text(title)
+                        .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("session-item-title")
+                } trailing: {
+                    EmptyView()
+                }
+                .frame(maxWidth: .infinity)
+                .headerEdgeChrome()
+                .zIndex(1)
+                content()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .toolbar(.hidden, for: .navigationBar)

@@ -3062,14 +3062,13 @@ pub(crate) fn chat_not_found(ready: bool, has_root: bool, open_for: Duration) ->
 #[derive(Clone)]
 struct ChatModel {
     root: SessionRow,
-    view: SessionChatView,
+    view: Rc<SessionChatView>,
     /// #EXP-1732: every issue of the tree (each session's links, in tree
     /// order, every issue once), by id, and their order.
     issues: HashMap<String, Issue>,
     issue_order: Vec<String>,
     /// The ROOT's own links (the Unlink menu, the NEW ring).
     links: Vec<SessionIssueRow>,
-    messages: HashMap<String, MessageRow>,
     pulls: Vec<PullRequestRow>,
     /// #EXP-1732: the whole tree (the root first): the Sessions tab.
     tree: Vec<SessionRow>,
@@ -3087,10 +3086,9 @@ impl ChatModel {
     }
 }
 
-fn chat_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ChatModel> {
-    // #EXP-1380: the view and the root's messages off ONE scan.
-    let (view, own) =
-        crate::session_data::chat_view_and_messages(root_id, focus, crate::session_data::now_ms(), false, cx)?;
+fn chat_model(root_id: &str, cx: &App) -> Option<ChatModel> {
+    // #LOGS-7: THE root view, shared with the transcript's suggested tasks.
+    let view = crate::session_data::root_chat_view(root_id, crate::session_data::now_ms(), cx)?;
     let root = crate::session_data::session(root_id, cx)?;
     let store = Store::try_global(cx)?;
     let collections = store.collections();
@@ -3118,14 +3116,12 @@ fn chat_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ChatModel>
             }
         }
     }
-    let messages = own.into_iter().map(|message| (message.id.clone(), message)).collect();
     Some(ChatModel {
         root,
         view,
         issues,
         issue_order,
         links,
-        messages,
         pulls: crate::session_data::pull_requests_of_root(root_id, cx),
         tree,
     })
@@ -3426,7 +3422,7 @@ impl SessionChatScreenView {
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        let model = chat_model(&self.root_id, None, cx);
+        let model = chat_model(&self.root_id, cx);
         // The pane's session: its own origin (the tree's view focused on it).
         self.focus_origin = self.focus.as_ref().and_then(|(id, _)| {
             crate::session_data::chat_view_and_messages(&self.root_id, Some(id), crate::session_data::now_ms(), false, cx)
@@ -4366,6 +4362,10 @@ impl Render for SessionChatScreenView {
             .child(body)
     }
 }
+
+#[cfg(test)]
+#[path = "long_chat_bench.rs"]
+mod long_chat_bench;
 
 #[cfg(test)]
 mod tests {

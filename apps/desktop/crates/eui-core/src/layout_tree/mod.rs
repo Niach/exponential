@@ -350,8 +350,9 @@ pub struct BuildContext<'a> {
     pub recipes: &'a RecipeIndex,
     pub data: &'a Value,
     pub local: &'a mut LocalState,
-    /// Reduce a template component by id into a normalized subtree.
-    pub template: &'a dyn Fn(&str) -> Option<UiNode>,
+    /// A template component by id, reduced into a normalized subtree
+    /// (borrowed: an item instantiates it without copying it first).
+    pub template: &'a dyn Fn(&str) -> Option<&'a UiNode>,
     pub viewport_height: f32,
     /// Round 2: the viewport width (horizontal windows).
     pub viewport_width: f32,
@@ -502,8 +503,22 @@ pub(crate) fn obj(v: Value) -> Props {
 }
 
 fn with_suffix(node: &UiNode, suffix: &str, template: Option<&str>, sources: &mut HashMap<String, SourceRef>) -> UiNode {
-    let mut out = node.clone();
-    out.id = format!("{}{suffix}", node.id);
+    // #LOGS-7: the node alone (its children and slots are instanced below),
+    // never a deep copy of its subtree at every depth.
+    let mut out = UiNode {
+        id: format!("{}{suffix}", node.id),
+        component: node.component.clone(),
+        props: node.props.clone(),
+        style: node.style.clone(),
+        visible: node.visible.clone(),
+        on: node.on.clone(),
+        accessibility: node.accessibility.clone(),
+        children: Vec::new(),
+        slots: None,
+        template: node.template.clone(),
+        recipe: node.recipe.clone(),
+        metadata: node.metadata.clone(),
+    };
     // An id that is already an instance keeps ITS source (a Table slot
     // inside a template row); an original id is its own source.
     let source = sources.get(&node.id).cloned().unwrap_or_else(|| SourceRef { id: node.id.clone(), template: template.map(str::to_string) });
@@ -1083,12 +1098,12 @@ impl<'a, 'b> Builder<'a, 'b> {
                 let suffixes = self.item_suffixes(t, &base);
                 let enclosing = self.enclosing_suffix(node);
                 for i in 0..count {
-                    if !self.take_template_item(&t.component, &tpl) {
+                    if !self.take_template_item(&t.component, tpl) {
                         break;
                     }
                     let item_scope = format!("{base}/{i}");
                     let suffix = format!("{enclosing}{}", suffixes[i]);
-                    let item = self.instance(&tpl, &suffix, Some(&t.component));
+                    let item = self.instance(tpl, &suffix, Some(&t.component));
                     out.extend(self.add(&item, Some(parent), layer, &item_scope, hidden));
                 }
             }
@@ -1169,12 +1184,12 @@ impl<'a, 'b> Builder<'a, 'b> {
             return None;
         }
         let tpl = (self.ctx.template)(&t.component)?;
-        if !self.take_template_item(&t.component, &tpl) {
+        if !self.take_template_item(&t.component, tpl) {
             return None;
         }
         let item_scope = format!("{base}/{idx}");
         let suffix = format!("{}{}", self.enclosing_suffix(node), self.item_suffixes(t, &base).get(idx).cloned().unwrap_or_else(|| format!(".{idx}")));
-        let item = self.instance(&tpl, &suffix, Some(&t.component));
+        let item = self.instance(tpl, &suffix, Some(&t.component));
         self.add(&item, Some(parent), layer, &item_scope, hidden)
     }
 
