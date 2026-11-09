@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.21.0 (2026-11-09)
+
 - Select `row` + the IDE popup (#EXP-1629): a `triggerVariant: row` trigger is the core's container of parts (`label`, spacer, `value` capped at 240 and truncating, `Select.chevron` `chevron`), painted and measured as its nodes, its popup the core's under the value (262 wide); the field trigger's text and glyph are the `value` / `chevron` parts (`SelectTrigger`). The popup opens at the top with the cursor on the first enabled option and focus in its search field (whose glyph is `mutedForeground` at full opacity, the recipe `gap` from the text), and paints the core's bottom `fade` while options sit below; the cursor is the ONE option reporting `hover` (the pointer and ↑/↓ move it, from a searchable Select's field too; Enter / Space pick it), `selected` stays the chosen one; the check is the `check` part's size and ink. Snapshot re-recorded.
 - Recipes (#EXP-1629): `backgroundClip: padding-box` fills the background and gradient inside the border (`BorderInnerBox`, the per-side band's inner shape), so a translucent border blends over what is behind; an `Avatar` picture sits on the `image` part's `backgroundColor`, filling the whole circle under its ring.
 - `ExponentialUIPrimitives` `KbdView`: fills with `PrimitiveTokens.accent` (the catalog's `Kbd` recipe; was `muted`).
