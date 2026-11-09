@@ -19,6 +19,8 @@ pub(crate) struct KeyRecording {
     /// The last key down without its up: a down of the same key again is
     /// the platform's key repeat (the interceptor sees no `is_held`).
     last_down: Option<String>,
+    /// It held the focus since it started recording.
+    had_focus: bool,
     _intercept: Subscription,
     _blur: Subscription,
 }
@@ -78,7 +80,8 @@ impl SurfaceView {
     /// `Some(recording)` when node `index` is a KeyRecorder's `field`.
     pub(crate) fn key_recorder_field(&self, index: u32) -> Option<bool> {
         let n = self.cache.node(index)?;
-        if n.removed || n.owner_component.as_deref() != Some("KeyRecorder") || n.part.as_deref() != Some("field") {
+        // A macro's parts are plain nodes here: the part is the layout's query.
+        if n.removed || n.component != "Box" {
             return None;
         }
         let q = self.surface.layout_node(index)?.part_query.as_ref().filter(|q| q.component == "KeyRecorder" && q.part == "field")?;
@@ -109,7 +112,18 @@ impl SurfaceView {
             entity.update(cx, |this, cx| this.record_key_down(&keystroke, cx));
         });
         let blur = cx.on_blur(&focus, window, |this, _window, cx| this.key_recorder_blurred(cx));
-        self.recording = Some(KeyRecording { id, focus, last_down: None, _intercept: intercept, _blur: blur });
+        self.recording = Some(KeyRecording { id, focus, last_down: None, had_focus: false, _intercept: intercept, _blur: blur });
+    }
+
+    /// Each frame: the recording field that held the focus and lost it
+    /// (another element took it, the window blurred) fires `blur`.
+    pub(crate) fn check_key_recorder_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(r) = self.recording.as_mut() else { return };
+        if r.focus.is_focused(window) {
+            r.had_focus = true;
+        } else if r.had_focus {
+            self.key_recorder_blurred(cx);
+        }
     }
 
     fn recording_index(&self) -> Option<u32> {

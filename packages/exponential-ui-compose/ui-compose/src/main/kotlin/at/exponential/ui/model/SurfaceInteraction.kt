@@ -476,8 +476,12 @@ fun SurfaceModel.boxHover(id: String, inside: Boolean) {
 // `blur` on the field; the core guards them (a press only while idle,
 // record / blur only while recording) and the host owns the grammar.
 
-/** A KeyRecorder's `field` part (the macro's pressable Box). */
-val NodeInfo.isKeyRecorderField: Boolean get() = ownerComponent == "KeyRecorder" && part == "field"
+/**
+ * A KeyRecorder's `field` part: the macro's one pressable Box (a macro's
+ * nodes carry the macro's name, never their part; the part's id is
+ * `<owner>.field`).
+ */
+val NodeInfo.isKeyRecorderField: Boolean get() = macroName == "KeyRecorder" && component == "Box" && pressable && id.endsWith(".field")
 
 /**
  * The field records now: its `recording` recipe prop as the core resolved

@@ -1671,6 +1671,7 @@ impl SurfaceView {
         if self.layers_lifted() != self.pass_lifted {
             self.pass(window, cx);
         }
+        self.check_key_recorder_focus(window, cx);
         let now = self.clock();
         self.motion.now = Some(now);
         self.exiting.retain(|g| now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 < g.duration_ms);
