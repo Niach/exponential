@@ -3,6 +3,7 @@ package com.exponential.app
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -104,6 +105,12 @@ object Observability {
     fun setUser(userId: String?) {
         this.userId = userId
         if (running != null) Sentry.setUser(userId?.let { User().apply { id = it } })
+    }
+
+    /** A failure the app survives (a native library that would not load): logcat, and Sentry while it runs. */
+    fun nonFatal(tag: String, message: String, error: Throwable) {
+        Log.e(tag, message, error)
+        if (running != null) Sentry.captureException(error)
     }
 
     /** Network spans for our API + Electric shape requests only (inert while Sentry is off). */
