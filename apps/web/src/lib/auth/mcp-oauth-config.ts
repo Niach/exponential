@@ -76,3 +76,30 @@ export function protectedResourceMetadata(resource: string, env: NodeJS.ProcessE
     bearer_methods_supported: [`header`],
   }
 }
+
+// The discovery documents MCP clients read (RFC 8414, RFC 9728), with the
+// CORS headers the 1.6 plugin served them with (browser-based clients).
+export const METADATA_CORS = {
+  "Access-Control-Allow-Origin": `*`,
+  "Access-Control-Allow-Methods": `GET, OPTIONS`,
+  "Access-Control-Allow-Headers": `Content-Type, Authorization`,
+  "Access-Control-Max-Age": `86400`,
+}
+
+/** RFC 9728 metadata of one protected resource, as a response. */
+export function protectedResourceResponse(resource: string, env: NodeJS.ProcessEnv = process.env): Response {
+  return new Response(JSON.stringify(protectedResourceMetadata(resource, env)), {
+    status: 200,
+    headers: { "Content-Type": `application/json`, "Cache-Control": `no-store`, ...METADATA_CORS },
+  })
+}
+
+/** The 1.6 plugin served the builtin resource's metadata under Better Auth's
+ * base path too, and /api/mcp's 401 still names that URL
+ * (`resource_metadata`, lib/emcp/gate.ts): keep answering it. */
+export const LEGACY_PROTECTED_RESOURCE_PATH = `/api/auth/.well-known/oauth-protected-resource`
+
+/** The legacy metadata URL's answer, or null for any other path. */
+export function legacyProtectedResourceResponse(pathname: string, env: NodeJS.ProcessEnv = process.env): Response | null {
+  return pathname.replace(/\/+$/, ``) === LEGACY_PROTECTED_RESOURCE_PATH ? protectedResourceResponse(mcpResource(env), env) : null
+}
