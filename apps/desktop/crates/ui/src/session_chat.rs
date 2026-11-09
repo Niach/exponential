@@ -5407,4 +5407,154 @@ mod tests {
         }
         std::mem::forget(cx);
     }
+
+    // ── #EDE-65 lane O: THE composer is the chat document's footer ─────────
+
+    /// The Chat tab's live root view, its composer document and a draw.
+    fn chat_tab_composer(cx: &mut gpui::TestAppContext) -> (Entity<crate::steer_viewer::SteerSessionView>, Entity<eui_gpui::view::SurfaceView>, &mut gpui::VisualTestContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let inner = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().clone());
+        cx.update(|_, cx| inner.update(cx, |inner, cx| inner.apply_events_for_test(vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)], cx)));
+        settle(cx);
+        let document = cx.update(|_, cx| inner.read(cx).composer_document()).expect("THE composer is the chat document's footer");
+        crate::steer_viewer::chat_tab_composer::DISPATCHED.with(|dispatched| dispatched.borrow_mut().clear());
+        (inner, document, cx)
+    }
+
+    fn settle(cx: &mut gpui::VisualTestContext) {
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+    }
+
+    fn dispatched() -> Vec<crate::steer_viewer::chat_tab_composer::ComposerEvent> {
+        crate::steer_viewer::chat_tab_composer::DISPATCHED.with(|dispatched| dispatched.borrow().clone())
+    }
+
+    fn type_draft(document: &Entity<eui_gpui::view::SurfaceView>, text: &str, cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| document.update(cx, |document, cx| document.type_into("chat_composer", text, window, cx)));
+        cx.run_until_parked();
+        // The field's debounce, flushed (what a press or a key does first).
+        cx.update(|window, cx| document.update(cx, |document, cx| document.flush_field("chat_composer", None, window, cx)));
+        settle(cx);
+    }
+
+    /// Typing is THE draft; a send goes through the view's send (no server
+    /// here: refused, its draft goes back into the field).
+    #[gpui::test]
+    fn the_chat_tabs_composer_types_and_sends(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::ComposerEvent;
+        let (inner, document, cx) = chat_tab_composer(cx);
+        cx.update(|_, cx| {
+            let document = document.read(cx);
+            for id in ["chat_composer", "chat_plus_button"] {
+                assert!(document.painted_bounds(id).is_some(), "{id} paints");
+            }
+        });
+        type_draft(&document, "Ship it", cx);
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "Ship it", "{:?} field {:?}", dispatched(), cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx)));
+        cx.update(|window, cx| document.update(cx, |document, cx| document.submit_composer("chat_composer", window, cx)));
+        settle(cx);
+        assert!(dispatched().contains(&ComposerEvent::Send("Ship it".into())), "{:?}", dispatched());
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "Ship it", "a refused send keeps its draft");
+        assert_eq!(cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx)).as_deref(), Some("Ship it"), "…and the field shows it again");
+    }
+
+    /// A running turn makes Send the Stop (one round button), which stops it.
+    #[gpui::test]
+    fn the_chat_tabs_composer_stops_a_running_turn(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::ComposerEvent;
+        let (inner, document, cx) = chat_tab_composer(cx);
+        cx.update(|_, cx| {
+            inner.update(cx, |inner, cx| inner.apply_events_for_test(
+                vec![
+                    steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Ship the fix")),
+                    steer::ViewerEvent::Activity(2, steer::ActivityEvent::turn(steer::TurnState::Started)),
+                ],
+                cx,
+            ))
+        });
+        settle(cx);
+        let busy = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.surface().layout_node(document.index_of("chat_composer").unwrap()).and_then(|node| node.props.get("busy").cloned())
+        });
+        assert_eq!(busy, Some(serde_json::json!(true)), "the composer is busy while the turn runs");
+        cx.update(|window, cx| document.update(cx, |document, cx| document.submit_composer("chat_composer", window, cx)));
+        settle(cx);
+        assert_eq!(dispatched(), vec![ComposerEvent::Stop]);
+    }
+
+    /// THE `/` menu above the composer: the keys move its highlight and
+    /// Enter picks the row (its insertion in the draft, nothing sent).
+    #[gpui::test]
+    fn the_chat_tabs_slash_menu_picks_a_row_by_key(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::ComposerEvent;
+        let (inner, document, cx) = chat_tab_composer(cx);
+        type_draft(&document, "/", cx);
+        assert!(cx.update(|_, cx| document.read(cx).painted_bounds("chat_slash").is_some()), "the / menu opens over the composer");
+        let items = crate::slash_commands::slash_items("/", Some(steer::activity::SessionAgent::Claude), &[]);
+        let second = match &items[1] {
+            crate::slash_commands::SlashItem::Command(command) => crate::slash_commands::insertion(command),
+            other => panic!("{other:?}"),
+        };
+        for key in ["down", "enter"] {
+            let taken = cx.update(|window, cx| document.update(cx, |document, cx| document.composer_key("chat_composer", key, &gpui::Modifiers::default(), false, window, cx)));
+            assert!(taken, "{key} goes to the menu");
+            settle(cx);
+        }
+        assert_eq!(dispatched().iter().filter(|e| matches!(e, ComposerEvent::Key(_))).count(), 2);
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), second);
+        assert_eq!(cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx)), Some(second.clone()), "the insertion is in the field");
+        assert!(!dispatched().iter().any(|e| matches!(e, ComposerEvent::Send(_))), "a pick never sends");
+    }
+
+    /// The "+" Menu is THE options menu (its rows from the data); "Photo or
+    /// file" opens the file chooser, the pick's chip sits in the strip and
+    /// removes it; a pasted image stages the same way.
+    #[gpui::test]
+    fn the_chat_tabs_plus_menu_attaches_and_a_chip_unattaches(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::{ComposerEvent, PlusAction};
+        let (inner, document, cx) = chat_tab_composer(cx);
+        let items = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.surface().layout_node(document.index_of("chat_plus").unwrap()).and_then(|node| node.props.get("items").cloned())
+        });
+        assert_eq!(items.as_ref().and_then(|items| items[0]["value"].as_str()), Some("add-file"), "{items:?}");
+        assert!(cx.update(|window, cx| inner.update(cx, |inner, cx| inner.open_composer_plus(None, window, cx))));
+        settle(cx);
+        assert!(cx.update(|_, cx| document.read(cx).layers().iter().any(|layer| layer.owner == "chat_plus")), "the + opens its Menu");
+        let item = cx.update(|_, cx| document.read(cx).index_of("chat_plus.item.0")).expect("Photo or file");
+        cx.update(|window, cx| document.update(cx, |document, cx| document.press(item, window, cx)));
+        settle(cx);
+        assert!(dispatched().contains(&ComposerEvent::Plus(PlusAction::AddFile)), "{:?}", dispatched());
+        assert!(cx.did_prompt_for_paths(), "the file chooser opens");
+        let dir = std::env::temp_dir().join(format!("ui-chat-tab-composer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("shot.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\n0000").unwrap();
+        let picked = png.clone();
+        cx.simulate_path_prompt_response(move |_| Some(vec![picked]));
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 1);
+        let remove = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.placed_nodes().iter().find(|node| node.id.starts_with("chat_file") && node.id.contains("remove") && !node.hidden && !node.removed).map(|node| node.id.clone())
+        });
+        let remove = remove.expect("the file's chip is removable");
+        let index = cx.update(|_, cx| document.read(cx).index_of(&remove)).unwrap();
+        cx.update(|window, cx| document.update(cx, |document, cx| document.press(index, window, cx)));
+        settle(cx);
+        assert!(dispatched().iter().any(|e| matches!(e, ComposerEvent::Unattach(_))), "{:?}", dispatched());
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 0, "the chip removed it");
+        // A pasted image: the upload hook stages it, `attach` {files} follows.
+        let pasted = eui_gpui::view::PastedImage { name: "image.png".into(), mime: "image/png".into(), path: png.clone(), size: 12 };
+        cx.update(|_, cx| document.update(cx, |document, cx| document.composer_paste("chat_composer", vec![pasted], cx)));
+        settle(cx);
+        assert!(dispatched().contains(&ComposerEvent::Attach { pasted: true }));
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 1, "the paste staged it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

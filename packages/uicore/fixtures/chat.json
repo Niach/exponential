@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-65 lane I: THE agent chat document both hosts draw (docs/chat.json: eDE's chat in the ground, the IDE's agent and chat pages later), a pure projection of ONE conversation the host already resolved, replayed in TS (src/chat.ts) and Rust (uicore-model chat.rs). The host builds the rows from the domain's chat rows (session-chat.json; the words other fixtures own, a divider's label, an event's text, a card's state word, come resolved), so this layer owns only how the chat is drawn. FACE: no sessionId = `home` (the Agent page: the agent row over the composer, composer-home.json: placeholder `copy.homePlaceholder`, the label `copy.to` with the picked agent's name, rows always empty); a sessionId = `conversation` (header = the title + the agent's icon, the rows, the composer with `copy.placeholder` while the host's composer has the `/` menu (`slashCommands`: the IDE), else `copy.messagePlaceholder` (chats.json copy.emptyPlaceholder) with the title as {name}: eDE never promises a menu it does not have). AGENT ROW: single select over `agents` in the given order; `agentId` picks one, an unknown or null pick falls back to the first; no agents = no label and nothing selected. ROWS keep their order; every row carries EVERY field (a template binds any of them), the ones its kind does not use blank: `` strings, false, [] or null. A message by `user` = kind `user` (`bubble` = the chat's `bubbles`, session-chat.json chatModeCases; caption: bubbles = the time alone, inside the bubble; a transcript = `name · time` under it, a missing part dropped with its separator; `queued` kept); by `agent` = kind `agent` (bubbles = a left bubble with its time; a transcript = plain prose, no caption); any other author = a muted `line` with `copy.systemIcon`. `pill` (a /new or /compact divider, a locked row) = kind `pill`, its label as `text`. `line` (an event, a subagent) and `card` (a session card, a report, a plan row, a surface or suggestions card; `target` = the session a press opens) pass through. CARD SURFACE (lane Q): a `card` or `question` may carry `surface` = the genUI card the document draws in an Embed under its title (`{root, data, version?}`: an `exponential_show` surface, a plan's or question's inline surface; the host passes a closed card's answered data model as `data`); it passes through as is, absent = null, and every other kind's is null. `question` = kind `question` with `copy.questionIcon` (waiting-cards.json icons.question), the question as `title`, its options (each carrying the row's id as `messageId`: a template cannot read its parent), custom, multi, waiting and answer. `picture` = its attachment and the caption as `text` (blank without one). GROUPING (#EDE-65 lane O, the IDE's transcript, transcript-grouping.json): a message may carry `group` {side, avatar, indent, link, gap} the host resolved; every row carries side, author, time, avatar, indent, link and gap. In bubbles, a user or agent message's `side` = group.side when `in` or `out`, else `out` for `user` and `in` for `agent`; `author` = its name on an `in` bubble (blank on `out`); `time` = its time trimmed; in a transcript all three are blank. avatar (blank when absent), indent and link pass through on every user or agent message, blank everywhere else. GAP = the space above a row in px: a user or agent message with a group = its gap (absent = 0), a host row 0 (it paints its own), every other row 16 (the old list gap), the first 0. `host` = a row the host paints itself (the document holds its place in an Embed the host claims by its painted id), every field blank. empty = no rows. COMPOSER: canSend = the draft has a non-blank character, nothing is sending, and on home an agent is picked; busy = a turn is running (submit becomes stop).",
+  "$comment": "#EDE-65 lane I: THE agent chat document both hosts draw (docs/chat.json: eDE's chat in the ground, the IDE's agent and chat pages later), a pure projection of ONE conversation the host already resolved, replayed in TS (src/chat.ts) and Rust (uicore-model chat.rs). The host builds the rows from the domain's chat rows (session-chat.json; the words other fixtures own, a divider's label, an event's text, a card's state word, come resolved), so this layer owns only how the chat is drawn. FACE: no sessionId = `home` (the Agent page: the agent row over the composer, composer-home.json: placeholder `copy.homePlaceholder`, the label `copy.to` with the picked agent's name, rows always empty); a sessionId = `conversation` (header = the title + the agent's icon, the rows, the composer with `copy.placeholder` while the host's composer has the `/` menu (`slashCommands`: the IDE), else `copy.messagePlaceholder` (chats.json copy.emptyPlaceholder) with the title as {name}: eDE never promises a menu it does not have). AGENT ROW: single select over `agents` in the given order; `agentId` picks one, an unknown or null pick falls back to the first; no agents = no label and nothing selected. ROWS keep their order; every row carries EVERY field (a template binds any of them), the ones its kind does not use blank: `` strings, false, [] or null. A message by `user` = kind `user` (`bubble` = the chat's `bubbles`, session-chat.json chatModeCases; caption: bubbles = the time alone, inside the bubble; a transcript = `name · time` under it, a missing part dropped with its separator; `queued` kept); by `agent` = kind `agent` (bubbles = a left bubble with its time; a transcript = plain prose, no caption); any other author = a muted `line` with `copy.systemIcon`. `pill` (a /new or /compact divider, a locked row) = kind `pill`, its label as `text`. `line` (an event, a subagent) and `card` (a session card, a report, a plan row, a surface or suggestions card; `target` = the session a press opens) pass through. CARD SURFACE (lane Q): a `card` or `question` may carry `surface` = the genUI card the document draws in an Embed under its title (`{root, data, version?}`: an `exponential_show` surface, a plan's or question's inline surface; the host passes a closed card's answered data model as `data`); it passes through as is, absent = null, and every other kind's is null. `question` = kind `question` with `copy.questionIcon` (waiting-cards.json icons.question), the question as `title`, its options (each carrying the row's id as `messageId`: a template cannot read its parent), custom, multi, waiting and answer. `picture` = its attachment and the caption as `text` (blank without one). GROUPING (#EDE-65 lane O, the IDE's transcript, transcript-grouping.json): a message may carry `group` {side, avatar, indent, link, gap} the host resolved; every row carries side, author, time, avatar, indent, link and gap. In bubbles, a user or agent message's `side` = group.side when `in` or `out`, else `out` for `user` and `in` for `agent`; `author` = its name on an `in` bubble (blank on `out`); `time` = its time trimmed; in a transcript all three are blank. avatar (blank when absent), indent and link pass through on every user or agent message, blank everywhere else. GAP = the space above a row in px: a user or agent message with a group = its gap (absent = 0), a host row 0 (it paints its own), every other row 16 (the old list gap), the first 0. `host` = a row the host paints itself (the document holds its place in an Embed the host claims by its painted id), every field blank. empty = no rows. COMPOSER: canSend = the draft has a non-blank character, nothing is sending, and on home an agent is picked; busy = a turn is running (submit becomes stop). COMPOSER (#EDE-65 lane O, the IDE and eDE draw ONE composer): `plus` = the \"+\" menu rows the host serves (composer-menu.json resolved: id, label, icon; `separator`; a submenu row carries `items` {label, value, icon?, checked?, disabled?} and `searchable`), drawn as genUI menuItems in `composer.menu` (the host sets them as the leading Menu's items): a separator stays one; an action row = {label, value: its id, icon}; a submenu row = kind submenu with its entries, each value `<row id>:<entry value>`, a `checked` entry = kind checkbox with its state, `disabled` only when true, `searchable` only when true; `composer.plus` = any row. `replies` {messageId, items [{id, text}]} = the quick replies as `composer.replies` chips {key, label, messageId} and `repliesMessageId` (`` = none). `ring` = the host paints the context ring (never on home).",
   "version": 1,
   "copy": {
     "to": "To {name}",
@@ -31,7 +31,10 @@
     "sending": false,
     "busy": false,
     "rows": [],
-    "slashCommands": true
+    "slashCommands": true,
+    "plus": [],
+    "replies": null,
+    "ring": false
   },
   "cases": [
     {
@@ -69,7 +72,12 @@
         "composer": {
           "placeholder": "What do you want to build?",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -118,7 +126,12 @@
         "composer": {
           "placeholder": "What do you want to build?",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -156,7 +169,12 @@
         "composer": {
           "placeholder": "What do you want to build?",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -183,7 +201,12 @@
         "composer": {
           "placeholder": "What do you want to build?",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -221,7 +244,12 @@
         "composer": {
           "placeholder": "What do you want to build?",
           "canSend": true,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -258,7 +286,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -296,7 +329,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -334,7 +372,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": true,
-          "busy": true
+          "busy": true,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -443,7 +486,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -555,7 +603,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -665,7 +718,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -739,7 +797,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -910,7 +973,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1005,7 +1073,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1091,7 +1164,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1194,7 +1272,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1232,7 +1315,12 @@
         "composer": {
           "placeholder": "Message Triage",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1270,7 +1358,12 @@
         "composer": {
           "placeholder": "What do you want to build?",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1487,7 +1580,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1648,7 +1746,12 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
         }
       }
     },
@@ -1837,7 +1940,200 @@
         "composer": {
           "placeholder": "Type / for commands",
           "canSend": false,
-          "busy": false
+          "busy": false,
+          "plus": false,
+          "menu": [],
+          "replies": [],
+          "repliesMessageId": "",
+          "ring": false
+        }
+      }
+    },
+    {
+      "name": "#EDE-65 lane O: the + rows are the Menu's items, the replies its chips, the ring the host's",
+      "input": {
+        "ring": true,
+        "plus": [
+          {
+            "id": "add-file",
+            "label": "Photo or file",
+            "icon": "ui-attach"
+          },
+          {
+            "id": "prompts",
+            "label": "Prompts",
+            "icon": "coding-command",
+            "searchable": true,
+            "items": [
+              {
+                "label": "Triage",
+                "value": "p1",
+                "icon": "action-default"
+              }
+            ]
+          },
+          {
+            "id": "separator"
+          },
+          {
+            "id": "model",
+            "label": "Model",
+            "icon": "coding-assistant",
+            "items": [
+              {
+                "label": "Opus",
+                "value": "opus",
+                "checked": true
+              },
+              {
+                "label": "Sonnet",
+                "value": "sonnet",
+                "checked": false
+              }
+            ]
+          },
+          {
+            "id": "account",
+            "label": "Account",
+            "icon": "settings-account",
+            "items": [
+              {
+                "label": "work@x.io",
+                "value": "pf1",
+                "checked": true,
+                "disabled": true
+              },
+              {
+                "label": "me@x.io",
+                "value": "pf2",
+                "checked": false
+              }
+            ]
+          }
+        ],
+        "replies": {
+          "messageId": "M9",
+          "items": [
+            {
+              "id": "yes",
+              "text": "Yes"
+            },
+            {
+              "id": "no",
+              "text": "Not now"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [],
+        "empty": true,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false,
+          "plus": true,
+          "menu": [
+            {
+              "label": "Photo or file",
+              "value": "add-file",
+              "icon": "ui-attach"
+            },
+            {
+              "label": "Prompts",
+              "value": "prompts",
+              "icon": "coding-command",
+              "kind": "submenu",
+              "searchable": true,
+              "items": [
+                {
+                  "label": "Triage",
+                  "value": "prompts:p1",
+                  "icon": "action-default"
+                }
+              ]
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "label": "Model",
+              "value": "model",
+              "icon": "coding-assistant",
+              "kind": "submenu",
+              "items": [
+                {
+                  "label": "Opus",
+                  "value": "model:opus",
+                  "kind": "checkbox",
+                  "checked": true
+                },
+                {
+                  "label": "Sonnet",
+                  "value": "model:sonnet",
+                  "kind": "checkbox",
+                  "checked": false
+                }
+              ]
+            },
+            {
+              "label": "Account",
+              "value": "account",
+              "icon": "settings-account",
+              "kind": "submenu",
+              "items": [
+                {
+                  "label": "work@x.io",
+                  "value": "account:pf1",
+                  "kind": "checkbox",
+                  "checked": true,
+                  "disabled": true
+                },
+                {
+                  "label": "me@x.io",
+                  "value": "account:pf2",
+                  "kind": "checkbox",
+                  "checked": false
+                }
+              ]
+            }
+          ],
+          "replies": [
+            {
+              "key": "yes",
+              "label": "Yes",
+              "messageId": "M9"
+            },
+            {
+              "key": "no",
+              "label": "Not now",
+              "messageId": "M9"
+            }
+          ],
+          "repliesMessageId": "M9",
+          "ring": true
         }
       }
     }

@@ -415,6 +415,12 @@ impl SurfaceView {
         self.on_field_event(id, &InputEvent::Blur, window, cx);
     }
 
+    /// #EDE-65 lane O: field `id`'s gpui focus handle (a host that moves
+    /// focus to or from it, the IDE's composer).
+    pub fn field_focus_handle(&self, id: &str, cx: &App) -> Option<gpui::FocusHandle> {
+        self.fields.get(id).map(|f| f.focus_handle(cx))
+    }
+
     /// The current text of field `id`.
     pub fn field_text(&self, id: &str, cx: &App) -> Option<String> {
         self.fields.get(id).map(|f| f.value(cx))
@@ -437,7 +443,7 @@ impl SurfaceView {
             return self.fire(index, "stop", None, cx);
         }
         let Some(text) = self.fields.get(id).map(|f| f.value(cx).trim().to_string()) else { return };
-        if text.is_empty() {
+        if text.is_empty() && !self.host.composer_submits_empty(id, cx) {
             return;
         }
         self.flush_field(id, None, window, cx);

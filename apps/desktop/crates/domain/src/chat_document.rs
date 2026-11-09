@@ -317,12 +317,94 @@ pub fn highlight(menu: &mut serde_json::Value, previous: usize, keep: bool) -> u
     selected
 }
 
+/// #EDE-65 lane O: composer-menu.json's row ids the chat document's "+"
+/// Menu picks (`ede_chat plus {value}`, `uicore_model::chat::plus_pick`).
+pub const PLUS_ADD_FILE: &str = "add-file";
+pub const PLUS_PROMPTS: &str = "prompts";
+pub const PLUS_ISSUE: &str = "implement-issue";
+pub const PLUS_TEAMS: &str = "teams";
+pub const PLUS_DEVICE: &str = "device";
+pub const PLUS_ACCOUNT: &str = "account";
+pub const PLUS_MODEL: &str = "model";
+
+/// composer-menu.json `rows[id].label` / `.icon` (byte-identical ×4).
+pub fn plus_row(id: &str) -> uicore_model::chat::ChatPlusRow {
+    let (label, icon) = match id {
+        PLUS_ADD_FILE => ("Photo or file", "ui-attach"),
+        PLUS_ISSUE => ("Issue", "editor-issue-ref"),
+        PLUS_PROMPTS => ("Prompts", "coding-command"),
+        PLUS_TEAMS => ("Teams", "ui-team"),
+        PLUS_DEVICE => ("Device", "nav-devices"),
+        PLUS_ACCOUNT => ("Account", "settings-account"),
+        PLUS_MODEL => ("Model", "coding-assistant"),
+        _ => ("", ""),
+    };
+    uicore_model::chat::ChatPlusRow { id: id.to_string(), label: label.into(), icon: icon.into(), ..Default::default() }
+}
+
+/// The team's prompts as the Prompts › entries (the `/` menu's order and
+/// glyphs; a pick loads the body like the `/` menu's).
+pub fn plus_prompt_items(prompts: &[crate::rows::PromptRow]) -> Vec<uicore_model::chat::ChatPlusItem> {
+    prompts
+        .iter()
+        .filter_map(|p| {
+            let name = p.name.as_deref().filter(|n| !n.trim().is_empty())?;
+            Some(uicore_model::chat::ChatPlusItem {
+                label: name.to_string(),
+                value: p.id.clone(),
+                icon: Some(p.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| PROMPT_ICON.into())),
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
+/// The "+" rows a composer that can attach and load prompts serves (eDE's):
+/// Photo or file, then Prompts › while the team has one.
+pub fn plus_rows(prompts: &[crate::rows::PromptRow]) -> Vec<uicore_model::chat::ChatPlusRow> {
+    let mut rows = vec![plus_row(PLUS_ADD_FILE)];
+    let items = plus_prompt_items(prompts);
+    if !items.is_empty() {
+        rows.push(uicore_model::chat::ChatPlusRow { items: Some(items), searchable: true, ..plus_row(PLUS_PROMPTS) });
+    }
+    rows
+}
+
 /// A prompt without a curated icon (the IDE's generic prompt glyph).
-const PROMPT_ICON: &str = "action-default";
+pub const PROMPT_ICON: &str = "action-default";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// composer-menu.json: every "+" row's label and icon, byte-identical.
+    #[test]
+    fn the_plus_rows_are_the_composer_menus() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/composer-menu.json")).unwrap();
+        for id in [PLUS_ADD_FILE, PLUS_ISSUE, PLUS_PROMPTS, PLUS_TEAMS, PLUS_DEVICE, PLUS_ACCOUNT, PLUS_MODEL] {
+            let spec = fixture["rows"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id}"));
+            let row = plus_row(id);
+            assert_eq!(row.label, spec["label"].as_str().unwrap(), "{id}");
+            assert_eq!(row.icon, spec["icon"].as_str().unwrap(), "{id}");
+        }
+    }
+
+    /// eDE's "+": Photo or file always, Prompts › (searchable, the named
+    /// prompts with their glyphs) only while there is one.
+    #[test]
+    fn edes_plus_serves_the_file_chooser_and_the_prompts() {
+        let prompt = |id: &str, name: Option<&str>, icon: Option<&str>| -> crate::rows::PromptRow { serde_json::from_value(serde_json::json!({"id": id, "name": name, "icon": icon})).unwrap() };
+        let rows = plus_rows(&[]);
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), [PLUS_ADD_FILE]);
+        assert!(rows[0].items.is_none(), "an action row");
+        let rows = plus_rows(&[prompt("p1", Some("Triage"), None), prompt("p2", Some("  "), None), prompt("p3", Some("Ship"), Some("ui-rocket"))]);
+        assert_eq!(rows[1].id, PLUS_PROMPTS);
+        assert!(rows[1].searchable);
+        let items = rows[1].items.as_ref().unwrap();
+        assert_eq!(items.iter().map(|i| (i.label.as_str(), i.value.as_str(), i.icon.as_deref())).collect::<Vec<_>>(), [("Triage", "p1", Some(PROMPT_ICON)), ("Ship", "p3", Some("ui-rocket"))]);
+        let menu = uicore_model::chat::plus_menu(&rows);
+        assert_eq!(menu[1]["items"][1]["value"], "prompts:p3");
+    }
 
     #[test]
     fn the_arrows_wrap_the_highlight_and_enter_tab_pick_escape_dismisses() {
