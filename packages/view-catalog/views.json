@@ -6834,7 +6834,7 @@
       "group": "exponential-ui-catalog",
       "title": "genUI · KeyRecorder",
       "blurb": "EXP-1629: A shortcut field: a press records, the keys go to the host, the binding shows as key caps. The core catalog specimen (a binding, none, recording, a held modifier, an inline error) of ui.exponential.at/components/key-recorder/.",
-      "order": 115,
+      "order": 117,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-key-recorder",
         "anchor": {
