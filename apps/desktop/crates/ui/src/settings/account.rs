@@ -51,11 +51,13 @@ pub struct AccountPane {
     /// FEED-79: the timezone read in flight is the person's Retry press (its
     /// failure toasts); a read on entry fails quietly.
     timezone_retry_pressed: bool,
+    /// #LOGS-2: the local "Send diagnostics" switch (never synced).
+    send_diagnostics: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AccountPane {
-    pub fn new(nav: Entity<Navigation>, _window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let users = sync::Store::global(cx).collections().users.clone();
         let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
         let subscriptions = vec![
@@ -64,7 +66,7 @@ impl AccountPane {
             cx.observe(&users, |_, _, cx| cx.notify()),
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
         ];
-        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav.clone(), cx));
+        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav.clone(), window, cx));
         Self {
             nav,
             timezone: Timezone::Idle,
@@ -72,6 +74,7 @@ impl AccountPane {
             account_id: None,
             sign_in_methods,
             timezone_retry_pressed: false,
+            send_diagnostics: crate::diagnostics::enabled(),
             _subscriptions: subscriptions,
         }
     }
@@ -303,6 +306,25 @@ impl AccountPane {
 }
 
 impl AccountPane {
+    /// #LOGS-2 web parity: the Privacy band, one switch row.
+    fn render_privacy(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let switch = crate::controls::web_switch("account-send-diagnostics")
+            .checked(self.send_diagnostics)
+            .on_click(cx.listener(|this, on: &bool, _, cx| {
+                this.send_diagnostics = *on;
+                crate::diagnostics::set_enabled(*on, cx);
+                cx.notify();
+            }));
+        super::section(cx)
+            .child(crate::surface::glass_section_header("Privacy", None, cx))
+            .child(crate::surface::glass_group_rows(vec![crate::surface::glass_toggle_row(
+                "Send diagnostics",
+                None,
+                switch.into_any_element(),
+                cx,
+            )]))
+    }
+
     /// Web `DeleteAccountSection`'s band + row; the deletion itself runs on
     /// the web account page (EXP-69 keeps it off the desktop).
     fn render_danger_zone(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::Div> {
@@ -324,6 +346,7 @@ impl AccountPane {
 
 impl Render for AccountPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AccountPane").entered();
         self.ensure_timezone_loaded(cx);
 
         // An ordinary section pane since EXP-238 — `SettingsView` owns the
@@ -334,6 +357,7 @@ impl Render for AccountPane {
             // Web parity: the Timezone row sits right under the identity.
             .child(self.render_timezone(cx))
             .child(self.sign_in_methods.clone())
+            .child(self.render_privacy(cx))
             .children(self.render_danger_zone(cx))
     }
 }

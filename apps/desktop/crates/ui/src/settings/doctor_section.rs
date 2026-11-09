@@ -193,6 +193,7 @@ pub(crate) fn recheck_button(id: &'static str, running: bool, cx: &App) -> impl 
 
 impl Render for DoctorPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DoctorPanel").entered();
         let hub = CodingHub::global(cx);
         let (doctor, running) = {
             let hub = hub.read(cx);

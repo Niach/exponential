@@ -6,6 +6,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Markdown: an image directly in a top-level paragraph's text splits the paragraph into the text before it, a block image and the text after it (edges trimmed, an empty side dropped); in a heading, list item, cell, quote or inside a span it stays its alt text (#FEED-208, `fixtures/markdown-render.json` `image_split_*`).
+## 0.20.0 (2026-11-08)
+
 - Tabs `swipeable` (#FEED-200): a horizontal touch drag on the panels pages them (iOS; a mouse never pages): `swipe {phase, offset, velocity}` to the core, which draws the pages and the header `thumb` and settles. A touch starting inside something that scrolls, pans or drags sideways keeps it (`SurfaceModel.swipeBlocked`); the axis waits for the slop (`swipeAxis`). `SurfaceModel.isSwipeContent`, `tabSwipe`. Replays `fixtures/swipe.json` through the FFI (`swipeLock`, `swipeOffset`, `swipeSettle`, `swipeBlocks`).
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).
 - An anchored overlay closes once its anchor scrolls, moves or leaves the tree (#EXP-1739, through the core).

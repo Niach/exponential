@@ -140,6 +140,7 @@ impl AppExportView {
 
 impl Render for AppExportView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AppExportView").entered();
         let row = synced_row(&self.app_id, cx);
         let has_records = !app_records(&self.app_id, cx).is_empty();
         let has_package = row.as_ref().is_some_and(|row| row.draft_package.as_ref().or(row.package.as_ref()).is_some_and(|p| !p.is_null()));

@@ -839,6 +839,7 @@ impl McpPane {
 
 impl Render for McpPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "McpPane").entered();
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().id(test_id("page")).child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
@@ -926,6 +927,7 @@ impl McpActivityPane {
 
 impl Render for McpActivityPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "McpActivityPane").entered();
         let body = section(cx)
             .id(test_id("activity"))
             .child(crate::surface::glass_section_header(SETTINGS_MCP.activity, None, cx));

@@ -1162,6 +1162,7 @@ fn sign_in_error_message(err: &api::ApiError) -> String {
 
 impl Render for LoginView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "LoginView").entered();
         let session = Store::global(cx).session(cx);
         let signing_in = session == SessionPhase::SigningIn;
         let expired = matches!(session, SessionPhase::AuthExpired { .. });

@@ -446,6 +446,7 @@ impl NewAgentPane {
 
 impl Render for NewAgentPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "NewAgentPane").entered();
         if !self.focused_once {
             self.focused_once = true;
             self.name.update(cx, |state, cx| state.focus(window, cx));

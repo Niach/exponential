@@ -1111,6 +1111,7 @@ pub(crate) fn request_add(name: String, cx: &mut App) {
 
 impl Render for McpServersPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "McpServersPane").entered();
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),

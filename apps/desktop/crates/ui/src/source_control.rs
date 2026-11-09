@@ -886,6 +886,7 @@ impl Focusable for SourceControlView {
 
 impl Render for SourceControlView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SourceControlView").entered();
         self.ensure_scope(cx);
         // Follow the sidebar history list's selection.
         let want = self.rail.read(cx).sc_selection().clone();
@@ -1842,6 +1843,7 @@ fn paint_dot(window: &mut Window, x: Pixels, y: Pixels, color: Hsla, filled: boo
 
 impl Render for HistoryList {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "HistoryList").entered();
         self.ensure_fresh(cx);
         let no_clone = self.seen_clone.is_none();
         // EXP-509: the synthetic uncommitted row leads the list — even over

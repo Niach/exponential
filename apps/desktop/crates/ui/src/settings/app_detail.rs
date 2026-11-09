@@ -771,6 +771,7 @@ impl AppDetailPane {
 
 impl Render for AppDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AppDetailPane").entered();
         let Some(page) = self.page() else {
             return v_flex().into_any_element();
         };
