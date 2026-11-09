@@ -1536,8 +1536,7 @@
         "style": {
           "type": "style",
           "description": "Extra Box styles merged over the card's own."
-        }
-,
+        },
         "pressable": {
           "type": "boolean",
           "default": false,
@@ -4351,8 +4350,7 @@
           },
           "bindable": true,
           "description": "Recent values (sparkline)."
-        }
-,
+        },
         "pressable": {
           "type": "boolean",
           "default": false,
@@ -6462,6 +6460,46 @@
             "color": "$color.mutedForeground"
           }
         ]
+      }
+    },
+    "Embed": {
+      "kind": "native",
+      "group": "layout",
+      "lite": false,
+      "children": "none",
+      "description": "A nested surface drawn in place, sandboxed: its own data and ids, never the host's. Its `event` actions fire `action` {name, context}; a bad surface shows an error box.",
+      "props": {
+        "surface": {
+          "type": "object",
+          "required": true,
+          "bindable": true,
+          "description": "{root: a nested component, data?: object}."
+        }
+      },
+      "events": [
+        "action"
+      ],
+      "example": {
+        "surface": {
+          "root": {
+            "id": "card",
+            "component": "Button",
+            "props": {
+              "label": "Approve"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "reply",
+                  "context": {
+                    "text": "Approve"
+                  }
+                }
+              }
+            }
+          },
+          "data": {}
+        }
       }
     },
     "Calendar": {

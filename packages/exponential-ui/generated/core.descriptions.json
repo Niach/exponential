@@ -3022,6 +3022,36 @@
         ]
       }
     },
+    "Embed": {
+      "props": {
+        "surface": {
+          "description": "{root: a nested component, data?: object}."
+        }
+      },
+      "description": "A nested surface drawn in place, sandboxed: its own data and ids, never the host's. Its `event` actions fire `action` {name, context}; a bad surface shows an error box.",
+      "example": {
+        "surface": {
+          "root": {
+            "id": "card",
+            "component": "Button",
+            "props": {
+              "label": "Approve"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "reply",
+                  "context": {
+                    "text": "Approve"
+                  }
+                }
+              }
+            }
+          },
+          "data": {}
+        }
+      }
+    },
     "Calendar": {
       "props": {
         "source": {

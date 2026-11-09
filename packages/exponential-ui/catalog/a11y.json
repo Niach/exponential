@@ -232,6 +232,13 @@
         "None: press/move/leave are pointer-only (keyboard users read the label)"
       ]
     },
+    "Embed": {
+      "role": "none",
+      "notes": "no role of its own: the nested surface's nodes join the host's order in place; the error box is an Alert",
+      "keys": [
+        "None of its own: Tab moves through the nested surface's controls in place"
+      ]
+    },
     "Image": {
       "role": "img",
       "notes": "img (alt = name; decorative when alt is empty)",

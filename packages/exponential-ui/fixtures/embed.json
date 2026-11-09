@@ -1,0 +1,1240 @@
+{
+  "$comment": "#EDE-65 lane M (docs/round-9-contract.md §15): Embed, a nested genUI surface drawn in place, SANDBOXED. HAND-AUTHORED; replayed by src/embed.test.ts (the TS reference src/embed.ts), packages/exponential-ui-react/src/embed.test.tsx, packages/exponential-ui-solid/src/embed.test.tsx, apps/desktop/crates/eui-core/tests/embed_fixture.rs (eui_core::embed), apps/desktop/crates/eui-gpui/tests/embed.rs, the SwiftUI EmbedTests and the Compose EmbedTest. `surface` is a DATA prop: a binding `{\"@path\"}` AT THE TOP resolves against the host (the Embed's scope), nothing inside it ever does. `errorRoot` = what a bad surface paints instead (an error Alert titled `$string.embedInvalid`), the host around it unchanged. `parse`: the resolved `surface` value → `valid` and, when valid, the card's `data` (missing or null = {}); a card is an object with a sound `root` (string non-empty `id` + `component`; `props`, `on`, `style` objects when present; `children` an array of sound nodes; `slots` an object of sound nodes), `data` absent, null or an object, `version` absent or \"1.0\"; an unknown component inside a sound root is valid (the nested surface paints its Unknown placeholder). `render`: mount the host `root` with `data` under the neutral theme: every `texts` entry is painted (in order of the host's pre-order with the nested surface in place of its Embed), no `absent` entry is. `events`: mount, then press the inner node `press.node` of the `press.embed`-th painted Embed (0-based, painted order): the host hears exactly `actions` ({name, context}: the Embed's own `on.action` event with the payload {name: inner event name, context: inner event context} merged over the author's context, like any component payload; no `on.action` = nothing), its host-function handler hears `functions` (an inner host function is DENIED: never forwarded, its action stops), and afterwards every `texts` entry is painted and no `absent` one (an inner `set` writes the nested model only).",
+  "errorRoot": {
+    "id": "embed_error",
+    "component": "Alert",
+    "props": {
+      "type": "error",
+      "title": "$string.embedInvalid"
+    }
+  },
+  "parse": [
+    {
+      "name": "minimal",
+      "surface": {
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "Hi"
+          }
+        }
+      },
+      "valid": true,
+      "data": {}
+    },
+    {
+      "name": "with-data",
+      "surface": {
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "Hi"
+          }
+        },
+        "data": {
+          "n": 1,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "valid": true,
+      "data": {
+        "n": 1,
+        "rows": [
+          {
+            "id": "a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "data-null",
+      "surface": {
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "Hi"
+          }
+        },
+        "data": null
+      },
+      "valid": true,
+      "data": {}
+    },
+    {
+      "name": "version-1.0",
+      "surface": {
+        "version": "1.0",
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "Hi"
+          }
+        }
+      },
+      "valid": true,
+      "data": {}
+    },
+    {
+      "name": "nested-children-and-slots",
+      "surface": {
+        "root": {
+          "id": "r",
+          "component": "Row",
+          "props": {
+            "title": "A"
+          },
+          "slots": {
+            "trailing": {
+              "id": "b",
+              "component": "Badge",
+              "props": {
+                "text": "New"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "c",
+              "component": "Text",
+              "props": {
+                "text": "x"
+              }
+            }
+          ]
+        }
+      },
+      "valid": true,
+      "data": {}
+    },
+    {
+      "name": "unknown-component-is-valid",
+      "surface": {
+        "root": {
+          "id": "g",
+          "component": "Gauge"
+        }
+      },
+      "valid": true,
+      "data": {}
+    },
+    {
+      "name": "a-string",
+      "surface": "hello",
+      "valid": false
+    },
+    {
+      "name": "an-array",
+      "surface": [],
+      "valid": false
+    },
+    {
+      "name": "null",
+      "surface": null,
+      "valid": false
+    },
+    {
+      "name": "no-root",
+      "surface": {
+        "data": {}
+      },
+      "valid": false
+    },
+    {
+      "name": "root-a-string",
+      "surface": {
+        "root": "Text"
+      },
+      "valid": false
+    },
+    {
+      "name": "root-without-component",
+      "surface": {
+        "root": {
+          "id": "x"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "root-without-id",
+      "surface": {
+        "root": {
+          "component": "Text"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "root-empty-id",
+      "surface": {
+        "root": {
+          "id": "",
+          "component": "Text"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "props-an-array",
+      "surface": {
+        "root": {
+          "id": "x",
+          "component": "Text",
+          "props": []
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "on-a-string",
+      "surface": {
+        "root": {
+          "id": "x",
+          "component": "Button",
+          "on": "press"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "children-a-string",
+      "surface": {
+        "root": {
+          "id": "s",
+          "component": "Stack",
+          "children": "x"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "bad-child",
+      "surface": {
+        "root": {
+          "id": "s",
+          "component": "Stack",
+          "children": [
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "bad-slot",
+      "surface": {
+        "root": {
+          "id": "r",
+          "component": "Row",
+          "slots": {
+            "trailing": "x"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "data-an-array",
+      "surface": {
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "Hi"
+          }
+        },
+        "data": [
+          1
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "version-0.9",
+      "surface": {
+        "version": "0.9",
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "Hi"
+          }
+        }
+      },
+      "valid": false
+    }
+  ],
+  "render": [
+    {
+      "name": "in-place",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "before",
+            "component": "Text",
+            "props": {
+              "text": "Host"
+            }
+          },
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "t",
+                      "component": "Text",
+                      "props": {
+                        "text": "Inner"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "after",
+            "component": "Text",
+            "props": {
+              "text": "After"
+            }
+          }
+        ]
+      },
+      "data": {},
+      "texts": [
+        "Host",
+        "Inner",
+        "After"
+      ],
+      "absent": [
+        "This card could not be shown"
+      ]
+    },
+    {
+      "name": "own-data",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "name",
+                      "component": "Text",
+                      "props": {
+                        "text": {
+                          "@path": "/name"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "data": {
+                  "name": "Inner name"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "name": "Host name"
+      },
+      "texts": [
+        "Inner name"
+      ],
+      "absent": [
+        "Host name"
+      ]
+    },
+    {
+      "name": "no-host-data",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "label",
+            "component": "Text",
+            "props": {
+              "text": "Card:"
+            }
+          },
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "leak",
+                      "component": "Text",
+                      "props": {
+                        "text": {
+                          "@path": "/secret"
+                        }
+                      }
+                    },
+                    {
+                      "id": "ok",
+                      "component": "Text",
+                      "props": {
+                        "text": "Shown"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "secret": "Host secret"
+      },
+      "texts": [
+        "Card:",
+        "Shown"
+      ],
+      "absent": [
+        "Host secret"
+      ]
+    },
+    {
+      "name": "same-ids-as-host",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "t",
+            "component": "Text",
+            "props": {
+              "text": "Host text"
+            }
+          },
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "t",
+                  "component": "Text",
+                  "props": {
+                    "text": "Card text"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {},
+      "texts": [
+        "Host text",
+        "Card text"
+      ],
+      "absent": []
+    },
+    {
+      "name": "bound-surface",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "@path": "/card"
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "card": {
+          "root": {
+            "id": "t",
+            "component": "Text",
+            "props": {
+              "text": "From the host data"
+            }
+          }
+        }
+      },
+      "texts": [
+        "From the host data"
+      ],
+      "absent": [
+        "This card could not be shown"
+      ]
+    },
+    {
+      "name": "template-rows",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "rows",
+            "component": "List",
+            "template": {
+              "component": "row",
+              "path": "/cards",
+              "key": "id"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "@path": "surface"
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "cards": [
+          {
+            "id": "a",
+            "surface": {
+              "root": {
+                "id": "t",
+                "component": "Text",
+                "props": {
+                  "text": "First card"
+                }
+              }
+            }
+          },
+          {
+            "id": "b",
+            "surface": {
+              "root": {
+                "id": "t",
+                "component": "Text",
+                "props": {
+                  "text": "Second card"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "texts": [
+        "First card",
+        "Second card"
+      ],
+      "absent": []
+    },
+    {
+      "name": "bad-surface-error-box",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "before",
+            "component": "Text",
+            "props": {
+              "text": "Host"
+            }
+          },
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "x"
+                }
+              }
+            }
+          },
+          {
+            "id": "after",
+            "component": "Text",
+            "props": {
+              "text": "After"
+            }
+          }
+        ]
+      },
+      "data": {},
+      "texts": [
+        "Host",
+        "This card could not be shown",
+        "After"
+      ],
+      "absent": []
+    },
+    {
+      "name": "unbound-surface-error-box",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "@path": "/missing"
+              }
+            }
+          },
+          {
+            "id": "after",
+            "component": "Text",
+            "props": {
+              "text": "After"
+            }
+          }
+        ]
+      },
+      "data": {},
+      "texts": [
+        "This card could not be shown",
+        "After"
+      ],
+      "absent": []
+    },
+    {
+      "name": "nested-embed",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "outer",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "o",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "t",
+                      "component": "Text",
+                      "props": {
+                        "text": "Outer"
+                      }
+                    },
+                    {
+                      "id": "inner",
+                      "component": "Embed",
+                      "props": {
+                        "surface": {
+                          "root": {
+                            "id": "t",
+                            "component": "Text",
+                            "props": {
+                              "text": "Innermost"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {},
+      "texts": [
+        "Outer",
+        "Innermost"
+      ],
+      "absent": []
+    }
+  ],
+  "events": [
+    {
+      "name": "reply-bubbles",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "question",
+                      "component": "Text",
+                      "props": {
+                        "text": "Ship it?"
+                      }
+                    },
+                    {
+                      "id": "yes",
+                      "component": "Button",
+                      "props": {
+                        "label": "Yes"
+                      },
+                      "on": {
+                        "press": {
+                          "event": {
+                            "name": "reply",
+                            "context": {
+                              "text": "Yes"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "on": {
+              "action": {
+                "event": {
+                  "name": "card",
+                  "context": {
+                    "row": "a"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {},
+      "press": {
+        "embed": 0,
+        "node": "yes"
+      },
+      "actions": [
+        {
+          "name": "card",
+          "context": {
+            "row": "a",
+            "name": "reply",
+            "context": {
+              "text": "Yes"
+            }
+          }
+        }
+      ],
+      "functions": [],
+      "texts": [
+        "Ship it?"
+      ],
+      "absent": []
+    },
+    {
+      "name": "which-row",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "rows",
+            "component": "List",
+            "template": {
+              "component": "row",
+              "path": "/cards",
+              "key": "id"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "@path": "surface"
+              }
+            },
+            "on": {
+              "action": {
+                "event": {
+                  "name": "card",
+                  "context": {
+                    "row": {
+                      "@path": "id"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "cards": [
+          {
+            "id": "a",
+            "surface": {
+              "root": {
+                "id": "inner",
+                "component": "Stack",
+                "children": [
+                  {
+                    "id": "question",
+                    "component": "Text",
+                    "props": {
+                      "text": "Ship it?"
+                    }
+                  },
+                  {
+                    "id": "yes",
+                    "component": "Button",
+                    "props": {
+                      "label": "Yes"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "reply",
+                          "context": {
+                            "text": "Yes"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "b",
+            "surface": {
+              "root": {
+                "id": "inner",
+                "component": "Stack",
+                "children": [
+                  {
+                    "id": "question",
+                    "component": "Text",
+                    "props": {
+                      "text": "Ship it?"
+                    }
+                  },
+                  {
+                    "id": "yes",
+                    "component": "Button",
+                    "props": {
+                      "label": "Yes"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "reply",
+                          "context": {
+                            "text": "Yes"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "press": {
+        "embed": 1,
+        "node": "yes"
+      },
+      "actions": [
+        {
+          "name": "card",
+          "context": {
+            "row": "b",
+            "name": "reply",
+            "context": {
+              "text": "Yes"
+            }
+          }
+        }
+      ],
+      "functions": [],
+      "texts": [],
+      "absent": []
+    },
+    {
+      "name": "author-key-loses",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "question",
+                      "component": "Text",
+                      "props": {
+                        "text": "Ship it?"
+                      }
+                    },
+                    {
+                      "id": "yes",
+                      "component": "Button",
+                      "props": {
+                        "label": "Yes"
+                      },
+                      "on": {
+                        "press": {
+                          "event": {
+                            "name": "reply",
+                            "context": {
+                              "text": "Yes"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "on": {
+              "action": {
+                "event": {
+                  "name": "card",
+                  "context": {
+                    "name": "author",
+                    "context": "author",
+                    "kept": true
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {},
+      "press": {
+        "embed": 0,
+        "node": "yes"
+      },
+      "actions": [
+        {
+          "name": "card",
+          "context": {
+            "kept": true,
+            "name": "reply",
+            "context": {
+              "text": "Yes"
+            }
+          }
+        }
+      ],
+      "functions": [],
+      "texts": [],
+      "absent": []
+    },
+    {
+      "name": "no-on-action",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "question",
+                      "component": "Text",
+                      "props": {
+                        "text": "Ship it?"
+                      }
+                    },
+                    {
+                      "id": "yes",
+                      "component": "Button",
+                      "props": {
+                        "label": "Yes"
+                      },
+                      "on": {
+                        "press": {
+                          "event": {
+                            "name": "reply",
+                            "context": {
+                              "text": "Yes"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {},
+      "press": {
+        "embed": 0,
+        "node": "yes"
+      },
+      "actions": [],
+      "functions": [],
+      "texts": [],
+      "absent": []
+    },
+    {
+      "name": "inner-bound-context",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "go",
+                  "component": "Button",
+                  "props": {
+                    "label": "Go"
+                  },
+                  "on": {
+                    "press": {
+                      "event": {
+                        "name": "pick",
+                        "context": {
+                          "id": {
+                            "@path": "/pick"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "data": {
+                  "pick": "inner"
+                }
+              }
+            },
+            "on": {
+              "action": {
+                "event": {
+                  "name": "card"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "pick": "host"
+      },
+      "press": {
+        "embed": 0,
+        "node": "go"
+      },
+      "actions": [
+        {
+          "name": "card",
+          "context": {
+            "name": "pick",
+            "context": {
+              "id": "inner"
+            }
+          }
+        }
+      ],
+      "functions": [],
+      "texts": [],
+      "absent": []
+    },
+    {
+      "name": "set-stays-inner",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "hostCount",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "/count"
+              }
+            }
+          },
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "count",
+                      "component": "Text",
+                      "props": {
+                        "text": {
+                          "@path": "/count"
+                        }
+                      }
+                    },
+                    {
+                      "id": "bump",
+                      "component": "Button",
+                      "props": {
+                        "label": "Bump"
+                      },
+                      "on": {
+                        "press": {
+                          "functionCall": {
+                            "@call": "set",
+                            "args": {
+                              "path": "/count",
+                              "value": "Inner after"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "data": {
+                  "count": "Inner before"
+                }
+              }
+            },
+            "on": {
+              "action": {
+                "event": {
+                  "name": "card"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {
+        "count": "Host count"
+      },
+      "press": {
+        "embed": 0,
+        "node": "bump"
+      },
+      "actions": [],
+      "functions": [],
+      "texts": [
+        "Host count",
+        "Inner after"
+      ],
+      "absent": [
+        "Inner before"
+      ]
+    },
+    {
+      "name": "host-function-denied",
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "toast",
+                  "component": "Button",
+                  "props": {
+                    "label": "Toast"
+                  },
+                  "on": {
+                    "press": {
+                      "functionCall": {
+                        "@call": "app_toast",
+                        "args": {
+                          "message": "x"
+                        }
+                      },
+                      "event": {
+                        "name": "toasted"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "on": {
+              "action": {
+                "event": {
+                  "name": "card"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "data": {},
+      "press": {
+        "embed": 0,
+        "node": "toast"
+      },
+      "actions": [],
+      "functions": [],
+      "texts": [],
+      "absent": []
+    }
+  ]
+}

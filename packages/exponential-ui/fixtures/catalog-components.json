@@ -13486,6 +13486,35 @@
       }
     },
     {
+      "name": "Embed/example",
+      "node": {
+        "id": "embed",
+        "component": "Embed",
+        "props": {
+          "surface": {
+            "root": {
+              "id": "card",
+              "component": "Button",
+              "props": {
+                "label": "Approve"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Approve"
+                    }
+                  }
+                }
+              }
+            },
+            "data": {}
+          }
+        }
+      }
+    },
+    {
       "name": "Calendar/example",
       "node": {
         "id": "calendar",

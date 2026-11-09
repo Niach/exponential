@@ -14793,6 +14793,69 @@
       }
     },
     {
+      "id": "exponential-ui-embed",
+      "component": "Embed",
+      "title": "Embed",
+      "node": {
+        "id": "specimen_embed",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_embed_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_embed_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_embed",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "root": {
+                      "id": "card",
+                      "component": "Button",
+                      "props": {
+                        "label": "Approve"
+                      },
+                      "on": {
+                        "press": {
+                          "event": {
+                            "name": "reply",
+                            "context": {
+                              "text": "Approve"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "data": {}
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-calendar",
       "component": "Calendar",
       "title": "Calendar",

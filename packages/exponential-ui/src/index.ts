@@ -195,3 +195,6 @@ export * from "./canvas"
 export * from "./checkbox"
 export * from "./upgrade09"
 export { isIdentifier, mangle } from "./ids"
+// #EDE-65: Embed, a sandboxed nested surface (fixtures/embed.json).
+export { EMBED_ERROR_ROOT, EMBED_EVENT, embedCard, embedMount, embedPayload, embedSurfaceId } from "./embed"
+export type { EmbedCard } from "./embed"

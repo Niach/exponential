@@ -165,7 +165,8 @@ describe(`kitchen-sink.json`, () => {
     // locks their expansion meanwhile.
     // #EXP-1629: KeyRecorder (Kbd caps in Boxes, natives the sink has) joins
     // with that rewrite too; catalog-macros.json + template-items.json lock it.
-    const later = [`Calendar`, `Timeline`, `KeyRecorder`]
+    // #EDE-65: Embed paints a nested surface; embed.json locks it.
+    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`]
     // VAPP-217: a macro the HOST fills (RecordForm, RecordTable: props marked
     // `host`) paints only once filled; its catalog specimen shows it (the
     // styleguide entries) and it expands into natives the sink already has.
