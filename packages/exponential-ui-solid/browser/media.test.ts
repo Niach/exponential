@@ -271,3 +271,46 @@ describe(`media parity`, () => {
     expect(s).toEqual(r)
   })
 })
+
+describe(`Avatar: fixtures/avatar.json in Chromium (#EXP-1629)`, () => {
+  it(`a seed paints its palette hue, no seed the muted recipe; letters at half the diameter, regular; a picture wears the ring`, async () => {
+    const png = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
+    const tree = {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `sm`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `sm` } },
+        { id: `md`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-jonas` } },
+        { id: `lg`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-sofia`, size: `lg` } },
+        { id: `xl`, component: `Avatar`, props: { name: `Jane Doe`, seed: `alex`, size: `xl` } },
+        { id: `none`, component: `Avatar`, props: { name: `Jane Doe` } },
+        { id: `pic`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `xl`, src: png } },
+      ],
+    }
+    const [r, s] = await both(tree, async (page) => {
+      await page.waitForFunction(() => document.querySelector(`[data-xui-id="pic"] img`) !== null, null, { timeout: 5000 })
+      return page.evaluate(() => {
+        const read = (id: string) => {
+          const root = document.querySelector<HTMLElement>(`[data-xui-id="${id}"]`)!
+          const f = root.querySelector<HTMLElement>(`.xui-Avatar-fallback`)
+          const cs = f ? getComputedStyle(f) : null
+          return { size: root.getBoundingClientRect().width, text: f?.textContent ?? null, color: cs?.color ?? null, fill: cs?.backgroundColor ?? null, fontSize: cs?.fontSize ?? null, weight: cs?.fontWeight ?? null, border: cs?.borderTopWidth ?? null }
+        }
+        const img = getComputedStyle(document.querySelector(`[data-xui-id="pic"] img`)!)
+        return { sm: read(`sm`), md: read(`md`), lg: read(`lg`), xl: read(`xl`), none: read(`none`), ring: { width: img.borderTopWidth, style: img.borderTopStyle, color: img.borderTopColor, radius: img.borderTopLeftRadius } }
+      })
+    })
+    // fixtures/avatar.json hues: demo-mira 2, demo-jonas 4, demo-sofia 1, alex 5.
+    expect([r.sm.color, r.md.color, r.lg.color, r.xl.color]).toEqual([`rgb(250, 204, 21)`, `rgb(45, 212, 191)`, `rgb(251, 146, 60)`, `rgb(96, 165, 250)`])
+    expect(r.sm.fill).toBe(`color(srgb 0.980392 0.8 0.0823529 / 0.2)`)
+    expect([r.sm.text, r.md.text]).toEqual([`JD`, `AS`])
+    expect([r.sm, r.md, r.lg, r.xl].map((a) => Number.parseFloat(a.fontSize!) / a.size)).toEqual([0.5, 0.5, 0.5, 0.5])
+    expect(r.xl.size).toBe(48)
+    expect(new Set([r.sm, r.md, r.lg, r.xl, r.none].map((a) => a.weight))).toEqual(new Set([`400`]))
+    expect([r.sm.border, r.none.border]).toEqual([`0px`, `0px`])
+    expect(r.none.color).not.toBe(r.md.color)
+    expect(r.ring.width).toBe(`1px`)
+    expect(r.ring.style).toBe(`solid`)
+    expect(s).toEqual(r)
+  })
+})
