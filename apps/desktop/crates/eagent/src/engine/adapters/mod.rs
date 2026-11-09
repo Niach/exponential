@@ -1,7 +1,7 @@
 //! EXP-746 — the ACP adapters.
 //!
 //! Each one presents the user's UNMODIFIED agent CLI as an ACP `Agent` to the
-//! engine's `Client`, in-process: `Client.builder().connect_with(adapter,
+//! engine's `Client`, in-process: `Client.v1().connect_with(adapter,
 //! main_fn)` creates the `Channel` pair itself and drives both halves in ONE
 //! `Send` future, so there is no serialization at the seam and no second
 //! runtime. The adapters are the ONLY place that knows an agent's private

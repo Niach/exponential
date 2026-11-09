@@ -146,6 +146,11 @@ impl Workspaces {
         api::TrpcClient::new(&account.instance_url, self.auth.token_provider(&account.id))
     }
 
+    /// The account's attachment uploads (#EDE-65 lane L: the chat composer's files).
+    pub fn attachments(&self, account: &api::accounts::Account) -> api::attachment_upload::HttpAttachmentTransport {
+        api::attachment_upload::HttpAttachmentTransport::new(&account.instance_url, self.auth.token_provider(&account.id))
+    }
+
     /// The entry the desktops index says is current (a Local desktop).
     pub fn current_local(&self) -> Option<SwitcherEntry> {
         if self.demo {

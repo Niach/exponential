@@ -8,6 +8,8 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 reqwest.workspace = true
+# Every reqwest client is built through it (the crypto provider first).
+exp-http = { path = "../exp-http" }
 dirs.workspace = true
 log = "0.4"
 # Streaming digest for SHA256SUMS.txt verification — already in the tree

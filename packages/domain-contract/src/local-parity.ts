@@ -226,8 +226,30 @@ export interface SendContext {
   deviceId: string
   /** the target session and its conversation when `sessionId` names one */
   existing?: { session: Row; conversation: Row } | null
+  /** #EDE-65 lane L: the rows of the send's `attachmentIds` (id, filename, content_type) */
+  attachments?: Row[]
   nextId: () => string
   now: string
+}
+
+const INLINE_IMAGE_TYPES = [`image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/avif`]
+
+/** The server's `attachmentLine`: an embed for an inline image, else a link. */
+export function attachmentLine(row: Row): string {
+  const url = `/api/attachments/${row.id as string}`
+  const name = String(row.filename ?? ``).replace(/[[\]]/g, ``)
+  return INLINE_IMAGE_TYPES.includes(String(row.content_type)) ? `![${name}](${url})` : `[${name}](${url})`
+}
+
+/** A sent body with the line of every attachment it does not name yet (the server's `claimMessageAttachments`). */
+export function bodyWithAttachments(text: string, ids: readonly string[], attachments: readonly Row[]): string {
+  const lines = ids
+    .filter((id) => !text.includes(`/api/attachments/${id}`))
+    .map((id) => attachments.find((row) => row.id === id))
+    .filter((row): row is Row => !!row)
+    .map(attachmentLine)
+  if (lines.length === 0) return text
+  return [text.trimEnd(), ...lines].filter(Boolean).join(`\n\n`)
 }
 
 /** `sessions.send`: the rows written and the answer. */
@@ -289,6 +311,7 @@ export function sendRows(input: Row, ctx: SendContext): { rows: Written[]; outpu
     rows.push({ table: `conversations`, row: { id: conversationId, team_id: ctx.teamId, kind: `session`, session_id: sessionId, title: null, digest: null, created_at: ctx.now, updated_at: ctx.now } })
   }
   const messageId = ctx.nextId()
+  const attachmentIds: string[] = Array.isArray(input.attachmentIds) ? input.attachmentIds : []
   rows.push({
     table: `messages`,
     row: {
@@ -299,9 +322,9 @@ export function sendRows(input: Row, ctx: SendContext): { rows: Written[]; outpu
       author_kind: `user`,
       author_id: ctx.identity.userId,
       author_session_id: null,
-      body: str(input.text) ?? ``,
+      body: bodyWithAttachments(str(input.text) ?? ``, attachmentIds, ctx.attachments ?? []),
       card: null,
-      attachment_ids: Array.isArray(input.attachmentIds) ? input.attachmentIds : [],
+      attachment_ids: attachmentIds,
       issue_brief: null,
       answered_at: null,
       consumed_at: null,

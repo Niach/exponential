@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     CancelNotification, ClientCapabilities, ContentBlock, CreateElicitationRequest,
     CreateElicitationResponse, ElicitationAcceptAction, ElicitationContentValue,
     ElicitationMode, InitializeRequest, LoadSessionRequest, NewSessionRequest,
@@ -31,7 +31,8 @@ use agent_client_protocol::schema::v1::{
     SetSessionModeRequest, StopReason, TextContent, ToolCallContent, ToolKind,
 };
 use agent_client_protocol::schema::ProtocolVersion;
-use agent_client_protocol::{Client, ConnectionTo};
+use agent_client_protocol::Client;
+use agent_client_protocol::v1::ConnectionTo;
 use engine::adapters::codex::{CodexAgent, CodexConnection};
 
 /// EXP-877 — the single advertised option's value: `model`, a VALUE with NO
@@ -447,7 +448,7 @@ async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
     let sink = recorded.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 sink.push(notification.update);
@@ -557,7 +558,7 @@ async fn a_new_command_starts_a_new_thread_and_the_next_turn_rides_it() {
     let seen = natives.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 if let Some(native) = notification
@@ -620,7 +621,7 @@ async fn a_loaded_thread_resumes_and_its_next_turn_runs() {
     let sink = recorded.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 sink.push(notification.update);
@@ -702,7 +703,7 @@ async fn a_resumed_thread_carries_its_base_instead_of_measuring() {
     let sink = Arc::clone(&metas);
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 if let Some(frame) = notification
@@ -767,7 +768,7 @@ async fn an_approval_becomes_a_permission_request_and_its_answer_reaches_codex()
     let seen = asked.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -841,7 +842,7 @@ async fn a_cancelled_turn_drops_every_frame_that_arrives_after_it() {
     let fence = fake.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 sink.push(notification.update);
@@ -911,7 +912,7 @@ async fn a_request_for_user_input_becomes_one_elicitation_with_a_property_per_qu
     let seen = form.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -984,7 +985,7 @@ async fn steering_supersedes_the_live_turn_and_resolves_both_prompts() {
     let watcher = recorded.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 sink.push(notification.update);
@@ -1043,7 +1044,7 @@ async fn the_app_server_going_away_closes_the_connection() {
     let crashing = fake.clone();
 
     let driven = Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -1099,7 +1100,7 @@ async fn a_codex_session_publishes_live_usage_and_detaches_on_end() {
     let ending = fake.clone();
 
     let driven = Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -1171,7 +1172,7 @@ async fn a_codex_session_publishes_under_the_account_it_runs_on() {
     let ending = fake.clone();
 
     let driven = Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -1239,7 +1240,7 @@ async fn a_slow_thread_start_does_not_block_the_dispatch_loop() {
     let watcher = fake.clone();
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -1303,7 +1304,7 @@ async fn a_cancel_resolves_an_open_question_the_way_it_resolves_an_approval() {
     let watcher = fake.clone();
 
     let stop = Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
             agent_client_protocol::on_receive_notification!(),
@@ -1369,7 +1370,7 @@ async fn a_failed_turn_stops_terminally_without_claiming_a_refusal() {
     let sink = recorded.clone();
 
     let stop = Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 sink.push(notification.update);
@@ -1427,7 +1428,7 @@ async fn plan_mode_is_a_local_flag_never_sent_to_codex() {
     let waited = Arc::clone(&modes);
 
     Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 if let SessionUpdate::CurrentModeUpdate(update) = &notification.update {
@@ -1483,7 +1484,7 @@ async fn the_skills_folder_is_an_extra_root_before_the_thread_starts() {
             connection,
         );
         Client
-            .builder()
+            .v1()
             .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
                 cx.send_request(
                     InitializeRequest::new(ProtocolVersion::V1)
