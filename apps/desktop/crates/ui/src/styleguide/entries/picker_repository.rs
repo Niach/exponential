@@ -72,6 +72,7 @@ impl RepositoryPickerDemo {
 
 impl Render for RepositoryPickerDemo {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RepositoryPickerDemo").entered();
         let theme = cx.theme().clone();
         let muted = theme.muted_foreground;
         let filter = self.query.read(cx).value().to_string();

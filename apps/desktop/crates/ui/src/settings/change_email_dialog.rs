@@ -311,6 +311,7 @@ fn step_description(step: &Step) -> String {
 
 impl Render for ChangeEmailDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ChangeEmailDialogView").entered();
         let muted = cx.theme().muted_foreground;
         let label = |text: &'static str| div().text_xs().text_color(muted).child(text);
         let mut body = v_flex().gap_3().child(

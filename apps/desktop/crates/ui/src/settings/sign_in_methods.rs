@@ -587,6 +587,7 @@ impl SignInMethodsSection {
 
 impl Render for SignInMethodsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SignInMethodsSection").entered();
         self.ensure_loaded(cx);
 
         let mut methods_section = section(cx).child(crate::surface::glass_section_header(

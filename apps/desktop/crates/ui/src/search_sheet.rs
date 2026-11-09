@@ -357,6 +357,7 @@ impl SearchSheetView {
 
 impl Render for SearchSheetView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SearchSheetView").entered();
         self.fit_to_content(window, cx);
         let selected = self.list.cursor(self.hits.len());
         let entity = cx.entity().downgrade();

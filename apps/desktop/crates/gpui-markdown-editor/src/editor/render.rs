@@ -302,6 +302,7 @@ impl Editor {
 }
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("markdown.editor.render").entered();
         self.apply_pending_focus(window, cx);
         // EXP-261 vendoring: in embedded mode the HOST owns scrolling — the
         // internal scroll handle is untracked and all offset math is skipped
