@@ -59,7 +59,7 @@ fn a_row_trigger_leads_with_its_label_and_ends_with_the_chevron() {
     assert_eq!(t.props["text"], json!("Sunday"));
     assert_eq!(t.props["icon"], json!("ui-chevron-right"), "Select.chevron");
     let f = frame(&s, &out, "sel.trigger");
-    assert_eq!(f.h, 44.0, "the row recipe's height");
+    assert!((f.h - 40.82).abs() < 0.01, "the exponential row recipe: the IDE picker row's height, {}", f.h);
     assert_eq!(f.w, 760.0 - 32.0, "the whole row");
 
     let mut field = surface(select(json!({})));

@@ -1101,6 +1101,10 @@ impl SurfaceView {
         // #VAPP-253: a lifted top or bottom sheet spans the window.
         if self.lift_layers {
             self.surface.set_layer_viewport(self.window_size.0, self.window_size.1);
+            // #EXP-1629: lifted popups fit into the window, not the surface
+            // (gpui-component's popovers: 8 px from the window's edges).
+            let (ox, oy) = (f32::from(self.origin.x), f32::from(self.origin.y));
+            self.surface.set_popup_bounds(Some((-ox, -oy, self.window_size.0, self.window_size.1)));
         }
         self.track_focus(window, cx);
         self.flush_states();
@@ -1672,6 +1676,10 @@ impl SurfaceView {
             again = true;
         }
         self.window_size = window_size;
+        // #EXP-1629: the popups' window moved with the surface's origin.
+        if self.lift_layers && self.surface.set_popup_bounds(Some((-f32::from(self.origin.x), -f32::from(self.origin.y), window_size.0, window_size.1))) {
+            again = true;
+        }
         if again {
             self.pass(window, cx);
         }

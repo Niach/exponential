@@ -1997,7 +1997,7 @@
             "geometry": {
               "height": 40.82,
               "paddingHorizontal": 14,
-              "gap": 3.5,
+              "gap": 7,
               "borderWidth": 0,
               "borderRadius": 0
             }
@@ -4748,7 +4748,7 @@
             "geometry": {
               "height": 40.82,
               "paddingHorizontal": 14,
-              "gap": 3.5,
+              "gap": 7,
               "borderWidth": 0,
               "borderRadius": 0
             }

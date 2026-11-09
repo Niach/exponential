@@ -210,7 +210,7 @@ impl Surface {
         let mut toast_stack = 0.0f32;
         // #VAPP-253: a popup opened above a sheet laid out at the layer
         // viewport lands in that viewport, like the frames it anchors to.
-        let mut popup_view = view;
+        let mut popup_view = self.popup_bounds.map_or(view, |(x, y, w, h)| View { x, y, w, h });
         for k in 0..self.layers.len() {
             let popup = matches!(self.layers[k].placement, LayerPlacement::Anchored { .. } | LayerPlacement::AtPoint { .. });
             let p = self.place_layer(k, if popup { popup_view } else { view }, vw, vh_eff, &mut frames, &guesses, &mut toast_stack);
@@ -250,10 +250,10 @@ impl Surface {
         self.output(frames, placed, bounded_h, state.rounds, state.upcalls, layout_ns)
     }
 
-    /// #EXP-1629: a Select that just opened scrolls its list so the FIRST
-    /// chosen option is in view (nearest edge, from the top); once per
-    /// opening, the user's scroll is theirs afterwards.
-    fn reveal_select_choices(&mut self, frames: &[Frame]) {
+    /// #EXP-1629: a Select that just opened starts its list at the TOP (the
+    /// IDE's picker: every opening is a fresh pick, the cursor on the first
+    /// option); the user's scroll is theirs while it stays open.
+    fn reveal_select_choices(&mut self, _frames: &[Frame]) {
         let mut open = HashSet::new();
         for spec in self.layers.iter().filter(|l| l.kind == "Select") {
             open.insert(spec.owner.clone());
@@ -261,19 +261,8 @@ impl Surface {
                 continue;
             }
             let Some(list) = spec.scroll_body else { continue };
-            let chosen = self.nodes[list as usize].children.iter().copied().find(|&c| {
-                let n = &self.nodes[c as usize];
-                self.live.get(c as usize).copied().unwrap_or(false) && n.part.as_deref() == Some("item") && n.part_query.as_ref().is_some_and(|q| q.states.iter().any(|s| s == "selected"))
-            });
-            let (Some(view), Some(item)) = (frames.get(list as usize).copied(), chosen.and_then(|c| frames.get(c as usize).copied())) else { continue };
-            let bottom = item.y - view.y + item.h;
-            let y = (bottom - view.h).max(0.0);
             let key = self.scroll_key(list);
-            if y > 0.5 {
-                self.local.scroll.insert(key, (0.0, y));
-            } else {
-                self.local.scroll.remove(&key);
-            }
+            self.local.scroll.remove(&key);
         }
         self.select_revealed = open;
     }
@@ -569,7 +558,7 @@ impl Surface {
                 let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
                 let physical = physical_align(align, rtl);
                 aligned = Some(physical);
-                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place(a, size, view, side, align, rtl) };
+                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
                 let pos = p.side.as_str().to_string();
                 (Some(p), pos, Some(a), p.x as f32, p.y as f32)
             }
@@ -665,10 +654,18 @@ impl Surface {
     /// `place_overlay` inside the safe area (align start/end follow the
     /// direction).
     fn anchor_place(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool) -> OverlayPlacement {
+        self.anchor_place_with(a, size, view, side, align, rtl, None, None)
+    }
+
+    /// [`Self::anchor_place`] with the layer's own gap to the anchor and
+    /// margin to the view's edges.
+    #[allow(clippy::too_many_arguments)]
+    fn anchor_place_with(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool, offset: Option<f64>, margin: Option<f64>) -> OverlayPlacement {
         let align = physical_align(align, rtl);
         let anchor = ORect { x: (a.x - view.x) as f64, y: (a.y - view.y) as f64, width: a.w as f64, height: a.h as f64 };
         let vp = OSize { width: view.w as f64, height: if view.h > 0.0 { view.h as f64 } else { f64::INFINITY } };
-        let mut p = place_overlay(&anchor, &size, &vp, &PlaceOptions { side, align, ..PlaceOptions::default() });
+        let defaults = PlaceOptions::default();
+        let mut p = place_overlay(&anchor, &size, &vp, &PlaceOptions { side, align, offset: offset.unwrap_or(defaults.offset), padding: margin.unwrap_or(defaults.padding), ..defaults });
         p.x += view.x as f64;
         p.y += view.y as f64;
         p

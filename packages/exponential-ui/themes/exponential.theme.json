@@ -742,9 +742,9 @@
           "style": {
             "height": 40.82,
             "paddingHorizontal": 14,
-            "gap": 3.5,
+            "gap": 7,
             "fontSize": 12.25,
-            "lineHeight": 19.82
+            "lineHeight": 17.5
           }
         },
         {
@@ -768,6 +768,30 @@
           }
         }
       ],
+      "value": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 17.5,
+            "paddingVertical": 1
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 17.5,
+            "paddingVertical": 1
+          }
+        }
+      ],
       "chevron": [
         {
           "when": {
@@ -786,6 +810,17 @@
             "borderRadius": "$radius.lg",
             "borderColor": "$color.border"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "padding": 3.5,
+            "gap": 3.5,
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "search": [
@@ -794,6 +829,18 @@
             "height": 40,
             "gap": "$spacing.sm"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "height": 41,
+            "paddingHorizontal": 7,
+            "gap": 7,
+            "fontSize": 12.25,
+            "borderColor": "#ffffff0d"
+          }
         }
       ],
       "item": [
@@ -801,6 +848,17 @@
           "style": {
             "height": "$control.row",
             "borderRadius": "$radius.md"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "paddingHorizontal": 7,
+            "gap": 7,
+            "fontSize": 12.25,
+            "lineHeight": 17.5
           }
         },
         {
