@@ -2941,36 +2941,10 @@
               },
               {
                 "part": "value",
-                "component": "Box",
-                "style": {
-                  "display": "flex",
-                  "flexDirection": "row",
-                  "alignItems": "center",
-                  "gap": "$spacing.xs"
+                "component": "KbdGroup",
+                "props": {
+                  "keys": "{props.value}"
                 },
-                "$template": {
-                  "path": "{props.value.@path}",
-                  "item": {
-                    "part": "key",
-                    "component": "Kbd",
-                    "props": {
-                      "keys": {
-                        "@path": ""
-                      }
-                    }
-                  }
-                },
-                "children": [
-                  {
-                    "part": "key",
-                    "component": "Kbd",
-                    "$each": "props.value",
-                    "$as": "key",
-                    "props": {
-                      "keys": "{key}"
-                    }
-                  }
-                ],
                 "$if": [
                   {
                     "$not": "props.recording"
@@ -3010,26 +2984,12 @@
                   "alignItems": "center",
                   "gap": "$spacing.xs"
                 },
-                "$template": {
-                  "path": "{props.pending.@path}",
-                  "item": {
-                    "part": "key",
-                    "component": "Kbd",
-                    "props": {
-                      "keys": {
-                        "@path": ""
-                      }
-                    }
-                  }
-                },
                 "children": [
                   {
-                    "part": "key",
-                    "component": "Kbd",
-                    "$each": "props.pending",
-                    "$as": "key",
+                    "part": "pending",
+                    "component": "KbdGroup",
                     "props": {
-                      "keys": "{key}"
+                      "keys": "{props.pending}"
                     }
                   },
                   {

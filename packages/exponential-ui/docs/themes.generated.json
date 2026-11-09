@@ -3659,9 +3659,9 @@
         "field",
         "none",
         "value",
-        "key",
         "placeholder",
         "held",
+        "pending",
         "ellipsis",
         "error"
       ],
