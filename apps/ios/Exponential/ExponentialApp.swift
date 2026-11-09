@@ -65,6 +65,9 @@ struct ExponentialApp: App {
                     switch newPhase {
                     case .background:
                         dependencies.syncManager.sceneDidEnterBackground()
+                        // No `audio` background mode (App Review 2.5.4): a
+                        // call ends cleanly instead of freezing mid-stream.
+                        VoiceCallClient.shared.end()
                         // #EXP-1528: the connection analytics go out on the way out.
                         let connStats = dependencies.connStats
                         Task { await connStats.flush() }
