@@ -939,10 +939,11 @@ class SurfaceModel(
         var tries = 0
         val touched = HashSet<Int>()
         var out: FfiLayout
+        var embedSizes: Map<String, Size> = emptyMap()
         while (true) {
             val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
             var measurer: SurfaceMeasurer? = null
-            out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
+            out = (if (fixedMeasure) runCatching { surface.layoutFixed(fixedSizesJson(embedSizes), true) }.getOrNull() else null)
                 ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions, fontScale = textScale, viewportHeight = viewportHeight.takeIf { it > 0f }, embedSize = { cid, value, wrap -> embedSize(cid, value, wrap) }) { mediaRequest(it) != null }.let {
                     measurer = it
                     surface.layout(it)
@@ -958,6 +959,16 @@ class SurfaceModel(
                 patchNodes(d, out.structureVersion.toLong(), touched)
             }
             tries += 1
+            // #EDE-65: the fixed measure knows no nested surface: each Embed's
+            // card lays out at the frame it got, the pass runs again with it.
+            if (fixedMeasure && tries < 3) {
+                val sizes = fixedEmbedSizes(out)
+                if (sizes != embedSizes) {
+                    embedSizes = sizes
+                    for (id in sizes.keys) ids[id]?.let { surface.markDirty(it.toUInt()) }
+                    continue
+                }
+            }
             // An extension leaf measured before its kind was known (its
             // first pass): measure it again now that the slots know it.
             if (fixedMeasure || tries >= 3) break

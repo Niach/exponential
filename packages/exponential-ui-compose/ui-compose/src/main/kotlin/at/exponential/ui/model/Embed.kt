@@ -3,6 +3,7 @@ package at.exponential.ui.model
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontFamily
+import at.exponential.ui.ffi.FfiLayout
 import at.exponential.ui.ffi.UiException
 import at.exponential.ui.host.A2UI_VERSION
 import at.exponential.ui.host.AppFileLoader
@@ -289,6 +290,28 @@ internal fun SurfaceModel.embedSize(componentId: String, surface: JsonValue?, wr
     val h = nested.surfaceSize.height
     slot.measured[nested.width] = h
     return Size(if (wrap != null && wrap <= 0f) 0f else w, h)
+}
+
+/**
+ * The fixed measure's Embed answers (`layoutFixed` sizes): each card laid
+ * out at the width its Embed got in [out] (none yet = the host's).
+ */
+internal fun SurfaceModel.fixedEmbedSizes(out: FfiLayout): Map<String, Size> {
+    val widths = HashMap<Int, Float>()
+    for (fr in out.frames) widths[fr.index.toInt()] = fr.w
+    for (l in out.layers) for (fr in l.frames) widths[fr.index.toInt()] = fr.w
+    val sizes = HashMap<String, Size>()
+    for (n in nodes) {
+        if (n.removed || n.component != "Embed" || n.part != null) continue
+        sizes[n.id] = embedSize(n.id, n.props["surface"], widths[n.index]?.takeIf { it > 0f })
+    }
+    return sizes
+}
+
+/** `{id: {w, h}}` for `layoutFixed` (null = none). */
+internal fun fixedSizesJson(sizes: Map<String, Size>): String? {
+    if (sizes.isEmpty()) return null
+    return JsonValue.Obj(sizes.mapValues { (_, s) -> JsonValue.Obj(mapOf("w" to JsonValue.Num(s.width.toDouble()), "h" to JsonValue.Num(s.height.toDouble()))) }).json
 }
 
 /** Forget the nested surfaces of Embeds that left the host (after a pass). */

@@ -215,6 +215,26 @@ extension SurfaceModel {
         return CGSize(width: w, height: h)
     }
 
+    /// The fixed measure's Embed answers (`layoutFixed` sizes): each card
+    /// laid out at the width its Embed got in `out` (none yet = the host's).
+    func fixedEmbedSizes(_ out: FfiLayout) -> [String: CGSize] {
+        var widths: [Int: CGFloat] = [:]
+        for fr in out.frames { widths[Int(fr.index)] = CGRect(fr).width }
+        for l in out.layers { for fr in l.frames { widths[Int(fr.index)] = CGRect(fr).width } }
+        var sizes: [String: CGSize] = [:]
+        for n in nodes where !n.removed && n.component == "Embed" && n.part == nil {
+            let w = widths[n.index].flatMap { $0 > 0 ? $0 : nil }
+            sizes[n.id] = embedSize(id: n.id, props: n.props, wrap: w)
+        }
+        return sizes
+    }
+
+    /// `{id: {w, h}}` for `layoutFixed` (nil = none).
+    static func fixedSizesJson(_ sizes: [String: CGSize]) -> String? {
+        guard !sizes.isEmpty else { return nil }
+        return JSONValue.object(sizes.mapValues { .object(["w": .number(Double($0.width)), "h": .number(Double($0.height))]) }).json
+    }
+
     /// A card laid out on its own (an inner `set`, its platform): a new
     /// height measures its Embed again.
     func embedLaidOut(_ nodeId: String) {

@@ -418,9 +418,10 @@ public final class SurfaceModel {
         var layoutNs: UInt64 = 0
         var tries = 0
         var out: FfiLayout
+        var embedSizes: [String: CGSize] = [:]
         while true {
             let kinds = lastKinds
-            if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: nil, wrap: true) {
+            if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: Self.fixedSizesJson(embedSizes), wrap: true) {
                 out = fixed
             } else {
                 let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, memo: memoizeMeasures ? measureMemo : nil, mediaAllowed: { [unowned self] src in
@@ -449,6 +450,16 @@ public final class SurfaceModel {
                 patchNodes(out.delta)
             }
             tries += 1
+            // #EDE-65: the fixed measure knows no nested surface: each Embed's
+            // card lays out at the frame it got, the pass runs again with it.
+            if fixedMeasure, tries < 3 {
+                let sizes = fixedEmbedSizes(out)
+                if sizes != embedSizes {
+                    embedSizes = sizes
+                    for id in sizes.keys { if let i = byId[id] { _ = surface.markDirty(index: UInt32(i)) } }
+                    continue
+                }
+            }
             // An extension leaf measured before its kind was known: measure
             // it again now that the slots know it.
             let unknown = fixedMeasure ? [] : nodes.filter { n in !n.removed && n.extensionKind != nil && kinds[n.id] == nil }.map(\.index)
