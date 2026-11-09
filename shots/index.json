@@ -2906,6 +2906,13 @@
         "bytes": 13234,
         "sha256": "ea041f065ac644c68f3d80096e873243074bfd8047246fb2aed6f944bcafd155"
       },
+      "desktop": {
+        "file": "shots/exponential-ui-color-picker/desktop.webp",
+        "width": 1440,
+        "height": 1520,
+        "bytes": 13402,
+        "sha256": "41395987cb7307c8b6c4ca5e63a279d16bee9289d3227efed481f1ebb52d1520"
+      },
       "ios": {
         "file": "shots/exponential-ui-color-picker/ios.webp",
         "width": 828,
@@ -3457,6 +3464,13 @@
         "height": 1800,
         "bytes": 28754,
         "sha256": "600c4aac6fb639e0bd153d9c740fc49227a5193fc04b6f0f9ba5e27a00468ba7"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-icon-picker/desktop.webp",
+        "width": 1440,
+        "height": 1520,
+        "bytes": 29836,
+        "sha256": "4e0f3c31a8995a0d711db4e21448040f94fe6dd7463501863687ec35d4b23f7e"
       },
       "ios": {
         "file": "shots/exponential-ui-icon-picker/ios.webp",
