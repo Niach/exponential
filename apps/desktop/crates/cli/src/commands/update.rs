@@ -1,6 +1,8 @@
-//! `exponential update` + the auto-update engine (EXP-403). The desktop
-//! owns `releases/latest`, so this lists releases and filters by the
-//! `cli-v` tag prefix; the asset is a bare binary (`exponential-<target>`)
+//! `exponential update` + the auto-update engine (EXP-403). The newest
+//! version comes from the instance advert (`/api/version` → `cli.latest`,
+//! EXP-1761) and the files from plain `releases/download/cli-v<ver>/` URLs,
+//! neither under GitHub's 60/h/IP API limit; the release list (filtered by
+//! the `cli-v` tag prefix) is the fallback only. The asset is a bare binary (`exponential-<target>`)
 //! verified against the (signed) SHA256SUMS.txt and swapped in with the updater's
 //! atomic-rename install.
 //!
@@ -26,8 +28,8 @@ const RELEASES_URL: &str = "https://api.github.com/repos/Niach/exponential/relea
 const TAG_PREFIX: &str = "cli-v";
 
 /// One-shot commands re-check at most daily; the daemon every 15 minutes
-/// (EXP-1489: a release reaches every server within minutes; 4 calls/h stay
-/// far inside the unauthenticated API's 60/h/IP).
+/// (EXP-1489: a release reaches every server within minutes; EXP-1761: the
+/// advert and the download URLs carry no API rate limit).
 pub const ONE_SHOT_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 pub const DAEMON_CHECK_INTERVAL_SECS: u64 = 15 * 60;
 
@@ -128,34 +130,14 @@ fn set_auto(data_dir: &std::path::Path, raw: &str) -> CommandResult {
 pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     prefs::set_last_update_check(&crate::context::data_dir(), prefs::now_epoch());
     let current = crate::cli_version();
-    let releases = list_releases()?;
-
     let asset_name = updater::cli_asset_name();
-    let Some((version, release)) = newest_release(&releases, &asset_name) else {
-        return Ok(UpdateOutcome::NoRelease);
+    let target = match resolve(&asset_name, current)? {
+        Resolved::NoRelease => return Ok(UpdateOutcome::NoRelease),
+        Resolved::UpToDate { latest } => return Ok(UpdateOutcome::UpToDate { latest }),
+        Resolved::Install(target) => target,
     };
-    let version = version.to_string();
-
-    if !is_newer(&version, current) {
-        return Ok(UpdateOutcome::UpToDate { latest: version });
-    }
+    let version = target.version.clone();
     log::info!("updating exponential {current} -> {version}");
-
-    let asset = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == asset_name)
-        .with_context(|| {
-            format!(
-                "release {} has no asset {asset_name} for this machine",
-                release.tag_name
-            )
-        })?;
-    let sums = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == updater::SUMS_ASSET)
-        .context("release has no SHA256SUMS.txt")?;
 
     let exe = running_exe().context("resolve the running binary path")?;
     let parent = exe.parent().context("binary has no parent directory")?;
@@ -170,15 +152,10 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
 
     let staging = updater::staging_dir().context("resolve the staging dir")?;
     let staged = staging.join(&asset_name);
-    updater::download(&asset.browser_download_url, &staged, |_received, _total| {})
+    updater::download(&target.files.asset_url, &staged, |_received, _total| {})
         .context("download the release asset")?;
     // EXP-1430: a build with a pinned feed key refuses sums it cannot verify.
-    let sig_url = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == updater::SIG_ASSET)
-        .map(|asset| asset.browser_download_url.as_str());
-    let sums_text = updater::fetch_verified_sums(&sums.browser_download_url, sig_url)
+    let sums_text = updater::fetch_verified_sums(&target.files.sums_url, target.files.sig_url.as_deref())
         .context("fetch the signed SHA256SUMS.txt")?;
     updater::verify_sha256(&staged, &sums_text, &asset_name).context("checksum verification")?;
 
@@ -187,6 +164,79 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     updater::install(&updater::Strategy::AppImage { appimage: exe.clone() }, &staged)
         .context("install the update")?;
     Ok(UpdateOutcome::Updated { version })
+}
+
+/// A newer release this machine can install, and its files.
+#[derive(Debug, PartialEq, Eq)]
+struct Target {
+    version: String,
+    files: updater::feed::ReleaseFiles,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Resolved {
+    Install(Target),
+    UpToDate { latest: String },
+    NoRelease,
+}
+
+/// EXP-1761: the advert first, the release list only when it can't answer.
+fn resolve(asset_name: &str, current: &str) -> anyhow::Result<Resolved> {
+    let advertised = updater::feed::advertised_latest("cli")
+        .map_err(|err| log::warn!("update: advert check failed: {err:#}"))
+        .ok()
+        .flatten();
+    let probe = |version: &str| {
+        updater::feed::probe_release(&format!("{TAG_PREFIX}{version}"), asset_name)
+            .map_err(|err| log::warn!("update: release probe failed: {err:#}"))
+            .ok()
+            .flatten()
+    };
+    match resolve_advert(advertised.as_deref(), current, probe) {
+        Some(resolved) => Ok(resolved),
+        None => Ok(resolve_listed(&list_releases()?, asset_name, current)),
+    }
+}
+
+/// The advert's answer, `None` = ask the release list: no advert, or the
+/// advertised release lacks this machine's binary (an older one may have it).
+fn resolve_advert(
+    advertised: Option<&str>,
+    current: &str,
+    probe: impl FnOnce(&str) -> Option<updater::feed::ReleaseFiles>,
+) -> Option<Resolved> {
+    let version = advertised?.trim_start_matches('v');
+    if !is_newer(version, current) {
+        return Some(Resolved::UpToDate { latest: version.to_string() });
+    }
+    let files = probe(version)?;
+    Some(Resolved::Install(Target { version: version.to_string(), files }))
+}
+
+/// The release-list path: the newest cli-v* release carrying `asset_name`.
+fn resolve_listed(releases: &[Release], asset_name: &str, current: &str) -> Resolved {
+    let Some((version, release)) = newest_release(releases, asset_name) else {
+        return Resolved::NoRelease;
+    };
+    if !is_newer(version, current) {
+        return Resolved::UpToDate { latest: version.to_string() };
+    }
+    let url = |name: &str| {
+        release
+            .assets
+            .iter()
+            .find(|asset| asset.name == name)
+            .map(|asset| asset.browser_download_url.clone())
+    };
+    let tag = &release.tag_name;
+    Resolved::Install(Target {
+        version: version.to_string(),
+        files: updater::feed::ReleaseFiles {
+            asset_url: url(asset_name).unwrap_or_else(|| updater::feed::asset_url(tag, asset_name)),
+            sums_url: url(updater::SUMS_ASSET).unwrap_or_else(|| updater::feed::asset_url(tag, updater::SUMS_ASSET)),
+            sig_url: url(updater::SIG_ASSET),
+        },
+    })
 }
 
 /// The published releases, newest-created first (`EXP_UPDATE_API` overrides
@@ -212,19 +262,25 @@ pub enum UpdateCheck {
 }
 
 /// #EXP-1628: the web Update click's answer: [`check_and_install`]'s
-/// resolution alone (one release list; nothing downloaded, the throttle
-/// untouched), so "nothing installable" reaches the person instead of the
-/// click's flag silently clearing.
+/// resolution alone (nothing downloaded, the throttle untouched), so
+/// "nothing installable" reaches the person instead of the click's flag
+/// silently clearing.
 pub fn check_only() -> anyhow::Result<UpdateCheck> {
-    Ok(resolve_check(&list_releases()?, &updater::cli_asset_name(), crate::cli_version()))
+    let asset_name = updater::cli_asset_name();
+    Ok(check_of(resolve(&asset_name, crate::cli_version())?, &asset_name))
 }
 
-fn resolve_check(releases: &[Release], asset_name: &str, current: &str) -> UpdateCheck {
-    match newest_release(releases, asset_name) {
-        None => UpdateCheck::NoRelease { asset: asset_name.to_string() },
-        Some((version, _)) if is_newer(version, current) => UpdateCheck::Available { version: version.to_string() },
-        Some((version, _)) => UpdateCheck::UpToDate { latest: version.to_string() },
+fn check_of(resolved: Resolved, asset_name: &str) -> UpdateCheck {
+    match resolved {
+        Resolved::Install(target) => UpdateCheck::Available { version: target.version },
+        Resolved::UpToDate { latest } => UpdateCheck::UpToDate { latest },
+        Resolved::NoRelease => UpdateCheck::NoRelease { asset: asset_name.to_string() },
     }
+}
+
+#[cfg(test)]
+fn resolve_check(releases: &[Release], asset_name: &str, current: &str) -> UpdateCheck {
+    check_of(resolve_listed(releases, asset_name, current), asset_name)
 }
 
 /// #EXP-1628: the `update_check` command's completion: `(ok, message)`;
@@ -424,9 +480,40 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        heal_deleted_suffix, is_newer, live_sessions_notice, newest_release, parse_auto, resolve_check,
-        update_check_answer, Asset, Release, UpdateCheck,
+        heal_deleted_suffix, is_newer, live_sessions_notice, newest_release, parse_auto, resolve_advert,
+        resolve_check, update_check_answer, Asset, Release, Resolved, Target, UpdateCheck,
     };
+    use updater::feed::ReleaseFiles;
+
+    fn files() -> ReleaseFiles {
+        ReleaseFiles {
+            asset_url: "https://github.com/Niach/exponential/releases/download/cli-v0.14.144/bin".into(),
+            sums_url: "https://github.com/Niach/exponential/releases/download/cli-v0.14.144/SHA256SUMS.txt".into(),
+            sig_url: None,
+        }
+    }
+
+    /// EXP-1761: the advert decides without the release list (the API's
+    /// 60/h/IP budget); an advertised release missing this machine's binary,
+    /// or no advert at all, falls back to the list.
+    #[test]
+    fn the_advert_resolves_without_the_release_list() {
+        assert_eq!(
+            resolve_advert(Some("0.14.144"), "0.14.143", |version| {
+                assert_eq!(version, "0.14.144");
+                Some(files())
+            }),
+            Some(Resolved::Install(Target { version: "0.14.144".into(), files: files() }))
+        );
+        for current in ["0.14.144", "0.14.145"] {
+            assert_eq!(
+                resolve_advert(Some("0.14.144"), current, |_| panic!("no probe when up to date")),
+                Some(Resolved::UpToDate { latest: "0.14.144".into() })
+            );
+        }
+        assert_eq!(resolve_advert(Some("0.14.144"), "0.14.143", |_| None), None);
+        assert_eq!(resolve_advert(None, "0.14.143", |_| panic!("no probe")), None);
+    }
 
     /// #EXP-1628: the Update click's answer. Only an installable build is
     /// ok; "nothing for this machine" and a failed check say why.

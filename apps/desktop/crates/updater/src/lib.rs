@@ -31,6 +31,7 @@ use std::{
 use anyhow::{bail, Context as _, Result};
 use sha2::Digest as _;
 
+pub mod feed;
 pub mod restart;
 
 /// GitHub rejects API/asset calls without a User-Agent.
