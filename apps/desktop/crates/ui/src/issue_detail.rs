@@ -1953,6 +1953,7 @@ impl IssueDetailView {
 
 impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueDetailView").entered();
         // EXP-1558 (DEV-ONLY): `issue-comments` = the page at its end (the
         // activity feed and the composer), web's `scrollToComments`.
         crate::screens::dev_park_at_end(&self.body_scroll, &self.dev_parked_end, window);
@@ -2266,6 +2267,7 @@ impl IssuePicker {
 
 impl Render for IssuePicker {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssuePicker").entered();
         let issues = self.matches(cx);
 
         // EXP-1021: the relations linker's rows ARE the shared picker's —
@@ -2543,6 +2545,7 @@ mod multi_window_tests {
             _window: &mut Window,
             _cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "HeadlessDetailWindow").entered();
             gpui::div()
         }
     }

@@ -5261,6 +5261,14 @@
           "style": {
             "minHeight": "$control.rowCompact"
           }
+        },
+        {
+          "when": {
+            "total": true
+          },
+          "style": {
+            "fontWeight": "$type.weight.medium"
+          }
         }
       ],
       "checkbox": [

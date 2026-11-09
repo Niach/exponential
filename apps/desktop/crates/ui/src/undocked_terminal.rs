@@ -123,6 +123,7 @@ impl Focusable for UndockedTerminalWindow {
 
 impl Render for UndockedTerminalWindow {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "UndockedTerminalWindow").entered();
         let (title, view, exit_code) = match self.manager.read(cx).tab(self.tab_id) {
             Some(tab) => (tab.title().clone(), Some(tab.view.clone()), tab.exit_code()),
             // Tab already closed — the TabClosed handler is tearing this

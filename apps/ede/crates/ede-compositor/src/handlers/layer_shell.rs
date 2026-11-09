@@ -3,7 +3,6 @@
 //! area windows place and tile into.
 
 use smithay::{
-    delegate_layer_shell,
     desktop::{layer_map_for_output, LayerSurface, WindowSurfaceType},
     output::Output,
     reexports::wayland_server::protocol::{wl_output, wl_surface::WlSurface},
@@ -51,7 +50,6 @@ impl WlrLayerShellHandler for Ede {
         }
     }
 }
-delegate_layer_shell!(Ede);
 
 pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
     let Some(output) = state

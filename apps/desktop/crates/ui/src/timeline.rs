@@ -1573,6 +1573,7 @@ fn with_time(phrase: &str, time: &str) -> String {
 
 impl Render for IssueTimeline {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueTimeline").entered();
         // EXP-741: replies ride inside their parent's card, so only top-level
         // comments are timeline entries; the header count still counts every
         // row.

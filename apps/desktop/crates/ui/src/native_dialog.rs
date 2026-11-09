@@ -531,6 +531,7 @@ fn close_button(id: &'static str, closable: bool, cx: &App) -> Button {
 
 impl Render for DialogShell {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DialogShell").entered();
         let closable = self.can_close(cx);
         let on_enter = self.content.on_enter.clone();
         let viewport = window.viewport_size();
@@ -1075,6 +1076,7 @@ impl AlertView {
 
 impl Render for AlertView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AlertView").entered();
         let view = cx.entity().clone();
         let extra = self.spec.content.as_ref().map(|content| content(window, cx));
 
@@ -1247,6 +1249,7 @@ mod hug_tests {
 
     impl Render for Probe {
         fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Probe").entered();
             div().debug_selector(|| "probe-view".into()).w_full().h(self.0)
         }
     }

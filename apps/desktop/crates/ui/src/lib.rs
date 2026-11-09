@@ -65,6 +65,7 @@ mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
 mod dev_ready;
+pub mod diagnostics;
 mod description_editor;
 mod emoji;
 mod empty_state_copy;
@@ -140,6 +141,8 @@ mod mention_input;
 mod menu_window;
 #[cfg(test)]
 mod overlay_anchor_tests;
+#[cfg(test)]
+mod pointer_menu_live_tests;
 mod wysiwyg;
 mod native_dialog;
 mod navigation;

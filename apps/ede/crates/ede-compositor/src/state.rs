@@ -102,6 +102,8 @@ pub struct Ede {
     pub input_method_state: smithay::wayland::input_method::InputMethodManagerState,
     pub text_input_state: smithay::wayland::text_input::TextInputManagerState,
     pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
+    /// The virtual keyboard whose keymap the seat holds (until a real key).
+    pub virtual_keymap: Option<smithay::input::keyboard::KeyboardSource>,
     /// ede-protocol: the control socket, its grants and clients.
     pub ipc: crate::ipc::Ipc,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
@@ -234,6 +236,7 @@ impl Ede {
             input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
+            virtual_keymap: None,
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
             workspaces: crate::workspaces::Workspaces::default(),
@@ -497,7 +500,7 @@ impl Ede {
         self.space.map_element(window.clone(), loc, activate);
         #[cfg(feature = "xwayland")]
         if let Some(x11) = window.x11_surface() {
-            let _ = x11.configure(Some(Rectangle::new(loc, x11.geometry().size)));
+            let _ = x11.configure(Some(Rectangle::new(loc, x11.last_configure().size)));
         }
     }
 

@@ -109,6 +109,7 @@ impl PromptsPane {
 
 impl Render for PromptsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "PromptsPane").entered();
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
@@ -537,6 +538,7 @@ fn spawn_prompt_delete(cx: &mut App, prompt_id: String) {
 
 impl Render for PromptPage {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "PromptPage").entered();
         let read_only = self.read_only(cx);
         let creating = self.prompt_id.is_none();
         let muted = cx.theme().muted_foreground;

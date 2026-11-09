@@ -1084,6 +1084,7 @@ impl AgentDetailPane {
 
 impl Render for AgentDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AgentDetailPane").entered();
         let agent = self
             .selected_agent_id(cx)
             .and_then(|id| crate::session_data::agent_def(&id, cx));

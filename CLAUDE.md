@@ -4,7 +4,7 @@ Real-time issue tracker with coding agents. This file = REPO FACTS (< 12k chars,
 
 ## Tech stack
 
-TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle (`snake_case`) · ElectricSQL (shape proxies, `@tanstack/electric-db-collection`) · Better Auth · tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync) · shadcn/ui on Tailwind v4 (OKLCH zinc, dark forced) · bun. Dev infra (compose): Postgres:54321, Electric:30000, Garage:3900, Caddy:3000, steer-relay:4002.
+TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 18 via Drizzle (`snake_case`) · ElectricSQL (shape proxies, `@tanstack/electric-db-collection`) · Better Auth · tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync) · shadcn/ui on Tailwind v4 (OKLCH zinc, dark forced) · bun. Dev infra (compose): Postgres:54321, Electric:30000, Garage:3900, Caddy:3000, steer-relay:4002.
 
 ## Monorepo layout
 

@@ -60,6 +60,7 @@ impl AppInstance {
     /// Load a package file (or a bare package): verify its signature when it
     /// carries one, validate the package, reconcile its grants.
     pub fn load(config: HostConfig, file: &Value) -> Result<Self, LoadError> {
+        let _span = tracing::debug_span!("engine.load").entered();
         let verification = verify_package_file(file);
         if let Verification::Invalid { issues } = &verification {
             return Err(LoadError::Signature(issues.clone()));
@@ -153,6 +154,7 @@ impl AppInstance {
     /// (open → the WindowHost, persist → the Vault, flush → the outbox).
     /// Answers the effects (sources and automations are the host's).
     pub fn event(&mut self, event: &LifecycleEvent) -> Vec<Effect> {
+        let _span = tracing::debug_span!("engine.event", app = self.app_id.as_str()).entered();
         let stored = self.config.vault.read(&screen_key(&self.app_id)).and_then(|s| serde_json::from_str::<Value>(&s).ok());
         let last = stored.as_ref().and_then(|v| Some((v.get("screen")?.as_str()?, v.get("params")?)));
         let cx = LifecycleContext { pkg: &self.pkg, last_screen: last };
@@ -175,6 +177,7 @@ impl AppInstance {
     /// A `records:<kind>?…` source's value (genUI's records query over the
     /// store's rows with the outbox laid over them); `None` = not a records source.
     pub fn records_value(&self, source: &str) -> Option<Value> {
+        let _span = tracing::trace_span!("engine.records_value").entered();
         let parsed = eui_core::host::parse_source(source)?;
         let query = eui_core::host::parse_records_source(&parsed)?;
         if query.app.is_some() {
@@ -211,6 +214,7 @@ impl AppInstance {
     /// `records.delete` / `records.batch`, `app.navigate`, or a capability
     /// (`<capability>.<tool>`, through the broker).
     pub fn call(&mut self, name: &str, args: &Value, new_ids: &[String]) -> CallResult {
+        let _span = tracing::debug_span!("engine.call", name).entered();
         match name {
             "records_upsert" => self.write(OutboxCall::Upsert, args, new_ids),
             "records_delete" => self.write(OutboxCall::Delete, args, new_ids),

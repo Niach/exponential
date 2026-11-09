@@ -1412,6 +1412,7 @@ pub(crate) fn selection_range(
 
 impl Render for IssueListView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueListView").entered();
         let data = self.board_data(cx);
         // Solo teams drop the per-row assignee cell — resolved once per frame
         // (the whole list is one team) so no per-row membership query runs.

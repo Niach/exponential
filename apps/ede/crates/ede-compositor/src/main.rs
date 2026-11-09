@@ -45,11 +45,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // warning that a render node has no DRM master) stays behind RUST_LOG.
     let default_log = if doctor { "error" } else { "info" };
     // Logs go to stderr: the doctor's stdout is its table or its JSON (a
-    // RUST_LOG inherited from a unit must not end up in front of it).
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log.into()))
-        .with_writer(std::io::stderr)
-        .init();
+    // RUST_LOG inherited from a unit must not end up in front of it). The
+    // doctor reports nothing to Sentry; every other run does when
+    // diagnostics are on (#LOGS-2, ede-observability).
+    let _observability = if doctor {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log.into()))
+            .with_writer(std::io::stderr)
+            .init();
+        None
+    } else {
+        Some(ede_observability::init("compositor", default_log, ede_observability::Output::Stderr))
+    };
 
     if doctor {
         let checks = ede_compositor::doctor::run_checks();
@@ -132,6 +139,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     let _ = std::fs::write(&path, e.to_string());
                 }
+                // `exit` skips the guard's drop: send what is queued first.
+                ede_observability::flush();
                 std::process::exit(FATAL_EXIT);
             }
             return Ok(());
@@ -181,6 +190,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     state.start_session();
+    ede_compositor::backend::watch_main_loop(&event_loop.handle());
 
     event_loop.run(None, &mut state, |state| {
         let _ = state.display_handle.flush_clients();

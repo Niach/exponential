@@ -9,11 +9,11 @@ import GuideFile from "../../../../../../components/eui/GuideFile.astro"
 
 The `ExponentialUI` Swift package is the genUI module for SwiftUI.
 
-The Swift package `ExponentialUI` (iOS 17, macOS 14) carries the painter and the Rust core as an xcframework, so your app builds no Rust. It is a SwiftPM dependency on `github.com/Niach/exponential-ui-swift`, whose tag `0.19.1` pins the xcframework of that release by checksum:
+The Swift package `ExponentialUI` (iOS 17, macOS 14) carries the painter and the Rust core as an xcframework, so your app builds no Rust. It is a SwiftPM dependency on `github.com/Niach/exponential-ui-swift`, whose tag `0.20.0` pins the xcframework of that release by checksum:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.19.1"),
+    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.20.0"),
 ],
 targets: [
     .executableTarget(name: "App", dependencies: [.product(name: "ExponentialUI", package: "exponential-ui-swift")]),

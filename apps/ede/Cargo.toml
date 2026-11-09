@@ -13,10 +13,14 @@ version = "0.2.11"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# Pinned to the 0.7 line; `default-features = false` keeps the graph to what
-# each crate names. The udev/DRM + libinput backend is the `udev` feature on
+# Pinned to a Smithay master rev (65aa86f, 2026-11-04) for the fixes after
+# 0.7.0: the CRTC-reservation leak, XWayland large transfers + IconicState,
+# dmabuf import release, `XWayland::spawn_with_inherited_env`. A rev pin,
+# never a floating branch. Drop the git pin for the crates.io release at
+# smithay 0.8. `default-features = false` keeps the graph to what each crate
+# names. The udev/DRM + libinput backend is the `udev` feature on
 # ede-compositor, so a dev box without those headers still builds winit.
-smithay = { version = "0.7.0", default-features = false }
+smithay = { git = "https://github.com/Smithay/smithay", rev = "65aa86fa5236e41775c313408102a5d5c2d1e2ca", default-features = false }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 tracing = "0.1"

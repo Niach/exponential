@@ -299,6 +299,7 @@ impl InboxPopoverBody {
 
 impl Render for InboxPopoverBody {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "InboxPopoverBody").entered();
         let data = {
             let app: &App = cx;
             self.data.get_or_insert_with(queries::inbox_data_key(app), || queries::inbox(app))

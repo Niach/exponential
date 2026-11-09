@@ -209,6 +209,7 @@ impl Focusable for DebugBoardPanel {
 
 impl Render for DebugBoardPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DebugBoardPanel").entered();
         v_flex()
             .size_full()
             .p_3()

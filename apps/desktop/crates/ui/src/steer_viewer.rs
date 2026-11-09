@@ -8703,6 +8703,25 @@ impl SteerSessionView {
         let dev_open = account_step.is_some()
             && crate::navigation::shapes_ready(cx)
             && crate::screens::take_dev_session_account_menu();
+        // #EXP-1752: what the rows draw (the rows themselves, an app editor's
+        // devices, the logins, the model): the open menu follows it live.
+        let content_key = {
+            use std::hash::{Hash as _, Hasher as _};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            format!("{rows:?}").hash(&mut hasher);
+            if let Some(device) = &editor_device {
+                device.device_id.hash(&mut hasher);
+                device.rows.hash(&mut hasher);
+            }
+            if let Some((_, targets)) = &account_switch {
+                for target in targets {
+                    (&target.profile_id, &target.caption, target.current, &target.blocked).hash(&mut hasher);
+                }
+            }
+            models.hash(&mut hasher);
+            model_picked.hash(&mut hasher);
+            hasher.finish()
+        };
         let input = self.input.clone();
         let trigger = crate::composer::composer_tool(
             SharedString::from(format!("{}-plus", self.composer_ids.attach)),
@@ -8882,6 +8901,7 @@ impl SteerSessionView {
             menu
         })
         .anchor(gpui::Anchor::BottomLeft)
+        .live(content_key)
         .dev_open(dev_open)
         .dev_steps(account_step.map_or(1, |at| at + 1))
         .into_any_element()
@@ -9472,6 +9492,7 @@ impl Focusable for SteerSessionView {
 
 impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SteerSessionView").entered();
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);

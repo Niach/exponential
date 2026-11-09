@@ -59,6 +59,7 @@ pub fn config_json() -> Value {
     let t = read_table();
     let kb = t.get("keyboard").and_then(|v| v.as_table()).cloned().unwrap_or_default();
     let theme = t.get("theme").and_then(|v| v.as_table()).cloned().unwrap_or_default();
+    let diagnostics = t.get("diagnostics").and_then(|v| v.as_table()).cloned().unwrap_or_default();
     json!({
         "keyboard": {
             "layout": kb.get("layout").and_then(|v| v.as_str()).filter(|l| !l.is_empty()).unwrap_or("us"),
@@ -69,6 +70,10 @@ pub fn config_json() -> Value {
             "bridge": theme.get("bridge").and_then(|v| v.as_bool()).unwrap_or(true),
             // What the bridge resolved (#EDE-19): the installed themes and fonts it picked.
             "summary": theme_summary(),
+        },
+        // #LOGS-2: Settings › About's "Send diagnostics" (ede-observability reads it).
+        "diagnostics": {
+            "send": diagnostics.get("send").and_then(|v| v.as_bool()).unwrap_or(true),
         },
     })
 }
@@ -82,11 +87,11 @@ fn theme_summary() -> String {
     ede_theme::Choice::resolve(&ede_theme::Overrides::read(&paths), &ede_theme::Installed::scan(&paths)).summary()
 }
 
-/// `ede_config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}}`;
+/// `ede_config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}, diagnostics: {send?}}`;
 /// `ede_settings` (settings_pages) adds `windows`.
 pub fn persist_config(args: &Value) -> Result<(), String> {
     let mut t = read_table();
-    for section in ["keyboard", "theme", "windows"] {
+    for section in ["keyboard", "theme", "windows", "diagnostics"] {
         let Some(changes) = args.get(section).and_then(Value::as_object) else { continue };
         let entry = t.entry(section).or_insert(toml::Value::Table(toml::Table::new()));
         let Some(table) = entry.as_table_mut() else { return Err(format!("[{section}] is not a table")) };
@@ -263,6 +268,11 @@ mod tests {
         assert_eq!(text.matches("name = \"DP-1\"").count(), 1);
         assert_eq!(config_json()["keyboard"]["layout"], "de");
         assert_eq!(config_json()["keyboard"]["repeat_delay"], 400, "the default when unset");
+        // #LOGS-2: Send diagnostics, on until switched off.
+        assert_eq!(config_json()["diagnostics"]["send"], true);
+        persist_config(&json!({"diagnostics": {"send": false}})).unwrap();
+        assert!(std::fs::read_to_string(config_path()).unwrap().contains("[diagnostics]\nsend = false"));
+        assert_eq!(config_json()["diagnostics"]["send"], false);
     }
 
     #[test]

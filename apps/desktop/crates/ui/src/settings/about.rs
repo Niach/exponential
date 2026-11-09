@@ -12,25 +12,24 @@
 //! The list sits in a FIXED-height box on purpose: `SettingsView::render`
 //! wraps every pane in `overflow_y_scroll`, so the inner list needs a bounded
 //! viewport to virtualize against.
+//!
+//! #EXP-1629: the pane is a document on eUI's native host binding; the
+//! notice is a windowed `List` of one mono `Text` per row (only the rows in
+//! view are built), its links and Copy actions route back to the pane.
 
-use std::rc::Rc;
 use std::sync::OnceLock;
 
-use gpui::{
-    div, px, size, App, ClipboardItem, InteractiveElement as _, IntoElement, ParentElement, Pixels,
-    Render, SharedString, Size, Styled, Window,
-};
-use gpui_component::{
-    button::Button,
-    h_flex,
-    scroll::{ScrollableElement as _, ScrollbarAxis},
-    v_flex, v_virtual_list, ActiveTheme as _, Icon, VirtualListScrollHandle,
-};
+use gpui::{div, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement, Render, Styled, Window};
+use gpui_component::ActiveTheme as _;
+use serde_json::{json, Value};
 
-use crate::icons::registry;
+use eui_gpui::binding::Binding;
+use eui_gpui::view::SurfaceView;
+
 use crate::licenses;
 
-use super::{open_url, row_stroke, section};
+use super::doc::{faded, hex, mount, path, IdeToasts, Ink, HINT_ALPHA, LINE, XS};
+use super::{open_url, row_stroke};
 
 const SOURCE_URL: &str = "https://github.com/Niach/exponential";
 const LICENSE_URL: &str = "https://github.com/Niach/exponential/blob/master/LICENSE";
@@ -82,145 +81,106 @@ fn wrap_notice_lines(text: &'static str, cols: usize) -> Vec<&'static str> {
 }
 
 /// The About pane (`SettingsSection::About`) — everything it shows is compiled
-/// in; the state is the notice list's scroll position and row geometry.
+/// in; the document is built once and never re-projected.
 pub struct AboutPane {
-    notices_scroll: VirtualListScrollHandle,
-    notice_sizes: Rc<Vec<Size<Pixels>>>,
+    _binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
 }
 
 impl AboutPane {
-    pub fn new() -> Self {
-        Self {
-            notices_scroll: VirtualListScrollHandle::new(),
-            notice_sizes: Rc::new(vec![
-                size(px(0.), px(NOTICE_ROW_H));
-                notice_rows().len()
-            ]),
-        }
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let rows: Vec<Value> = notice_rows().iter().map(|row| json!({"t": row})).collect();
+        let state = json!({"version": format!("Exponential · Version {}", domain::client_version::current_version()), "notice": rows});
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, state, |state: &Value, _| state.clone());
+            binding.set_toasts(std::rc::Rc::new(IdeToasts));
+            binding.on_action("open", |_, event, cx| {
+                if let Some(url) = event.context.get("url").and_then(Value::as_str) {
+                    open_url(cx, url.to_string());
+                }
+                None
+            });
+            binding.on_action("copy", |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(licenses::NOTICES.to_string()));
+                None
+            });
+            binding
+        });
+        let theme = cx.theme();
+        let frame = Frame { radius: f32::from(theme.radius), stroke: hex(row_stroke(cx)), foreground: hex(theme.foreground) };
+        let view = mount("settings-about", document(&Ink::of(cx), &frame), &binding, window, cx);
+        Self { _binding: binding, view }
     }
 
-    fn link_button(
-        id: &'static str,
-        label: &'static str,
-        url: &'static str,
-        cx: &gpui::App,
-    ) -> Button {
-        crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
-            .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-            .label(label)
-            .on_click(|_, _, cx| open_url(cx, url.to_string()))
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(window, cx)
     }
 
-    fn render_about(&self, cx: &App) -> impl IntoElement {
-        section(cx)
-            .child(
-                v_flex()
-                    .child(crate::surface::glass_section_header("About", None, cx))
-                    .child(super::section_description(
-                        format!(
-                            "Exponential · Version {}",
-                            domain::client_version::current_version()
-                        ),
-                        cx,
-                    )),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(Self::link_button(
-                        "about-source",
-                        "Source code",
-                        SOURCE_URL,
-                        cx,
-                    ))
-                    .child(Self::link_button(
-                        "about-license",
-                        "License (Apache-2.0)",
-                        LICENSE_URL,
-                        cx,
-                    )),
-            )
-    }
-
-    fn render_licenses(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let entity = cx.entity().clone();
-        section(cx)
-            .child(
-                v_flex()
-                    .child(crate::surface::glass_section_header(
-                        "Third-party licenses",
-                        Some(
-                            crate::surface::glass_pill_button(
-                                "about-notices-copy",
-                                crate::surface::PillSize::Sm,
-                                cx,
-                            )
-                            .label("Copy")
-                            .tooltip("Copy the full notice")
-                            .on_click(|_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                    licenses::NOTICES.to_string(),
-                                ))
-                            })
-                            .into_any_element(),
-                        ),
-                        cx,
-                    ))
-                    .child(super::section_description(LICENSES_BLURB, cx)),
-            )
-            .child(
-                div()
-                    .id("about-notices")
-                    .h(px(480.))
-                    .w_full()
-                    .overflow_hidden()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(row_stroke(cx))
-                    .px_3()
-                    .py_2()
-                    .child(
-                        v_flex()
-                            .id("about-notices-list")
-                            .relative()
-                            .size_full()
-                            .child(
-                                v_virtual_list(
-                                    entity,
-                                    "about-notices-rows",
-                                    self.notice_sizes.clone(),
-                                    |_, visible_range, _window, cx| {
-                                        let rows = notice_rows();
-                                        let mono = cx.theme().mono_font_family.clone();
-                                        visible_range
-                                            .map(|ix| {
-                                                div()
-                                                    .h(px(NOTICE_ROW_H))
-                                                    .whitespace_nowrap()
-                                                    .text_size(px(NOTICE_TEXT_SIZE))
-                                                    .font_family(mono.clone())
-                                                    .child(SharedString::from(
-                                                        *rows.get(ix).unwrap_or(&""),
-                                                    ))
-                                                    .into_any_element()
-                                            })
-                                            .collect()
-                                    },
-                                )
-                                .track_scroll(&self.notices_scroll),
-                            )
-                            .scrollbar(&self.notices_scroll, ScrollbarAxis::Vertical),
-                    ),
-            )
+    /// The notice scrolled to its last row (the pictures' end state).
+    #[cfg(test)]
+    pub(crate) fn show_end(&mut self, cx: &mut gpui::Context<Self>) {
+        let last = notice_rows().len().saturating_sub(1) as u32;
+        self.view.update(cx, |view, cx| view.scroll_to_index("notice_rows", last, Some("end"), cx));
     }
 }
 
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// The notice box's chrome: gpui-component's `theme.radius`, the rows'
+/// hairline (`row_stroke`) and the window's text colour.
+struct Frame {
+    radius: f32,
+    stroke: String,
+    foreground: String,
+}
+
+/// `settings::section` (`gap_2`) of a header block (the band over
+/// `section_description`) and its body.
+fn section(ink: &Ink, id: &str, label: &str, trailing: Option<Value>, description: Value, body: Value) -> Value {
+    let mut text = faded(ink.text(&format!("{id}_description"), description, XS, &ink.hint), HINT_ALPHA);
+    text["style"]["paddingHorizontal"] = json!(ink.r(0.25));
+    text["style"]["paddingBottom"] = json!(ink.r(0.5));
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
+        "children": [
+            {"id": format!("{id}_head"), "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [ink.band(&format!("{id}_band"), label, trailing), text]},
+            body,
+        ]})
+}
+
+/// The pane's tree: About (version + the two link pills), then the
+/// third-party licences (Copy in the band, the notice in a 480px box).
+fn document(ink: &Ink, frame: &Frame) -> Value {
+    let link = |id: &str, label: &str, url: &str| {
+        let [pill, _] = ink.pill_button(id, Some("ui-external-link"), json!(label), json!(false), json!({"name": "open", "context": {"url": url}}));
+        pill
+    };
+    let links = json!({"id": "links", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "gap": ink.r(0.5)},
+        "children": [link("source", "Source code", SOURCE_URL), link("license", "License (Apache-2.0)", LICENSE_URL)]});
+    let about = section(ink, "about", "About", None, path("/pane/version"), links);
+
+    let [copy, _] = ink.pill_button("copy", None, json!("Copy"), json!(false), json!({"name": "copy"}));
+    let copy = json!({"id": "copy_tip", "component": "Tooltip", "props": {"content": "Copy the full notice"}, "children": [copy]});
+    let size = NOTICE_TEXT_SIZE;
+    let row = json!({"id": "notice_row", "component": "Text", "props": {"text": path("t")},
+        "style": {"height": NOTICE_ROW_H, "flexShrink": 0, "fontSize": size, "lineHeight": size * LINE, "fontFamily": ink.mono, "color": frame.foreground}});
+    let notice = json!({"id": "notice", "component": "Box",
+        "style": {"height": 480, "width": "100%", "overflow": "hidden", "borderRadius": frame.radius, "borderWidth": 1, "borderColor": frame.stroke, "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5)},
+        "children": [{"id": "notice_rows", "component": "List", "props": {"gap": "none", "style": {"height": "100%", "width": "100%"}},
+            "template": {"component": "notice_row", "path": "/pane/notice"},
+            "children": [row]}]});
+    let licenses = section(ink, "licenses", "Third-party licenses", Some(copy), json!(LICENSES_BLURB), notice);
+
+    // The pane: `v_flex().gap_6()`.
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%"},
+        "children": [about, licenses]})
+}
+
 impl Render for AboutPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap_6()
-            .child(self.render_about(cx))
-            .child(self.render_licenses(cx))
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AboutPane").entered();
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
