@@ -6397,7 +6397,7 @@
                 "component": "Toast",
                 "props": {
                   "title": "Couldn't save the board",
-                  "description": "The server did not answer.",
+                  "description": "Server did not answer.",
                   "type": "error",
                   "actionLabel": "Retry",
                   "open": true,

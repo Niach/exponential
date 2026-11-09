@@ -6393,7 +6393,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "error",
           "actionLabel": "Retry"
         }
@@ -6406,7 +6406,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "info",
           "actionLabel": "Retry"
         }
@@ -6419,7 +6419,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "success",
           "actionLabel": "Retry"
         }
@@ -6432,7 +6432,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "warning",
           "actionLabel": "Retry"
         }
@@ -6445,7 +6445,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "error",
           "actionLabel": "Retry"
         }
@@ -6458,7 +6458,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "error",
           "actionLabel": "Retry",
           "open": true
@@ -6472,7 +6472,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "error",
           "actionLabel": "Retry",
           "open": false
@@ -6486,7 +6486,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "error",
           "actionLabel": "Retry",
           "dismissible": true
@@ -6500,7 +6500,7 @@
         "component": "Toast",
         "props": {
           "title": "Couldn't save the board",
-          "description": "The server did not answer.",
+          "description": "Server did not answer.",
           "type": "error",
           "actionLabel": "Retry",
           "dismissible": false
