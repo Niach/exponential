@@ -16,7 +16,7 @@
 // and, inside a <form>, Radix's hidden BUBBLE inputs after the control.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
-import { boundPath, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
+import { boundPath, composerMenuKey, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
 import { checkboxAriaChecked, checkboxPress } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
@@ -841,6 +841,16 @@ export function ComposerNative(props: NativeProps): JSX.Element {
           void props.emit(`change`, { value: e.currentTarget.value }, { value: e.currentTarget.value })
         }}
         onKeyDown={(e) => {
+          // #EDE-65: an IME composition's keys are the IME's; menuKeys hands the
+          // arrows, Enter, Tab and Escape to the host's menu.
+          if (e.isComposing) return
+          const menuKey = bool(props.props.menuKeys) ? composerMenuKey(e) : undefined
+          if (menuKey) {
+            e.preventDefault()
+            e.stopPropagation()
+            void props.emit(`key`, { key: menuKey })
+            return
+          }
           if (e.key === `Enter` && !e.shiftKey) {
             e.preventDefault()
             submit()

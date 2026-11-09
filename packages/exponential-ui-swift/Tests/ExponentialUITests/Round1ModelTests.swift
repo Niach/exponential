@@ -804,6 +804,51 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertEqual(p, .object(["type": .string("down"), "key": .string("k"), "ctrl": .bool(true), "alt": .bool(false), "shift": .bool(false), "meta": .bool(false)]))
     }
 
+    // MARK: - interactions-round1.json composerKeys (#EDE-65)
+
+    /// Every composerKeys case through the MODEL: `type` = the field's edit
+    /// (written through: the debounce flushed), `key` = `composerKey` (what
+    /// the text views ask first), else the field's own Return without a
+    /// modifier = `fieldCommitted` (the Composer sends); `hostWrite` = host
+    /// data; whether the key was taken, the actions fired and /draft.
+    func testComposerKeyCasesFireKeyOrSubmitThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerKeys"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 10)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try model(f["surface"]!, host: host)
+            for (path, value) in c["data"]?.object ?? [:] { m.setData(path: "/\(path)", value: value) }
+            let index = try XCTUnwrap(m.index(of: "c"), "\(name): no composer")
+            for step in c["steps"]?.array ?? [] {
+                if let text = step["type"]?.string {
+                    m.fieldEdited(index, text: text)
+                    m.flushPending(index)
+                } else if let key = step["key"]?.string {
+                    let modified = !(step["mods"]?.array ?? []).isEmpty
+                    let composing = step["composing"]?.bool == true
+                    var handled = m.composerKey(index, key: key, modified: modified, composing: composing)
+                    if !handled, key == "Enter", !modified, !composing {
+                        m.fieldCommitted(index)
+                        handled = true
+                    }
+                    XCTAssertEqual(handled, step["handled"]?.bool, "\(name): \(key) taken")
+                } else if let w = step["hostWrite"] {
+                    m.setData(path: w["path"]?.string ?? "", value: w["value"] ?? .null)
+                } else {
+                    XCTFail("\(name): unknown step \(step.json)")
+                }
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(m.data["draft"] ?? .null, c["draft"] ?? .null, "\(name): /draft")
+        }
+        XCTAssertEqual(SurfaceModel.composerMenuKey("Tab", modified: true), nil)
+        XCTAssertEqual(SurfaceModel.composerMenuKey("ArrowLeft", modified: false), nil)
+    }
+
     // MARK: - interactions-round1.json foldRow (#VAPP-284)
 
     /// A foldable Row (children): a press on the head or its fold button, or

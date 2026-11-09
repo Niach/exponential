@@ -14,13 +14,22 @@
 // A rotated VAULT_KEY re-seals lazily: the vault sweep (vault-sweep.ts).
 import { and, eq, sql } from "drizzle-orm"
 import { appAccess, mcpCredentials, mcpGrants, type McpCredential, type McpServer } from "@/db/schema"
-import { oauthAccessTokens, oauthConsents } from "@/db/auth-schema"
+import { legacyOauthAccessTokens, legacyOauthConsents, oauthAccessTokens, oauthConsents, oauthRefreshTokens } from "@/db/auth-schema"
 import { decryptCredential } from "@/lib/emcp/upstream/crypto"
 import { clientForRefresh, discover, revokeToken, type Db } from "@/lib/emcp/upstream/oauth-client"
 import { hostedCallbackUrl } from "@/lib/emcp/upstream/urls"
 
 type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 type Writer = Db | Tx
+
+/** Every access and refresh token of one (member, client) pair: the next
+ * request answers 401 and the next refresh fails. The 1.6 rows go too, so a
+ * rollback to a 1.6 image cannot revive a revoked client. */
+async function deleteClientTokens(tx: Writer, userId: string, clientId: string): Promise<void> {
+  await tx.delete(oauthAccessTokens).where(and(eq(oauthAccessTokens.userId, userId), eq(oauthAccessTokens.clientId, clientId)))
+  await tx.delete(oauthRefreshTokens).where(and(eq(oauthRefreshTokens.userId, userId), eq(oauthRefreshTokens.clientId, clientId)))
+  await tx.delete(legacyOauthAccessTokens).where(and(eq(legacyOauthAccessTokens.userId, userId), eq(legacyOauthAccessTokens.clientId, clientId)))
+}
 
 /** Revoke one member's MCP client: every grant (both kinds), the consent
  * and the tokens of that (member, client) pair. Returns how many grants
@@ -31,8 +40,9 @@ export async function revokeClient(db: Db, userId: string, clientId: string): Pr
       .delete(mcpGrants)
       .where(and(eq(mcpGrants.userId, userId), eq(mcpGrants.clientId, clientId)))
       .returning({ id: mcpGrants.id })
-    await tx.delete(oauthAccessTokens).where(and(eq(oauthAccessTokens.userId, userId), eq(oauthAccessTokens.clientId, clientId)))
+    await deleteClientTokens(tx, userId, clientId)
     await tx.delete(oauthConsents).where(and(eq(oauthConsents.userId, userId), eq(oauthConsents.clientId, clientId)))
+    await tx.delete(legacyOauthConsents).where(and(eq(legacyOauthConsents.userId, userId), eq(legacyOauthConsents.clientId, clientId)))
     return gone.length
   })
 }
@@ -57,9 +67,7 @@ export async function revokeMemberMcpInTx(tx: Writer, teamId: string, userId: st
       .from(mcpGrants)
       .where(and(eq(mcpGrants.userId, userId), eq(mcpGrants.clientId, clientId)))
       .limit(1)
-    if (!left) {
-      await tx.delete(oauthAccessTokens).where(and(eq(oauthAccessTokens.userId, userId), eq(oauthAccessTokens.clientId, clientId)))
-    }
+    if (!left) await deleteClientTokens(tx, userId, clientId)
   }
   await tx.delete(appAccess).where(and(eq(appAccess.teamId, teamId), eq(appAccess.userId, userId)))
 }

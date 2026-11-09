@@ -7282,7 +7282,8 @@
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ],
       "basic": [],
       "props": [
@@ -7328,6 +7329,15 @@
           "responsive": false,
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        {
+          "name": "menuKeys",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       ],
       "accessibility": {
@@ -8163,6 +8173,62 @@
             "color": "$color.mutedForeground"
           }
         ]
+      },
+      "macro": null
+    },
+    {
+      "name": "Embed",
+      "kind": "native",
+      "group": "layout",
+      "lite": false,
+      "specimenId": "exponential-ui-embed",
+      "description": "A nested surface drawn in place, sandboxed: its own data and ids, never the host's. Its `event` actions fire `action` {name, context}; a bad surface shows an error box.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "action"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "surface",
+          "type": "object",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "{root: a nested component, data?: object}."
+        }
+      ],
+      "accessibility": {
+        "role": "none",
+        "notes": "no role of its own: the nested surface's nodes join the host's order in place; the error box is an Alert",
+        "keys": [
+          "None of its own: Tab moves through the nested surface's controls in place"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Embed",
+        "surface": {
+          "root": {
+            "id": "card",
+            "component": "Button",
+            "props": {
+              "label": "Approve"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "reply",
+                  "context": {
+                    "text": "Approve"
+                  }
+                }
+              }
+            }
+          },
+          "data": {}
+        }
       },
       "macro": null
     },

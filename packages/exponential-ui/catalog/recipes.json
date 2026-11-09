@@ -17,6 +17,7 @@
     "Image": { "parts": ["root", "fallback"], "props": ["fit"] },
     "Motion": { "parts": ["root"], "props": ["fit"] },
     "Canvas": { "parts": ["root"], "props": ["fit"] },
+    "Embed": { "parts": ["root"], "props": [] },
     "Icon": { "parts": ["root"], "props": ["size", "tone"] },
     "Video": { "parts": ["root", "controls", "poster"], "props": ["autoplay"] },
     "AudioPlayer": { "parts": ["root", "controls", "track"], "props": [] },

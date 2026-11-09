@@ -152,6 +152,11 @@ struct A11yInfo: Equatable {
             // name themselves (`ZoomableImageView`, `ZoomPill`).
             info.passthrough = true
             return info
+        case ("Embed", nil):
+            // #EDE-65 (a11y.json): no role of its own; the nested surface's
+            // nodes read in place (the error box is an Alert).
+            info.passthrough = true
+            return info
         case ("QrScanner", _):
             // VAPP-162: the viewfinder names itself (`QrScannerLeaf`: the
             // label, `cameraUnavailable` appended while no camera shows).

@@ -103,6 +103,9 @@ extension OwnedTextField {
     /// A key the field does not own (`up`, `down`, `pageup`, `pagedown`,
     /// `backspace` on an empty field): `true` = the model handled it.
     func key(_ name: String, shift: Bool = false) -> Bool { model.fieldKey(index, key: name, shift: shift) }
+
+    /// #EDE-65: a Composer key for the host's menu (`menuKeys`): `true` = taken.
+    func menuKey(_ name: String, modified: Bool, composing: Bool) -> Bool { model.composerKey(index, key: name, modified: modified, composing: composing) }
 }
 
 #if canImport(UIKit)
@@ -141,6 +144,8 @@ extension OwnedTextField: UIViewRepresentable {
         func textViewDidEndEditing(_ textView: UITextView) { parent.focused(false) }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             if parent.submitsOnReturn, text == "\n" {
+                // #EDE-65: with menuKeys on, Return goes to the host's menu.
+                if parent.menuKey("Enter", modified: false, composing: textView.markedTextRange != nil) { return false }
                 parent.model.composerSubmit(parent.index)
                 return false
             }
@@ -195,6 +200,8 @@ extension OwnedTextField: UIViewRepresentable {
                 field.selectedTextRange = field.textRange(from: field.endOfDocument, to: field.endOfDocument)
             }
         } else if let tv = view as? PlaceholderTextView {
+            let coordinator = context.coordinator
+            tv.onMenuKey = submitsOnReturn ? { name, modified, composing in coordinator.parent.menuKey(name, modified: modified, composing: composing) } : nil
             tv.font = font
             tv.textColor = color
             tv.tintColor = color
@@ -262,11 +269,11 @@ extension OwnedTextField: UIViewRepresentable {
                 // search list's field (the model ignores them elsewhere).
                 let atStart = selectedTextRange.map { $0.isEmpty && compare($0.start, to: beginningOfDocument) == .orderedSame } ?? false
                 let name: String? = switch key.keyCode {
-                case .keyboardUpArrow: "up"
-                case .keyboardDownArrow: "down"
+                case .keyboardUpArrow: "ArrowUp"
+                case .keyboardDownArrow: "ArrowDown"
                 case .keyboardPageUp: "pageup"
                 case .keyboardPageDown: "pagedown"
-                case .keyboardTab: "tab"
+                case .keyboardTab: "Tab"
                 case .keyboardLeftArrow where atStart: "leftAtStart"
                 case .keyboardRightArrow where atStart: "rightAtStart"
                 default: nil
@@ -277,9 +284,31 @@ extension OwnedTextField: UIViewRepresentable {
         }
     }
 
-    /// A UITextView with a placeholder label.
+    /// A UITextView with a placeholder label. A Composer's hands the
+    /// hardware Up / Down / Return / Tab / Escape to `onMenuKey` first
+    /// (#EDE-65 `menuKeys`).
     final class PlaceholderTextView: UITextView {
         let placeholderLabel = UILabel()
+        var onMenuKey: ((String, Bool, Bool) -> Bool)?
+
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            if let onMenuKey {
+                for press in presses {
+                    guard let key = press.key else { continue }
+                    let name: String? = switch key.keyCode {
+                    case .keyboardUpArrow: "ArrowUp"
+                    case .keyboardDownArrow: "ArrowDown"
+                    case .keyboardReturnOrEnter, .keypadEnter: "Enter"
+                    case .keyboardTab: "Tab"
+                    case .keyboardEscape: "Escape"
+                    default: nil
+                    }
+                    let modified = !key.modifierFlags.intersection([.shift, .control, .alternate, .command]).isEmpty
+                    if let name, onMenuKey(name, modified, markedTextRange != nil) { return }
+                }
+            }
+            super.pressesBegan(presses, with: event)
+        }
 
         override init(frame: CGRect, textContainer: NSTextContainer?) {
             super.init(frame: frame, textContainer: textContainer)
@@ -361,6 +390,21 @@ extension OwnedTextField: NSViewRepresentable {
         func textDidEndEditing(_ notification: Notification) { parent.focused(false) }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // #EDE-65: a Composer with menuKeys on hands Up, Down, Return, Tab
+            // and Escape (no modifier; never during a composition: AppKit
+            // routes those keys to the input method) to the host's menu.
+            if parent.submitsOnReturn {
+                let name: String? = switch commandSelector {
+                case #selector(NSResponder.moveUp(_:)): "ArrowUp"
+                case #selector(NSResponder.moveDown(_:)): "ArrowDown"
+                case #selector(NSResponder.insertNewline(_:)): "Enter"
+                case #selector(NSResponder.insertTab(_:)): "Tab"
+                case #selector(NSResponder.cancelOperation(_:)): "Escape"
+                default: nil
+                }
+                let flags = NSApp.currentEvent?.modifierFlags.intersection([.shift, .control, .option, .command]) ?? []
+                if let name, parent.menuKey(name, modified: !flags.isEmpty, composing: textView.hasMarkedText()) { return true }
+            }
             if parent.submitsOnReturn, commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 parent.model.composerSubmit(parent.index)
                 return true

@@ -1133,6 +1133,19 @@ fn focus_for(issue_id: &str, comment_ids: &[&str], cx: &gpui::App) -> Option<Com
         .then(|| request.clone())
 }
 
+/// #LOGS-6: a focus request naming one of `comment_ids` still has to scroll
+/// its row into view.
+pub(crate) fn comment_focus_pending(issue_id: &str, comment_ids: &[&str], cx: &gpui::App) -> bool {
+    focus_for(issue_id, comment_ids, cx).is_some_and(|request| !request.scrolled)
+}
+
+/// #LOGS-6: some comment of `issue_id` still has to scroll into view.
+pub(crate) fn issue_focus_pending(issue_id: &str, cx: &gpui::App) -> bool {
+    cx.try_global::<CommentFocus>()
+        .and_then(|focus| focus.request.as_ref())
+        .is_some_and(|request| request.issue_id == issue_id && !request.scrolled && request.at.elapsed() < COMMENT_FOCUS_TTL)
+}
+
 /// Wrap a timeline row so a focus request naming its comment (or one of its
 /// replies) scrolls it into `scroll` once and tints it while the tint fades.
 pub(crate) fn with_comment_focus(

@@ -102,11 +102,27 @@
       "strategy": "take-later"
     },
     {
-      "name": "licence inventory",
+      "name": "npm licence inventory",
       "paths": [
-        "packages/licenses/inventory/**",
-        "**/NOTICES.txt",
-        "**/ThirdPartyNotices.*"
+        "packages/licenses/inventory/npm-*.json"
+      ],
+      "strategy": "regenerate",
+      "command": "bun install --ignore-scripts && bun run notices:collect:npm"
+    },
+    {
+      "name": "rust licence inventory",
+      "paths": [
+        "packages/licenses/inventory/rust.json",
+        "packages/licenses/inventory/rust-excluded.json",
+        "packages/licenses/inventory/rust-runner-*.json"
+      ],
+      "strategy": "regenerate",
+      "command": "CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10 bun run notices:collect:rust"
+    },
+    {
+      "name": "licence notices",
+      "paths": [
+        "**/NOTICES.txt"
       ],
       "strategy": "regenerate",
       "command": "bun run notices"

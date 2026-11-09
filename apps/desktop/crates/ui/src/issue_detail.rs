@@ -135,6 +135,9 @@ pub trait DescriptionEditor {
     /// caret-follow keeps the caret visible in the host's scroll container
     /// while typing/pasting. Default no-op for editors without one.
     fn set_scroll_handle(&self, _handle: gpui::ScrollHandle, _cx: &mut App) {}
+    /// #LOGS-6: lay out every block from the next frame on (a scroll anchor
+    /// below the description needs its real height). Default no-op.
+    fn mount_all(&self, _cx: &mut App) {}
     /// EXP-261: the bytes a PERSIST site must use — [`Self::markdown`] with
     /// still-uploading `draft://` staging images structurally stripped. A
     /// `draft://` URL must never reach the server; every save path (the
@@ -2030,6 +2033,13 @@ impl Render for IssueDetailView {
             }
         }
 
+        // #LOGS-6: a comment a link asked for is placed against the whole
+        // description, not the part a first frame lays out.
+        if let Some(editor) = self.editor.as_ref() {
+            if crate::comments::issue_focus_pending(&issue.id, cx) {
+                editor.mount_all(cx);
+            }
+        }
         let (header, title_rows) = self.render_header(&issue, cx);
         let body = self
             .render_body(&issue, title_rows, window, cx)

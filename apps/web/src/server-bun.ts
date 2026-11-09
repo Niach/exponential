@@ -58,6 +58,7 @@ import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startSessionWatchdog } from "@/lib/sessions/watchdog"
 import { startLiveActivityScheduler } from "@/lib/integrations/live-activities"
 import { startEmcpSchedulers } from "@/lib/emcp/schedulers"
+import { importLegacyMcpOAuthAtBoot } from "@/lib/auth/legacy-mcp-oauth"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
 import {
@@ -129,6 +130,10 @@ startDeviceCodeSweepScheduler()
 // ever read live, so the rows are unread history that would otherwise grow
 // for the life of the instance. `pending` rows are never touched.
 startDeviceCommandSweepScheduler()
+
+// better-auth 1.7 (oauth-provider): the 1.6 MCP clients' secrets, sealed with
+// the auth secret, once (migration 0267 moved everything else).
+void importLegacyMcpOAuthAtBoot()
 
 // eMCP (#EXP-1491): refuses to boot on a malformed VAULT_KEY; daily, the
 // vault sweep re-seals legacy, plaintext and retired-key values under the

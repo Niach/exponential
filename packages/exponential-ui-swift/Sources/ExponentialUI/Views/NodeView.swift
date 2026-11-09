@@ -164,7 +164,10 @@ private struct NodeBody: View {
 
     private func painted(style: PaintStyle, size: CGSize, animation: Animation?) -> some View {
         Group {
-            if node.isLeaf {
+            if node.component == "Embed", node.part == nil {
+                // #EDE-65: the nested surface in place (sandboxed, `Model/Embed.swift`).
+                EmbedContent(node: node, model: model, style: style, size: size)
+            } else if node.isLeaf {
                 let leaf = LeafContent(context: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
                 if (model.children[safe: index] ?? []).isEmpty {
                     leaf
@@ -317,6 +320,30 @@ struct ChildrenLayout: View {
                     // VoiceOver reads in PAINT order (slots are not pre-order).
                     .accessibilitySortPriority(model.accessibilityPriority(k))
             }
+        }
+    }
+}
+
+/// #EDE-65 (`fixtures/embed.json`): an Embed's card, a NESTED surface with
+/// its own model (data, ids, interaction state) painted inside the Embed's
+/// content box; it lays out at that width (`ExponentialSurface` reports
+/// it), the host measured the same height. Nothing of the host's paint
+/// (inherited text keys, a mirrored glyph box) reaches into it.
+struct EmbedContent: View {
+    let node: NodeInfo
+    let model: SurfaceModel
+    let style: PaintStyle
+    let size: CGSize
+
+    var body: some View {
+        let e = style.insets
+        if let nested = model.embedModel(id: node.id, props: node.props) {
+            ExponentialSurface(model: nested)
+                .environment(\.xuiTextPaint, TextPaint())
+                .environment(\.xuiGlyphMirrored, false)
+                .frame(width: max(0, size.width - e.leading - e.trailing), alignment: .topLeading)
+                .padding(e)
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
     }
 }

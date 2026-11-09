@@ -3660,9 +3660,9 @@
         "field",
         "none",
         "value",
-        "key",
         "placeholder",
         "held",
+        "pending",
         "ellipsis",
         "error"
       ],
@@ -3876,6 +3876,14 @@
       "props": [
         "fit"
       ]
+    },
+    {
+      "name": "Embed",
+      "kind": "native",
+      "parts": [
+        "root"
+      ],
+      "props": []
     },
     {
       "name": "Calendar",

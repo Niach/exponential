@@ -9,15 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -137,15 +136,12 @@ internal fun RegularCommentRow(
     // the card names the AGENT and wears its mark, never the member's.
     val authorAgent = commentAuthorAgent(comment, agents)
     val authorName = authorAgent?.name ?: commentAuthorName(comment, author, reporterName)
-    Row(
-        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-        verticalAlignment = Alignment.Top,
-    ) {
-        // Avatar in the timeline gutter, aligned with the event dots' column;
-        // the 6dp top segment matches the card's outer margin so the rail runs
-        // continuously through comment cards.
+    // #EXP-1755: the rail spans the row from a background layer sized by
+    // matchParentSize: the row never asks the card for its intrinsic height
+    // (its content subcomposes since Compose 1.11, which throws on intrinsics).
+    Box(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.width(TimelineGutterWidth).fillMaxHeight(),
+            modifier = Modifier.matchParentSize().wrapContentWidth(Alignment.Start).width(TimelineGutterWidth),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(
@@ -154,24 +150,7 @@ internal fun RegularCommentRow(
                     .width(1.dp)
                     .background(if (lineAbove) TimelineRail else Color.Transparent),
             )
-            // EXP-698 r4: the author's PICTURE when they have one, else their
-            // initials on their own hashed hue — the same avatar every other
-            // surface draws, not a comment-only glass chip.
-            if (authorAgent != null) {
-                AgentAvatar(icon = authorAgent.icon, color = authorAgent.color, size = 26.dp)
-            } else {
-                UserAvatar(
-                    user = author,
-                    nameOrEmail = authorName,
-                    size = 26.dp,
-                    // The author row may not have synced (or may have left the
-                    // team); the comment still carries the id web/iOS hash, so the
-                    // hue stays the same person's everywhere. #EXP-1754: a
-                    // reporter keys on their real name, else email (anonymous =
-                    // grey), never the shown copy.
-                    userId = commentHueKey(comment, reporterName, reporterEmail),
-                )
-            }
+            Spacer(Modifier.height(26.dp))
             Box(
                 Modifier
                     .weight(1f)
@@ -179,94 +158,125 @@ internal fun RegularCommentRow(
                     .background(if (lineBelow) TimelineRail else Color.Transparent),
             )
         }
-        Spacer(Modifier.width(8.dp))
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = 6.dp)
-                .glassCard()
-                // EXP-723: 12 / 10 / 12 — the body breathes inside the card
-                // (the reply row below carries the last 6 of the bottom 12).
-                .padding(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 6.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
         ) {
-            CommentCardContent(
-                comment = comment,
-                authorName = authorName,
-                viaAppName = comment.viaAppId?.let { appNames[it] },
-                isAuthor = currentUserId != null && comment.authorId == currentUserId,
-                canModerate = canModerate,
-                isEditing = editingId == comment.id,
-                actions = actions(comment),
-                attachments = attachmentsByComment[comment.id].orEmpty(),
-                onOpenAttachment = onOpenAttachment,
-                editAttachments = if (editingId == comment.id) editAttachments else emptyList(),
-                onAddEditAttachment = onAddEditAttachment,
-                onRemoveEditAttachment = onRemoveEditAttachment,
-                mentionMembers = mentionMembers,
-            )
+            // Avatar in the timeline gutter, aligned with the event dots' column;
+            // the rail behind runs continuously through comment cards.
+            Column(
+                modifier = Modifier.width(TimelineGutterWidth),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(6.dp))
+                // EXP-698 r4: the author's PICTURE when they have one, else their
+                // initials on their own hashed hue — the same avatar every other
+                // surface draws, not a comment-only glass chip.
+                if (authorAgent != null) {
+                    AgentAvatar(icon = authorAgent.icon, color = authorAgent.color, size = 26.dp)
+                } else {
+                    UserAvatar(
+                        user = author,
+                        nameOrEmail = authorName,
+                        size = 26.dp,
+                        // The author row may not have synced (or may have left the
+                        // team); the comment still carries the id web/iOS hash, so the
+                        // hue stays the same person's everywhere. #EXP-1754: a
+                        // reporter keys on their real name, else email (anonymous =
+                        // grey), never the shown copy.
+                        userId = commentHueKey(comment, reporterName, reporterEmail),
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 6.dp)
+                    .glassCard()
+                    // EXP-723: 12 / 10 / 12 — the body breathes inside the card
+                    // (the reply row below carries the last 6 of the bottom 12).
+                    .padding(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 6.dp),
+            ) {
+                CommentCardContent(
+                    comment = comment,
+                    authorName = authorName,
+                    viaAppName = comment.viaAppId?.let { appNames[it] },
+                    isAuthor = currentUserId != null && comment.authorId == currentUserId,
+                    canModerate = canModerate,
+                    isEditing = editingId == comment.id,
+                    actions = actions(comment),
+                    attachments = attachmentsByComment[comment.id].orEmpty(),
+                    onOpenAttachment = onOpenAttachment,
+                    editAttachments = if (editingId == comment.id) editAttachments else emptyList(),
+                    onAddEditAttachment = onAddEditAttachment,
+                    onRemoveEditAttachment = onRemoveEditAttachment,
+                    mentionMembers = mentionMembers,
+                )
 
-            // EXP-741: the replies block + the reply row, behind one hairline.
-            HorizontalDivider(
-                modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
-                thickness = GlassTokens.Hairline,
-                color = GlassTokens.StrokeCard,
-            )
-            replies.forEach { reply ->
-                key(reply.id) {
-                    val replyAuthor = reply.authorId?.let { usersById[it] }
-                    val replyAgent = commentAuthorAgent(reply, agents)
-                    val replyAuthorName = replyAgent?.name ?: commentAuthorName(reply, replyAuthor, reporterName)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        if (replyAgent != null) {
-                            AgentAvatar(
-                                icon = replyAgent.icon,
-                                color = replyAgent.color,
-                                size = 20.dp,
-                                modifier = Modifier.padding(top = 2.dp),
-                            )
-                        } else {
-                            UserAvatar(
-                                user = replyAuthor,
-                                nameOrEmail = replyAuthorName,
-                                size = 20.dp,
-                                userId = commentHueKey(reply, reporterName, reporterEmail),
-                                modifier = Modifier.padding(top = 2.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            CommentCardContent(
-                                comment = reply,
-                                authorName = replyAuthorName,
-                                viaAppName = reply.viaAppId?.let { appNames[it] },
-                                isAuthor = currentUserId != null && reply.authorId == currentUserId,
-                                canModerate = canModerate,
-                                isEditing = editingId == reply.id,
-                                actions = actions(reply),
-                                attachments = attachmentsByComment[reply.id].orEmpty(),
-                                onOpenAttachment = onOpenAttachment,
-                                editAttachments = if (editingId == reply.id) editAttachments else emptyList(),
-                                onAddEditAttachment = onAddEditAttachment,
-                                onRemoveEditAttachment = onRemoveEditAttachment,
-                                mentionMembers = mentionMembers,
-                            )
+                // EXP-741: the replies block + the reply row, behind one hairline.
+                HorizontalDivider(
+                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                    thickness = GlassTokens.Hairline,
+                    color = GlassTokens.StrokeCard,
+                )
+                replies.forEach { reply ->
+                    key(reply.id) {
+                        val replyAuthor = reply.authorId?.let { usersById[it] }
+                        val replyAgent = commentAuthorAgent(reply, agents)
+                        val replyAuthorName = replyAgent?.name ?: commentAuthorName(reply, replyAuthor, reporterName)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            if (replyAgent != null) {
+                                AgentAvatar(
+                                    icon = replyAgent.icon,
+                                    color = replyAgent.color,
+                                    size = 20.dp,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            } else {
+                                UserAvatar(
+                                    user = replyAuthor,
+                                    nameOrEmail = replyAuthorName,
+                                    size = 20.dp,
+                                    userId = commentHueKey(reply, reporterName, reporterEmail),
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                CommentCardContent(
+                                    comment = reply,
+                                    authorName = replyAuthorName,
+                                    viaAppName = reply.viaAppId?.let { appNames[it] },
+                                    isAuthor = currentUserId != null && reply.authorId == currentUserId,
+                                    canModerate = canModerate,
+                                    isEditing = editingId == reply.id,
+                                    actions = actions(reply),
+                                    attachments = attachmentsByComment[reply.id].orEmpty(),
+                                    onOpenAttachment = onOpenAttachment,
+                                    editAttachments = if (editingId == reply.id) editAttachments else emptyList(),
+                                    onAddEditAttachment = onAddEditAttachment,
+                                    onRemoveEditAttachment = onRemoveEditAttachment,
+                                    mentionMembers = mentionMembers,
+                                )
+                            }
                         }
                     }
                 }
+                Text(
+                    "Leave a reply…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CommentMeta,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onReply)
+                        .padding(vertical = 6.dp)
+                        .testTag("comment-reply-${comment.id}"),
+                )
             }
-            Text(
-                "Leave a reply…",
-                style = MaterialTheme.typography.bodySmall,
-                color = CommentMeta,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onReply)
-                    .padding(vertical = 6.dp)
-                    .testTag("comment-reply-${comment.id}"),
-            )
         }
     }
 }

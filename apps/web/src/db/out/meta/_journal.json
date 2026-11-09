@@ -1870,6 +1870,13 @@
       "when": 1794145141931,
       "tag": "0266_one_tree_additive",
       "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "7",
+      "when": 1794217069461,
+      "tag": "0267_mcp_oauth_provider",
+      "breakpoints": true
     }
   ]
 }

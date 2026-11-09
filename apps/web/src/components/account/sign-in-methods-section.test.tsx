@@ -32,7 +32,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
 }))
 
 vi.mock(`@/lib/auth/client`, () => ({
-  authClient: { oauth2: { link: vi.fn() }, linkSocial: vi.fn() },
+  authClient: { linkSocial: vi.fn() },
   invalidateSessionCache: vi.fn(),
 }))
 

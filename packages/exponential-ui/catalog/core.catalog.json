@@ -1546,8 +1546,7 @@
         "style": {
           "type": "style",
           "description": "Extra Box styles merged over the card's own."
-        }
-,
+        },
         "pressable": {
           "type": "boolean",
           "default": false,
@@ -4393,8 +4392,7 @@
           },
           "bindable": true,
           "description": "Recent values (sparkline)."
-        }
-,
+        },
         "pressable": {
           "type": "boolean",
           "default": false,
@@ -5860,12 +5858,19 @@
           "type": "boolean",
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        "menuKeys": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       },
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ],
       "example": {
         "placeholder": "Ask anything"
@@ -6510,6 +6515,46 @@
             "color": "$color.mutedForeground"
           }
         ]
+      }
+    },
+    "Embed": {
+      "kind": "native",
+      "group": "layout",
+      "lite": false,
+      "children": "none",
+      "description": "A nested surface drawn in place, sandboxed: its own data and ids, never the host's. Its `event` actions fire `action` {name, context}; a bad surface shows an error box.",
+      "props": {
+        "surface": {
+          "type": "object",
+          "required": true,
+          "bindable": true,
+          "description": "{root: a nested component, data?: object}."
+        }
+      },
+      "events": [
+        "action"
+      ],
+      "example": {
+        "surface": {
+          "root": {
+            "id": "card",
+            "component": "Button",
+            "props": {
+              "label": "Approve"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "reply",
+                  "context": {
+                    "text": "Approve"
+                  }
+                }
+              }
+            }
+          },
+          "data": {}
+        }
       }
     },
     "Calendar": {

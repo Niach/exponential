@@ -11733,6 +11733,28 @@
       }
     },
     {
+      "name": "Composer/menuKeys=true",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "menuKeys": true
+        }
+      }
+    },
+    {
+      "name": "Composer/menuKeys=false",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "menuKeys": false
+        }
+      }
+    },
+    {
       "name": "Row/example",
       "node": {
         "id": "row",
@@ -13553,6 +13575,35 @@
             }
           ],
           "pointer": false
+        }
+      }
+    },
+    {
+      "name": "Embed/example",
+      "node": {
+        "id": "embed",
+        "component": "Embed",
+        "props": {
+          "surface": {
+            "root": {
+              "id": "card",
+              "component": "Button",
+              "props": {
+                "label": "Approve"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Approve"
+                    }
+                  }
+                }
+              }
+            },
+            "data": {}
+          }
         }
       }
     },

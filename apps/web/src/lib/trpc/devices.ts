@@ -43,6 +43,7 @@ import {
   deviceAgentAccountsSchema,
   deviceAgentHealthValues,
   deviceAgentUsageSchema,
+  deviceCodes,
   deviceCommands,
   deviceDoctorSchema,
   deviceKeys,
@@ -66,6 +67,7 @@ import {
   type DeviceLaunchDefaults,
   type DeviceUsageWindow,
 } from "@/db/schema"
+import { deviceClientName } from "@/lib/auth/device-clients"
 import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/team-membership"
 import { stopMeetingUnlessPrivate, voiceSettingsOf } from "@/lib/trpc/voice"
 import { parseVersionTuple, versionPayload } from "@/lib/client-version"
@@ -2108,6 +2110,35 @@ export const devicesRouter = router({
       })
       await endHostedSessions(ending, { actorId: userId, deviceLabel: label, cause: `removed` })
       return { ok: true, txid }
+    }),
+
+  // GHSA-q84f-53jg-9ppm: who is asking on /auth/device, read SERVER-side
+  // from the `device_codes` row (never from the URL). Only a code the
+  // caller's own session claimed (GET /api/auth/device binds `user_id`),
+  // still pending and unexpired; the client's name comes from the
+  // allow-list, null for an id outside it (the page refuses to approve).
+  pendingLogin: authedProcedure
+    .input(z.object({ userCode: z.string().min(1).max(32) }))
+    .query(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          userCode: deviceCodes.userCode,
+          clientId: deviceCodes.clientId,
+          status: deviceCodes.status,
+          expiresAt: deviceCodes.expiresAt,
+        })
+        .from(deviceCodes)
+        .where(
+          and(
+            eq(deviceCodes.userCode, input.userCode.replace(/-/g, ``)),
+            eq(deviceCodes.userId, ctx.session.user.id)
+          )
+        )
+        .limit(1)
+      if (!row || row.status !== `pending` || row.expiresAt < new Date()) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device code not found` })
+      }
+      return { clientName: deviceClientName(row.clientId) }
     }),
 
   // EXP-1111: a one-time `expi_` token for the Add device dialog's install

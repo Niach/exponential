@@ -1,23 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { oAuthProtectedResourceMetadata } from "better-auth/plugins"
-import { auth } from "@/lib/auth"
-
-const handler = oAuthProtectedResourceMetadata(auth)
+import { protectedResourceResponse } from "@/lib/auth/mcp-metadata"
+import { mcpAppsResource } from "@/lib/auth/mcp-oauth-config"
 
 // #VAPP-182: RFC 9728 metadata of the apps endpoint. The same authorization
 // server as `/api/mcp`; `resource` names `/api/mcp/apps`, so a client sends it
-// on authorize and the consent page asks for apps (mcp-authorize-guard.ts).
+// on authorize and the consent page asks for apps (it rides the signed
+// consent query, lib/auth/mcp-resource.ts).
 export const Route = createFileRoute(`/.well-known/oauth-protected-resource_/api/mcp/apps`)({
   server: {
     handlers: {
-      GET: async ({ request }) => {
-        const response = await handler(request)
-        const metadata = (await response.json()) as Record<string, unknown>
-        const base = (process.env.BETTER_AUTH_URL ?? new URL(request.url).origin).replace(/\/$/, ``)
-        const headers = new Headers(response.headers)
-        headers.delete(`content-length`)
-        return new Response(JSON.stringify({ ...metadata, resource: `${base}/api/mcp/apps` }), { status: response.status, headers })
-      },
+      GET: () => protectedResourceResponse(mcpAppsResource()),
     },
   },
 })

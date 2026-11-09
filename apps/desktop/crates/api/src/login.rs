@@ -144,8 +144,9 @@ pub struct SignInSuccess {
 }
 
 /// The OAuth `client_id` the CLI presents on the device-code grant
-/// (EXP-403). The server does not restrict client ids today; the value
-/// exists for auditability and future `validateClient` policy.
+/// (EXP-403). The server allow-lists it (`validateClient`,
+/// apps/web/src/lib/auth/device-clients.ts `DEVICE_CLIENTS`): changing it
+/// here without adding the new id there breaks sign-in.
 pub const DEVICE_CLIENT_ID: &str = "exponential-cli";
 
 /// `POST /api/auth/device/code` response (RFC 8628 §3.2, snake_case wire).

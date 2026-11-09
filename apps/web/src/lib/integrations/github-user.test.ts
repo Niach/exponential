@@ -101,7 +101,7 @@ describe(`githubUserInfo`, () => {
         { email: `other@example.com`, primary: false, verified: true },
         { email: `main@example.com`, primary: true, verified: true },
       ])
-    ).toMatchObject({ id: `7`, name: `octo`, email: `main@example.com`, emailVerified: true })
+    ).toEqual({ name: `octo`, email: `main@example.com`, emailVerified: true })
   })
 
   it(`drops an unverified primary: no email, so no implicit linking`, () => {
