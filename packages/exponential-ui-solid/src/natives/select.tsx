@@ -573,11 +573,11 @@ function ComboboxContent(props: {
         })}
       >
         {s.searchable() ? (
-          <div class="xui-Select-searchbox">
+          // #EXP-1629: the `search` part is the whole box (glyph + field, one hairline).
+          <div {...part(`search`)} class={`${part(`search`).class as string} xui-Select-searchbox`}>
             <BuiltinIcon slot="Select.search" size={16} />
             <input
-              {...part(`search`)}
-              class={`${part(`search`).class as string} xui-Select-search`}
+              class="xui-Select-searchfield"
               role="combobox"
               aria-expanded={true}
               aria-controls={s.listId}

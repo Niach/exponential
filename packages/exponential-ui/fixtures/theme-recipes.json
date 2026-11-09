@@ -47254,7 +47254,8 @@
               "fontSize": 14,
               "color": "#0a0a0a",
               "borderBottomWidth": 1,
-              "borderColor": "#e5e5e5"
+              "borderColor": "#e5e5e5",
+              "gap": 8
             }
           },
           "dark": {
@@ -47264,7 +47265,8 @@
               "fontSize": 14,
               "color": "#fafafa",
               "borderBottomWidth": 1,
-              "borderColor": "#ffffff1a"
+              "borderColor": "#ffffff1a",
+              "gap": 8
             }
           }
         },
@@ -47298,7 +47300,8 @@
               "fontSize": 14,
               "color": "#0a0a0a",
               "borderBottomWidth": 1,
-              "borderColor": "#e5e5e5"
+              "borderColor": "#e5e5e5",
+              "gap": 8
             }
           },
           "dark": {
@@ -47308,7 +47311,8 @@
               "fontSize": 14,
               "color": "#fafafa",
               "borderBottomWidth": 1,
-              "borderColor": "#ffffff1a"
+              "borderColor": "#ffffff1a",
+              "gap": 8
             }
           }
         }

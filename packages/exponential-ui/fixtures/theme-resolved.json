@@ -11745,7 +11745,8 @@
             },
             {
               "style": {
-                "height": 40
+                "height": 40,
+                "gap": "$spacing.sm"
               }
             }
           ],
@@ -28681,7 +28682,8 @@
             },
             {
               "style": {
-                "height": 40
+                "height": 40,
+                "gap": "$spacing.sm"
               }
             }
           ],

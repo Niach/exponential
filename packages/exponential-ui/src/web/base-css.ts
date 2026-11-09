@@ -246,7 +246,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-trigger>svg,.xui-DatePicker-trigger>svg,.xui-DateRangePicker-trigger>svg,.xui-TimePicker-trigger>svg{width:16px;height:16px;flex-shrink:0;opacity:.6}
 .xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-label{flex:0 0 auto}
 .xui-Select-trigger[data-r-trigger-variant="row"]>span:not(.xui-Select-label){text-align:end}
-.xui-Select-search{display:flex;width:100%;min-width:0;margin:0 0 var(--xui-spacing-xs);padding:var(--xui-spacing-xs) var(--xui-spacing-sm);outline:none;border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
+.xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}
 .xui-Checkbox-box{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;cursor:pointer}
@@ -502,9 +502,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-check{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Menu-check svg,.xui-Menu-submenuIndicator>svg{width:100%;height:100%}
 .xui-Menu-submenuIndicator{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
-.xui-Select-searchbox{display:flex;align-items:center;gap:var(--xui-spacing-xs);padding-inline-start:var(--xui-spacing-sm)}
 .xui-Select-searchbox>svg{width:16px;height:16px;opacity:.6;flex-shrink:0}
-.xui-Select-searchbox>.xui-Select-search{margin:0;border-bottom:0;padding-inline-start:0}
+.xui-Select-listbox>.xui-Select-item{flex-shrink:0}
+.xui-Select-searchfield{flex:1 1 auto;align-self:stretch;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit}
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}
 .xui-Select-content{gap:var(--xui-spacing-xs)}
 .xui-Select-listbox{max-height:256px}
