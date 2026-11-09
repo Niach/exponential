@@ -171,18 +171,21 @@ fn emoji_shape_in_the_colour_face() {
 }
 
 /// The IDE's EXP-600 path: the picker and autocomplete name the colour face
-/// as the run's family (`emoji::EMOJI_FONT_FAMILY`). Upstream gpui deleted
-/// it on that load (no `m`), so the picker drew boxes on Linux.
+/// as the run's family (`emoji::EMOJI_FONT_FAMILY`). Upstream gpui used to
+/// delete it on that load (no `m`), so the picker drew boxes on Linux. Since
+/// zed #65269 the face stays in the database but a family load without an
+/// `m` falls back (it resolves to the default family), so the colour comes
+/// from the vendored shaping preference (vendor/gpui-pre-wgpu): what the
+/// picker needs is colour emoji, whichever family the run resolves to.
 #[test]
-fn the_colour_face_loads_by_name() {
+fn the_colour_face_named_still_draws_colour() {
     if !has_colour_emoji() {
         return;
     }
     let platform = Arc::new(gpui_wgpu::CosmicTextSystem::new("Inter"));
     let ts = Arc::new(TextSystem::new(platform));
     let font = sans("Noto Color Emoji", None);
-    let id = ts.resolve_font(&font);
-    assert_eq!(ts.get_font_for_id(id).map(|f| f.family), Some("Noto Color Emoji".into()), "the colour face resolves by name");
+    let _ = ts.resolve_font(&font);
     for text in ["\u{1F600}", "\u{2764}\u{FE0F}", "\u{1F44D}"] {
         assert!(colour_at(&ts, &font, text, 0), "{text}: drawn in the colour face");
     }
