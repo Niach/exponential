@@ -352,9 +352,10 @@ let sharedInfoPlist: [String: Plist.Value] = [
             "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),
-    // NEW-69: `audio` keeps a call with an agent running with the screen
-    // locked or another app in front (voice-call.json BACKGROUND).
-    "UIBackgroundModes": .array([.string("remote-notification"), .string("audio")]),
+    // No `audio`: App Review (2.5.4) refuses it for a call with an agent, so
+    // an iOS call ends when the app leaves the foreground (voice-call.json
+    // BACKGROUND, ios-info-plist.test.ts).
+    "UIBackgroundModes": .array([.string("remote-notification")]),
     // #EXP-1639: a running session on the Lock Screen (push-to-start).
     "NSSupportsLiveActivities": .boolean(true),
     "ITSAppUsesNonExemptEncryption": .boolean(false),
