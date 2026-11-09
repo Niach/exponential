@@ -303,6 +303,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-DatePicker-day:disabled,.xui-DateRangePicker-day:disabled{opacity:.3;cursor:default;pointer-events:none}
 .xui-Composer-field{display:block;width:100%;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit;resize:none;max-height:200px}
 .xui-composer-bar{display:flex;align-items:center;justify-content:flex-end;gap:var(--xui-spacing-xs)}
+.xui-composer-leading{display:flex;align-items:center;flex-shrink:0;margin-inline-end:auto}
+.xui-composer-trailing{display:flex;align-items:center;flex-shrink:0}
 .xui-Composer-attachment{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send>svg,.xui-Composer-attachment>svg{width:16px;height:16px}

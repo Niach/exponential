@@ -17,6 +17,7 @@ mod events;
 mod input;
 mod key_recorder;
 mod composer_keys;
+mod composer_paste;
 mod motion;
 mod motion_leaf;
 mod canvas_leaf;
@@ -55,6 +56,7 @@ use motion::Motion;
 use state::NodeCache;
 
 pub(crate) use input::Field;
+pub use composer_paste::{clipboard_has_files, clipboard_images, PastedImage};
 pub use motion::NodeEntrance;
 pub use state::{focus_order, is_focusable, next_focus, NodeFlags};
 

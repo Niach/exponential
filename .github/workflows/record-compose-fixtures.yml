@@ -57,6 +57,7 @@ name: record-compose-fixtures
 # EDE-65 (2026-11-09): re-recorded for the fixed measure's Embed (its card
 # laid out at the Embed's width: `Embed/example` at the Approve button's
 # height, not 0).
+# EDE-65 lane R (2026-11-09): re-recorded for the Composer slots (#2503).
 # EXP-1629 (2026-11-09): re-recorded for the Avatar (xl, the palette by
 # seed, half-size regular initials, the picture ring): `Avatar.png`, the
 # kitchen-sink goldens (seeded avatars), the CallSurface avatar.
@@ -77,6 +78,8 @@ name: record-compose-fixtures
 # IDE's metrics (40.82 px, 14 px padding, 12.25 type, 14 px chevron).
 # EXP-1629 (2026-11-09): again for the row Select's IDE popup (value anchor,
 # backgroundClip, the popover shadow, the list fade) and the Avatar picture fill.
+# EDE-65 R (2026-11-09): re-recorded for the Composer `leading`/`trailing`
+# slots and the pasted-image `attach` (`Composer.png`, `components.json`).
 on:
   workflow_dispatch: {}
   push:
