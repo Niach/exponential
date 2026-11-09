@@ -238,6 +238,22 @@ pub fn capture_window(window: &smithay::desktop::Window) -> Result<headless::Fra
     })
 }
 
+/// #LOGS-2: the main loop's heartbeat for the hang watchdog
+/// (`ede_observability::LoopWatch`): a timer every `TICK`, inserted only
+/// when diagnostics or `EXP_FRAME_STATS=1` listen (an idle desktop stays
+/// idle otherwise).
+pub fn watch_main_loop(handle: &smithay::reexports::calloop::LoopHandle<'static, Ede>) {
+    use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+    let Some(mut watch) = ede_observability::LoopWatch::start() else { return };
+    let inserted = handle.insert_source(Timer::from_duration(ede_observability::TICK), move |_, _, _| {
+        watch.tick();
+        TimeoutAction::ToDuration(ede_observability::TICK)
+    });
+    if let Err(e) = inserted {
+        tracing::warn!("main-loop watchdog: {e}");
+    }
+}
+
 /// After a frame went out: frame callbacks so clients draw the next one,
 /// then housekeeping and a flush.
 pub fn frame_done(state: &mut Ede, output: &Output) {

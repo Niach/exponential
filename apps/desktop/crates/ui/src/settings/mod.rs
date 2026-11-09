@@ -34,7 +34,9 @@
 //! snippet, the domain allowlist and the theme editor). SLOP-4: the helpdesk
 //! pane beside it is gone with the helpdesk.
 
-mod about;
+pub(crate) mod about;
+// #EXP-1629: what the panes' eUI documents share.
+mod doc;
 mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
@@ -74,8 +76,8 @@ pub(crate) mod prompts;
 pub(crate) mod skills;
 mod board_detail;
 pub(crate) mod repositories;
-mod sessions;
-mod storage;
+pub(crate) mod sessions;
+pub(crate) mod storage;
 pub(crate) mod team_general;
 mod tools;
 mod widget;
@@ -761,7 +763,7 @@ impl SettingsView {
         let issues = cx.new(|cx| IssuesPane::new(nav.clone(), cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
-        let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
+        let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
         let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
@@ -777,12 +779,12 @@ impl SettingsView {
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
-        let sessions = cx.new(SessionsPane::new);
+        let sessions = cx.new(|cx| SessionsPane::new(window, cx));
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
         let voice = cx.new(VoicePrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
-        let about = cx.new(|_| AboutPane::new());
+        let about = cx.new(|cx| AboutPane::new(window, cx));
 
         // The section nav + header depend on role (owner gating) —
         // re-render when membership/team data moves.
