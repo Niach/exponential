@@ -6,16 +6,16 @@
       "host": "darwin-arm64",
       "entries": {
         "@exponential_app/eui/index": {
-          "bytes": 716965,
-          "gzip": 196172,
+          "bytes": 717916,
+          "gzip": 196356,
           "parts": {
             "index.js": 104338,
-            "chunks/index-zppg0fxs.js": 168911,
+            "chunks/index-pr5596nr.js": 168911,
             "chunks/index-zay8b60d.js": 4301,
-            "chunks/index-4dgtepcs.js": 135303,
-            "chunks/index-jcesm9vw.js": 157131,
+            "chunks/index-zyjyv6y6.js": 136224,
+            "chunks/index-j30cwnhf.js": 157161,
             "chunks/index-d9jcwzxn.js": 7099,
-            "chunks/index-d82a919h.js": 130538,
+            "chunks/index-tm09hdvh.js": 130538,
             "chunks/index-acsx1jt2.js": 210,
             "chunks/index-7ar4qeeb.js": 3461,
             "chunks/index-cwcd4kk4.js": 4609,
@@ -44,51 +44,51 @@
           "gzip": 14365
         },
         "@exponential_app/eui/prompt": {
-          "bytes": 231640,
-          "gzip": 51848,
+          "bytes": 231670,
+          "gzip": 51864,
           "parts": {
             "entries/prompt.js": 8226,
-            "chunks/index-wetjwhvx.js": 65622,
-            "chunks/index-jcesm9vw.js": 157131,
+            "chunks/index-3jmfwzen.js": 65622,
+            "chunks/index-j30cwnhf.js": 157161,
             "chunks/index-acsx1jt2.js": 210,
             "chunks/index-6t1ynte1.js": 451
           }
         },
         "@exponential_app/eui/schema": {
-          "bytes": 279054,
-          "gzip": 64661,
+          "bytes": 279084,
+          "gzip": 64672,
           "parts": {
             "entries/schema.js": 44450,
-            "chunks/index-wetjwhvx.js": 65622,
-            "chunks/index-jcesm9vw.js": 157131,
+            "chunks/index-3jmfwzen.js": 65622,
+            "chunks/index-j30cwnhf.js": 157161,
             "chunks/index-zay8b60d.js": 4301,
             "chunks/index-d9jcwzxn.js": 7099,
             "chunks/index-6t1ynte1.js": 451
           }
         },
         "@exponential_app/eui/conformance": {
-          "bytes": 4188393,
-          "gzip": 282074,
+          "bytes": 4191286,
+          "gzip": 282573,
           "parts": {
-            "conformance.js": 3884948,
-            "chunks/index-4dgtepcs.js": 135303,
-            "chunks/index-jcesm9vw.js": 157131,
+            "conformance.js": 3886890,
+            "chunks/index-zyjyv6y6.js": 136224,
+            "chunks/index-j30cwnhf.js": 157161,
             "chunks/index-d9jcwzxn.js": 7099,
             "chunks/index-7ar4qeeb.js": 3461,
             "chunks/index-6t1ynte1.js": 451
           }
         },
         "@exponential_app/eui/host": {
-          "bytes": 616330,
-          "gzip": 158505,
+          "bytes": 617281,
+          "gzip": 158703,
           "parts": {
             "host/index.js": 8312,
-            "chunks/index-zppg0fxs.js": 168911,
+            "chunks/index-pr5596nr.js": 168911,
             "chunks/index-zay8b60d.js": 4301,
-            "chunks/index-4dgtepcs.js": 135303,
-            "chunks/index-jcesm9vw.js": 157131,
+            "chunks/index-zyjyv6y6.js": 136224,
+            "chunks/index-j30cwnhf.js": 157161,
             "chunks/index-d9jcwzxn.js": 7099,
-            "chunks/index-d82a919h.js": 130538,
+            "chunks/index-tm09hdvh.js": 130538,
             "chunks/index-acsx1jt2.js": 210,
             "chunks/index-7ar4qeeb.js": 3461,
             "chunks/index-srqgbpje.js": 613,
@@ -155,18 +155,18 @@
           }
         },
         "@exponential_app/eui-element/standalone.js": {
-          "bytes": 1207157,
-          "gzip": 338484
+          "bytes": 1208549,
+          "gzip": 338837
         },
         "@exponential_app/eui/host/query": {
-          "bytes": 293412,
-          "gzip": 76595,
+          "bytes": 293442,
+          "gzip": 76609,
           "parts": {
             "host/query.js": 1008,
-            "chunks/index-d82a919h.js": 130538,
+            "chunks/index-tm09hdvh.js": 130538,
             "chunks/index-acsx1jt2.js": 210,
             "chunks/index-7ar4qeeb.js": 3461,
-            "chunks/index-jcesm9vw.js": 157131,
+            "chunks/index-j30cwnhf.js": 157161,
             "chunks/index-srqgbpje.js": 613,
             "chunks/index-6t1ynte1.js": 451
           }

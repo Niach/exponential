@@ -51,7 +51,7 @@ describe(`built-in themes`, () => {
 
 describe(`recipe contract`, () => {
   test(`recipe keys are a subset of the Box visual keys plus the box keys and native`, () => {
-    const allowed = new Set([...STYLE_VISUAL_KEYS, `padding`, `paddingHorizontal`, `paddingVertical`, `gap`, `width`, `height`, `minWidth`, `minHeight`, `native`, `marginTop`, `marginBottom`, `backgroundClip`]) // #EXP-1629: backgroundClip is recipe-only
+    const allowed = new Set([...STYLE_VISUAL_KEYS, `padding`, `paddingHorizontal`, `paddingVertical`, `gap`, `width`, `height`, `minWidth`, `minHeight`, `native`, `marginTop`, `marginBottom`, `maxWidth`, `backgroundClip`]) // #EXP-1629: backgroundClip is recipe-only
     for (const key of RECIPE_KEYS) expect(allowed.has(key), key).toBe(true)
     expect(RECIPE_STATES).toContain(`hover`)
   })
@@ -255,5 +255,42 @@ describe(`errors`, () => {
     expect(theme).toBeNull()
     expect(issues.length).toBeGreaterThan(100)
     expect(issues[0].message).toMatch(/missing value for \$color\./)
+  })
+})
+
+describe(`#EDE-65 the IDE's chat bubble`, () => {
+  test(`borderStrong: the IDE's STROKE_STRONG in exponential, border elsewhere`, () => {
+    const exp = builtinTheme(`exponential`)
+    expect(exp.modes.dark.color.borderStrong).toBe(`#ffffff1f`)
+    expect(exp.modes.light.color.borderStrong).toBe(`#d4d4d4`)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].color.borderStrong).toBe(builtinTheme(id).modes[mode].color.border)
+    expect(builtinTheme(`orange`).modes.dark.color.borderStrong).toBe(`#ffffff1f`) // orange extends exponential
+    const child = loadTheme({ $schema: THEME_SCHEMA_ID, id: `c`, name: `C`, extends: `neutral`, modes: { dark: { color: { border: `#123456` } } } }, { themes: BUILTIN_THEMES })
+    expect(child.modes.dark.color.borderStrong).toBe(`#123456`)
+  })
+
+  test(`the exponential MessageBubble is the IDE's message_bubble`, () => {
+    const exp = builtinTheme(`exponential`)
+    const bubble = (side: string) => resolveRecipe(exp, { component: `MessageBubble`, part: `bubble`, props: { side } }, `dark`)
+    const box = { borderRadius: 16, borderTopLeftRadius: 16, paddingHorizontal: 14, paddingVertical: 10, maxWidth: `62%`, borderWidth: 1 }
+    // `in` = the opaque card fill (dock::card_fill = popover over the glass card) + STROKE_CARD.
+    expect(bubble(`in`)).toMatchObject({ ...box, backgroundColor: exp.modes.dark.color.popover, borderColor: `#ffffff1a` })
+    expect(exp.modes.dark.color.popover).toMatch(/^#[0-9a-f]{6}$/)
+    // `out` = FILL_ACTIVE + STROKE_STRONG.
+    expect(bubble(`out`)).toMatchObject({ ...box, backgroundColor: `#ffffff1c`, borderColor: `#ffffff1f` })
+    expect(resolveRecipe(exp, { component: `MessageBubble`, part: `time`, props: {} }, `dark`).fontSize).toBe(10)
+    // Neutral keeps the macro's own box (no width cap or corner from the theme).
+    expect(resolveRecipe(builtinTheme(`neutral`), { component: `MessageBubble`, part: `bubble`, props: { side: `in` } }, `dark`).maxWidth).toBeUndefined()
+  })
+
+  test(`maxWidth takes a percentage; borderTopLeftRadius a radius`, () => {
+    const theme = (style: Record<string, unknown>) => ({ $schema: THEME_SCHEMA_ID, id: `t`, name: `T`, extends: `neutral`, recipes: { MessageBubble: { bubble: [{ style }] } } })
+    const issues = (style: Record<string, unknown>) => validateTheme(theme(style), { themes: BUILTIN_THEMES }).map((i) => i.message)
+    expect(issues({ maxWidth: `62%`, borderTopLeftRadius: `$radius.xl` })).toEqual([])
+    expect(issues({ maxWidth: 320 })).toEqual([])
+    expect(issues({ maxWidth: `$spacing.xl` })).toEqual([])
+    for (const bad of [`120%`, `62`, `wide`, `.5%`, `62 %`]) expect(issues({ maxWidth: bad })[0]).toMatch(/expected a number, a percentage/)
+    expect(issues({ borderTopLeftRadius: `16%` })[0]).toMatch(/expected a number or a \$radius\|\$spacing token/)
   })
 })
