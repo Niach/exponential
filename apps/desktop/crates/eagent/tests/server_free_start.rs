@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     AvailableCommand, AvailableCommandsUpdate, CompactionId, CompactionStatus, CompactionUpdate,
     ContentBlock, ContentChunk, CreateElicitationRequest, CreateTerminalRequest, ElicitationAction, ElicitationContentValue,
     ElicitationFormMode, ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope,
@@ -149,7 +149,7 @@ impl ConnectTo<Client> for FakeAgent {
             let mode_state = state.clone();
 
             Agent
-                .builder()
+                .v1()
                 .name("fake-agent")
                 .on_receive_request(
                     async move |_request: InitializeRequest, responder, _cx| {
@@ -201,7 +201,7 @@ impl ConnectTo<Client> for FakeAgent {
                     on_receive_request!(),
                 )
                 .on_receive_notification(
-                    async move |_notification: agent_client_protocol::schema::v1::CancelNotification,
+                    async move |_notification: agent_client_protocol::v1::schema::CancelNotification,
                                 _cx| {
                         cancel_state.cancelled.store(true, Ordering::SeqCst);
                         let _ = cancel_tx.send(());
@@ -298,7 +298,7 @@ impl ConnectTo<Client> for FakeAgent {
 
 /// One scripted turn, keyed on the prompt text.
 async fn run_turn(
-    cx: &agent_client_protocol::ConnectionTo<Client>,
+    cx: &agent_client_protocol::v1::ConnectionTo<Client>,
     session_id: &SessionId,
     text: &str,
     state: &Arc<FakeState>,
@@ -334,9 +334,9 @@ async fn run_turn(
             let outcome = cx
                 .send_request(RequestPermissionRequest::new(
                     session_id.clone(),
-                    agent_client_protocol::schema::v1::ToolCallUpdate::new(
+                    agent_client_protocol::v1::schema::ToolCallUpdate::new(
                         ToolCallId::new("tc-perm"),
-                        agent_client_protocol::schema::v1::ToolCallUpdateFields::new()
+                        agent_client_protocol::v1::schema::ToolCallUpdateFields::new()
                             .title("Write src/main.rs"),
                     ),
                     vec![
@@ -620,7 +620,7 @@ async fn run_turn(
                     session_id.clone(),
                     SessionUpdate::AgentMessageChunk(
                         ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
-                            .message_id(agent_client_protocol::schema::v1::MessageId::new(message_id)),
+                            .message_id(agent_client_protocol::v1::schema::MessageId::new(message_id)),
                     ),
                 ));
             }

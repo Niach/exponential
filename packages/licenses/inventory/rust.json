@@ -246,7 +246,7 @@
     },
     {
       "name": "agent-client-protocol",
-      "version": "2.1.0",
+      "version": "5.0.0",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -262,7 +262,7 @@
     },
     {
       "name": "agent-client-protocol-derive",
-      "version": "2.1.0",
+      "version": "5.0.0",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -278,7 +278,7 @@
     },
     {
       "name": "agent-client-protocol-schema",
-      "version": "1.7.0",
+      "version": "1.15.1",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4546,7 +4546,7 @@
     },
     {
       "name": "ede-observability",
-      "version": "0.2.11",
+      "version": "0.2.12",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4561,7 +4561,7 @@
     },
     {
       "name": "ede-services",
-      "version": "0.2.11",
+      "version": "0.2.12",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4576,7 +4576,7 @@
     },
     {
       "name": "ede-theme",
-      "version": "0.2.11",
+      "version": "0.2.12",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4591,7 +4591,7 @@
     },
     {
       "name": "ede-ui",
-      "version": "0.2.11",
+      "version": "0.2.12",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -7044,13 +7044,13 @@
     },
     {
       "name": "hashlink",
-      "version": "0.9.1",
+      "version": "0.12.2",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
       ],
       "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/kyren/hashlink",
+      "homepage": "https://github.com/djc/hashlink",
       "texts": [
         {
           "spdx": "MIT",
@@ -8863,20 +8863,20 @@
     },
     {
       "name": "libsqlite3-sys",
-      "version": "0.30.1",
+      "version": "0.39.1",
       "declared": "MIT",
       "licenses": [
         "MIT"
       ],
       "homepage": "https://github.com/rusqlite/rusqlite",
       "copyright": [
-        "Copyright (c) 2014-2021 The rusqlite developers"
+        "Copyright (c) 2014 The rusqlite developers"
       ],
       "texts": [
         {
           "spdx": "MIT",
           "source": "LICENSE",
-          "body": "Copyright (c) 2014-2021 The rusqlite developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n"
+          "body": "Copyright (c) 2014 The rusqlite developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n"
         }
       ]
     },
@@ -13402,66 +13402,6 @@
       ]
     },
     {
-      "name": "quinn",
-      "version": "0.11.11",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/quinn-rs/quinn",
-      "copyright": [
-        "Copyright (c) 2018 The quinn Developers"
-      ],
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Copyright (c) 2018 The quinn Developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
-        }
-      ]
-    },
-    {
-      "name": "quinn-proto",
-      "version": "0.11.15",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/quinn-rs/quinn",
-      "copyright": [
-        "Copyright (c) 2018 The quinn Developers"
-      ],
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Copyright (c) 2018 The quinn Developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
-        }
-      ]
-    },
-    {
-      "name": "quinn-udp",
-      "version": "0.5.14",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/quinn-rs/quinn",
-      "copyright": [
-        "Copyright (c) 2018 The quinn Developers"
-      ],
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Copyright (c) 2018 The quinn Developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
-        }
-      ]
-    },
-    {
       "name": "quote",
       "version": "1.0.47",
       "declared": "MIT OR Apache-2.0",
@@ -14121,26 +14061,6 @@
     },
     {
       "name": "reqwest",
-      "version": "0.12.28",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/seanmonstar/reqwest",
-      "copyright": [
-        "Copyright (c) 2016-2025 Sean McArthur"
-      ],
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Copyright (c) 2016-2025 Sean McArthur\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n"
-        }
-      ]
-    },
-    {
-      "name": "reqwest",
       "version": "0.13.5",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
@@ -14395,20 +14315,20 @@
     },
     {
       "name": "rusqlite",
-      "version": "0.32.1",
+      "version": "0.41.1",
       "declared": "MIT",
       "licenses": [
         "MIT"
       ],
       "homepage": "https://github.com/rusqlite/rusqlite",
       "copyright": [
-        "Copyright (c) 2014-2021 The rusqlite developers"
+        "Copyright (c) 2014 The rusqlite developers"
       ],
       "texts": [
         {
           "spdx": "MIT",
           "source": "LICENSE",
-          "body": "Copyright (c) 2014-2021 The rusqlite developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n"
+          "body": "Copyright (c) 2014 The rusqlite developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n"
         }
       ]
     },
@@ -15598,7 +15518,7 @@
     },
     {
       "name": "sha1",
-      "version": "0.10.6",
+      "version": "0.11.0",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -15608,13 +15528,14 @@
       "copyright": [
         "Copyright (c) 2006-2009 Graydon Hoare",
         "Copyright (c) 2009-2013 Mozilla Foundation",
-        "Copyright (c) 2016 Artyom Pavlov"
+        "Copyright (c) 2016 Artyom Pavlov",
+        "Copyright (c) 2016-2026 The RustCrypto Project Developers"
       ],
       "texts": [
         {
           "spdx": "MIT",
           "source": "LICENSE-MIT",
-          "body": "Copyright (c) 2006-2009 Graydon Hoare\nCopyright (c) 2009-2013 Mozilla Foundation\nCopyright (c) 2016 Artyom Pavlov\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.\n"
+          "body": "Copyright (c) 2016-2026 The RustCrypto Project Developers\nCopyright (c) 2016 Artyom Pavlov\nCopyright (c) 2009-2013 Mozilla Foundation\nCopyright (c) 2006-2009 Graydon Hoare\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.\n"
         }
       ]
     },
@@ -17552,7 +17473,7 @@
     },
     {
       "name": "tokio-tungstenite",
-      "version": "0.24.0",
+      "version": "0.30.0",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -18804,7 +18725,7 @@
     },
     {
       "name": "tungstenite",
-      "version": "0.24.0",
+      "version": "0.30.0",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -21042,26 +20963,6 @@
     },
     {
       "name": "windows-sys",
-      "version": "0.60.2",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/microsoft/windows-rs",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "license-mit",
-          "body": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
-        }
-      ],
-      "platforms": [
-        "x86_64-pc-windows-msvc"
-      ]
-    },
-    {
-      "name": "windows-sys",
       "version": "0.61.2",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
@@ -21083,26 +20984,6 @@
     {
       "name": "windows-targets",
       "version": "0.52.6",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/microsoft/windows-rs",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "license-mit",
-          "body": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
-        }
-      ],
-      "platforms": [
-        "x86_64-pc-windows-msvc"
-      ]
-    },
-    {
-      "name": "windows-targets",
-      "version": "0.53.5",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -21183,26 +21064,6 @@
     {
       "name": "windows_x86_64_msvc",
       "version": "0.52.6",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/microsoft/windows-rs",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "license-mit",
-          "body": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
-        }
-      ],
-      "platforms": [
-        "x86_64-pc-windows-msvc"
-      ]
-    },
-    {
-      "name": "windows_x86_64_msvc",
-      "version": "0.53.1",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"

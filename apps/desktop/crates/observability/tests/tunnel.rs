@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn http() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::new()
+    exp_http::blocking().build().unwrap()
 }
 
 #[test]

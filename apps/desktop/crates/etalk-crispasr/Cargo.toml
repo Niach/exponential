@@ -21,6 +21,8 @@ log = "0.4"
 # O_NOFOLLOW when hashing a file that is about to be loaded.
 libc = { workspace = true }
 reqwest = { workspace = true }
+# Every reqwest client is built through it (the crypto provider first).
+exp-http = { path = "../exp-http" }
 sha2 = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }

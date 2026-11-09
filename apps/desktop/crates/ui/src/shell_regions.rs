@@ -486,6 +486,7 @@ pub(crate) struct TabBarRegion {
     keys: Vec<String>,
     shown: Option<Value>,
     more: Option<Vec<String>>,
+    observes_panel: bool,
     _observers: Vec<gpui::Subscription>,
 }
 
@@ -499,13 +500,21 @@ impl TabBarRegion {
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
             let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             let nav = crate::navigation::nav_for_window(window, cx);
-            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, _observers: vec![cx.observe(&nav, |_, _, cx| cx.notify())] }
+            // #LOGS-4: the strip is a cached region now, so it observes what
+            // its titles and leads read (issues, session states) itself.
+            let mut observers = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+            if let Some(issues) = Store::try_global(cx).map(|store| store.collections().issues.clone()) {
+                observers.push(cx.observe(&issues, |_, _, cx| cx.notify()));
+            }
+            observers.extend(crate::session_data::observe_session_collections(cx));
+            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, observes_panel: false, _observers: observers }
         })
     }
 
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(panel) = crate::screens::screens_for_window(window, cx) else { return };
-        if self._observers.len() == 1 {
+        if !self.observes_panel {
+            self.observes_panel = true;
             self._observers.push(cx.observe(&panel, |_, _, cx| cx.notify()));
         }
         let items = panel.read(cx).tab_items(cx);
@@ -534,8 +543,11 @@ impl TabBarRegion {
             self.shown = Some(value.clone());
             self.apply(&value, tabs_changed, cx);
         }
-        // A lead is host-painted: its state changes without the data.
-        self.view.update(cx, |_, cx| cx.notify());
+        // A lead is host-painted: its state changes without the data. No
+        // notify (#LOGS-4): the strip renders only when what it observes
+        // changed, and its document renders with it in that same frame; a
+        // notify from here would dirty the cached band for the NEXT frame,
+        // every frame.
     }
 
     fn apply(&mut self, value: &Value, tabs_changed: bool, cx: &mut gpui::Context<Self>) {

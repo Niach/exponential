@@ -73,6 +73,7 @@
 
 mod accounts;
 mod chat;
+mod chat_files;
 mod chats;
 mod engine;
 mod issues;
@@ -319,6 +320,10 @@ struct Shell {
     chat_agent: Option<String>,
     /// The composer's text as it last reported it (the `/` menu reads it).
     chat_draft: String,
+    /// #EDE-65 lane L: the composer's staged attachments (`/chatFiles`).
+    chat_files: chat_files::ChatFiles,
+    /// A send is uploading its attachments (a second one waits).
+    chat_uploading: bool,
     /// The open session's CLI (`claude` | `codex`); `None` on the home.
     chat_cli: Option<String>,
     /// The current team's or Local desktop's prompts (the `/` menu's second group).
@@ -872,6 +877,13 @@ impl HostPlugin for Host {
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
                         Some("stop") => {}
+                        Some("attach") => chat_attach(&shell, cx),
+                        Some("unattach") => {
+                            if let Ok(key) = arg("key").parse::<u64>() {
+                                shell.borrow_mut().chat_files.remove(key);
+                                chat_files_changed(&shell, cx);
+                            }
+                        }
                         Some("draft") => match chat::commit_emoji(&arg("text")) {
                             // EXP-551: a closed exact `:shortcode:` becomes its emoji at once.
                             Some(committed) => chat_set_draft(&shell, &committed, cx),
@@ -1962,11 +1974,36 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
 /// through `sessions.send` (the IDE's path): the open session, else the
 /// picked agent; the chat then shows the session the server names.
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
+    if shell.borrow().chat_uploading {
+        return;
+    }
     if chat_local(shell) {
+        // #EDE-65 lane L: the staged attachments go into the desktop's blob store first.
+        let jobs = shell.borrow().chat_files.jobs();
+        let stored = {
+            let s = shell.borrow();
+            match s.chat_local.as_ref() {
+                Some(chat) => api::attachment_upload::upload_all(jobs, |filename, content_type, bytes| chat.attach(filename, content_type, bytes)),
+                None => Ok(Vec::new()),
+            }
+        };
+        let resolved = match stored {
+            Ok(resolved) => resolved,
+            Err((landed, e)) => {
+                shell.borrow_mut().chat_files.note_uploaded(&landed);
+                failed_action(shell, "upload", "the attachment", &e, cx);
+                return;
+            }
+        };
+        shell.borrow_mut().chat_files.note_uploaded(&resolved);
         let picked = shell.borrow().chat_agent.clone();
-        let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send_to(text, picked.as_deref())).unwrap_or(Ok(()));
+        let ids = chat_files::attachment_ids(&resolved);
+        let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send_with(text, picked.as_deref(), ids)).unwrap_or(Ok(()));
         match sent {
-            Ok(()) => chat_clear_draft(shell, cx),
+            Ok(()) => {
+                chat_files_sent(shell, &resolved, cx);
+                chat_clear_draft(shell, cx);
+            }
             Err(e) => failed_action(shell, "send", "the message", &e, cx),
         }
         return;
@@ -1976,7 +2013,8 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
         return;
     };
     let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
-    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text) else { return };
+    let jobs = shell.borrow().chat_files.jobs();
+    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else { return };
     if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
         if let Some(sealed) = team_chat::seal(root, &text) {
             input.text = Some(sealed);
@@ -1984,21 +2022,100 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     }
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
+    let transport = shell.borrow().workspaces.attachments(&account);
+    let team_id = chat.team_id.clone();
+    shell.borrow_mut().chat_uploading = !jobs.is_empty();
     let shell = shell.clone();
+    use api::attachment_upload::{AttachmentTransport as _, UploadSendError};
     cx.spawn(async move |cx| {
-        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        // #EDE-65 lane L: the IDE's path: the staged files upload into the
+        // team's session files, then the send carries their ids.
+        let sent = cx
+            .background_executor()
+            .spawn(async move {
+                let resolved = api::attachment_upload::upload_all(jobs, |filename, content_type, bytes| transport.upload_team_session_file(&team_id, filename, content_type, bytes))
+                    .map_err(|(landed, e)| UploadSendError::Upload(landed, e))?;
+                input.attachment_ids = Some(chat_files::attachment_ids(&resolved)).filter(|ids| !ids.is_empty());
+                match api::sessions::send(&trpc, &input) {
+                    Ok(out) => Ok((out, resolved)),
+                    Err(e) => Err(UploadSendError::Send(resolved, e)),
+                }
+            })
+            .await;
+        shell.borrow_mut().chat_uploading = false;
         match sent {
             // The draft goes once the server took it; a failure keeps it.
-            Ok(out) => {
+            Ok((out, resolved)) => {
                 if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
                     open.session_id = Some(out.session_id);
                 }
-                cx.update(|cx| chat_clear_draft(&shell, cx));
+                cx.update(|cx| {
+                    chat_files_sent(&shell, &resolved, cx);
+                    chat_clear_draft(&shell, cx);
+                });
             }
-            Err(e) => cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx)),
+            // What landed stays noted: a retry uploads only the rest.
+            Err(UploadSendError::Upload(landed, e)) => cx.update(|cx| {
+                shell.borrow_mut().chat_files.note_uploaded(&landed);
+                failed_action(&shell, "upload", "the attachment", &e, cx);
+            }),
+            Err(UploadSendError::Send(landed, e)) => cx.update(|cx| {
+                shell.borrow_mut().chat_files.note_uploaded(&landed);
+                failed_action(&shell, "send", "the message", &e.user_message(), cx);
+            }),
         }
     })
     .detach();
+}
+
+/// #EDE-65 lane L: the composer's attach control: the desktop's file
+/// chooser (the xdg portal's), the picks staged above the composer; a pick
+/// that does not fit is the IDE's notice as a toast.
+fn chat_attach(shell: &SharedShell, cx: &mut App) {
+    let on_tap: eengine_desktop::OnTap = Arc::new(|_| {});
+    let Some(dialogs) = eengine_desktop::dialogs(&eengine_desktop::DesktopConfig::new("Exponential", on_tap)) else { return };
+    let request = eengine_desktop::OpenRequest { title: "Attach".into(), filter: Default::default(), multiple: true };
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let picked = cx.background_executor().spawn(async move { dialogs.open(&request) }).await;
+        let paths = match picked {
+            Ok(Some(paths)) if !paths.is_empty() => paths,
+            Ok(_) => return,
+            Err(e) => {
+                let message = match e {
+                    eengine_desktop::NativeError::Failed(message) => message,
+                    other => format!("{other:?}"),
+                };
+                cx.update(|cx| failed_action(&shell, "open", "the file chooser", &message, cx));
+                return;
+            }
+        };
+        cx.update(|cx| {
+            let notice = shell.borrow_mut().chat_files.stage_paths(&paths);
+            if let Some(notice) = notice {
+                failed_action(&shell, "attach", "the file", &notice, cx);
+            }
+            chat_files_changed(&shell, cx);
+        });
+    })
+    .detach();
+}
+
+/// A send landed: what went out leaves the strip.
+fn chat_files_sent(shell: &SharedShell, resolved: &[api::attachment_upload::Uploaded], cx: &mut App) {
+    if resolved.is_empty() {
+        return;
+    }
+    let sent: Vec<u64> = resolved.iter().map(|(key, _, _)| *key).collect();
+    shell.borrow_mut().chat_files.settle_sent(&sent);
+    chat_files_changed(shell, cx);
+}
+
+/// The strip above the composer (`/chatFiles`).
+fn chat_files_changed(shell: &SharedShell, cx: &mut App) {
+    let feed = shell.borrow().chat_files.feed();
+    shell.borrow_mut().feed.set("/chatFiles", feed);
+    refresh(shell, cx);
 }
 
 /// A question's option: on a team `sessions.answer` stamps it in the card
@@ -2873,6 +2990,7 @@ fn main() {
             _ => local_runs::assistant_home(),
         };
         feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
+        feed.set("/chatFiles", if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo().feed() } else { chat_files::ChatFiles::default().feed() });
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
             feed.set("/chat", json!({"draft": draft}));
@@ -2989,6 +3107,9 @@ fn main() {
             local_sessions: None,
             chat_agent: None,
             chat_draft: String::new(),
+            // The goldens: `EDE_SHELL_DEMO_ATTACH` stages a screenshot.
+            chat_files: if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo() } else { chat_files::ChatFiles::default() },
+            chat_uploading: false,
             chat_cli: None,
             chat_prompts: Vec::new(),
             chat_members: Vec::new(),

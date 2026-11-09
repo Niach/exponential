@@ -27,7 +27,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Once;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -129,16 +128,24 @@ pub struct OpenAgentShellHere {
     pub path: String,
 }
 
-static REGISTER_ACTIONS: Once = Once::new();
+/// Marks an App that has the context-menu action handlers.
+struct ActionsRegistered;
+impl gpui::Global for ActionsRegistered {}
 
 /// Register the context-menu action handlers exactly once. Menus render in
 /// the `Root` overlay, so their dispatched actions reach only App-global
 /// handlers (§3.6 / the navigation.rs global-listener rule) — never an
-/// element-tree `.on_action`. Idempotent across windows via [`Once`], so any
+/// element-tree `.on_action`. Idempotent across windows, so any
 /// surface that dispatches one of these (the tree, the viewer, the settings
-/// Local-repositories pane) may call it.
+/// Local-repositories pane) may call it. Per App, not per process: a
+/// process-wide `Once` left every App but the first without them (parallel
+/// tests).
 pub(crate) fn ensure_actions_registered(cx: &mut App) {
-    REGISTER_ACTIONS.call_once(|| {
+    if cx.has_global::<ActionsRegistered>() {
+        return;
+    }
+    cx.set_global(ActionsRegistered);
+    {
         cx.on_action(|action: &RevealInFileManager, cx| {
             // gpui's reveal selects the file where the OS supports it (macOS
             // Finder `-R`, Windows `/select`, Linux via the XDG portal with an
@@ -183,7 +190,7 @@ pub(crate) fn ensure_actions_registered(cx: &mut App) {
                 });
             });
         });
-    });
+    }
 }
 
 // ---------------------------------------------------------------------------
