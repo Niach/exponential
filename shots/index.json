@@ -1881,6 +1881,13 @@
       }
     },
     "composer-teams-menu": {
+      "desktop": {
+        "file": "shots/composer-teams-menu/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 34992,
+        "sha256": "4d77441d846aff80d9558869946760e337d0f2935d4d515091a458a4da95df11"
+      },
       "web": {
         "file": "shots/composer-teams-menu/web.webp",
         "width": 1800,
