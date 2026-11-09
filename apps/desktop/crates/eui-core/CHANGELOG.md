@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Composer slots (#EDE-65 R): a Composer with `leading` / `trailing` stays one measured leaf and gets a `bar` row at the bottom of its content box (the send disc's height): `leading`, a spacer, `trailing`, then `sendSpace` (the disc's `$control.buttonIcon` square, unpainted). A measured leaf with children now lays them out as a flex box at its measured size inside its padding + border (`Engine::set_inset`); they never size it. `interactions-round1.json` `composerSlots` + `composerPaste` replayed.
+- `color.borderStrong` + recipe keys `borderTopLeftRadius`, `maxWidth` (#EDE-65): `load_theme` derives `borderStrong` from `border` when a chain sets none (as `link` from `primary`); the validator takes `maxWidth` as a number, a `$control`/`$spacing` token or a percentage `"N%"` (0–100). The built-in `exponential` theme's MessageBubble is the IDE's chat bubble.
 
 ## 0.21.0 (2026-11-09)
 
