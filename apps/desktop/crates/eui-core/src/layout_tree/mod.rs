@@ -941,6 +941,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             "SearchList" if expand => self.search_list(index),
             "Skeleton" => self.skeleton_rows(index),
             "Chart" => self.chart(index),
+            "Composer" if node.slots.is_some() => self.composer_slots(index, node, layer, scope),
             _ => {
                 if let Some(slots) = &node.slots {
                     for slot in slots.values() {

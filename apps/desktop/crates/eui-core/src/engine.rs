@@ -156,6 +156,9 @@ struct ENode {
     measured: bool,
     /// Its own style resolves a percentage against the parent size.
     percent: bool,
+    /// #EDE-65 R: a measured leaf's padding + border `[top, right, bottom,
+    /// left]` (they stay out of taffy): its children lay out inside them.
+    inset: [f32; 4],
 }
 
 impl Default for ENode {
@@ -170,6 +173,7 @@ impl Default for ENode {
             parent: None,
             measured: false,
             percent: false,
+            inset: [0.0; 4],
         }
     }
 }
@@ -310,44 +314,67 @@ impl View<'_, '_> {
             let n = &view.engine.nodes[slot(node)];
             let display = n.laid_style().display;
             let has_children = !n.children.is_empty();
+            let measured = n.measured;
             match (display, has_children) {
                 (Display::None, _) => compute_hidden_layout(view, node),
+                // #EDE-65 R: a measured leaf with children (a slotted
+                // Composer) sizes by its measure; its children are laid out
+                // as a flex box at THAT size (they never size it).
+                (Display::Flex, true) if measured => {
+                    let own = view.measured_leaf(node, inputs);
+                    if inputs.run_mode == RunMode::PerformLayout {
+                        let [t, r, b, l] = view.engine.nodes[slot(node)].inset;
+                        let (w, h) = ((own.size.width - l - r).max(0.0), (own.size.height - t - b).max(0.0));
+                        let at = LayoutInput { known_dimensions: Size { width: Some(w), height: Some(h) }, parent_size: Size { width: Some(w), height: Some(h) }, available_space: Size { width: AvailableSpace::Definite(w), height: AvailableSpace::Definite(h) }, ..inputs };
+                        compute_flexbox_layout(view, node, at);
+                        // The children sit inside the leaf's padding + border.
+                        for c in view.engine.nodes[slot(node)].children.clone() {
+                            let cn = &mut view.engine.nodes[c as usize];
+                            cn.unrounded.location.x += l;
+                            cn.unrounded.location.y += t;
+                        }
+                    }
+                    own
+                }
                 (Display::Block, true) => compute_block_layout(view, node, inputs, None),
                 (Display::Flex, true) => compute_flexbox_layout(view, node, inputs),
                 (Display::Grid, true) => compute_grid_layout(view, node, inputs),
-                (_, false) => {
-                    let index = slot(node) as u32;
-                    let View { engine, measure } = view;
-                    let n = &engine.nodes[slot(node)];
-                    let measured = n.measured;
-                    let ratio = n.style.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
-                    let snap = engine.snap;
-                    let mut baseline = None;
-                    let mut output = compute_leaf_layout(inputs, n.laid_style(), |_, _| 0.0, |known, available| {
-                        // Round 2 §7: an aspect-ratio box whose width is known
-                        // (stretched, flexed) takes height = width / ratio, as
-                        // CSS transfers it (taffy only does for SIZED axes).
-                        if let (Some(r), Some(w), None) = (ratio, known.width, known.height) {
-                            return Size { width: w, height: w / r };
-                        }
-                        if !measured {
-                            return Size::ZERO;
-                        }
-                        let answer = measure(index, known, available);
-                        baseline = answer.baseline;
-                        // gpui rounds a measured size UP to whole device pixels.
-                        match snap {
-                            Some(s) => answer.size.map(|d| (d.max(0.0) * s).ceil() / s),
-                            None => answer.size,
-                        }
-                    });
-                    if let Some(b) = baseline {
-                        output.first_baselines.y = Some(b);
-                    }
-                    output
-                }
+                (_, false) => view.measured_leaf(node, inputs),
             }
         })
+    }
+
+    /// A leaf's layout: its measure (or zero when not measured).
+    fn measured_leaf(&mut self, node: NodeId, inputs: LayoutInput) -> LayoutOutput {
+        let index = slot(node) as u32;
+        let View { engine, measure } = self;
+        let n = &engine.nodes[slot(node)];
+        let measured = n.measured;
+        let ratio = n.style.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
+        let snap = engine.snap;
+        let mut baseline = None;
+        let mut output = compute_leaf_layout(inputs, n.laid_style(), |_, _| 0.0, |known, available| {
+            // Round 2 §7: an aspect-ratio box whose width is known
+            // (stretched, flexed) takes height = width / ratio, as
+            // CSS transfers it (taffy only does for SIZED axes).
+            if let (Some(r), Some(w), None) = (ratio, known.width, known.height) {
+                return Size { width: w, height: w / r };
+            }
+            if !measured {
+                return Size::ZERO;
+            }
+            let answer = measure(index, known, available);
+            baseline = answer.baseline;
+            // gpui rounds a measured size UP to whole device pixels.
+            match snap {
+                Some(s) => answer.size.map(|d| (d.max(0.0) * s).ceil() / s),
+                None => answer.size,
+            }
+        });
+        if let Some(b) = baseline {
+            output.first_baselines.y = Some(b);
+        }
+        output
     }
 }
 
@@ -522,6 +549,15 @@ impl Engine {
 
     pub fn children(&self, i: u32) -> &[u32] {
         &self.nodes[i as usize].children
+    }
+
+    /// #EDE-65 R: a measured leaf's padding + border (`[top, right, bottom,
+    /// left]`), the box its children lay out in.
+    pub fn set_inset(&mut self, i: u32, inset: [f32; 4]) {
+        if self.nodes[i as usize].inset != inset {
+            self.nodes[i as usize].inset = inset;
+            self.mark_dirty(i);
+        }
     }
 
     pub fn set_measured(&mut self, i: u32, measured: bool) {

@@ -892,6 +892,24 @@ extension SurfaceModel {
         filesPicked(componentId: owner, urls: urls)
     }
 
+    /// #EDE-65 R (interactions-round1.json composerPaste): a paste into
+    /// Composer `index` carrying `files` (read off the pasteboard,
+    /// `ComposerPasteboard`): the images (`image/*`, pasteboard order) go to
+    /// the host's `onUpload` (`name` = the Composer's id) and fire `attach`
+    /// {files: [{name, size, type}]}. `true` = taken (files present: the
+    /// field inserts nothing, also when none is an image); `false` = no
+    /// files, the field's own paste.
+    @discardableResult
+    public func composerPaste(_ index: Int, files: [SurfaceUploadFile]) -> Bool {
+        guard !files.isEmpty else { return false }
+        let images = files.filter { $0.type.hasPrefix("image/") }
+        guard !images.isEmpty, let n = node(index), n.component == "Composer" else { return true }
+        host.onUpload(SurfaceUploadEvent(surfaceId: id, componentId: n.id, name: n.id, files: images))
+        let meta: [JSONValue] = images.map { .object(["name": .string($0.name), "size": .number(Double($0.size)), "type": .string($0.type)]) }
+        fire(index, "attach", payload: .object(["files": .array(meta)]))
+        return true
+    }
+
     /// The UTTypes a FileUpload's `accept` allows (`image/*`, `.pdf`…; empty = any).
     public static func contentTypes(accept: String?) -> [UTType] {
         guard let accept, !accept.trimmingCharacters(in: .whitespaces).isEmpty else { return [.item] }

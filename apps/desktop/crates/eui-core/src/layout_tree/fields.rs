@@ -1001,6 +1001,31 @@ impl Builder<'_, '_> {
         self.children_of(index, node, scope, false);
     }
 
+    /// #EDE-65 R: a Composer's `leading` and `trailing` slots. The Composer
+    /// stays ONE measured leaf (its painter draws the field, the attach
+    /// control and the send disc); the core lays out a `bar` row at the
+    /// bottom of its content box, the send disc's height: `leading` at the
+    /// start edge, a spacer, `trailing`, then the send disc's square
+    /// (`sendSpace`, never painted). A painter draws the attach control
+    /// before `trailing` (its frame's width + the bar's gap further from
+    /// send). A leaf with children lays them out at its measured size
+    /// (`engine.rs`).
+    pub(crate) fn composer_slots(&mut self, index: u32, node: &UiNode, layer: u32, scope: &str) {
+        let Some(slots) = &node.slots else { return };
+        let owner = self.nodes[index as usize].clone();
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!("flex-end"))]);
+        let bar = self.part(&owner, "bar", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.buttonIcon", "flexShrink": 0, "alignSelf": "stretch"}), json!({}));
+        for (name, grow) in [("leading", false), ("trailing", true)] {
+            if grow {
+                self.part_in(bar, &owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), "");
+            }
+            let Some(slot) = slots.get(name) else { continue };
+            let wrap = self.part_in(bar, &owner, name, "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}), json!({}), "");
+            self.add(slot, Some(wrap), layer, scope, false);
+        }
+        self.part_in(bar, &owner, "sendSpace", "Box", NodeKind::Container, json!({"width": "$control.buttonIcon", "height": "$control.buttonIcon", "flexShrink": 0}), json!({}), "");
+    }
+
     /// The ids of the named fields a Form collects (not inside a nested Form).
     pub(crate) fn form_fields_of(&self, node: &UiNode) -> Vec<String> {
         fn walk(n: &UiNode, out: &mut Vec<String>, top: bool) {

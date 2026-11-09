@@ -1636,3 +1636,119 @@ fn a_focused_composer_with_menu_keys_intercepts_the_window_keys(cx: &mut TestApp
     draw(vcx);
     assert_eq!(names(&log).last(), Some(&json!({"name": "send", "context": {"value": "/he"}})), "menuKeys off: Enter submits");
 }
+
+fn interactions_fixture() -> Value {
+    serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap()
+}
+
+fn click_at(vcx: &mut VisualTestContext, x: f32, y: f32) {
+    vcx.simulate_mouse_down(gpui::point(px(x), px(y)), MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_up(gpui::point(px(x), px(y)), MouseButton::Left, Modifiers::default());
+    draw(vcx);
+}
+
+/// #EDE-65 R (interactions-round1.json composerSlots): the slots paint in
+/// the Composer's controls row, `leading` at the start, `trailing` just
+/// before the send disc, both centred on the composer's bottom row; the
+/// attach control sits before `trailing` (a press there fires `attach`);
+/// a slot child is live.
+#[gpui::test]
+fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut TestAppContext) {
+    let f = interactions_fixture();
+    let k = &f["composerSlots"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let rtl = c["direction"] == "rtl";
+        let mut composer = k["surface"].clone();
+        for (p, v) in c["props"].as_object().unwrap() {
+            composer["props"][p] = v.clone();
+        }
+        let slots = c["slots"].as_object().unwrap().clone();
+        if !slots.is_empty() {
+            composer["slots"] = c["slots"].clone();
+        }
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer]}), rtl);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let bounds = |vcx: &mut VisualTestContext, id: &str| view.read_with(vcx, |v, _| v.painted_bounds(id)).map(|b| (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height)));
+        let cb = bounds(vcx, "c").unwrap_or_else(|| panic!("{name}: the composer painted"));
+        let mut along: Vec<(f32, &str)> = Vec::new();
+        for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
+            let Some(b) = bounds(vcx, id) else {
+                assert!(!slots.contains_key(slot), "{name}: {slot} painted");
+                continue;
+            };
+            assert!(b.0 >= cb.0 && b.0 + b.2 <= cb.0 + cb.2 + 0.5 && b.1 >= cb.1 && b.1 + b.3 <= cb.1 + cb.3 + 0.5, "{name}: {slot} inside the composer");
+            assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
+            along.push((if rtl { -(b.0 + b.2) } else { b.0 }, slot));
+        }
+        along.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let order: Vec<&str> = c["order"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).filter(|o| *o == "leading" || *o == "trailing").collect();
+        assert_eq!(along.iter().map(|a| a.1).collect::<Vec<_>>(), order, "{name}: order");
+        if let (Some(ring), true) = (bounds(vcx, "ring"), c["props"]["attachments"] == true) {
+            // The attach control ends one row gap (4) before `trailing`.
+            let x = if rtl { ring.0 + ring.2 + 4.0 + 3.0 } else { ring.0 - 4.0 - 3.0 };
+            click_at(vcx, x, ring.1 + ring.3 / 2.0);
+            let names: Vec<String> = log.0.borrow().actions.iter().map(|a| a.name.clone()).collect();
+            assert_eq!(names, vec!["attach".to_string()], "{name}: a press just before trailing is the attach control");
+            log.0.borrow_mut().actions.clear();
+        }
+        for step in c["steps"].as_array().unwrap() {
+            let b = bounds(vcx, step["press"].as_str().unwrap()).unwrap();
+            click_at(vcx, b.0 + b.2 / 2.0, b.1 + b.3 / 2.0);
+        }
+        vcx.executor().advance_clock(Duration::from_millis(400));
+        draw(vcx);
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}: events");
+    }
+}
+
+/// #EDE-65 R (interactions-round1.json composerPaste): through the window,
+/// a paste with image files fires `attach` {files} and uploads them, the
+/// field inserting nothing; a paste without one is the field's own.
+#[gpui::test]
+fn a_composer_attaches_a_pasted_image_like_the_fixture(cx: &mut TestAppContext) {
+    let f = interactions_fixture();
+    let k = &f["composerPaste"];
+    let dir = std::env::temp_dir().join(format!("eui-gpui-paste-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [k["surface"].clone()]}), false);
+        view.update(vcx, |v, cx| {
+            for (path, value) in c["data"].as_object().unwrap() {
+                v.set_data(&format!("/{path}"), Some(value.clone()), cx).unwrap();
+            }
+        });
+        draw(vcx);
+        let clip = &c["clipboard"];
+        let mut entries = Vec::new();
+        if let Some(t) = clip["text"].as_str() {
+            entries.push(gpui::ClipboardEntry::String(gpui::ClipboardString::new(t.to_string())));
+        }
+        let paths: Vec<std::path::PathBuf> = clip["files"].as_array().into_iter().flatten().map(|f| {
+            let p = dir.join(f["name"].as_str().unwrap());
+            std::fs::write(&p, vec![b'x'; f["size"].as_u64().unwrap() as usize]).unwrap();
+            p
+        }).collect();
+        if !paths.is_empty() {
+            entries.push(gpui::ClipboardEntry::ExternalPaths(gpui::ExternalPaths(paths.into())));
+        }
+        vcx.update(|window, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem { entries });
+            view.update(cx, |v, cx| assert!(v.focus_field("c", window, cx)));
+        });
+        draw(vcx);
+        vcx.dispatch_action(gpui_component::input::Paste);
+        vcx.executor().advance_clock(Duration::from_millis(400));
+        draw(vcx);
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}: events");
+        let uploads: Vec<String> = log.0.borrow().uploads.iter().flat_map(|u| u.paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned())).collect();
+        assert_eq!(json!(uploads), c["uploads"], "{name}: uploads");
+        assert!(log.0.borrow().uploads.iter().all(|u| u.component_id == "c" && u.name == "c"), "{name}: the upload names the Composer");
+        let draft = view.read_with(vcx, |v, _| v.surface().get_data("/draft").cloned()).unwrap_or(Value::Null);
+        assert_eq!(draft, c["draft"], "{name}: /draft");
+    }
+}

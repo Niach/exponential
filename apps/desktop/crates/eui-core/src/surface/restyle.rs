@@ -278,6 +278,11 @@ impl Surface {
             }
         };
         self.engine.set_style(slot, taffy_style);
+        if kind == BoxKind::Leaf {
+            let pad = visual.padding.unwrap_or([0.0; 4]);
+            let border = visual.border_widths.unwrap_or([visual.border_width.unwrap_or(0.0); 4]);
+            self.engine.set_inset(slot, [0, 1, 2, 3].map(|k| pad[k] + border[k]));
+        }
         if n.component == "Chart" {
             visual = self.chart_colors(n, visual);
         }

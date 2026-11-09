@@ -369,6 +369,11 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         CompositionLocalProvider(LocalInvisible provides invisible) {
             if (node.isLeaf && model.children.getOrNull(index).isNullOrEmpty()) {
                 LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index).forPart(node.ownerComponent ?: node.macroName, node.part, node.id)))
+            } else if (node.isLeaf && node.component == "Composer" && node.part == null) {
+                // #EDE-65 R: a slotted Composer paints itself, then the slot
+                // row the core laid out over it (composerSlots).
+                LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index).forPart(node.ownerComponent ?: node.macroName, node.part, node.id)))
+                ContainerContent(index, node, model, style, size)
             } else {
                 ContainerContent(index, node, model, style, size)
             }

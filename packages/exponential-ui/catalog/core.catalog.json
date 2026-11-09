@@ -5833,7 +5833,11 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Chat input: a growing text field, a submit button, optional attachments.",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "description": "Chat input: a growing text field, a submit button, optional attachments; `leading`/`trailing` slots sit in its controls row.",
       "props": {
         "placeholder": {
           "type": "string",
@@ -5852,7 +5856,7 @@
         "attachments": {
           "type": "boolean",
           "default": false,
-          "description": "Shows the attach control."
+          "description": "Shows the attach control (`attach`; a pasted image fires `attach` {files})."
         },
         "busy": {
           "type": "boolean",
@@ -5870,7 +5874,8 @@
         "submit",
         "change",
         "stop",
-        "key"
+        "key",
+        "attach"
       ],
       "example": {
         "placeholder": "Ask anything"
