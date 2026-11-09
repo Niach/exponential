@@ -29,7 +29,6 @@ interface Case {
   draft: string | null
 }
 const fx = (fixture as unknown as { composerKeys: { surface: NestedNode; cases: Case[] } }).composerKeys
-const DOM_KEYS: Record<string, string> = { up: `ArrowUp`, down: `ArrowDown`, enter: `Enter`, tab: `Tab`, escape: `Escape` }
 const flags = (mods: readonly Mod[]) => ({ ctrlKey: mods.includes(`ctrl`), altKey: mods.includes(`alt`), shiftKey: mods.includes(`shift`), metaKey: mods.includes(`meta`) })
 
 describe(`fixtures/interactions-round1.json composerKeys`, () => {
@@ -47,7 +46,7 @@ describe(`fixtures/interactions-round1.json composerKeys`, () => {
           field().value = s.type
           fireEvent.input(field())
         } else if (s.key !== undefined) {
-          const kept = fireEvent.keyDown(field(), { key: DOM_KEYS[s.key], isComposing: s.composing ?? false, ...flags(s.mods ?? []) })
+          const kept = fireEvent.keyDown(field(), { key: s.key, isComposing: s.composing ?? false, ...flags(s.mods ?? []) })
           expect(!kept, `${s.key} handled`).toBe(s.handled!)
         } else if (s.hostWrite) state.apply({ version: `1.0`, updateDataModel: { surfaceId: `ck`, path: s.hostWrite.path, value: s.hostWrite.value } })
       }

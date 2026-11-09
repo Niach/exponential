@@ -701,7 +701,6 @@ interface ComposerKeyCase {
   draft: string | null
 }
 const composerKeysFixture = (fixture as unknown as { composerKeys: { surface: NestedNode; cases: ComposerKeyCase[] } }).composerKeys
-const COMPOSER_DOM_KEYS: Record<string, string> = { up: `ArrowUp`, down: `ArrowDown`, enter: `Enter`, tab: `Tab`, escape: `Escape` }
 
 function ComposerKeysSurface({ data, onState, onAction }: { data: Record<string, unknown>; onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
   const surface = useSurface({ surfaceId: `ck`, data: structuredClone(data), initial: composerKeysFixture.surface })
@@ -721,7 +720,7 @@ describe(`fixtures/interactions-round1.json composerKeys`, () => {
       for (const s of c.steps) {
         if (s.type !== undefined) fireEvent.change(field(), { target: { value: s.type } })
         else if (s.key !== undefined) {
-          const kept = fireEvent.keyDown(field(), { key: COMPOSER_DOM_KEYS[s.key], isComposing: s.composing ?? false, ...modFlags(s.mods ?? []) })
+          const kept = fireEvent.keyDown(field(), { key: s.key, isComposing: s.composing ?? false, ...modFlags(s.mods ?? []) })
           expect(!kept, `${s.key} handled`).toBe(s.handled!)
         } else if (s.hostWrite) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `ck`, path: s.hostWrite!.path, value: s.hostWrite!.value } }))
       }

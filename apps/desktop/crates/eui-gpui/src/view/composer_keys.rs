@@ -13,18 +13,19 @@ use serde_json::{json, Value};
 use super::input::{FieldInput, FieldKind};
 use super::SurfaceView;
 
-/// The `key` payload name of a gpui key with `modifiers` held, or `None`
-/// when the field keeps it.
+/// The `key` payload name (SearchList's DOM-style names: ArrowUp,
+/// ArrowDown, Enter, Tab, Escape) of a gpui key with `modifiers` held, or
+/// `None` when the field keeps it.
 pub fn composer_menu_key(key: &str, modifiers: &Modifiers) -> Option<&'static str> {
     if modifiers.control || modifiers.alt || modifiers.shift || modifiers.platform || modifiers.function {
         return None;
     }
     match key {
-        "up" => Some("up"),
-        "down" => Some("down"),
-        "enter" => Some("enter"),
-        "tab" => Some("tab"),
-        "escape" => Some("escape"),
+        "up" => Some("ArrowUp"),
+        "down" => Some("ArrowDown"),
+        "enter" => Some("Enter"),
+        "tab" => Some("Tab"),
+        "escape" => Some("Escape"),
         _ => None,
     }
 }
@@ -89,8 +90,8 @@ mod tests {
     #[test]
     fn menu_keys_only_without_modifiers() {
         let none = Modifiers::default();
-        for k in ["up", "down", "enter", "tab", "escape"] {
-            assert_eq!(composer_menu_key(k, &none), Some(k));
+        for (k, name) in [("up", "ArrowUp"), ("down", "ArrowDown"), ("enter", "Enter"), ("tab", "Tab"), ("escape", "Escape")] {
+            assert_eq!(composer_menu_key(k, &none), Some(name));
         }
         for k in ["left", "right", "home", "a", "backspace", "space"] {
             assert_eq!(composer_menu_key(k, &none), None, "{k}");

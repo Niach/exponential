@@ -3,13 +3,13 @@
   "budgetTokens": 10000,
   "full": {
     "components": 100,
-    "chars": 39090,
-    "tokens": 9773
+    "chars": 39100,
+    "tokens": 9775
   },
   "lite": {
     "components": 70,
-    "chars": 28574,
-    "tokens": 7144
+    "chars": 28584,
+    "tokens": 7146
   },
   "terse": {
     "components": 100,
@@ -26,8 +26,8 @@
     "tokens": 502
   },
   "perComponent": {
-    "mean": 360,
+    "mean": 361,
     "max": 2376,
-    "meanTokens": 90
+    "meanTokens": 91
   }
 }

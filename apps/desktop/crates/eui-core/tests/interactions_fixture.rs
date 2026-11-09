@@ -699,7 +699,7 @@ fn composer_key_cases_fire_key_or_submit_like_the_reference() {
                 let menu = s.get_data("/menu") == Some(&json!(true));
                 if menu && plain {
                     s.event(composer, "key", Some(json!({"key": key})))
-                } else if key == "enter" && plain && !text.trim().is_empty() {
+                } else if key == "Enter" && plain && !text.trim().is_empty() {
                     let mut out = s.event(composer, "submit", Some(json!({"value": text.trim()})));
                     text.clear();
                     out.extend(s.event(composer, "change", Some(json!({"value": ""}))));

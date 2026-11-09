@@ -5817,7 +5817,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "Up, Down, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       },
       "events": [

@@ -8653,7 +8653,7 @@
         },
         "menuKeys": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "Up, Down, Enter, Tab, Escape fire `key` {key} instead (a host's menu).",
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu).",
           "default": false
         },
         "on": {

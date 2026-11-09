@@ -4,8 +4,8 @@ import { composerMenuKey } from "./composer-keys"
 const none = { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }
 
 describe(`#EDE-65 Composer menu keys`, () => {
-  test(`the five keys map to their canonical names`, () => {
-    expect([`ArrowUp`, `ArrowDown`, `Enter`, `Tab`, `Escape`].map((key) => composerMenuKey({ ...none, key }))).toEqual([`up`, `down`, `enter`, `tab`, `escape`])
+  test(`the five keys are their own DOM names`, () => {
+    expect([`ArrowUp`, `ArrowDown`, `Enter`, `Tab`, `Escape`].map((key) => composerMenuKey({ ...none, key }))).toEqual([`ArrowUp`, `ArrowDown`, `Enter`, `Tab`, `Escape`])
   })
   test(`other keys stay the field's`, () => {
     for (const key of [`a`, `ArrowLeft`, `Backspace`, `Home`, ` `]) expect(composerMenuKey({ ...none, key })).toBeUndefined()

@@ -1561,25 +1561,25 @@ fn a_composer_hands_menu_keys_to_the_host_like_the_fixture(cx: &mut TestAppConte
             if let Some(text) = step["type"].as_str() {
                 let text = text.to_string();
                 cx_type(&view, vcx, &text);
-            } else if let Some(key) = step["key"].as_str() {
+            } else if let Some(name_key) = step["key"].as_str() {
                 let held = |x: &str| step["mods"].as_array().is_some_and(|a| a.iter().any(|v| v == x));
                 let m = Modifiers { control: held("ctrl"), alt: held("alt"), shift: held("shift"), platform: held("meta"), function: false };
                 let composing = step["composing"].as_bool().unwrap_or(false);
-                let key = key.to_string();
+                let key = gpui_key(name_key);
                 let handled = vcx.update(|window, cx| {
                     view.update(cx, |v, cx| {
-                        if v.composer_key("c", &key, &m, composing, window, cx) {
+                        if v.composer_key("c", key, &m, composing, window, cx) {
                             return true;
                         }
                         // The textarea's own Enter (an IME's Enter never reaches it).
-                        if key == "enter" && m == Modifiers::default() && !composing {
+                        if name_key == "Enter" && m == Modifiers::default() && !composing {
                             v.submit_composer("c", window, cx);
                             return true;
                         }
                         false
                     })
                 });
-                assert_eq!(handled, step["handled"].as_bool().unwrap(), "{name}: {key} handled");
+                assert_eq!(handled, step["handled"].as_bool().unwrap(), "{name}: {name_key} handled");
             } else if let Some(w) = step.get("hostWrite") {
                 view.update(vcx, |v, cx| v.set_data(w["path"].as_str().unwrap(), Some(w["value"].clone()), cx).unwrap());
             }
@@ -1592,6 +1592,18 @@ fn a_composer_hands_menu_keys_to_the_host_like_the_fixture(cx: &mut TestAppConte
         assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}: events");
         let draft = view.read_with(vcx, |v, _| v.surface().get_data("/draft").cloned()).unwrap_or(Value::Null);
         assert_eq!(draft, c["draft"], "{name}: /draft");
+    }
+}
+
+/// The gpui key of a fixture key name (SearchList's DOM-style names).
+fn gpui_key(name: &str) -> &'static str {
+    match name {
+        "ArrowUp" => "up",
+        "ArrowDown" => "down",
+        "Enter" => "enter",
+        "Tab" => "tab",
+        "Escape" => "escape",
+        other => panic!("composerKeys: unknown key {other}"),
     }
 }
 
@@ -1616,7 +1628,7 @@ fn a_focused_composer_with_menu_keys_intercepts_the_window_keys(cx: &mut TestApp
     vcx.simulate_event(down("enter"));
     draw(vcx);
     let names = |log: &Recorder| log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect::<Vec<_>>();
-    assert_eq!(names(&log), vec![json!({"name": "key", "context": {"key": "down"}}), json!({"name": "key", "context": {"key": "enter"}})]);
+    assert_eq!(names(&log), vec![json!({"name": "key", "context": {"key": "ArrowDown"}}), json!({"name": "key", "context": {"key": "Enter"}})]);
     assert_eq!(view.read_with(vcx, |v, cx| v.field_text("c", cx)).as_deref(), Some("/he"), "the field kept its text");
     view.update(vcx, |v, cx| v.set_data("/menu", Some(json!(false)), cx).unwrap());
     draw(vcx);

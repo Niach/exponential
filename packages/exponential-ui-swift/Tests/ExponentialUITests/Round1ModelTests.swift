@@ -829,7 +829,7 @@ final class Round1ModelTests: XCTestCase {
                     let modified = !(step["mods"]?.array ?? []).isEmpty
                     let composing = step["composing"]?.bool == true
                     var handled = m.composerKey(index, key: key, modified: modified, composing: composing)
-                    if !handled, key == "enter", !modified, !composing {
+                    if !handled, key == "Enter", !modified, !composing {
                         m.fieldCommitted(index)
                         handled = true
                     }
@@ -845,8 +845,8 @@ final class Round1ModelTests: XCTestCase {
             XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
             XCTAssertEqual(m.data["draft"] ?? .null, c["draft"] ?? .null, "\(name): /draft")
         }
-        XCTAssertEqual(SurfaceModel.composerMenuKey("tab", modified: true), nil)
-        XCTAssertEqual(SurfaceModel.composerMenuKey("left", modified: false), nil)
+        XCTAssertEqual(SurfaceModel.composerMenuKey("Tab", modified: true), nil)
+        XCTAssertEqual(SurfaceModel.composerMenuKey("ArrowLeft", modified: false), nil)
     }
 
     // MARK: - interactions-round1.json foldRow (#VAPP-284)

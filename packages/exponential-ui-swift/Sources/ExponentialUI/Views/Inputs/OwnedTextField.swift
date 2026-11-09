@@ -130,7 +130,7 @@ extension OwnedTextField: UIViewRepresentable {
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             if parent.submitsOnReturn, text == "\n" {
                 // #EDE-65: with menuKeys on, Return goes to the host's menu.
-                if parent.menuKey("enter", modified: false, composing: textView.markedTextRange != nil) { return false }
+                if parent.menuKey("Enter", modified: false, composing: textView.markedTextRange != nil) { return false }
                 parent.model.composerSubmit(parent.index)
                 return false
             }
@@ -253,11 +253,11 @@ extension OwnedTextField: UIViewRepresentable {
                 // search list's field (the model ignores them elsewhere).
                 let atStart = selectedTextRange.map { $0.isEmpty && compare($0.start, to: beginningOfDocument) == .orderedSame } ?? false
                 let name: String? = switch key.keyCode {
-                case .keyboardUpArrow: "up"
-                case .keyboardDownArrow: "down"
+                case .keyboardUpArrow: "ArrowUp"
+                case .keyboardDownArrow: "ArrowDown"
                 case .keyboardPageUp: "pageup"
                 case .keyboardPageDown: "pagedown"
-                case .keyboardTab: "tab"
+                case .keyboardTab: "Tab"
                 case .keyboardLeftArrow where atStart: "leftAtStart"
                 case .keyboardRightArrow where atStart: "rightAtStart"
                 default: nil
@@ -280,11 +280,11 @@ extension OwnedTextField: UIViewRepresentable {
                 for press in presses {
                     guard let key = press.key else { continue }
                     let name: String? = switch key.keyCode {
-                    case .keyboardUpArrow: "up"
-                    case .keyboardDownArrow: "down"
-                    case .keyboardReturnOrEnter, .keypadEnter: "enter"
-                    case .keyboardTab: "tab"
-                    case .keyboardEscape: "escape"
+                    case .keyboardUpArrow: "ArrowUp"
+                    case .keyboardDownArrow: "ArrowDown"
+                    case .keyboardReturnOrEnter, .keypadEnter: "Enter"
+                    case .keyboardTab: "Tab"
+                    case .keyboardEscape: "Escape"
                     default: nil
                     }
                     let modified = !key.modifierFlags.intersection([.shift, .control, .alternate, .command]).isEmpty
@@ -379,11 +379,11 @@ extension OwnedTextField: NSViewRepresentable {
             // routes those keys to the input method) to the host's menu.
             if parent.submitsOnReturn {
                 let name: String? = switch commandSelector {
-                case #selector(NSResponder.moveUp(_:)): "up"
-                case #selector(NSResponder.moveDown(_:)): "down"
-                case #selector(NSResponder.insertNewline(_:)): "enter"
-                case #selector(NSResponder.insertTab(_:)): "tab"
-                case #selector(NSResponder.cancelOperation(_:)): "escape"
+                case #selector(NSResponder.moveUp(_:)): "ArrowUp"
+                case #selector(NSResponder.moveDown(_:)): "ArrowDown"
+                case #selector(NSResponder.insertNewline(_:)): "Enter"
+                case #selector(NSResponder.insertTab(_:)): "Tab"
+                case #selector(NSResponder.cancelOperation(_:)): "Escape"
                 default: nil
                 }
                 let flags = NSApp.currentEvent?.modifierFlags.intersection([.shift, .control, .option, .command]) ?? []

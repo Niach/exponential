@@ -630,7 +630,7 @@ class InteractionTest {
                         val modified = step["mods"]?.array.orEmpty().isNotEmpty()
                         val composing = step["composing"]?.bool == true
                         var handled = m.composerKey(field, key, modified, composing)
-                        if (!handled && key == "enter" && !modified && !composing) {
+                        if (!handled && key == "Enter" && !modified && !composing) {
                             m.composerSubmit(field)
                             handled = true
                         }
@@ -652,11 +652,11 @@ class InteractionTest {
     /** #EDE-65: the five menu keys pass unmodified; a held modifier or another key is the field's. */
     @Test
     fun composerMenuKeyNames() {
-        for (k in listOf("up", "down", "enter", "tab", "escape")) {
+        for (k in listOf("ArrowUp", "ArrowDown", "Enter", "Tab", "Escape")) {
             assertEquals(k, composerMenuKey(k, modified = false))
             assertNull(composerMenuKey(k, modified = true))
         }
-        assertNull(composerMenuKey("left", modified = false))
+        assertNull(composerMenuKey("ArrowLeft", modified = false))
         assertNull(composerMenuKey("a", modified = false))
     }
 

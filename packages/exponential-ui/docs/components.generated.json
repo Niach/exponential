@@ -7282,7 +7282,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "Up, Down, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       ],
       "accessibility": {

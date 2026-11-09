@@ -228,13 +228,13 @@ fun SurfaceModel.composerSubmit(index: Int) {
 
 /**
  * #EDE-65 (`interactions-round1.json` `composerKeys`): the `key` payload
- * name of a key in a Composer with menuKeys on (`up`, `down`, `enter`,
- * `tab`, `escape`), or null when the field keeps it (any modifier held:
+ * name of a key in a Composer with menuKeys on (SearchList's DOM-style
+ * names: `ArrowUp`, `ArrowDown`, `Enter`, `Tab`, `Escape`), or null when the field keeps it (any modifier held:
  * Shift+Enter's newline, Shift+Tab, Alt+Down). Pure.
  */
 fun composerMenuKey(key: String, modified: Boolean): String? = when {
     modified -> null
-    key == "up" || key == "down" || key == "enter" || key == "tab" || key == "escape" -> key
+    key == "ArrowUp" || key == "ArrowDown" || key == "Enter" || key == "Tab" || key == "Escape" -> key
     else -> null
 }
 
@@ -245,7 +245,7 @@ fun SurfaceModel.composerMenuKeysOn(index: Int): Boolean {
 }
 
 /**
- * #EDE-65: a key down in Composer [index] (a canonical name; [modified] =
+ * #EDE-65: a key down in Composer [index] (a [composerMenuKey] name; [modified] =
  * shift / ctrl / alt / meta held, [composing] = an IME composition is in
  * progress). With menuKeys on, a menu key sends the pending text first
  * (the host's filter is current), then fires `key` {key}; `true` = taken

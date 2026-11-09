@@ -162,8 +162,8 @@ fun OwnedTextField(
             state?.composing = next.composition != null
             if (submitsOnReturn && next.text.length == prev.text.length + 1 && next.text.count { it == '\n' } > prev.text.count { it == '\n' }) {
                 // Return in a composer submits instead of inserting a newline
-                // (#EDE-65: with menuKeys on it is the host's `key` enter).
-                if (!model.composerKey(index, "enter")) model.composerSubmit(index)
+                // (#EDE-65: with menuKeys on it is the host's `key` Enter).
+                if (!model.composerKey(index, "Enter")) model.composerSubmit(index)
                 return@BasicTextField
             }
             value = if (selectingAll && next.text == prev.text) next.copy(selection = TextRange(0, next.text.length)) else next
@@ -237,7 +237,7 @@ fun OwnedTextField(
                 if (!multiline) model.fieldSubmitted(index) else model.fieldCommitted(index)
                 if (model.node(index)?.component != "ChipInput" && !searchList) focusManager.clearFocus()
             },
-            onSend = { if (!model.composerKey(index, "enter")) model.composerSubmit(index) },
+            onSend = { if (!model.composerKey(index, "Enter")) model.composerSubmit(index) },
         ),
         visualTransformation = if (secure) PasswordVisualTransformation() else VisualTransformation.None,
         cursorBrush = SolidColor(textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
@@ -461,12 +461,12 @@ internal fun ComposerLeaf(cx: LeafContext) {
     }
 }
 
-/** #EDE-65: a Composer menu key's canonical name (`composerMenuKey`), null for the rest. */
+/** #EDE-65: a Composer menu key's name (`composerMenuKey`: SearchList's DOM-style names), null for the rest. */
 internal fun menuKeyName(key: Key): String? = when (key) {
-    Key.DirectionUp -> "up"
-    Key.DirectionDown -> "down"
-    Key.Enter, Key.NumPadEnter -> "enter"
-    Key.Tab -> "tab"
-    Key.Escape -> "escape"
+    Key.DirectionUp -> "ArrowUp"
+    Key.DirectionDown -> "ArrowDown"
+    Key.Enter, Key.NumPadEnter -> "Enter"
+    Key.Tab -> "Tab"
+    Key.Escape -> "Escape"
     else -> null
 }

@@ -255,11 +255,12 @@ extension SurfaceModel {
 
     /// #EDE-65 (interactions-round1.json composerKeys): the `key` name of a
     /// key the Composer hands to the host's menu while `menuKeys` is on:
-    /// Up, Down, Enter, Tab and Escape with no modifier held (`modified` =
+    /// ArrowUp, ArrowDown, Enter, Tab and Escape (SearchList's DOM-style
+    /// names, the catalog's one key naming) with no modifier held (`modified` =
     /// Shift, Ctrl, Alt/Option or Cmd); anything else stays the field's.
     public static func composerMenuKey(_ key: String, modified: Bool) -> String? {
         guard !modified else { return nil }
-        return ["up", "down", "enter", "tab", "escape"].contains(key) ? key : nil
+        return ["ArrowUp", "ArrowDown", "Enter", "Tab", "Escape"].contains(key) ? key : nil
     }
 
     /// #EDE-65: a key down in Composer `index` (the text views call this

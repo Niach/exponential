@@ -14,8 +14,8 @@
 //! case keeps the home placeholder (the agent row above the card picks the
 //! recipient, styleguide `composer-agent-row`). #EDE-65: the menus above
 //! the field keep the keyboard; Exponential UI's Composer carries it as
-//! `menuKeys` (Up, Down, Enter, Tab and Escape without a modifier fire
-//! `key` {key} for the host's menu, never during an IME composition).
+//! `menuKeys` (ArrowUp, ArrowDown, Enter, Tab and Escape without a
+//! modifier fire `key` {key}, SearchList's key names, for the host's menu, never during an IME composition).
 
 use gpui::{
     div, px, AnyElement, App, Context, Div, Entity, IntoElement, ParentElement as _, Render,

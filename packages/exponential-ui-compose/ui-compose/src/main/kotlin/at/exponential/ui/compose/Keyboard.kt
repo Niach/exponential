@@ -199,8 +199,8 @@ private fun keyRecorderKey(model: SurfaceModel, e: KeyEvent): Boolean? {
 }
 
 /**
- * #EDE-65 (`interactions-round1.json` `composerKeys`): Up, Down, Enter,
- * Tab and Escape with no modifier held in the focused Composer while its
+ * #EDE-65 (`interactions-round1.json` `composerKeys`): ArrowUp, ArrowDown,
+ * Enter, Tab and Escape with no modifier held in the focused Composer while its
  * `menuKeys` is on go to the host as `key` (the surface's preview runs
  * before the field's, so the field never edits, submits or moves the
  * focus, and Escape closes no layer and stops nothing); the matching key
