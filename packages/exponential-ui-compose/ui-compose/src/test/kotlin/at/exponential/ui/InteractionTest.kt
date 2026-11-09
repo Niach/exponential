@@ -21,6 +21,9 @@ import at.exponential.ui.model.keyRecorderPress
 import at.exponential.ui.model.keyRecorderRecord
 import at.exponential.ui.model.keyRecorderRecording
 import at.exponential.ui.model.checked
+import at.exponential.ui.model.composerKey
+import at.exponential.ui.model.composerMenuKey
+import at.exponential.ui.model.composerSubmit
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.INPUT_DEBOUNCE_MS
 import at.exponential.ui.model.field
@@ -593,6 +596,68 @@ class InteractionTest {
             assertEquals("$name: /recording", c["recording"] ?: JsonValue.Null, recording)
             assertEquals("$name: the field records", recording.bool == true, m.keyRecorderRecording(m.idx("ptt.field")))
         }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `composerKeys` (#EDE-65): a
+     * Composer `c` (value /draft, menuKeys /menu). `type` = the field's own
+     * edit ([fieldEdited]), a key = [composerKey] with the held mods and
+     * the IME composition; a key it leaves is the field's own, and the
+     * field's own unmodified, uncomposed Enter is [composerSubmit] (the
+     * view's Enter); `handled` = the Composer took it. `hostWrite` = the
+     * host's data write; then, the debounce run out, the fired actions
+     * {name, context} and /draft (null = unset).
+     */
+    @Test
+    fun composerKeyCasesFireKeyOrSubmit() = runTest {
+        val f = Fixtures.json("interactions-round1.json")["composerKeys"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertTrue(cases.size >= 10)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("composer_keys", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            m.setViewport(390f, 800f)
+            for (step in c["steps"]?.array.orEmpty()) {
+                val field = m.idx("c")
+                when {
+                    step["type"] != null -> m.fieldEdited(field, step["type"]!!.string!!)
+                    step["key"] != null -> {
+                        val key = step["key"]!!.string!!
+                        val modified = step["mods"]?.array.orEmpty().isNotEmpty()
+                        val composing = step["composing"]?.bool == true
+                        var handled = m.composerKey(field, key, modified, composing)
+                        if (!handled && key == "enter" && !modified && !composing) {
+                            m.composerSubmit(field)
+                            handled = true
+                        }
+                        assertEquals("$name: $key ${step.json} handled", step["handled"]?.bool == true, handled)
+                    }
+                    step["hostWrite"] != null -> m.setData(step["hostWrite"]!!["path"]!!.string!!, step["hostWrite"]!!["value"])
+                    else -> error("$name: unknown step ${step.json}")
+                }
+            }
+            advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+            runCurrent()
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            assertEquals("$name: /draft", c["draft"] ?: JsonValue.Null, m.data["draft"] ?: JsonValue.Null)
+        }
+    }
+
+    /** #EDE-65: the five menu keys pass unmodified; a held modifier or another key is the field's. */
+    @Test
+    fun composerMenuKeyNames() {
+        for (k in listOf("up", "down", "enter", "tab", "escape")) {
+            assertEquals(k, composerMenuKey(k, modified = false))
+            assertNull(composerMenuKey(k, modified = true))
+        }
+        assertNull(composerMenuKey("left", modified = false))
+        assertNull(composerMenuKey("a", modified = false))
     }
 
     /** #EXP-1629: Android key codes → the canonical KeyRecorder names (the physical key). */

@@ -7,6 +7,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -18,6 +21,10 @@ import at.exponential.ui.json.str
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.carouselPage
+import at.exponential.ui.model.composerKey
+import at.exponential.ui.model.composerMenuKey
+import at.exponential.ui.model.composerMenuKeysOn
+import at.exponential.ui.model.field
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.fire
 import at.exponential.ui.model.holdInput
@@ -66,6 +73,7 @@ internal fun keyName(e: KeyEvent): String? = when (e.key) {
  */
 internal fun Modifier.surfaceKeys(model: SurfaceModel): Modifier = onPreviewKeyEvent { e ->
     keyRecorderKey(model, e)?.let { return@onPreviewKeyEvent it }
+    composerMenuKeyEvent(model, e)?.let { return@onPreviewKeyEvent it }
     holdKey(model, e)?.let { return@onPreviewKeyEvent it }
     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
     val key = keyName(e)
@@ -188,6 +196,28 @@ private fun keyRecorderKey(model: SurfaceModel, e: KeyEvent): Boolean? {
     }
     keyRecorderKeyPayload(native.keyCode, down, native.metaState, native.repeatCount)?.let { model.keyRecorderRecord(n.index, it) }
     return true
+}
+
+/**
+ * #EDE-65 (`interactions-round1.json` `composerKeys`): Up, Down, Enter,
+ * Tab and Escape with no modifier held in the focused Composer while its
+ * `menuKeys` is on go to the host as `key` (the surface's preview runs
+ * before the field's, so the field never edits, submits or moves the
+ * focus, and Escape closes no layer and stops nothing); the matching key
+ * up is swallowed too. A held modifier and an IME composition pass by.
+ * Null = not taken (the keys as usual).
+ */
+private fun composerMenuKeyEvent(model: SurfaceModel, e: KeyEvent): Boolean? {
+    val n = model.keyboardFocus?.let(model::indexOf)?.let(model::node) ?: return null
+    if (!model.composerMenuKeysOn(n.index)) return null
+    val key = menuKeyName(e.key) ?: return null
+    val modified = e.isShiftPressed || e.isCtrlPressed || e.isAltPressed || e.isMetaPressed
+    val composing = model.field(n.index)?.composing == true
+    return when (e.type) {
+        KeyEventType.KeyDown -> model.composerKey(n.index, key, modified, composing).takeIf { it }
+        KeyEventType.KeyUp -> (!composing && composerMenuKey(key, modified) != null).takeIf { it }
+        else -> null
+    }
 }
 
 /**

@@ -681,3 +681,52 @@ describe(`fixtures/interactions-round1.json keyRecorder`, () => {
     })
   }
 })
+
+// #EDE-65 composerKeys: while menuKeys is on, Up, Down, Enter, Tab and
+// Escape (no modifier, no IME composition) fire `key` {key} only; off,
+// Enter submits as before.
+interface ComposerKeyStep {
+  type?: string
+  key?: string
+  mods?: KeyRecorderMod[]
+  composing?: boolean
+  handled?: boolean
+  hostWrite?: { path: string; value: unknown }
+}
+interface ComposerKeyCase {
+  name: string
+  data: Record<string, unknown>
+  steps: ComposerKeyStep[]
+  events: { name: string; context: Record<string, unknown> }[]
+  draft: string | null
+}
+const composerKeysFixture = (fixture as unknown as { composerKeys: { surface: NestedNode; cases: ComposerKeyCase[] } }).composerKeys
+const COMPOSER_DOM_KEYS: Record<string, string> = { up: `ArrowUp`, down: `ArrowDown`, enter: `Enter`, tab: `Tab`, escape: `Escape` }
+
+function ComposerKeysSurface({ data, onState, onAction }: { data: Record<string, unknown>; onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const surface = useSurface({ surfaceId: `ck`, data: structuredClone(data), initial: composerKeysFixture.surface })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="ck" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json composerKeys`, () => {
+  for (const c of composerKeysFixture.cases) {
+    it(`composerKeys: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ComposerKeysSurface data={c.data} onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      const field = () => container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+      for (const s of c.steps) {
+        if (s.type !== undefined) fireEvent.change(field(), { target: { value: s.type } })
+        else if (s.key !== undefined) {
+          const kept = fireEvent.keyDown(field(), { key: COMPOSER_DOM_KEYS[s.key], isComposing: s.composing ?? false, ...modFlags(s.mods ?? []) })
+          expect(!kept, `${s.key} handled`).toBe(s.handled!)
+        } else if (s.hostWrite) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `ck`, path: s.hostWrite!.path, value: s.hostWrite!.value } }))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect((state.data as Record<string, unknown>).draft ?? null).toBe(c.draft)
+    })
+  }
+})

@@ -668,3 +668,55 @@ fn key_recorder_cases_start_record_and_stop_like_the_reference() {
         assert_eq!(s.get_data("/recording").cloned().unwrap_or(Value::Null), c["recording"], "{name}: /recording");
     }
 }
+
+/// #EDE-65 composerKeys at the core: what a painter sends for each step
+/// (`change` for the field's edit; with menuKeys on, a menu key without a
+/// modifier or an IME composition = `key` {key}; else the field's own Enter
+/// = `submit` {value} then `change` "") fires and writes like the
+/// reference. The capture half (which platform keys a Composer takes)
+/// replays in each painter.
+#[test]
+fn composer_key_cases_fire_key_or_submit_like_the_reference() {
+    let f = fixture();
+    let k = &f["composerKeys"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(k["surface"].clone());
+        for (path, value) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{path}"), Some(value.clone())).unwrap();
+        }
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut fired = vec![];
+        let mut text = String::new();
+        for step in c["steps"].as_array().unwrap() {
+            let composer = s.nodes().iter().position(|n| n.id == "c").unwrap_or_else(|| panic!("{name}: no composer")) as u32;
+            let out = if let Some(t) = step["type"].as_str() {
+                text = t.to_string();
+                s.event(composer, "change", Some(json!({"value": t})))
+            } else if let Some(key) = step["key"].as_str() {
+                let plain = step["mods"].as_array().is_none_or(|a| a.is_empty()) && step["composing"].as_bool() != Some(true);
+                let menu = s.get_data("/menu") == Some(&json!(true));
+                if menu && plain {
+                    s.event(composer, "key", Some(json!({"key": key})))
+                } else if key == "enter" && plain && !text.trim().is_empty() {
+                    let mut out = s.event(composer, "submit", Some(json!({"value": text.trim()})));
+                    text.clear();
+                    out.extend(s.event(composer, "change", Some(json!({"value": ""}))));
+                    out
+                } else {
+                    vec![]
+                }
+            } else if let Some(w) = step.get("hostWrite") {
+                s.set_data(w["path"].as_str().unwrap(), Some(w["value"].clone())).unwrap();
+                vec![]
+            } else {
+                panic!("{name}: step {step}")
+            };
+            fired.extend(out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+            s.layout(&mut m);
+        }
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/draft").cloned().unwrap_or(Value::Null), c["draft"], "{name}: /draft");
+    }
+}

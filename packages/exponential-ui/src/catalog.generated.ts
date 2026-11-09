@@ -298,7 +298,7 @@ export interface ComponentProps {
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }
   QrScanner: { hint?: string | Dynamic; formats?: string[]; label?: string; disabled?: boolean }
-  Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean }
+  Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean; menuKeys?: boolean | Dynamic }
   Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic }
   Tree: { items: Shapes["treeItem"][]; expanded?: string[] | Dynamic; value?: string | Dynamic; label?: string }
   MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }

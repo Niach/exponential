@@ -7227,7 +7227,8 @@
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ],
       "basic": [],
       "props": [
@@ -7273,6 +7274,15 @@
           "responsive": false,
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        {
+          "name": "menuKeys",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Up, Down, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       ],
       "accessibility": {

@@ -246,6 +246,34 @@ extension SurfaceModel {
         f.external = .string("")
         guard let events = try? surface.event(index: UInt32(index), name: "submit", payloadJson: JSONValue.object(["value": .string(text)]).json) else { return }
         dispatch(events, inputRevision: rev)
+        // The emptied draft writes through (gpui `submit_composer`, React's
+        // field edit), so a bound value reads "" after a send.
+        if let events = try? surface.event(index: UInt32(index), name: "change", payloadJson: JSONValue.object(["value": .string("")]).json) {
+            dispatch(events, inputRevision: f.revision)
+        }
+    }
+
+    /// #EDE-65 (interactions-round1.json composerKeys): the `key` name of a
+    /// key the Composer hands to the host's menu while `menuKeys` is on:
+    /// Up, Down, Enter, Tab and Escape with no modifier held (`modified` =
+    /// Shift, Ctrl, Alt/Option or Cmd); anything else stays the field's.
+    public static func composerMenuKey(_ key: String, modified: Bool) -> String? {
+        guard !modified else { return nil }
+        return ["up", "down", "enter", "tab", "escape"].contains(key) ? key : nil
+    }
+
+    /// #EDE-65: a key down in Composer `index` (the text views call this
+    /// before their own handling; `composing` = an IME composition is in
+    /// progress). With menuKeys on, a menu key sends the outstanding text,
+    /// then fires `key` {key}; `true` = taken (the field must not edit,
+    /// move its caret, submit or move the focus).
+    @discardableResult
+    public func composerKey(_ index: Int, key: String, modified: Bool = false, composing: Bool = false) -> Bool {
+        guard !composing, let n = node(index), n.component == "Composer", n.props.flag("menuKeys"),
+              let name = Self.composerMenuKey(key, modified: modified) else { return false }
+        flushPending(index)
+        fire(index, "key", payload: .object(["key": .string(name)]))
+        return true
     }
 
     /// A press sends the focused field's outstanding edit first (a

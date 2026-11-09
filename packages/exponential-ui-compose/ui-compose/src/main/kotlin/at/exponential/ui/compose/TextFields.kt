@@ -40,7 +40,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -67,6 +69,8 @@ import at.exponential.ui.json.flag
 import at.exponential.ui.json.list
 import at.exponential.ui.json.str
 import at.exponential.ui.model.SurfaceModel
+import at.exponential.ui.model.composerKey
+import at.exponential.ui.model.composerMenuKeysOn
 import at.exponential.ui.model.composerSubmit
 import at.exponential.ui.model.field
 import at.exponential.ui.model.fieldCommitted
@@ -154,9 +158,12 @@ fun OwnedTextField(
         value = value,
         onValueChange = { next ->
             val prev = value
+            // #EDE-65: the IME composition the surface's menu keys pass by.
+            state?.composing = next.composition != null
             if (submitsOnReturn && next.text.length == prev.text.length + 1 && next.text.count { it == '\n' } > prev.text.count { it == '\n' }) {
-                // Return in a composer submits instead of inserting a newline.
-                model.composerSubmit(index)
+                // Return in a composer submits instead of inserting a newline
+                // (#EDE-65: with menuKeys on it is the host's `key` enter).
+                if (!model.composerKey(index, "enter")) model.composerSubmit(index)
                 return@BasicTextField
             }
             value = if (selectingAll && next.text == prev.text) next.copy(selection = TextRange(0, next.text.length)) else next
@@ -173,7 +180,15 @@ fun OwnedTextField(
             }
             .onPreviewKeyEvent { e ->
                 when {
-                    submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && !e.isShiftPressed -> {
+                    // #EDE-65: the surface's keys take the menu keys first; this
+                    // catches a Composer outside them (the same rule).
+                    submitsOnReturn && model.composerMenuKeysOn(index) && menuKeyName(e.key) != null &&
+                        !(e.isShiftPressed || e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) && value.composition == null -> {
+                        if (e.type == KeyEventType.KeyDown) model.composerKey(index, menuKeyName(e.key)!!)
+                        true
+                    }
+                    // An IME composition's Enter is the IME's (never a submit).
+                    submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && !e.isShiftPressed && value.composition == null -> {
                         model.composerSubmit(index)
                         true
                     }
@@ -222,7 +237,7 @@ fun OwnedTextField(
                 if (!multiline) model.fieldSubmitted(index) else model.fieldCommitted(index)
                 if (model.node(index)?.component != "ChipInput" && !searchList) focusManager.clearFocus()
             },
-            onSend = { model.composerSubmit(index) },
+            onSend = { if (!model.composerKey(index, "enter")) model.composerSubmit(index) },
         ),
         visualTransformation = if (secure) PasswordVisualTransformation() else VisualTransformation.None,
         cursorBrush = SolidColor(textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
@@ -444,4 +459,14 @@ internal fun ComposerLeaf(cx: LeafContext) {
             }
         }
     }
+}
+
+/** #EDE-65: a Composer menu key's canonical name (`composerMenuKey`), null for the rest. */
+internal fun menuKeyName(key: Key): String? = when (key) {
+    Key.DirectionUp -> "up"
+    Key.DirectionDown -> "down"
+    Key.Enter, Key.NumPadEnter -> "enter"
+    Key.Tab -> "tab"
+    Key.Escape -> "escape"
+    else -> null
 }

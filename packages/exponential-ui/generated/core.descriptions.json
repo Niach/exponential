@@ -2580,6 +2580,9 @@
         },
         "busy": {
           "description": "Turns submit into a stop while a reply streams."
+        },
+        "menuKeys": {
+          "description": "Up, Down, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
         }
       },
       "description": "Chat input: a growing text field, a submit button, optional attachments.",
