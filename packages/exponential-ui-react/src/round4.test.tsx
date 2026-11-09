@@ -41,7 +41,7 @@ describe(`round 4: a valid Form submit closes the Dialog or Drawer around it`, (
       const actions: SurfaceActionEvent[] = []
       const surface = (data: Record<string, unknown>) => <ExponentialSurface root={tree(c.input)} data={data} theme="neutral" id={`cs${fixture.closeOnSubmit.indexOf(c)}`} host={{ onAction: (e) => void actions.push(e) }} />
       const { container } = render(surface(c.data))
-      const find = () => document.querySelector(`[data-xui-id="${c.form}-go"] button, button[data-xui-id="${c.form}-go"]`) ?? document.querySelector(`[data-xui-id="${c.form}-go"]`)
+      const find = () => document.querySelector(`[data-xui-id="${c.form}_go"] button, button[data-xui-id="${c.form}_go"]`) ?? document.querySelector(`[data-xui-id="${c.form}_go"]`)
       // A Popover open at mount inside a Dialog loses to the Dialog's focus
       // (Radix: focus outside dismisses); open it again once the Dialog is
       // up, as a person would.

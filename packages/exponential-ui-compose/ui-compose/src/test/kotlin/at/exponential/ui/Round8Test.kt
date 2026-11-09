@@ -132,12 +132,12 @@ class Round8Test {
         val cases = Fixtures.json("catalog-components.json")["cases"]!!.array!!
             .filter { it["name"]?.string in listOf("Canvas/example", "Canvas/fit=contain", "Canvas/fit=cover", "Canvas/fit=fill") }
         assertEquals(4, cases.size)
-        val children = cases.mapIndexed { i, c -> c["node"]!!.json.replaceFirst(Regex("\"id\"\\s*:\\s*\"canvas\""), "\"id\":\"c$i-canvas\"") }
+        val children = cases.mapIndexed { i, c -> c["node"]!!.json.replaceFirst(Regex("\"id\"\\s*:\\s*\"canvas\""), "\"id\":\"c${i}_canvas\"") }
         val m = model()
         m.setNested("""{"id":"root","component":"Box","style":{"display":"flex","flexDirection":"column","gap":8},"children":[${children.joinToString(",")}]}""")
         show(m)
         assertEquals(m.issues.toString(), 0, m.issues.size)
-        val c0 = m.frame(m.indexOf("c0-canvas")!!)
+        val c0 = m.frame(m.indexOf("c0_canvas")!!)
         // The Motion box: the drawing's 160 px, aspect 16:10.
         assertEquals(160f, c0.width, 0.5f)
         assertEquals(100f, c0.height, 0.5f)
