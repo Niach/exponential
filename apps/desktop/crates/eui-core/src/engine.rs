@@ -156,9 +156,11 @@ struct ENode {
     measured: bool,
     /// Its own style resolves a percentage against the parent size.
     percent: bool,
-    /// #EDE-65 R: a measured leaf's padding + border `[top, right, bottom,
-    /// left]` (they stay out of taffy): its children lay out inside them.
-    inset: [f32; 4],
+    /// #EDE-65 R: a measured leaf that lays its children (if any) out at its
+    /// measured size (a Composer's slot row): its padding + border `[top,
+    /// right, bottom, left]` (they stay out of taffy), the box they sit in.
+    /// `None` = children make it a flex container (a Menu owner's trigger).
+    inset: Option<[f32; 4]>,
 }
 
 impl Default for ENode {
@@ -173,7 +175,7 @@ impl Default for ENode {
             parent: None,
             measured: false,
             percent: false,
-            inset: [0.0; 4],
+            inset: None,
         }
     }
 }
@@ -314,16 +316,16 @@ impl View<'_, '_> {
             let n = &view.engine.nodes[slot(node)];
             let display = n.laid_style().display;
             let has_children = !n.children.is_empty();
-            let measured = n.measured;
+            let overlay = n.measured && n.inset.is_some();
             match (display, has_children) {
                 (Display::None, _) => compute_hidden_layout(view, node),
                 // #EDE-65 R: a measured leaf with children (a slotted
                 // Composer) sizes by its measure; its children are laid out
                 // as a flex box at THAT size (they never size it).
-                (Display::Flex, true) if measured => {
+                (Display::Flex, true) if overlay => {
                     let own = view.measured_leaf(node, inputs);
                     if inputs.run_mode == RunMode::PerformLayout {
-                        let [t, r, b, l] = view.engine.nodes[slot(node)].inset;
+                        let [t, r, b, l] = view.engine.nodes[slot(node)].inset.unwrap_or_default();
                         let (w, h) = ((own.size.width - l - r).max(0.0), (own.size.height - t - b).max(0.0));
                         let at = LayoutInput { known_dimensions: Size { width: Some(w), height: Some(h) }, parent_size: Size { width: Some(w), height: Some(h) }, available_space: Size { width: AvailableSpace::Definite(w), height: AvailableSpace::Definite(h) }, ..inputs };
                         compute_flexbox_layout(view, node, at);
@@ -551,9 +553,10 @@ impl Engine {
         &self.nodes[i as usize].children
     }
 
-    /// #EDE-65 R: a measured leaf's padding + border (`[top, right, bottom,
-    /// left]`), the box its children lay out in.
-    pub fn set_inset(&mut self, i: u32, inset: [f32; 4]) {
+    /// #EDE-65 R: a measured leaf whose children lay out at its measured
+    /// size inside `inset` (its padding + border, `[top, right, bottom,
+    /// left]`); `None` = the default (children make it a flex container).
+    pub fn set_inset(&mut self, i: u32, inset: Option<[f32; 4]>) {
         if self.nodes[i as usize].inset != inset {
             self.nodes[i as usize].inset = inset;
             self.mark_dirty(i);
