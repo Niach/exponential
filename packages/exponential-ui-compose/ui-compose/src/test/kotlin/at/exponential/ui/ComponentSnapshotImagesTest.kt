@@ -81,7 +81,7 @@ class ComponentSnapshotImagesTest {
          * image of exactly these components is skipped (never recorded on a
          * dev machine). Empty this set once the workflow committed them.
          */
-        val PENDING_IMAGES = setOf("CallSurface", "Embed", "KeyRecorder", "MessageBubble", "Plan", "QrCode", "QrScanner", "ZoomableImage") // VAPP-162: the round-5 components, EXP-1586: ZoomableImage, EXP-1629: KeyRecorder, EDE-65: Embed, until record-compose-fixtures.yml records them on ubuntu (NEW-77 VoiceWave recorded 2026-10-26, VAPP-280 SettingsRow 2026-11-06, round-8 Canvas 2026-11-07, VAPP-290 Window 2026-11-07)
+        val PENDING_IMAGES = setOf("CallSurface", "KeyRecorder", "MessageBubble", "Plan", "QrCode", "QrScanner", "ZoomableImage") // VAPP-162: the round-5 components, EXP-1586: ZoomableImage, EXP-1629: KeyRecorder, until record-compose-fixtures.yml records them on ubuntu (NEW-77 VoiceWave recorded 2026-10-26, VAPP-280 SettingsRow 2026-11-06, round-8 Canvas 2026-11-07, VAPP-290 Window 2026-11-07, EDE-65 Embed 2026-11-09)
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {
