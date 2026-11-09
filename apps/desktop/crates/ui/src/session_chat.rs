@@ -1339,20 +1339,7 @@ pub(crate) fn sender_row(
 /// child's report (a message from its session), a subagent line (the
 /// agent's trace), every other card full.
 pub(crate) fn transcript_item(row: &SessionChatRow) -> domain::transcript_grouping::TranscriptItem {
-    use domain::transcript_grouping::TranscriptItem;
-    match row {
-        SessionChatRow::Message { id, author, author_id, author_session_id, .. } => {
-            TranscriptItem::message(id.as_str(), author, author_id.as_deref(), author_session_id.as_deref())
-        }
-        SessionChatRow::Report { id, session_id, .. } => TranscriptItem::message(
-            id.as_str(),
-            domain::contract::MESSAGE_AUTHOR_KIND_AGENT,
-            None,
-            Some(session_id.as_str()),
-        ),
-        SessionChatRow::Subagent { id, .. } => TranscriptItem::trace(id.as_str()),
-        other => TranscriptItem::full(other.id()),
-    }
+    domain::chat_document::transcript_item(row)
 }
 
 /// #EXP-1736: a row layout's identity for the list's measure (its avatar,

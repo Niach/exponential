@@ -127,6 +127,16 @@ impl LocalChat {
         input.session_id = Some(session);
         input.busy = root.busy;
         input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
+        // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
+        let transcript = domain::transcript_grouping::TranscriptInput {
+            viewer_id: Some(me.user_id.clone()),
+            chat: domain::transcript_grouping::TranscriptChat { session_id: root.id.clone(), title: view.title.clone(), agent_id: root.agent_id.clone(), ..Default::default() },
+            members: vec![domain::transcript_grouping::TranscriptMember { id: me.user_id.clone(), name: me.name.clone() }],
+            agents: input.agents.iter().map(|a| domain::transcript_grouping::TranscriptAgent { id: a.id.clone(), name: a.name.clone() }).collect(),
+            ..Default::default()
+        };
+        let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
+        crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(crate::team_chat::avatar_icon(sender, &icons)));
         input
     }
 
@@ -240,7 +250,7 @@ pub fn demo_input() -> ChatInput {
         queued: false,
         group: None,
     };
-    ChatInput {
+    let mut input = ChatInput {
         session_id: Some("demo".into()),
         rows: vec![
             message("m1", "user", "Which issues are still open on this desktop?", "09:14"),
@@ -249,7 +259,9 @@ pub fn demo_input() -> ChatInput {
             message("m3", "user", "Take the printer.", "09:21"),
         ],
         ..assistant_home()
-    }
+    };
+    crate::chat::demo_group(&mut input.rows, ASSISTANT_ICON, "Assistant");
+    input
 }
 
 #[cfg(test)]

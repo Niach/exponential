@@ -427,6 +427,10 @@ fn drawn(doc: &mut Document) {
     }
 }
 
+/// The sender avatar's disc: the exponential theme's dark `secondary`
+/// (#ffffff0f, the IDE's `cx.theme().secondary`).
+const AVATAR_DISC: u32 = 0xffffff0f;
+
 impl HostPlugin for Host {
     fn icon(&self, name: &str) -> Option<gpui::SharedString> {
         assets::icon_path(name)
@@ -438,6 +442,13 @@ impl HostPlugin for Host {
     /// the host owns and paints from its glyph map.
     fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
         use gpui::{prelude::*, px, svg};
+        // #EDE-65 lane O: THE sender avatar (the IDE's `agent_avatar`): the
+        // inner icon on the secondary disc, 32 → an 18 px glyph.
+        if let Some(inner) = name.strip_prefix(chat::AVATAR_ICON_PREFIX) {
+            let glyph = (size / 2.0 + 2.0).round();
+            let inner = self.icon_element(inner, glyph, color, _cx)?;
+            return Some(gpui::div().flex_shrink_0().size(px(size)).rounded_full().overflow_hidden().flex().items_center().justify_center().bg(gpui::rgba(AVATAR_DISC)).child(inner).into_any_element());
+        }
         let glyph = self.glyphs.try_borrow().ok().and_then(|g| g.get(name).cloned());
         if let Some(glyph) = glyph {
             let path = assets::icon_path(&glyph.icon)?;
