@@ -2118,8 +2118,8 @@
         "file": "shots/ede-notification-center/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 10434,
-        "sha256": "61a6e963816c2365b1c807be8c1cd27b6c0580e87cb4f3ca7a5ae60605d6e2b1"
+        "bytes": 15796,
+        "sha256": "c49c474a834e254cd89beb56020458e063623e84cbf8e6f9ddbe1d189435f400"
       }
     },
     "ede-notifications": {
@@ -2127,8 +2127,8 @@
         "file": "shots/ede-notifications/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 8680,
-        "sha256": "480c7d19ac83bba327efc8b3b7c7aa2460a3111f3c2203e68495c44081d6e0ac"
+        "bytes": 14032,
+        "sha256": "c1ce295157b29f070681c538d674bf6723f525bfa31993a9ec54c46d754dca9e"
       }
     },
     "ede-osd": {

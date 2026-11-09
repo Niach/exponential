@@ -20,7 +20,7 @@ cargo build -p eengine-ffi --release --features cli ${FEATURES[@]+"${FEATURES[@]
 for LANG in swift kotlin; do
   rm -rf "$HERE/out/$LANG" && mkdir -p "$HERE/out/$LANG"
   cargo run -q -p eengine-ffi --release --features cli ${FEATURES[@]+"${FEATURES[@]}"} --bin uniffi-bindgen -- generate \
-    --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG" --config "$HERE/uniffi.toml"
+    --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG"
 done
 mkdir -p "$BINDINGS/swift" "$BINDINGS/kotlin"
 cp "$HERE/out/swift/ExponentialEngineFFI.swift" "$BINDINGS/swift/ExponentialEngineFFI.swift"

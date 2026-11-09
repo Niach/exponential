@@ -101,6 +101,43 @@ internal open class ForeignBytes : Structure() {
 
     class ByValue : ForeignBytes(), Structure.ByValue
 }
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Only `lower` is valid — zero-copy byte buffers only flow foreign -> Rust,
+// and only in argument position. `lift`, `read`, `write`, and
+// `allocationSize` have no sound implementation here and all panic at
+// runtime. The `FfiConverter` interface is implemented so that the
+// compiler enforces the full method set (rather than relying on eyeball).
+//
+// The provided `ByteBuffer` MUST be direct — only direct buffers have a
+// stable native address that JNA can expose via `getDirectBufferPointer`.
+// The returned `ForeignBytes.ByValue` is only valid for the duration of
+// the FFI call; the Rust side treats it as a borrow.
+internal object FfiConverterByRefBytes : FfiConverter<java.nio.ByteBuffer, ForeignBytes.ByValue> {
+    override fun lower(value: java.nio.ByteBuffer): ForeignBytes.ByValue {
+        require(value.isDirect) { "UniFFI zero-copy &[u8] requires a direct ByteBuffer. Use ByteBuffer.allocateDirect()." }
+        val remaining = value.remaining()
+        val fb = ForeignBytes.ByValue()
+        fb.len = remaining
+        // Zero-length direct buffers: skip getDirectBufferPointer (platform-variable behavior)
+        // and pass null. The Rust side treats (null, 0) as &[].
+        fb.data = if (remaining == 0) null else com.sun.jna.Native.getDirectBufferPointer(value)
+        return fb
+    }
+
+    override fun lift(value: ForeignBytes.ByValue): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+
+    override fun read(buf: java.nio.ByteBuffer): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun write(value: java.nio.ByteBuffer, buf: java.nio.ByteBuffer): Unit =
+        error("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun allocationSize(value: java.nio.ByteBuffer): ULong =
+        error("ByRef bytes have no RustBuffer allocation size: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+}
 /**
  * The FfiConverter interface handles converter types to and from the FFI
  *
@@ -963,124 +1000,126 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "eengine_ffi"))
         uniffiCheckContractApiVersion(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_eengine_ffi_checksum_func_engine_features(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_func_engine_version(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_func_runner_config(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_func_runner_failure(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_func_runner_package(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_func_runner_toast(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_func_validate_host_config(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_answer_consent(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_app_id(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_call(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_event(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_flush(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_grants_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_manifest_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_outbox_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_package_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_pending(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_permissions_sheet_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_queues(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_records_value(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_set_grant(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_signer(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_appinstance_state_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_blobstore_put(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_blobstore_get(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_blobstore_delete(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_callaudit_record(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_capability_name(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_capability_tools_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_capability_call(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_consentui_ask(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_engine_load(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_engineclock_now(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_outboxlog_entries_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_outboxlog_push(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_outboxlog_ack(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_outboxlog_remove(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_recordstore_rows(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_recordstore_write(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_recordstore_history(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_recordstore_subscribe(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_recordstore_unsubscribe(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_recordslistener_changed(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_synctransport_push(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedlistener_changed(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedlistener_refused(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_entries_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_flush(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_pending_label(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_prune(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit_call(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_visible_rows_json(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_vault_read(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_vault_write(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_vault_delete(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_method_windowhost_present(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_constructor_engine_new(
-    ): Short
+    ): Int
     external fun uniffi_eengine_ffi_checksum_constructor_syncedrecordstore_new(
-    ): Short
+    ): Int
     external fun ffi_eengine_ffi_uniffi_contract_version(
     ): Int
 
@@ -1110,312 +1149,314 @@ internal object UniffiLib {
         uniffiCallbackInterfaceWindowHost.register(this)
         
     }
-    external fun uniffi_eengine_ffi_fn_clone_appinstance(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_appinstance(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_appinstance_answer_consent(`ptr`: Long,`name`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`verdictJson`: RustBuffer.ByValue,`answer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_app_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_call(`ptr`: Long,`name`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`newIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_event(`ptr`: Long,`eventJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_appinstance_grants_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_manifest_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_outbox_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_package_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_pending(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun uniffi_eengine_ffi_fn_method_appinstance_permissions_sheet_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_queues(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_eengine_ffi_fn_method_appinstance_records_value(`ptr`: Long,`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_set_grant(`ptr`: Long,`scope`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_appinstance_signer(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_appinstance_state_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_clone_blobstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_blobstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_blobstore(`vtable`: UniffiVTableCallbackInterfaceBlobStore,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_blobstore_put(`ptr`: Long,`app`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_blobstore_get(`ptr`: Long,`app`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_blobstore_delete(`ptr`: Long,`app`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_callaudit(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_callaudit(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_callaudit(`vtable`: UniffiVTableCallbackInterfaceCallAudit,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_callaudit_record(`ptr`: Long,`row`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_capability(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_capability(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_capability(`vtable`: UniffiVTableCallbackInterfaceCapability,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_capability_name(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_capability_tools_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_capability_call(`ptr`: Long,`tool`: RustBuffer.ByValue,`argumentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_clone_consentui(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_consentui(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_consentui(`vtable`: UniffiVTableCallbackInterfaceConsentUi,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_consentui_ask(`ptr`: Long,`app`: RustBuffer.ByValue,`sheet`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_clone_engine(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_engine(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_constructor_engine_new(`host`: RustBuffer.ByValue,`identity`: RustBuffer.ByValue,`providers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_method_engine_load(`ptr`: Long,`fileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_clone_engineclock(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_engineclock(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_engineclock(`vtable`: UniffiVTableCallbackInterfaceEngineClock,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_engineclock_now(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_clone_outboxlog(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_outboxlog(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_outboxlog(`vtable`: UniffiVTableCallbackInterfaceOutboxLog,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_outboxlog_entries_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_outboxlog_push(`ptr`: Long,`entryJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_outboxlog_ack(`ptr`: Long,`writeId`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_outboxlog_remove(`ptr`: Long,`writeIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_recordstore(`vtable`: UniffiVTableCallbackInterfaceRecordStore,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_recordstore_rows(`ptr`: Long,`app`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_recordstore_write(`ptr`: Long,`app`: RustBuffer.ByValue,`batchJson`: RustBuffer.ByValue,`by`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_recordstore_history(`ptr`: Long,`app`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_recordstore_subscribe(`ptr`: Long,`app`: RustBuffer.ByValue,`listener`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_method_recordstore_unsubscribe(`ptr`: Long,`token`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_recordslistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_recordslistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_recordslistener_changed(`ptr`: Long,`deltaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_synctransport(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_synctransport(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_synctransport(`vtable`: UniffiVTableCallbackInterfaceSyncTransport,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_synctransport_push(`ptr`: Long,`app`: RustBuffer.ByValue,`call`: RustBuffer.ByValue,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_clone_syncedlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_syncedlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_syncedlistener(`vtable`: UniffiVTableCallbackInterfaceSyncedListener,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_syncedlistener_changed(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_syncedlistener_refused(`ptr`: Long,`entryJson`: RustBuffer.ByValue,`verb`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_syncedrecordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_syncedrecordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(`log`: Long,`transport`: Long,`listener`: RustBuffer.ByValue,`clock`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_entries_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(`ptr`: Long,`app`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(`ptr`: Long,`app`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(`ptr`: Long,`app`: RustBuffer.ByValue,`function`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`online`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(`ptr`: Long,`app`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_clone_vault(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_vault(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_vault(`vtable`: UniffiVTableCallbackInterfaceVault,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_vault_read(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_method_vault_write(`ptr`: Long,`key`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_method_vault_delete(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_clone_windowhost(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_eengine_ffi_fn_free_windowhost(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_init_callback_vtable_windowhost(`vtable`: UniffiVTableCallbackInterfaceWindowHost,
-): Unit
-external fun uniffi_eengine_ffi_fn_method_windowhost_present(`ptr`: Long,`app`: RustBuffer.ByValue,`screen`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`how`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_eengine_ffi_fn_func_engine_features(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_func_engine_version(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_func_runner_config(`configJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_func_runner_failure(`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_func_runner_package(`packageJson`: RustBuffer.ByValue,`formFactor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_func_runner_toast(`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_eengine_ffi_fn_func_validate_host_config(`configJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_eengine_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_eengine_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_eengine_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun ffi_eengine_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_eengine_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_u8(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_u8(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun ffi_eengine_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_i8(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_i8(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun ffi_eengine_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_u16(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_u16(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
-external fun ffi_eengine_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_i16(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_i16(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
-external fun ffi_eengine_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_u32(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_u32(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun ffi_eengine_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_i32(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_i32(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun ffi_eengine_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_u64(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_u64(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun ffi_eengine_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_i64(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_i64(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun ffi_eengine_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_f32(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_f32(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Float
-external fun ffi_eengine_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_f64(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_f64(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Double
-external fun ffi_eengine_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_rust_buffer(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_eengine_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_cancel_void(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_free_void(`handle`: Long,
-): Unit
-external fun ffi_eengine_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
 
-    
+    internal fun ensureInitialized() = Unit
+    external fun uniffi_eengine_ffi_fn_clone_appinstance(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_appinstance(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_appinstance_answer_consent(`ptr`: Long,`name`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`verdictJson`: RustBuffer.ByValue,`answer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_app_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_call(`ptr`: Long,`name`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`newIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_event(`ptr`: Long,`eventJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_appinstance_grants_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_manifest_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_outbox_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_package_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_pending(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_eengine_ffi_fn_method_appinstance_permissions_sheet_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_queues(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_eengine_ffi_fn_method_appinstance_records_value(`ptr`: Long,`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_set_grant(`ptr`: Long,`scope`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_appinstance_signer(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_appinstance_state_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_clone_blobstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_blobstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_blobstore(`vtable`: UniffiVTableCallbackInterfaceBlobStore,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_blobstore_put(`ptr`: Long,`app`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_blobstore_get(`ptr`: Long,`app`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_blobstore_delete(`ptr`: Long,`app`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_callaudit(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_callaudit(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_callaudit(`vtable`: UniffiVTableCallbackInterfaceCallAudit,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_callaudit_record(`ptr`: Long,`row`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_capability(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_capability(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_capability(`vtable`: UniffiVTableCallbackInterfaceCapability,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_capability_name(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_capability_tools_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_capability_call(`ptr`: Long,`tool`: RustBuffer.ByValue,`argumentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_clone_consentui(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_consentui(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_consentui(`vtable`: UniffiVTableCallbackInterfaceConsentUi,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_consentui_ask(`ptr`: Long,`app`: RustBuffer.ByValue,`sheet`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_clone_engine(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_engine(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_constructor_engine_new(`host`: RustBuffer.ByValue,`identity`: RustBuffer.ByValue,`providers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_method_engine_load(`ptr`: Long,`fileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_clone_engineclock(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_engineclock(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_engineclock(`vtable`: UniffiVTableCallbackInterfaceEngineClock,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_engineclock_now(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_clone_outboxlog(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_outboxlog(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_outboxlog(`vtable`: UniffiVTableCallbackInterfaceOutboxLog,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_outboxlog_entries_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_outboxlog_push(`ptr`: Long,`entryJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_outboxlog_ack(`ptr`: Long,`writeId`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_outboxlog_remove(`ptr`: Long,`writeIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_recordstore(`vtable`: UniffiVTableCallbackInterfaceRecordStore,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_recordstore_rows(`ptr`: Long,`app`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_recordstore_write(`ptr`: Long,`app`: RustBuffer.ByValue,`batchJson`: RustBuffer.ByValue,`by`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_recordstore_history(`ptr`: Long,`app`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_recordstore_subscribe(`ptr`: Long,`app`: RustBuffer.ByValue,`listener`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_method_recordstore_unsubscribe(`ptr`: Long,`token`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_recordslistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_recordslistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_recordslistener_changed(`ptr`: Long,`deltaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_synctransport(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_synctransport(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_synctransport(`vtable`: UniffiVTableCallbackInterfaceSyncTransport,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_synctransport_push(`ptr`: Long,`app`: RustBuffer.ByValue,`call`: RustBuffer.ByValue,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_clone_syncedlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_syncedlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_syncedlistener(`vtable`: UniffiVTableCallbackInterfaceSyncedListener,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_syncedlistener_changed(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_syncedlistener_refused(`ptr`: Long,`entryJson`: RustBuffer.ByValue,`verb`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_syncedrecordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_syncedrecordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(`log`: Long,`transport`: Long,`listener`: RustBuffer.ByValue,`clock`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_entries_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(`ptr`: Long,`app`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(`ptr`: Long,`app`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(`ptr`: Long,`app`: RustBuffer.ByValue,`function`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`online`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(`ptr`: Long,`app`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_clone_vault(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_vault(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_vault(`vtable`: UniffiVTableCallbackInterfaceVault,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_vault_read(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_method_vault_write(`ptr`: Long,`key`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_vault_delete(`ptr`: Long,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_clone_windowhost(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_eengine_ffi_fn_free_windowhost(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_init_callback_vtable_windowhost(`vtable`: UniffiVTableCallbackInterfaceWindowHost,
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_method_windowhost_present(`ptr`: Long,`app`: RustBuffer.ByValue,`screen`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`how`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_eengine_ffi_fn_func_engine_features(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_func_engine_version(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_func_runner_config(`configJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_func_runner_failure(`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_func_runner_package(`packageJson`: RustBuffer.ByValue,`formFactor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_func_runner_toast(`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_eengine_ffi_fn_func_validate_host_config(`configJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_eengine_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_eengine_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_eengine_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun ffi_eengine_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_eengine_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_u8(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_u8(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_eengine_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_i8(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_i8(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun ffi_eengine_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_u16(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_u16(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_eengine_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_i16(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_i16(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Short
+    external fun ffi_eengine_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_u32(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_u32(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_eengine_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_i32(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_i32(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_eengine_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_u64(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_u64(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun ffi_eengine_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_i64(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_i64(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun ffi_eengine_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_f32(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_f32(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    external fun ffi_eengine_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_f64(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_f64(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Double
+    external fun ffi_eengine_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_rust_buffer(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_eengine_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_cancel_void(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_free_void(`handle`: Long,
+    ): Unit
+    external fun ffi_eengine_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+
+        
 }
 
 private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
@@ -1432,10 +1473,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -1983,6 +2024,11 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -2058,7 +2104,11 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_appinstance_answer_consent(
         it,
-        FfiConverterString.lower(`name`),FfiConverterString.lower(`argsJson`),FfiConverterString.lower(`verdictJson`),FfiConverterTypeConsentAnswer.lower(`answer`),_status)
+        
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`argsJson`),
+        FfiConverterString.lower(`verdictJson`),
+        FfiConverterTypeConsentAnswer.lower(`answer`),_status)
 }
     }
     )
@@ -2091,7 +2141,10 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_appinstance_call(
         it,
-        FfiConverterString.lower(`name`),FfiConverterString.lower(`argsJson`),FfiConverterSequenceString.lower(`newIds`),_status)
+        
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`argsJson`),
+        FfiConverterSequenceString.lower(`newIds`),_status)
 }
     }
     )
@@ -2112,6 +2165,7 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_appinstance_event(
         it,
+        
         FfiConverterString.lower(`eventJson`),_status)
 }
     }
@@ -2256,6 +2310,7 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_appinstance_records_value(
         it,
+        
         FfiConverterString.lower(`source`),_status)
 }
     }
@@ -2274,7 +2329,9 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_appinstance_set_grant(
         it,
-        FfiConverterString.lower(`scope`),FfiConverterOptionalTypeGrantValue.lower(`value`),_status)
+        
+        FfiConverterString.lower(`scope`),
+        FfiConverterOptionalTypeGrantValue.lower(`value`),_status)
 }
     }
     
@@ -2497,6 +2554,11 @@ open class BlobStoreImpl: Disposable, AutoCloseable, BlobStore
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -2572,7 +2634,11 @@ open class BlobStoreImpl: Disposable, AutoCloseable, BlobStore
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_blobstore_put(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`name`),FfiConverterString.lower(`mime`),FfiConverterByteArray.lower(`bytes`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`mime`),
+        FfiConverterByteArray.lower(`bytes`),_status)
 }
     }
     )
@@ -2586,7 +2652,9 @@ open class BlobStoreImpl: Disposable, AutoCloseable, BlobStore
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_blobstore_get(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`id`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`id`),_status)
 }
     }
     )
@@ -2600,7 +2668,9 @@ open class BlobStoreImpl: Disposable, AutoCloseable, BlobStore
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_blobstore_delete(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`id`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`id`),_status)
 }
     }
     
@@ -2886,6 +2956,11 @@ open class CallAuditImpl: Disposable, AutoCloseable, CallAudit
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -2957,6 +3032,7 @@ open class CallAuditImpl: Disposable, AutoCloseable, CallAudit
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_callaudit_record(
         it,
+        
         FfiConverterTypeCallAuditRow.lower(`row`),_status)
 }
     }
@@ -3209,6 +3285,11 @@ open class CapabilityImpl: Disposable, AutoCloseable, Capability
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -3313,7 +3394,9 @@ open class CapabilityImpl: Disposable, AutoCloseable, Capability
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_capability_call(
         it,
-        FfiConverterString.lower(`tool`),FfiConverterString.lower(`argumentsJson`),_status)
+        
+        FfiConverterString.lower(`tool`),
+        FfiConverterString.lower(`argumentsJson`),_status)
 }
     }
     )
@@ -3586,6 +3669,11 @@ open class ConsentUiImpl: Disposable, AutoCloseable, ConsentUi
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -3657,7 +3745,9 @@ open class ConsentUiImpl: Disposable, AutoCloseable, ConsentUi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_consentui_ask(
         it,
-        FfiConverterString.lower(`app`),FfiConverterTypeConsentSheet.lower(`sheet`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterTypeConsentSheet.lower(`sheet`),_status)
 }
     }
     )
@@ -3901,7 +3991,10 @@ open class Engine: Disposable, AutoCloseable, EngineInterface
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_constructor_engine_new(
     
-        FfiConverterTypeEngineHost.lower(`host`),FfiConverterTypeEngineIdentity.lower(`identity`),FfiConverterTypeEngineProviders.lower(`providers`),_status)
+        
+        FfiConverterTypeEngineHost.lower(`host`),
+        FfiConverterTypeEngineIdentity.lower(`identity`),
+        FfiConverterTypeEngineProviders.lower(`providers`),_status)
 }
     )
 
@@ -3910,6 +4003,11 @@ open class Engine: Disposable, AutoCloseable, EngineInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -3987,6 +4085,7 @@ open class Engine: Disposable, AutoCloseable, EngineInterface
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_engine_load(
         it,
+        
         FfiConverterString.lower(`fileJson`),_status)
 }
     }
@@ -4174,6 +4273,11 @@ open class EngineClockImpl: Disposable, AutoCloseable, EngineClock
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -4498,6 +4602,11 @@ open class OutboxLogImpl: Disposable, AutoCloseable, OutboxLog
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -4587,6 +4696,7 @@ open class OutboxLogImpl: Disposable, AutoCloseable, OutboxLog
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_push(
         it,
+        
         FfiConverterString.lower(`entryJson`),_status)
 }
     }
@@ -4600,7 +4710,9 @@ open class OutboxLogImpl: Disposable, AutoCloseable, OutboxLog
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_ack(
         it,
-        FfiConverterString.lower(`writeId`),FfiConverterString.lower(`at`),_status)
+        
+        FfiConverterString.lower(`writeId`),
+        FfiConverterString.lower(`at`),_status)
 }
     }
     
@@ -4613,6 +4725,7 @@ open class OutboxLogImpl: Disposable, AutoCloseable, OutboxLog
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_remove(
         it,
+        
         FfiConverterSequenceString.lower(`writeIds`),_status)
 }
     }
@@ -4938,6 +5051,11 @@ open class RecordStoreImpl: Disposable, AutoCloseable, RecordStore
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -5013,6 +5131,7 @@ open class RecordStoreImpl: Disposable, AutoCloseable, RecordStore
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_recordstore_rows(
         it,
+        
         FfiConverterString.lower(`app`),_status)
 }
     }
@@ -5031,7 +5150,10 @@ open class RecordStoreImpl: Disposable, AutoCloseable, RecordStore
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_recordstore_write(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`batchJson`),FfiConverterOptionalString.lower(`by`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`batchJson`),
+        FfiConverterOptionalString.lower(`by`),_status)
 }
     }
     )
@@ -5048,7 +5170,9 @@ open class RecordStoreImpl: Disposable, AutoCloseable, RecordStore
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_recordstore_history(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`id`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`id`),_status)
 }
     }
     )
@@ -5065,7 +5189,9 @@ open class RecordStoreImpl: Disposable, AutoCloseable, RecordStore
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_recordstore_subscribe(
         it,
-        FfiConverterString.lower(`app`),FfiConverterTypeRecordsListener.lower(`listener`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterTypeRecordsListener.lower(`listener`),_status)
 }
     }
     )
@@ -5078,6 +5204,7 @@ open class RecordStoreImpl: Disposable, AutoCloseable, RecordStore
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_recordstore_unsubscribe(
         it,
+        
         FfiConverterULong.lower(`token`),_status)
 }
     }
@@ -5392,6 +5519,11 @@ open class RecordsListener: Disposable, AutoCloseable, RecordsListenerInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -5466,6 +5598,7 @@ open class RecordsListener: Disposable, AutoCloseable, RecordsListenerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_recordslistener_changed(
         it,
+        
         FfiConverterString.lower(`deltaJson`),_status)
 }
     }
@@ -5657,6 +5790,11 @@ open class SyncTransportImpl: Disposable, AutoCloseable, SyncTransport
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -5733,7 +5871,10 @@ open class SyncTransportImpl: Disposable, AutoCloseable, SyncTransport
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_synctransport_push(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`call`),FfiConverterString.lower(`inputJson`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`call`),
+        FfiConverterString.lower(`inputJson`),_status)
 }
     }
     )
@@ -5984,6 +6125,11 @@ open class SyncedListenerImpl: Disposable, AutoCloseable, SyncedListener
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -6073,7 +6219,10 @@ open class SyncedListenerImpl: Disposable, AutoCloseable, SyncedListener
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_syncedlistener_refused(
         it,
-        FfiConverterString.lower(`entryJson`),FfiConverterString.lower(`verb`),FfiConverterOptionalString.lower(`message`),_status)
+        
+        FfiConverterString.lower(`entryJson`),
+        FfiConverterString.lower(`verb`),
+        FfiConverterOptionalString.lower(`message`),_status)
 }
     }
     
@@ -6367,7 +6516,11 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(
     
-        FfiConverterTypeOutboxLog.lower(`log`),FfiConverterTypeSyncTransport.lower(`transport`),FfiConverterOptionalTypeSyncedListener.lower(`listener`),FfiConverterOptionalTypeEngineClock.lower(`clock`),_status)
+        
+        FfiConverterTypeOutboxLog.lower(`log`),
+        FfiConverterTypeSyncTransport.lower(`transport`),
+        FfiConverterOptionalTypeSyncedListener.lower(`listener`),
+        FfiConverterOptionalTypeEngineClock.lower(`clock`),_status)
 }
     )
 
@@ -6376,6 +6529,11 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -6482,6 +6640,7 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(
         it,
+        
         FfiConverterString.lower(`app`),_status)
 }
     }
@@ -6514,7 +6673,9 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`rowsJson`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`rowsJson`),_status)
 }
     }
     
@@ -6533,7 +6694,11 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`function`),FfiConverterString.lower(`argsJson`),FfiConverterBoolean.lower(`online`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`function`),
+        FfiConverterString.lower(`argsJson`),
+        FfiConverterBoolean.lower(`online`),_status)
 }
     }
     )
@@ -6549,7 +6714,9 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(
         it,
-        FfiConverterString.lower(`app`),FfiConverterOptionalString.lower(`me`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterOptionalString.lower(`me`),_status)
 }
     }
     )
@@ -6738,6 +6905,11 @@ open class VaultImpl: Disposable, AutoCloseable, Vault
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -6809,6 +6981,7 @@ open class VaultImpl: Disposable, AutoCloseable, Vault
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_vault_read(
         it,
+        
         FfiConverterString.lower(`key`),_status)
 }
     }
@@ -6823,7 +6996,9 @@ open class VaultImpl: Disposable, AutoCloseable, Vault
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_vault_write(
         it,
-        FfiConverterString.lower(`key`),FfiConverterString.lower(`value`),_status)
+        
+        FfiConverterString.lower(`key`),
+        FfiConverterString.lower(`value`),_status)
 }
     }
     
@@ -6836,6 +7011,7 @@ open class VaultImpl: Disposable, AutoCloseable, Vault
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_vault_delete(
         it,
+        
         FfiConverterString.lower(`key`),_status)
 }
     }
@@ -7116,6 +7292,11 @@ open class WindowHostImpl: Disposable, AutoCloseable, WindowHost
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -7190,7 +7371,11 @@ open class WindowHostImpl: Disposable, AutoCloseable, WindowHost
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_method_windowhost_present(
         it,
-        FfiConverterString.lower(`app`),FfiConverterString.lower(`screen`),FfiConverterString.lower(`paramsJson`),FfiConverterTypePresentation.lower(`how`),_status)
+        
+        FfiConverterString.lower(`app`),
+        FfiConverterString.lower(`screen`),
+        FfiConverterString.lower(`paramsJson`),
+        FfiConverterTypePresentation.lower(`how`),_status)
 }
     }
     
@@ -7668,7 +7853,7 @@ public object FfiConverterTypeCallResult : FfiConverterRustBuffer<CallResult>{
         }
     }
 
-    override fun allocationSize(value: CallResult) = when(value) {
+    override fun allocationSize(value: CallResult): ULong = when(value) {
         is CallResult.Value -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -7958,7 +8143,7 @@ public object FfiConverterTypeEngineIdentity : FfiConverterRustBuffer<EngineIden
         }
     }
 
-    override fun allocationSize(value: EngineIdentity) = when(value) {
+    override fun allocationSize(value: EngineIdentity): ULong = when(value) {
         is EngineIdentity.Member -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -8236,7 +8421,7 @@ public object FfiConverterTypeSubmitted : FfiConverterRustBuffer<Submitted>{
         }
     }
 
-    override fun allocationSize(value: Submitted) = when(value) {
+    override fun allocationSize(value: Submitted): ULong = when(value) {
         is Submitted.Done -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -8694,6 +8879,7 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_func_runner_config(
     
+        
         FfiConverterString.lower(`configJson`),_status)
 }
     )
@@ -8709,6 +8895,7 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_func_runner_failure(
     
+        
         FfiConverterString.lower(`kind`),_status)
 }
     )
@@ -8724,7 +8911,9 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_func_runner_package(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterTypeRunnerFormFactor.lower(`formFactor`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterTypeRunnerFormFactor.lower(`formFactor`),_status)
 }
     )
     }
@@ -8737,6 +8926,7 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_func_runner_toast(
     
+        
         FfiConverterString.lower(`message`),_status)
 }
     )
@@ -8748,6 +8938,7 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     uniffiRustCallWithError(EngineException) { _status ->
     UniffiLib.uniffi_eengine_ffi_fn_func_validate_host_config(
     
+        
         FfiConverterString.lower(`configJson`),_status)
 }
     )
