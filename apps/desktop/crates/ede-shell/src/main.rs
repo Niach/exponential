@@ -457,6 +457,17 @@ impl HostPlugin for Host {
             cx.defer(move |cx| chat_menu_key(&shell, &key, cx));
             return;
         }
+        // Lane Q: a chat card's Embed bubbles its inner events as
+        // {name, context} over the row's {action: card, messageId}.
+        if event.name == "ede_chat" && event.context["action"] == "card" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
+            let shell = self.shell.clone();
+            let context = event.context.clone();
+            cx.defer(move |cx| {
+                let message_id = context["messageId"].as_str().unwrap_or("");
+                chat_card(&shell, message_id, context["name"].as_str().unwrap_or(""), &context["context"], cx);
+            });
+            return;
+        }
         let popups = popups_of(&self.shell.borrow(), &event.surface_id, &event.component_id);
         if !popups.is_empty() {
             let shell = self.shell.clone();
@@ -1903,7 +1914,7 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     // eDE's composer has THE `/` menu: the conversation promises it (chat.json slashCommands).
     input.slash_commands = true;
     let view = uicore_model::chat::chat_view(&input);
-    let mut value = serde_json::to_value(&view).unwrap_or_default();
+    let mut value = chat::chatting(&view);
     value["noCli"] = json!(no_cli);
     shell.borrow_mut().feed.set("/chatting", value);
     chat_composer(shell, &view.composer, cx);
@@ -2147,6 +2158,38 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
         let answered = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
         if let Err(e) = answered {
             cx.update(|cx| failed_action(&shell, "answer", "the question", &e.user_message(), cx));
+        }
+    })
+    .detach();
+}
+
+/// Lane Q: an Embed's inner event on chat card `message_id`, answered the
+/// way the IDE does (`domain::chat_document::card_reply`): a show card's
+/// `reply` = the person's next message into its session.
+fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value, cx: &mut App) {
+    if chat_local(shell) {
+        let replied = shell.borrow_mut().chat_local.as_mut().map(|c| c.card(message_id, name, context));
+        if let Some(Err(e)) = replied {
+            failed_action(shell, "send", "the message", &e, cx);
+        }
+        chatting_changed(shell, cx);
+        return;
+    }
+    let Some((chat, rows)) = team_chat(shell) else { return };
+    let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, name, context, now_ms()) else { return };
+    let mut input = team_chat::reply_input(&chat, &reply);
+    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
+        if let Some(sealed) = team_chat::seal(root, &text) {
+            input.text = Some(sealed);
+        }
+    }
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        if let Err(e) = sent {
+            cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx));
         }
     })
     .detach();
@@ -3039,7 +3082,7 @@ fn main() {
             (true, true) => team_chat::demo_input(),
             _ => local_runs::assistant_home(),
         };
-        feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
+        feed.set("/chatting", chat::chatting(&uicore_model::chat::chat_view(&chat)));
         feed.set("/chatFiles", if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo().feed() } else { chat_files::ChatFiles::default().feed() });
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
