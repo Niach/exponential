@@ -13,6 +13,6 @@ pub(crate) const ID: &str = "qr-code";
 pub(crate) const OWNER: &str = "VAPP-162";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-qr-code", "specimen-qr-code").expect("the QrCode specimen");
+    let tree = specimen_node("exponential-ui-qr-code", "specimen_qr_code").expect("the QrCode specimen");
     div().w_full().child(styleguide_surface("sg-qr-code", tree, window, cx))
 }

@@ -14,6 +14,6 @@ pub(crate) const ID: &str = "settings-row";
 pub(crate) const OWNER: &str = "VAPP-280";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-settings-row", "specimen-settings-row").expect("the SettingsRow specimen");
+    let tree = specimen_node("exponential-ui-settings-row", "specimen_settings_row").expect("the SettingsRow specimen");
     div().w_full().child(styleguide_surface("sg-settings-row", tree, window, cx))
 }

@@ -181,7 +181,7 @@
     },
     {
       "name": "cargo-platform",
-      "version": "0.1.9",
+      "version": "0.3.3",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -198,7 +198,7 @@
     },
     {
       "name": "cargo_metadata",
-      "version": "0.19.2",
+      "version": "0.23.1",
       "declared": "MIT",
       "licenses": [
         "MIT"
@@ -529,12 +529,12 @@
     },
     {
       "name": "fs-err",
-      "version": "2.11.0",
-      "declared": "MIT/Apache-2.0",
+      "version": "3.3.2",
+      "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
       ],
-      "election": "MIT elected from `MIT/Apache-2.0`",
+      "election": "MIT elected from `MIT OR Apache-2.0`",
       "homepage": "https://github.com/andrewhickman/fs-err",
       "texts": [
         {
@@ -1362,7 +1362,7 @@
     },
     {
       "name": "serde_spanned",
-      "version": "0.6.9",
+      "version": "1.1.1",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -1684,7 +1684,7 @@
     },
     {
       "name": "toml",
-      "version": "0.8.23",
+      "version": "1.1.2+spec-1.1.0",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -1701,7 +1701,7 @@
     },
     {
       "name": "toml_datetime",
-      "version": "0.6.11",
+      "version": "1.1.1+spec-1.1.0",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -1717,8 +1717,8 @@
       ]
     },
     {
-      "name": "toml_edit",
-      "version": "0.22.27",
+      "name": "toml_parser",
+      "version": "1.1.2+spec-1.1.0",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -1734,8 +1734,8 @@
       ]
     },
     {
-      "name": "toml_write",
-      "version": "0.1.2",
+      "name": "toml_writer",
+      "version": "1.1.1+spec-1.1.0",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -1856,7 +1856,7 @@
     },
     {
       "name": "uniffi",
-      "version": "0.31.0",
+      "version": "0.32.2",
       "declared": "MPL-2.0",
       "licenses": [
         "MPL-2.0"
@@ -1872,7 +1872,7 @@
     },
     {
       "name": "uniffi_core",
-      "version": "0.31.0",
+      "version": "0.32.2",
       "declared": "MPL-2.0",
       "licenses": [
         "MPL-2.0"
@@ -1888,7 +1888,7 @@
     },
     {
       "name": "uniffi_internal_macros",
-      "version": "0.31.0",
+      "version": "0.32.2",
       "declared": "MPL-2.0",
       "licenses": [
         "MPL-2.0"
@@ -1904,7 +1904,7 @@
     },
     {
       "name": "uniffi_macros",
-      "version": "0.31.0",
+      "version": "0.32.2",
       "declared": "MPL-2.0",
       "licenses": [
         "MPL-2.0"
@@ -1920,7 +1920,7 @@
     },
     {
       "name": "uniffi_meta",
-      "version": "0.31.0",
+      "version": "0.32.2",
       "declared": "MPL-2.0",
       "licenses": [
         "MPL-2.0"
@@ -1936,7 +1936,7 @@
     },
     {
       "name": "uniffi_pipeline",
-      "version": "0.31.0",
+      "version": "0.32.2",
       "declared": "MPL-2.0",
       "licenses": [
         "MPL-2.0"
@@ -2068,7 +2068,7 @@
     },
     {
       "name": "winnow",
-      "version": "0.7.15",
+      "version": "1.0.3",
       "declared": "MIT",
       "licenses": [
         "MIT"

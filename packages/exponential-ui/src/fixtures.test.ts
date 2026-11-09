@@ -89,7 +89,7 @@ describe(`catalog-macros.json`, () => {
     const withHandler = { ...emptyState.input, props: { ...emptyState.input.props, actionLabel: `Retry` }, on: { press: { event: { name: `retry` } } } }
     const root = reduceNested(withHandler, { catalogId: CORE_CATALOG_ID }).root
     expect(root.on).toBeUndefined()
-    const action = root.children.find((n) => n.id === `empty-state.action`)!
+    const action = root.children.find((n) => n.id === `empty_state.action`)!
     expect(action.on?.press).toEqual({ event: { name: `retry` } })
 
     const pagination = cases.find((c) => c.name === `Pagination/example`)!

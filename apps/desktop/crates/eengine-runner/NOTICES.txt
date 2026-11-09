@@ -33,7 +33,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-657 third-party components are distributed as part of this build. They are
+650 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -368,7 +368,7 @@ DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 38 components:
+Applies to the following 31 components:
 
   windows 0.58.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -420,19 +420,9 @@ Applies to the following 38 components:
     MIT elected from `MIT OR Apache-2.0`
   windows-strings 0.5.1  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.48.0  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.59.0  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.60.2  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.61.2  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.48.5  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
   windows-targets 0.52.6  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.53.5  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   windows-threading 0.1.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -440,11 +430,7 @@ Applies to the following 38 components:
     MIT elected from `MIT OR Apache-2.0`
   windows-version 0.1.7  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.48.5  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
   windows_x86_64_msvc 0.52.6  [x86_64-pc-windows-msvc]
-    MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.53.1  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -13956,19 +13942,9 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   windows-strings 0.5.1
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.48.0
-    MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.59.0
-    MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.60.2
-    MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.61.2
     MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.48.5
-    MIT elected from `MIT OR Apache-2.0`
   windows-targets 0.52.6
-    MIT elected from `MIT OR Apache-2.0`
-  windows-targets 0.53.5
     MIT elected from `MIT OR Apache-2.0`
   windows-threading 0.1.0
     MIT elected from `MIT OR Apache-2.0`
@@ -13976,11 +13952,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   windows-version 0.1.7
     MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.48.5
-    MIT elected from `MIT OR Apache-2.0`
   windows_x86_64_msvc 0.52.6
-    MIT elected from `MIT OR Apache-2.0`
-  windows_x86_64_msvc 0.53.1
     MIT elected from `MIT OR Apache-2.0`
   x11rb 0.13.2
     MIT elected from `MIT OR Apache-2.0`

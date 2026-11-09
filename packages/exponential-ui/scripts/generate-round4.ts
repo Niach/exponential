@@ -81,7 +81,7 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
       id: `root`,
       component: `Table`,
       props: { columns: [{ key: `title`, label: `Title` }, { key: `status`, label: `Status`, type: `slot`, slot: `status` }, { key: `owner`, label: `Owner`, type: `slot` }], rows: { "@path": `/rows` } },
-      slots: { state: { id: `state-cell`, component: `Badge`, props: { text: { "@path": `status` } } } },
+      slots: { state: { id: `state_cell`, component: `Badge`, props: { text: { "@path": `status` } } } },
     },
   },
   {
@@ -93,7 +93,7 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
         columns: [{ key: `title`, label: `Title` }, { key: `status`, label: `Status`, type: `slot`, slot: `status` }],
         rows: { "@call": `filter`, args: { items: { "@path": `/rows` }, query: { "@path": `/query` }, fields: [`title`], where: { status: { "@path": `/status` } } } },
       },
-      slots: { status: { id: `status-cell`, component: `Badge`, props: { text: { "@path": `status` } } } },
+      slots: { status: { id: `status_cell`, component: `Badge`, props: { text: { "@path": `status` } } } },
     },
   },
 ]
@@ -207,8 +207,8 @@ const form = (id: string, submit: string): NestedNode => ({
   props: { name: id },
   on: { submit: { event: { name: submit } } },
   children: [
-    { id: `${id}-title`, component: `Input`, props: { name: `title`, label: `Title`, value: { "@path": `/draft` } } },
-    { id: `${id}-go`, component: `Button`, props: { label: `Create`, submit: true } },
+    { id: `${id}_title`, component: `Input`, props: { name: `title`, label: `Title`, value: { "@path": `/draft` } } },
+    { id: `${id}_go`, component: `Button`, props: { label: `Create`, submit: true } },
   ],
 })
 
@@ -239,7 +239,7 @@ const CLOSE_ON_SUBMIT: { name: string; input: NestedNode; data: Record<string, u
     input: {
       id: `root`,
       component: `Box`,
-      children: [{ id: `dlg`, component: `Dialog`, props: { title: `Edit`, open: { "@path": `/open` } }, children: [{ id: `pop`, component: `Popover`, props: { open: { "@path": `/pop` } }, slots: { trigger: { id: `pop-trigger`, component: `Button`, props: { label: `Filters` } } }, children: [form(`f`, `apply`)] }] }],
+      children: [{ id: `dlg`, component: `Dialog`, props: { title: `Edit`, open: { "@path": `/open` } }, children: [{ id: `pop`, component: `Popover`, props: { open: { "@path": `/pop` } }, slots: { trigger: { id: `pop_trigger`, component: `Button`, props: { label: `Filters` } } }, children: [form(`f`, `apply`)] }] }],
     },
     data: { open: true, pop: true, draft: `x` },
     form: `f`,
@@ -351,7 +351,7 @@ const BUDGET: { name: string; input: NestedNode; data: unknown; sites: BudgetSit
       children: [
         { id: `rows`, component: `Stack`, template: { component: `row`, path: `/rows` } },
         { id: `more`, component: `Stack`, template: { component: `extra`, path: `/more` } },
-        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Stack`, children: [{ id: `row-a`, component: `Text`, props: { text: `a` } }, { id: `row-b`, component: `Text`, props: { text: `b` } }] }, { id: `extra`, component: `Text`, props: { text: `e` } }] },
+        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Stack`, children: [{ id: `row_a`, component: `Text`, props: { text: `a` } }, { id: `row_b`, component: `Text`, props: { text: `b` } }] }, { id: `extra`, component: `Text`, props: { text: `e` } }] },
       ],
     },
     data: { rows: { $fill: 7000 }, more: { $fill: 1 } },

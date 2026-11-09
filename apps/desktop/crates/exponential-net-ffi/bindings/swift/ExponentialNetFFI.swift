@@ -39,6 +39,52 @@ fileprivate extension ForeignBytes {
     init(bufferPointer: UnsafeBufferPointer<UInt8>) {
         self.init(len: Int32(bufferPointer.count), data: bufferPointer.baseAddress)
     }
+
+    init(rawBufferPointer: UnsafeRawBufferPointer) {
+        self.init(
+            len: Int32(rawBufferPointer.count),
+            data: rawBufferPointer.baseAddress?.assumingMemoryBound(to: UInt8.self)
+        )
+    }
+}
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Conforms to `FfiConverter` so the compiler enforces the full converter
+// method set. Only the scope-bound `lower(_:_body:)` overload is sound —
+// zero-copy byte buffers only flow foreign -> Rust, and only in argument
+// position. The four protocol-witness methods (`lift`, `lower`, `read`,
+// `write`) `fatalError` at runtime if anyone reaches them.
+//
+// The scope-bound `lower` takes a closure because the `ForeignBytes`
+// pointer is only guaranteed valid for the duration of
+// `Data.withUnsafeBytes`. Callers must run the full FFI call inside
+// the closure body.
+fileprivate enum FfiConverterByRefBytes: FfiConverter {
+    typealias SwiftType = Data
+    typealias FfiType = ForeignBytes
+
+    static func lower<R>(_ value: Data, _ body: (ForeignBytes) throws -> R) rethrows -> R {
+        return try value.withUnsafeBytes { rawBuf in
+            try body(ForeignBytes(rawBufferPointer: rawBuf))
+        }
+    }
+
+    static func lower(_ value: Data) -> ForeignBytes {
+        fatalError("ByRef bytes cannot use the plain lower: returning ForeignBytes escapes the Data.withUnsafeBytes scope. Use the scope-bound lower(_:_body:) overload instead.")
+    }
+
+    static func lift(_ value: ForeignBytes) throws -> Data {
+        fatalError("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+    }
+
+    static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        fatalError("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
+
+    static func write(_ value: Data, into buf: inout [UInt8]) {
+        fatalError("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
 }
 
 // For every type used in the interface, we provide helper methods for conveniently
@@ -493,7 +539,11 @@ fileprivate struct FfiConverterString: FfiConverter {
             return String()
         }
         let bytes = UnsafeBufferPointer<UInt8>(start: value.data!, count: Int(value.len))
-        return String(bytes: bytes, encoding: String.Encoding.utf8)!
+        // Use Swift's native UTF-8 decoder; `String(bytes:encoding:.utf8)` goes
+        // through Foundation's NSString and silently strips a leading U+FEFF BOM.
+        // Invalid UTF-8 substitutes U+FFFD instead of trapping (unreachable
+        // given Rust's `String` invariant).
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     public static func lower(_ value: String) -> RustBuffer {
@@ -509,7 +559,8 @@ fileprivate struct FfiConverterString: FfiConverter {
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> String {
         let len: Int32 = try readInt(&buf)
-        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        // See `lift` above for why we avoid Foundation's NSString-backed decoder here.
+        return String(decoding: try readBytes(&buf, count: Int(len)), as: UTF8.self)
     }
 
     public static func write(_ value: String, into buf: inout [UInt8]) {
@@ -608,10 +659,11 @@ open class EnetAccessPolicyImpl: EnetAccessPolicy, @unchecked Sendable {
     
 open func allow(peer: String, alpn: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetaccesspolicy_allow(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(peer),
-        FfiConverterString.lower(alpn),$0
+        FfiConverterString.lower(alpn),uniffiCallStatus
     )
 })
 }
@@ -628,9 +680,8 @@ fileprivate struct UniffiCallbackInterfaceEnetAccessPolicy {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceEnetAccessPolicy] = [UniffiVTableCallbackInterfaceEnetAccessPolicy(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceEnetAccessPolicy = UniffiVTableCallbackInterfaceEnetAccessPolicy(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeEnetAccessPolicy.handleMap.remove(handle: uniffiHandle)
@@ -671,11 +722,23 @@ fileprivate struct UniffiCallbackInterfaceEnetAccessPolicy {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceEnetAccessPolicy> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceEnetAccessPolicy>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitEnetAccessPolicy() {
-    uniffi_exponential_net_ffi_fn_init_callback_vtable_enetaccesspolicy(UniffiCallbackInterfaceEnetAccessPolicy.vtable)
+    uniffi_exponential_net_ffi_fn_init_callback_vtable_enetaccesspolicy(UniffiCallbackInterfaceEnetAccessPolicy.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -805,9 +868,10 @@ open class EnetListenerImpl: EnetListener, @unchecked Sendable {
 
     
 open func onEvent(event: EnetEvent)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetlistener_on_event(
             self.uniffiCloneHandle(),
-        FfiConverterTypeEnetEvent_lower(event),$0
+        FfiConverterTypeEnetEvent_lower(event),uniffiCallStatus
     )
 }
 }
@@ -824,9 +888,8 @@ fileprivate struct UniffiCallbackInterfaceEnetListener {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceEnetListener] = [UniffiVTableCallbackInterfaceEnetListener(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceEnetListener = UniffiVTableCallbackInterfaceEnetListener(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeEnetListener.handleMap.remove(handle: uniffiHandle)
@@ -865,11 +928,23 @@ fileprivate struct UniffiCallbackInterfaceEnetListener {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceEnetListener> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceEnetListener>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitEnetListener() {
-    uniffi_exponential_net_ffi_fn_init_callback_vtable_enetlistener(UniffiCallbackInterfaceEnetListener.vtable)
+    uniffi_exponential_net_ffi_fn_init_callback_vtable_enetlistener(UniffiCallbackInterfaceEnetListener.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -1118,8 +1193,7 @@ open func acceptCall(call: UInt64)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_accept_call(
-                    self.uniffiCloneHandle(),
-                    FfiConverterUInt64.lower(call)
+                        self.uniffiCloneHandle(),FfiConverterUInt64.lower(call)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_void,
@@ -1136,25 +1210,28 @@ open func acceptCall(call: UInt64)async throws   {
      */
 open func addTicket(ticket: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_add_ticket(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(ticket),$0
+        FfiConverterString.lower(ticket),uniffiCallStatus
     )
 })
 }
     
 open func allowPeer(peer: String)throws   {try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_allow_peer(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(peer),$0
+        FfiConverterString.lower(peer),uniffiCallStatus
     )
 }
 }
     
 open func allowedPeers() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_allowed_peers(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1164,8 +1241,7 @@ open func blobAdd(data: Data)async throws  -> EnetBlob  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_blob_add(
-                    self.uniffiCloneHandle(),
-                    FfiConverterData.lower(data)
+                        self.uniffiCloneHandle(),FfiConverterData.lower(data)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1181,8 +1257,7 @@ open func blobAddPath(path: String)async throws  -> EnetBlob  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_blob_add_path(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(path)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1198,8 +1273,7 @@ open func blobFetch(peer: String, hash: Data)async throws  -> Data  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(peer),FfiConverterData.lower(hash)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(peer),FfiConverterData.lower(hash)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1215,8 +1289,7 @@ open func blobFetchTicket(ticket: String)async throws  -> Data  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch_ticket(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(ticket)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(ticket)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1232,8 +1305,7 @@ open func blobGet(hash: Data)async throws  -> Data?  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_blob_get(
-                    self.uniffiCloneHandle(),
-                    FfiConverterData.lower(hash)
+                        self.uniffiCloneHandle(),FfiConverterData.lower(hash)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1246,26 +1318,29 @@ open func blobGet(hash: Data)async throws  -> Data?  {
     
 open func endpointId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_endpoint_id(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
     
 open func getRecord(space: Data, key: String)throws  -> EnetRecord?  {
     return try  FfiConverterOptionTypeEnetRecord.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_get_record(
             self.uniffiCloneHandle(),
         FfiConverterData.lower(space),
-        FfiConverterString.lower(key),$0
+        FfiConverterString.lower(key),uniffiCallStatus
     )
 })
 }
     
 open func hangUp(call: UInt64)throws   {try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_hang_up(
             self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(call),$0
+        FfiConverterUInt64.lower(call),uniffiCallStatus
     )
 }
 }
@@ -1275,9 +1350,10 @@ open func hangUp(call: UInt64)throws   {try rustCallWithError(FfiConverterTypeEn
      */
 open func isConnected(peer: String)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(peer),$0
+        FfiConverterString.lower(peer),uniffiCallStatus
     )
 })
 }
@@ -1291,8 +1367,7 @@ open func joinSpace(space: Data, bootstrap: [String])async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_join_space(
-                    self.uniffiCloneHandle(),
-                    FfiConverterData.lower(space),FfiConverterSequenceString.lower(bootstrap)
+                        self.uniffiCloneHandle(),FfiConverterData.lower(space),FfiConverterSequenceString.lower(bootstrap)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_void,
@@ -1304,9 +1379,10 @@ open func joinSpace(space: Data, bootstrap: [String])async throws   {
 }
     
 open func leaveSpace(space: Data)throws   {try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_leave_space(
             self.uniffiCloneHandle(),
-        FfiConverterData.lower(space),$0
+        FfiConverterData.lower(space),uniffiCallStatus
     )
 }
 }
@@ -1320,8 +1396,7 @@ open func networkChange()async   {
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_network_change(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_void,
@@ -1341,8 +1416,7 @@ open func nextEvent()async  -> EnetEvent?  {
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_next_event(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1362,8 +1436,7 @@ open func online(timeoutMs: UInt64)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_online(
-                    self.uniffiCloneHandle(),
-                    FfiConverterUInt64.lower(timeoutMs)
+                        self.uniffiCloneHandle(),FfiConverterUInt64.lower(timeoutMs)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_void,
@@ -1380,9 +1453,10 @@ open func online(timeoutMs: UInt64)async throws   {
      */
 open func pathKind(peer: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(peer),$0
+        FfiConverterString.lower(peer),uniffiCallStatus
     )
 })
 }
@@ -1392,8 +1466,7 @@ open func putRecord(space: Data, key: String, value: Data)async throws  -> EnetR
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_put_record(
-                    self.uniffiCloneHandle(),
-                    FfiConverterData.lower(space),FfiConverterString.lower(key),FfiConverterData.lower(value)
+                        self.uniffiCloneHandle(),FfiConverterData.lower(space),FfiConverterString.lower(key),FfiConverterData.lower(value)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1406,17 +1479,19 @@ open func putRecord(space: Data, key: String, value: Data)async throws  -> EnetR
     
 open func records(space: Data)throws  -> [EnetRecord]  {
     return try  FfiConverterSequenceTypeEnetRecord.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_records(
             self.uniffiCloneHandle(),
-        FfiConverterData.lower(space),$0
+        FfiConverterData.lower(space),uniffiCallStatus
     )
 })
 }
     
 open func revokePeer(peer: String)throws   {try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_revoke_peer(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(peer),$0
+        FfiConverterString.lower(peer),uniffiCallStatus
     )
 }
 }
@@ -1429,8 +1504,7 @@ open func sendChat(peer: String, body: Data)async throws  -> EnetChatMessage  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_send_chat(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(peer),FfiConverterData.lower(body)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(peer),FfiConverterData.lower(body)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_rust_buffer,
@@ -1449,8 +1523,7 @@ open func sendFrame(call: UInt64, frame: Data)async throws  -> UInt32  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_send_frame(
-                    self.uniffiCloneHandle(),
-                    FfiConverterUInt64.lower(call),FfiConverterData.lower(frame)
+                        self.uniffiCloneHandle(),FfiConverterUInt64.lower(call),FfiConverterData.lower(frame)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_u32,
@@ -1462,9 +1535,10 @@ open func sendFrame(call: UInt64, frame: Data)async throws  -> UInt32  {
 }
     
 open func setAccessPolicy(policy: EnetAccessPolicy?)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_set_access_policy(
             self.uniffiCloneHandle(),
-        FfiConverterOptionTypeEnetAccessPolicy.lower(policy),$0
+        FfiConverterOptionTypeEnetAccessPolicy.lower(policy),uniffiCallStatus
     )
 }
 }
@@ -1474,9 +1548,10 @@ open func setAccessPolicy(policy: EnetAccessPolicy?)  {try! rustCall() {
      * stops the delivery (events queue for `nextEvent` again).
      */
 open func setListener(listener: EnetListener?)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_set_listener(
             self.uniffiCloneHandle(),
-        FfiConverterOptionTypeEnetListener.lower(listener),$0
+        FfiConverterOptionTypeEnetListener.lower(listener),uniffiCallStatus
     )
 }
 }
@@ -1485,9 +1560,10 @@ open func setListener(listener: EnetListener?)  {try! rustCall() {
      * Accept everyone (e.g. while a pairing QR code is on screen).
      */
 open func setOpen(`open`: Bool)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_set_open(
             self.uniffiCloneHandle(),
-        FfiConverterBool.lower(`open`),$0
+        FfiConverterBool.lower(`open`),uniffiCallStatus
     )
 }
 }
@@ -1500,8 +1576,7 @@ open func shutdown()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_shutdown(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_void,
@@ -1520,8 +1595,7 @@ open func startCall(peer: String)async throws  -> UInt64  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_exponential_net_ffi_fn_method_enetnode_start_call(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(peer)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(peer)
                 )
             },
             pollFunc: ffi_exponential_net_ffi_rust_future_poll_u64,
@@ -1537,8 +1611,9 @@ open func startCall(peer: String)async throws  -> UInt64  {
      */
 open func ticket() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_method_enetnode_ticket(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2273,7 +2348,8 @@ public func FfiConverterTypeEnetTreeKey_lower(_ value: EnetTreeKey) -> RustBuffe
 }
 
 
-public enum EnetError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum EnetError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -2450,8 +2526,7 @@ public func FfiConverterTypeEnetError_lower(_ value: EnetError) -> RustBuffer {
     return FfiConverterTypeEnetError.lower(value)
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 
 public enum EnetEvent: Equatable, Hashable {
     
@@ -2597,8 +2672,7 @@ public func FfiConverterTypeEnetEvent_lower(_ value: EnetEvent) -> RustBuffer {
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * What opening sealed content gave (fixture spelling: plain, opened,
  * noKey, unsupported, malformed, refused).
@@ -2988,23 +3062,26 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
 }
 public func generateTreeKey() -> EnetTreeKey  {
     return try!  FfiConverterTypeEnetTreeKey_lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_generate_tree_key($0
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_generate_tree_key(uniffiCallStatus
     )
 })
 }
 public func openBody(body: String, keys: [EnetEpochKey])throws  -> EnetOpenedBody  {
     return try  FfiConverterTypeEnetOpenedBody_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_open_body(
         FfiConverterString.lower(body),
-        FfiConverterSequenceTypeEnetEpochKey.lower(keys),$0
+        FfiConverterSequenceTypeEnetEpochKey.lower(keys),uniffiCallStatus
     )
 })
 }
 public func openCard(cardJson: String, keys: [EnetEpochKey])throws  -> EnetOpenedCard  {
     return try  FfiConverterTypeEnetOpenedCard_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_open_card(
         FfiConverterString.lower(cardJson),
-        FfiConverterSequenceTypeEnetEpochKey.lower(keys),$0
+        FfiConverterSequenceTypeEnetEpochKey.lower(keys),uniffiCallStatus
     )
 })
 }
@@ -3013,14 +3090,16 @@ public func openCard(cardJson: String, keys: [EnetEpochKey])throws  -> EnetOpene
  */
 public func pushKeypairDerive(identity: Data)throws  -> EnetPushKeypair  {
     return try  FfiConverterTypeEnetPushKeypair_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_push_keypair_derive(
-        FfiConverterData.lower(identity),$0
+        FfiConverterData.lower(identity),uniffiCallStatus
     )
 })
 }
 public func pushKeypairGenerate() -> EnetPushKeypair  {
     return try!  FfiConverterTypeEnetPushKeypair_lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_push_keypair_generate($0
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffiCallStatus
     )
 })
 }
@@ -3030,9 +3109,10 @@ public func pushKeypairGenerate() -> EnetPushKeypair  {
  */
 public func pushOpen(recipientSecret: Data, sealed: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_push_open(
         FfiConverterData.lower(recipientSecret),
-        FfiConverterData.lower(sealed),$0
+        FfiConverterData.lower(sealed),uniffiCallStatus
     )
 })
 }
@@ -3041,9 +3121,10 @@ public func pushOpen(recipientSecret: Data, sealed: Data)throws  -> Data  {
  */
 public func pushSeal(recipientPublic: Data, plaintext: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_push_seal(
         FfiConverterData.lower(recipientPublic),
-        FfiConverterData.lower(plaintext),$0
+        FfiConverterData.lower(plaintext),uniffiCallStatus
     )
 })
 }
@@ -3052,10 +3133,11 @@ public func pushSeal(recipientPublic: Data, plaintext: Data)throws  -> Data  {
  */
 public func sealBody(treePublicKey: String, epoch: UInt32, text: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_seal_body(
         FfiConverterString.lower(treePublicKey),
         FfiConverterUInt32.lower(epoch),
-        FfiConverterString.lower(text),$0
+        FfiConverterString.lower(text),uniffiCallStatus
     )
 })
 }
@@ -3064,18 +3146,20 @@ public func sealBody(treePublicKey: String, epoch: UInt32, text: String)throws  
  */
 public func sealCard(treePublicKey: String, epoch: UInt32, cardJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_seal_card(
         FfiConverterString.lower(treePublicKey),
         FfiConverterUInt32.lower(epoch),
-        FfiConverterString.lower(cardJson),$0
+        FfiConverterString.lower(cardJson),uniffiCallStatus
     )
 })
 }
 public func unwrapTreeKey(installSecret: Data, wrapped: String)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(
         FfiConverterData.lower(installSecret),
-        FfiConverterString.lower(wrapped),$0
+        FfiConverterString.lower(wrapped),uniffiCallStatus
     )
 })
 }
@@ -3085,9 +3169,10 @@ public func unwrapTreeKey(installSecret: Data, wrapped: String)throws  -> Data  
  */
 public func wrapTreeKey(installPublic: String, treeSecret: Data)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_wrap_tree_key(
         FfiConverterString.lower(installPublic),
-        FfiConverterData.lower(treeSecret),$0
+        FfiConverterData.lower(treeSecret),uniffiCallStatus
     )
 })
 }
@@ -3096,7 +3181,8 @@ public func wrapTreeKey(installPublic: String, treeSecret: Data)throws  -> Strin
  */
 public func defaultConfig() -> EnetConfig  {
     return try!  FfiConverterTypeEnetConfig_lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_default_config($0
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_default_config(uniffiCallStatus
     )
 })
 }
@@ -3105,8 +3191,9 @@ public func defaultConfig() -> EnetConfig  {
  */
 public func endpointIdOf(identity: Data)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_endpoint_id_of(
-        FfiConverterData.lower(identity),$0
+        FfiConverterData.lower(identity),uniffiCallStatus
     )
 })
 }
@@ -3115,7 +3202,8 @@ public func endpointIdOf(identity: Data)throws  -> String  {
  */
 public func generateIdentity() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_generate_identity($0
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_generate_identity(uniffiCallStatus
     )
 })
 }
@@ -3125,9 +3213,10 @@ public func generateIdentity() -> Data  {
  */
 public func identitySign(identity: Data, message: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_identity_sign(
         FfiConverterData.lower(identity),
-        FfiConverterData.lower(message),$0
+        FfiConverterData.lower(message),uniffiCallStatus
     )
 })
 }
@@ -3136,8 +3225,9 @@ public func identitySign(identity: Data, message: Data)throws  -> Data  {
  */
 public func parseTicket(ticket: String)throws  -> EnetTicket  {
     return try  FfiConverterTypeEnetTicket_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_parse_ticket(
-        FfiConverterString.lower(ticket),$0
+        FfiConverterString.lower(ticket),uniffiCallStatus
     )
 })
 }
@@ -3157,151 +3247,151 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_generate_tree_key() != 12122) {
+    if (uniffi_exponential_net_ffi_checksum_func_generate_tree_key() != 47742) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_open_body() != 11262) {
+    if (uniffi_exponential_net_ffi_checksum_func_open_body() != 45547) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_open_card() != 12774) {
+    if (uniffi_exponential_net_ffi_checksum_func_open_card() != 16678) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 7760) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 40752) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_generate() != 12778) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_generate() != 35841) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_open() != 54862) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_open() != 31338) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_seal() != 37617) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_seal() != 34718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_seal_body() != 44895) {
+    if (uniffi_exponential_net_ffi_checksum_func_seal_body() != 43399) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_seal_card() != 34112) {
+    if (uniffi_exponential_net_ffi_checksum_func_seal_card() != 38638) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key() != 64941) {
+    if (uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key() != 63198) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_wrap_tree_key() != 45859) {
+    if (uniffi_exponential_net_ffi_checksum_func_wrap_tree_key() != 51680) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_default_config() != 51486) {
+    if (uniffi_exponential_net_ffi_checksum_func_default_config() != 14466) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_endpoint_id_of() != 15447) {
+    if (uniffi_exponential_net_ffi_checksum_func_endpoint_id_of() != 37182) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_generate_identity() != 54854) {
+    if (uniffi_exponential_net_ffi_checksum_func_generate_identity() != 19610) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_identity_sign() != 63657) {
+    if (uniffi_exponential_net_ffi_checksum_func_identity_sign() != 52273) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 46612) {
+    if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 60060) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow() != 26440) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow() != 41495) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetlistener_on_event() != 1585) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetlistener_on_event() != 5340) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_accept_call() != 46486) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_accept_call() != 33268) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_add_ticket() != 57800) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_add_ticket() != 38585) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allow_peer() != 38568) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allow_peer() != 55057) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allowed_peers() != 4741) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_allowed_peers() != 40439) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add() != 65383) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add() != 23454) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add_path() != 65013) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add_path() != 65439) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch() != 56382) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch() != 13380) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch_ticket() != 52539) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch_ticket() != 37676) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_get() != 6810) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_blob_get() != 40956) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_endpoint_id() != 14007) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_endpoint_id() != 38361) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_get_record() != 61330) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_get_record() != 28655) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up() != 26095) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up() != 18771) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_is_connected() != 18373) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_is_connected() != 35522) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_join_space() != 41913) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_join_space() != 2021) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space() != 39121) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space() != 53177) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_network_change() != 29978) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_network_change() != 51953) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_next_event() != 21141) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_next_event() != 26453) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_online() != 35855) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_online() != 56175) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_path_kind() != 45610) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_path_kind() != 52048) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_put_record() != 1575) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_put_record() != 16524) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_records() != 5117) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_records() != 7540) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_revoke_peer() != 20184) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_revoke_peer() != 11326) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_chat() != 46844) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_chat() != 53514) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_frame() != 321) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_send_frame() != 38676) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_access_policy() != 23664) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_access_policy() != 57959) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_listener() != 60137) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_listener() != 33824) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_open() != 46855) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_set_open() != 39592) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_shutdown() != 35382) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_shutdown() != 48073) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_start_call() != 59379) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_start_call() != 27873) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_method_enetnode_ticket() != 56139) {
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_ticket() != 11244) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_constructor_enetnode_start() != 34601) {
+    if (uniffi_exponential_net_ffi_checksum_constructor_enetnode_start() != 32634) {
         return InitializationResult.apiChecksumMismatch
     }
 

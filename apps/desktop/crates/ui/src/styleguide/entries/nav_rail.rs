@@ -13,7 +13,7 @@ pub(crate) const ID: &str = "nav-rail";
 pub(crate) const OWNER: &str = "VAPP-162";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let case = specimen_node("exponential-ui-segmented", "specimen-segmented-case-8").expect("the rail case");
+    let case = specimen_node("exponential-ui-segmented", "specimen_segmented_case_8").expect("the rail case");
     let tree = serde_json::json!({"id": "sg-nav-rail", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "padding": "$spacing.xl"}, "children": [case]});
     div().w_full().child(styleguide_surface("sg-nav-rail", tree, window, cx))
 }

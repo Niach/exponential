@@ -208,7 +208,7 @@ fn catalog_macros_every_macros_events_route_to_a_part_or_stay_on_the_root() {
     with_handler.props.get_or_insert_with(Default::default).insert("actionLabel".into(), json!("Retry"));
     let root = reduce_nested(&with_handler, &core()).root;
     assert!(root.on.is_none());
-    let action = root.children.iter().find(|n| n.id == "empty-state.action").expect("empty-state.action");
+    let action = root.children.iter().find(|n| n.id == "empty_state.action").expect("empty_state.action");
     assert_eq!(action.on.as_ref().unwrap()["press"], json!({"event": {"name": "retry"}}));
 
     let pagination = find("Pagination/example");
