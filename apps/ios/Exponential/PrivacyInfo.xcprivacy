@@ -6,7 +6,8 @@
 	Required-reason APIs: the app touches exactly ONE category — UserDefaults
 	(AppDependencies' one-shot DB-cleanup flags, MyWorkView's @AppStorage segment,
 	the Agent page composer's remembered agent defaults, AgentUsageWindowPrefs' remembered
-	usage window per agent, and SharedAppGroup's
+	usage window per agent, #LOGS-2's Send diagnostics toggle + cached monitoring
+	config, and SharedAppGroup's
 	`group.at.exponential` suite). Reason CA92.1: every read/write is the app's
 	own state, in the app's own container or its app-group container, never read
 	from or shared with anything outside the app group. No file-timestamp,
@@ -17,7 +18,8 @@
 	(issues, comments, image attachments), and the FCM registration token the app
 	posts to `pushTokens.register` so the server can address this device. All of
 	it is linked to the user, serves App Functionality, and is never used for
-	tracking. FirebaseCore/FirebaseMessaging ship their own manifests — their data
+	tracking. FirebaseCore/FirebaseMessaging and Sentry (#LOGS-2: crash and performance
+	data, pseudonymous user id) ship their own manifests — their data
 	is declared there and must not be duplicated here.
 -->
 <plist version="1.0">

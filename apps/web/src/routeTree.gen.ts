@@ -55,6 +55,8 @@ import { Route as ApiGuideUploadsTokenRouteImport } from './routes/api/guide-upl
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiMcpAppsRouteImport } from './routes/api/mcp_/apps'
+import { Route as ApiMonitoringIndexRouteImport } from './routes/api/monitoring/index'
+import { Route as ApiMonitoringConfigRouteImport } from './routes/api/monitoring/config'
 import { Route as ApiShapesAgentsRouteImport } from './routes/api/shapes/agents'
 import { Route as ApiShapesAppRecordsRouteImport } from './routes/api/shapes/app-records'
 import { Route as ApiShapesAppVersionsRouteImport } from './routes/api/shapes/app-versions'
@@ -399,6 +401,16 @@ const ApiMcpOauthClientDotjsonRoute =
 const ApiMcpAppsRoute = ApiMcpAppsRouteImport.update({
   id: '/api/mcp_/apps',
   path: '/api/mcp/apps',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMonitoringIndexRoute = ApiMonitoringIndexRouteImport.update({
+  id: '/api/monitoring/',
+  path: '/api/monitoring/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMonitoringConfigRoute = ApiMonitoringConfigRouteImport.update({
+  id: '/api/monitoring/config',
+  path: '/api/monitoring/config',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesAgentsRoute = ApiShapesAgentsRouteImport.update({
@@ -1014,6 +1026,7 @@ export interface FileRoutesByFullPath {
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
+  '/api/monitoring/config': typeof ApiMonitoringConfigRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1062,6 +1075,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
+  '/api/monitoring/': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
@@ -1163,6 +1177,7 @@ export interface FileRoutesByTo {
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
+  '/api/monitoring/config': typeof ApiMonitoringConfigRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1211,6 +1226,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
+  '/api/monitoring': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
@@ -1317,6 +1333,7 @@ export interface FileRoutesById {
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp_/apps': typeof ApiMcpAppsRoute
+  '/api/monitoring/config': typeof ApiMonitoringConfigRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1365,6 +1382,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
+  '/api/monitoring/': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
@@ -1471,6 +1489,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
+    | '/api/monitoring/config'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1519,6 +1538,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
     | '/admin/'
+    | '/api/monitoring/'
     | '/t/$teamSlug/'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
@@ -1620,6 +1640,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
+    | '/api/monitoring/config'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1668,6 +1689,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
     | '/admin'
+    | '/api/monitoring'
     | '/t/$teamSlug'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
@@ -1773,6 +1795,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp_/apps'
+    | '/api/monitoring/config'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1821,6 +1844,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
     | '/_authenticated/admin/'
+    | '/api/monitoring/'
     | '/t/$teamSlug/'
     | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
@@ -1916,6 +1940,7 @@ export interface RootRouteChildren {
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
   ApiMcpAppsRoute: typeof ApiMcpAppsRoute
+  ApiMonitoringConfigRoute: typeof ApiMonitoringConfigRoute
   ApiShapesAgentsRoute: typeof ApiShapesAgentsRoute
   ApiShapesAppRecordsRoute: typeof ApiShapesAppRecordsRoute
   ApiShapesAppVersionsRoute: typeof ApiShapesAppVersionsRoute
@@ -1959,6 +1984,7 @@ export interface RootRouteChildren {
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  ApiMonitoringIndexRoute: typeof ApiMonitoringIndexRoute
   ApiAppsAppIdFilesRoute: typeof ApiAppsAppIdFilesRoute
   ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
   ApiDownloadDesktopOsRoute: typeof ApiDownloadDesktopOsRoute
@@ -2293,6 +2319,20 @@ declare module '@tanstack/react-router' {
       path: '/api/mcp/apps'
       fullPath: '/api/mcp/apps'
       preLoaderRoute: typeof ApiMcpAppsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/monitoring/': {
+      id: '/api/monitoring/'
+      path: '/api/monitoring'
+      fullPath: '/api/monitoring/'
+      preLoaderRoute: typeof ApiMonitoringIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/monitoring/config': {
+      id: '/api/monitoring/config'
+      path: '/api/monitoring/config'
+      fullPath: '/api/monitoring/config'
+      preLoaderRoute: typeof ApiMonitoringConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/agents': {
@@ -3256,6 +3296,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
   ApiMcpAppsRoute: ApiMcpAppsRoute,
+  ApiMonitoringConfigRoute: ApiMonitoringConfigRoute,
   ApiShapesAgentsRoute: ApiShapesAgentsRoute,
   ApiShapesAppRecordsRoute: ApiShapesAppRecordsRoute,
   ApiShapesAppVersionsRoute: ApiShapesAppVersionsRoute,
@@ -3299,6 +3340,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  ApiMonitoringIndexRoute: ApiMonitoringIndexRoute,
   ApiAppsAppIdFilesRoute: ApiAppsAppIdFilesRoute,
   ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
   ApiDownloadDesktopOsRoute: ApiDownloadDesktopOsRoute,
