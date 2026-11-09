@@ -292,7 +292,8 @@ jobs:
       # #VAPP-266: the desktop runner's glue (headless) and its dependency gate;
       # the suites that hold launch behaviour and the shared fixtures (the full
       # `cargo test` stays in release-suite.yml); #EDE-55: the Local desktop
-      # store, its parity replay and the api Transport seam.
+      # store, its parity replay and the api Transport seam; the CLI's own
+      # tests (exp-cli: unit + `tests/data_dir.rs`, EXP_DATA_DIR isolation).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -300,7 +301,7 @@ jobs:
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
-          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http
+          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
 
