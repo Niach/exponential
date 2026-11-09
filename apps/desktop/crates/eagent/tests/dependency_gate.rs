@@ -7,7 +7,7 @@
 const FORBIDDEN: &[&str] = &[
     "api", "steer", "domain", "coding", "engine", "terminal", "ui", "app", "cli", "sync",
     "voice", "talk", "screen", "computer", "codemode", "updater", "theme", "gpui",
-    "gpui-component", "gpui_platform",
+    "gpui-component", "gpui_platform", "observability", "sentry",
 ];
 
 /// The path dependencies eagent may take: eCore only.

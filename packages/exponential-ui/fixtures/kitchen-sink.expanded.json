@@ -11782,7 +11782,7 @@
                         "id": "nf_kbd_group.key.0.label",
                         "component": "Text",
                         "props": {
-                          "text": "⌘",
+                          "text": "Ctrl",
                           "variant": "caption",
                           "lines": 1
                         },
@@ -11820,7 +11820,7 @@
                         "id": "nf_kbd_group.key.1.label",
                         "component": "Text",
                         "props": {
-                          "text": "⇧",
+                          "text": "Shift",
                           "variant": "caption",
                           "lines": 1
                         },
@@ -11858,7 +11858,7 @@
                         "id": "nf_kbd_group.key.2.label",
                         "component": "Text",
                         "props": {
-                          "text": "S",
+                          "text": "P",
                           "variant": "caption",
                           "lines": 1
                         },

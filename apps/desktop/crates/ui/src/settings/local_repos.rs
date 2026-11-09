@@ -993,6 +993,7 @@ impl LocalReposPane {
 
 impl Render for LocalReposPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "LocalReposPane").entered();
         let root = CodingHub::global(cx).read(cx).settings.repos_root_path();
         self.ensure_scanned(root.clone(), cx);
         self.ensure_resolver(window, cx);

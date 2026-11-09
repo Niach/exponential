@@ -394,6 +394,9 @@ pub struct SurfaceView {
     pub(crate) held_images: RefCell<HashMap<SharedString, std::sync::Arc<gpui::RenderImage>>>,
     /// When the pending repaint of the `shimmer` Texts fires (they share one).
     shimmer_armed_until: Cell<Option<Instant>>,
+    /// When the pending repaint of the looping keyframe animations fires
+    /// (they share one, #LOGS-3).
+    loop_armed_until: Cell<Option<Instant>>,
     /// A host-driven entrance ([`SurfaceView::set_entrance`]).
     entrance: Option<NodeEntrance>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
@@ -634,6 +637,7 @@ impl SurfaceView {
             anim_start: RefCell::new(HashMap::new()),
             held_images: RefCell::new(HashMap::new()),
             shimmer_armed_until: Cell::new(None),
+            loop_armed_until: Cell::new(None),
             entrance: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
             holding: None,
@@ -1071,6 +1075,7 @@ impl SurfaceView {
 
     /// One layout pass: states in, layout, caches refreshed.
     pub(crate) fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _span = tracing::trace_span!("eui.layout").entered();
         self.pass_lifted = self.layers_lifted();
         let visible_h = if self.pass_lifted {
             self.window_size.1
@@ -1867,6 +1872,7 @@ impl Element for SurfaceElement {
 
 impl Render for SurfaceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("eui.render").entered();
         // A scrollbar thumb dragged since the last frame moves the core.
         if self.take_scrollbar_drags() {
             let late = self.surface.take_events();

@@ -122,6 +122,7 @@ mod tests {
 
 impl Render for ResendInviteDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ResendInviteDialogView").entered();
         v_flex()
             .size_full()
             .gap_3()

@@ -1556,7 +1556,7 @@ pub(crate) fn card_answering(cx: &App) -> AnyElement {
         .mt_2()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(gpui_component::spinner::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
+        .child(crate::feedback::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
         .child(SharedString::from(domain::plan_card::copy().answering.clone()))
         .into_any_element()
 }
@@ -2236,7 +2236,7 @@ fn suggestion_item_row(
             // Started, the child's row not synced yet.
             None => line()
                 .text_color(muted)
-                .child(gpui_component::spinner::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
+                .child(crate::feedback::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
                 .child(div().min_w_0().truncate().child(SharedString::from(item.title.clone())))
                 .into_any_element(),
         },
@@ -4445,6 +4445,7 @@ impl Focusable for SessionChatScreenView {
 
 impl Render for SessionChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SessionChatScreenView").entered();
         // EXP-1346: an Rc handle, never a deep clone of the model.
         let Some(model) = self.model.clone() else {
             let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
@@ -4878,6 +4879,7 @@ mod tests {
         struct Shell(Entity<SessionChatScreenView>);
         impl Render for Shell {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Shell").entered();
                 div()
                     .size_full()
                     .child(gpui_base::TextSelectionLayer)

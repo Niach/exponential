@@ -987,6 +987,7 @@ mod tests {
         struct Doc(&'static str);
         impl Render for Doc {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Doc").entered();
                 let resolver = RefResolver {
                     member_name: Rc::new(|_, _| None),
                     issue_chip: Rc::new(|id, _| {
@@ -1042,6 +1043,7 @@ mod tests {
         struct Host;
         impl Render for Host {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Host").entered();
                 div()
                     .size_full()
                     .child(TextSelectionLayer)

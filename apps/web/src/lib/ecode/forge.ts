@@ -68,6 +68,9 @@ export interface Forge {
   readPipeline(repo: ForgeRepo, trainId: string, runRef: string | null): Promise<ForgePipelineResult>
   /** Every check at `sha`, null = unreadable (no permission, rate limited). */
   checksAt(repo: ForgeRepo, sha: string): Promise<TrainCheck[] | null>
+  /** #FEED-212: `branch` points at or contains `sha` (read now, after a
+   *  push); null = unreadable. A landing is confirmed only through this. */
+  branchContains(repo: ForgeRepo, branch: string, sha: string): Promise<boolean | null>
   /** Move `branch` from `from` to `to`, fast-forward only. */
   fastForward(repo: ForgeRepo, args: { branch: string; from: string; to: string }): Promise<FastForwardResult>
   /** Close a PR whose commits landed through the train, with a comment

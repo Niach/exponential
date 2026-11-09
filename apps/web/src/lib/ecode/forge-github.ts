@@ -182,6 +182,21 @@ export const githubForge: Forge = {
     return checks
   },
 
+  async branchContains(repo, branch, sha) {
+    // compare/{sha}...{branch}: `identical` = the branch IS sha, `ahead` =
+    // sha is an ancestor of it; `behind`/`diverged` = it is not on it.
+    const { res } = await call(
+      repo,
+      `/repos/${repo.fullName}/compare/${encodeURIComponent(sha)}...${branchPath(branch)}`
+    )
+    if (res.status === 404) return false
+    if (!res.ok) return null
+    const data = (await res.json().catch(() => null)) as { status?: string } | null
+    if (data?.status === `identical` || data?.status === `ahead`) return true
+    if (data?.status === `behind` || data?.status === `diverged`) return false
+    return null
+  },
+
   async fastForward(repo, { branch, from, to }) {
     const current = await githubForge.readBranch(repo, branch)
     if (current !== from) return { ok: false, reason: `moved`, current }

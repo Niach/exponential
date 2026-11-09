@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- One animation grid (#LOGS-3): every `with_stepped_animation` and `repaint_on_next_step` repaint lands on a tick of ONE 33.3 ms grid the app shares, and a loop's start moves back onto its step's line, so loops at different steps (a 33 ms spinner, a 90 ms sprite, a 100 ms label) share frames instead of adding up: a window redraws at most 30 times a second whatever animates. New `PULSE_STEP` (every second tick, 15 fps) for a long-lived opacity pulse. A looping keyframe `animation` (infinite iterations: a `spin`, a `pulse`) repaints on the grid instead of requesting every frame; a finite one keeps every frame. Each stepped element opens an `anim.step` trace span labelled with its id while tracing listens.
+
+## 0.20.0 (2026-11-08)
+
 - Scrollbars (#EXP-1629): a scroll container's overlay scrollbar is gpui-component's own `Scrollbar` over the core's offset (`view/scrollbar.rs`), so an eUI surface in the IDE shows exactly the IDE's scrollbars: the theme's thumb, width and inset, shown when the offset changes (wheel, `scrollToIndex`, a drag), fading out after gpui-component's idle delay, wider under the pointer, draggable. It replaces the EXP-1555 bars (6 px at 2 px, shown on hover and for 1 s after a scroll). No catalog or prop change.
 - Tabs `swipeable` (#FEED-200, `view/swipe.rs`): a two-finger trackpad swipe pages the Tabs like a finger. gpui's phased `ScrollWheelEvent`s (`ScrollDelta::Pixels`, `TouchPhase` Started/Moved/Ended) over the content send `swipe {phase: start|move|end, offset, velocity}` once `swipe_lock` calls the travel horizontal (vertical = the page's); a gesture starting over a node `swipe_blocks` names (Table, Chart, Slider, a horizontal scroller…) stays that node's; the fling's momentum never pages again; a mouse wheel (`Lines`) never swipes; a gesture silent for 500 ms settles. The panels and the thumb paint the core's `transform` / `transition` as any node does.
 - Chart ticks, value labels and the tooltip show the core's labels in the chart's `valueFormat` (#FEED-205).

@@ -703,6 +703,7 @@ impl RepositoriesPane {
 
 impl Render for RepositoriesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RepositoriesPane").entered();
         // #EXP-1727: a Local desktop links folders on this machine; nothing
         // clones and no GitHub install is involved.
         if crate::queries::active_account(cx).is_some_and(|a| a.is_local()) {

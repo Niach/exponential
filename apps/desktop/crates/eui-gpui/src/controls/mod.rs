@@ -37,7 +37,7 @@ mod voice_wave;
 mod zoomable_image;
 
 pub use animation::{
-    repaint_on_next_step, until_next_step, SteppedAnimationElement, SteppedAnimationExt, SMOOTH_STEP,
+    repaint_on_next_step, until_next_step, until_shared_tick, SteppedAnimationElement, SteppedAnimationExt, PULSE_STEP, SMOOTH_STEP,
 };
 pub use buttons::{
     call_button, custom_variant_fill, ghost_icon_button, CallSize, CallTone, glass_icon_button, text_button, web_switch, WebSwitch,

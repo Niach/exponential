@@ -2996,9 +2996,9 @@
               "component": "KbdGroup",
               "props": {
                 "keys": [
-                  "⌘",
-                  "⇧",
-                  "S"
+                  "Ctrl",
+                  "Shift",
+                  "P"
                 ]
               }
             }

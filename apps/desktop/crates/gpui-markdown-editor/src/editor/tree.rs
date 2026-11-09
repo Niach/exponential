@@ -180,6 +180,7 @@ impl DocumentTree {
     /// UUIDs, child UUID lists, render depth, numbered-list ordinals, and the
     /// visible snapshot.
     pub(super) fn rebuild_metadata_and_snapshot(&mut self, cx: &mut Context<Editor>) {
+        let _span = tracing::trace_span!("markdown.rebuild").entered();
         Self::normalize_block_list(&mut self.roots, cx);
         self.snapshot.clear();
         Self::sync_block_list(
