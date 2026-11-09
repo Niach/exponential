@@ -5478,6 +5478,15 @@
           "description": "Text; bind it to a data path."
         },
         {
+          "name": "variant",
+          "type": "field | row",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "field",
+          "description": "`row` = a Group row: label, value."
+        },
+        {
           "name": "disabled",
           "type": "boolean",
           "required": false,
@@ -5506,7 +5515,7 @@
       ],
       "accessibility": {
         "role": "textbox",
-        "notes": "textbox",
+        "notes": "textbox (`row`: the label inside the row stays its accessible name)",
         "keys": [
           "Enter: submit (fires `submit`, submits the Form)"
         ]

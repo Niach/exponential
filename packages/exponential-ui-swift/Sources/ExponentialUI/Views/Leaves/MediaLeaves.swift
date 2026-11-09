@@ -69,6 +69,12 @@ struct AvatarLeaf: View {
                             .frame(width: max(size - 2 * inset, 0), height: max(size - 2 * inset, 0))
                             .clipShape(Circle())
                             .frame(width: size, height: size)
+                            // #EXP-1629: the `image` part's fill under the
+                            // picture AND the ring (border-box), as the
+                            // IDE's avatar draws its `secondary` ground.
+                            .background {
+                                if let ground = image.style.background { Circle().fill(ground) }
+                            }
                             .overlay {
                                 if let ring, inset > 0 { Circle().strokeBorder(ring, lineWidth: inset) }
                             }

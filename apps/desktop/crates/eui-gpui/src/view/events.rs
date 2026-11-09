@@ -1282,6 +1282,18 @@ impl SurfaceView {
             // EXP-1259: a searchable submenu opens with its field focused.
             let search = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.component == "SearchList" && n.part.as_deref() == Some("search")));
             target = search.or(selected).or(first).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+            // #EXP-1629: a Select opens as the IDE's picker: a fresh pick,
+            // the cursor on the FIRST enabled option, the search field (if
+            // any) focused, else that option.
+            if top.kind == "Select" {
+                let item = |i: &u32| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("item") && !NodeFlags::of(n).disabled);
+                let first_item = candidates.iter().copied().find(item).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+                let field = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("search"))).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+                if let Some(first) = &first_item {
+                    self.move_select_cursor(first, cx);
+                }
+                target = field.or(first_item);
+            }
             let _ = k;
         } else if let Some(o) = closed.last() {
             let inside = self.focused.and_then(|i| self.cache.node(i)).is_none_or(|n| n.layer > 0) || self.focused.is_none();

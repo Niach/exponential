@@ -11,6 +11,7 @@
 // about why. #NEW-90: with REAL_DB_REQUIRED set (the release suite) a database
 // that is not ready FAILS the suite instead, so a green run means they ran.
 import { Pool } from "pg"
+import { sql, type SQL } from "drizzle-orm"
 import { db } from "@/db/connection"
 
 // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -52,5 +53,38 @@ export async function inRollback(fn: (tx: RealDbTx) => Promise<void>): Promise<v
     })
   } catch (e) {
     if (e !== rollback) throw e
+  }
+}
+
+/** Runs `fn` again when Postgres rolled it back for a concurrent writer: a
+ *  deadlock victim (40P01) or a REPEATABLE READ serialization failure
+ *  (40001), up to 5 times. The real-DB files run side by side on ONE
+ *  database and some replay table-wide migrations (host-spoofing's 0206/0213
+ *  lock every `device_first_seen` row and FK-check their users), so a suite
+ *  can lose to a neighbour it did nothing wrong to. Only for work that is
+ *  safe to repeat: a rolled-back replay, an idempotent
+ *  `DELETE … WHERE id IN (own ids)`. */
+export async function retryingConflict<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run()
+    } catch (error) {
+      const e = error as { code?: string; cause?: { code?: string } }
+      const code = e.code ?? e.cause?.code
+      if ((code !== `40P01` && code !== `40001`) || attempt >= 5) throw error
+    }
+  }
+}
+
+/** Shadows each of `tables`, for the rest of `tx`, with a TEMP copy of only
+ *  the rows `where` selects. Postgres resolves an unqualified name in
+ *  `pg_temp` first, so a table-wide migration replayed verbatim afterwards
+ *  reads and rewrites the case's own rows only: it never row-locks what the
+ *  real-DB files beside it commit (the rollback drops the copies). */
+export async function shadowTables(tx: RealDbTx, tables: readonly string[], where: SQL): Promise<void> {
+  for (const table of tables) {
+    const name = sql.identifier(table)
+    await tx.execute(sql`CREATE TEMP TABLE ${name} (LIKE public.${name} INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES) ON COMMIT DROP`)
+    await tx.execute(sql`INSERT INTO pg_temp.${name} SELECT * FROM public.${name} WHERE ${where}`)
   }
 }

@@ -25,7 +25,7 @@ import { createHostOwnedValue } from "../inputs"
 import type { NativeProps } from "../node-view"
 import type { SurfaceInputEvent } from "../host"
 import { createBoundState } from "./bound"
-import { bool, BuiltinIcon, css, num, objects, parts, str, TextPart } from "./shared"
+import { type Attrs, bool, BuiltinIcon, css, num, objects, parts, str, TextPart } from "./shared"
 import { BACK_KEYS, BubbleCheck, clampTo, createElementSize, createInForm, decimalCount, inBoundsOffset, KEY_INTENT, linearScale, PAGE_KEYS, percentOf, roundValue, rovingFocusFirst, SliderBubble } from "../behaviors"
 
 /** React's `useInputSender`: the host `onInput` sender of a host-owned
@@ -107,36 +107,50 @@ function TextFieldNative(props: NativeProps & { multiline: boolean }): JSX.Eleme
     f.change(v)
     void props.emit(`change`, { value: v, revision }, { value: v })
   }
+  // #EXP-1629: React's `row` Input: the `field` part is a <label> wrapping
+  // the leading `label` part and the bare, end-aligned input.
+  const row = () => !props.multiline && str(props.props.variant) === `row`
+  const input = (attrs: () => Attrs) => (
+    <input
+      ref={(e) => (el = e)}
+      {...attrs()}
+      id={id}
+      name={str(props.props.name, props.node.id)}
+      value={field.value}
+      prop:defaultValue={field.value}
+      placeholder={placeholder() || undefined}
+      disabled={disabled()}
+      aria-invalid={f.invalid ? true : undefined}
+      aria-describedby={joinIds(description() && `${id}-d`, f.describedBy)}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onInput={onInput}
+      type={str(props.props.type, `text`)}
+      onKeyDown={(e) => {
+        if (e.key === `Enter`) {
+          e.preventDefault()
+          field.commit()
+          void props.emit(`submit`, { value: field.value })
+          f.submit()
+        }
+      }}
+    />
+  )
+  const rowAttrs = (): Attrs => ({ class: `xui-Input-rowfield`, "aria-labelledby": label() ? `${id}-l` : undefined })
   return (
     <div {...props.rootProps} data-pending={field.pending ? `true` : undefined} data-revision={field.revision}>
-      <TextPart part={part(`label`)} text={label()} as="label" htmlFor={id} />
+      <Show when={!row()}>
+        <TextPart part={part(`label`)} text={label()} as="label" htmlFor={id} />
+      </Show>
       <Show
         when={props.multiline}
         fallback={
-          <input
-            ref={(e) => (el = e)}
-            {...part(`field`, ...fieldStates())}
-            id={id}
-            name={str(props.props.name, props.node.id)}
-            value={field.value}
-            prop:defaultValue={field.value}
-            placeholder={placeholder() || undefined}
-            disabled={disabled()}
-            aria-invalid={f.invalid ? true : undefined}
-            aria-describedby={joinIds(description() && `${id}-d`, f.describedBy)}
-            onFocus={onFocus}
-            onBlur={onBlur}
-            onInput={onInput}
-            type={str(props.props.type, `text`)}
-            onKeyDown={(e) => {
-              if (e.key === `Enter`) {
-                e.preventDefault()
-                field.commit()
-                void props.emit(`submit`, { value: field.value })
-                f.submit()
-              }
-            }}
-          />
+          <Show when={row()} fallback={input(() => part(`field`, ...fieldStates()))}>
+            <label {...part(`field`, ...fieldStates())} for={id}>
+              <TextPart part={part(`label`)} text={label()} id={`${id}-l`} />
+              {input(rowAttrs)}
+            </label>
+          </Show>
         }
       >
         <textarea

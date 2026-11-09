@@ -468,11 +468,11 @@ fun SurfaceModel.setSelectCursor(owner: String, id: String?) {
 }
 
 /**
- * #EXP-1629: an open Select popup (the core's layer; the core scrolls its
- * list to the first chosen option) puts its cursor on the FIRST chosen
- * option, else the first enabled one and, opened from the keyboard,
- * focuses it; a cursor whose option went (a search) starts over. A closed
- * popup drops its cursor.
+ * #EXP-1629: an open Select popup (the core's layer, its list at the top)
+ * puts its cursor on the FIRST enabled option (a fresh pick, the IDE's
+ * picker) and focuses its search field (else, opened from the keyboard,
+ * that option); a cursor whose option went (a search) starts over. A
+ * closed popup drops its cursor.
  */
 private fun SurfaceModel.syncSelectCursors() {
     val open = layers.filter { it.kind == "Select" }.map { it.owner }.toSet()
@@ -481,11 +481,13 @@ private fun SurfaceModel.syncSelectCursors() {
         val cur = selectCursors[o]
         if (cur != null && indexOf(cur) != null) continue
         val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
-        val target = items.firstOrNull { it.selected } ?: items.firstOrNull { !isDisabled(it.index) } ?: continue
+        val target = items.firstOrNull { !isDisabled(it.index) } ?: continue
         val opening = cur == null
         setSelectCursor(o, target.id)
         if (!opening) continue
-        if (keyboardFocus?.let { interaction[it]?.focusVisible } == true) focusRequest = target.id
+        val search = nodes.firstOrNull { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }
+        if (search != null) focusRequest = search.id
+        else if (keyboardFocus?.let { interaction[it]?.focusVisible } == true) focusRequest = target.id
     }
 }
 

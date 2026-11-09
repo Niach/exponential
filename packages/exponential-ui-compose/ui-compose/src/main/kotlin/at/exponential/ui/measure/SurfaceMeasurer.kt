@@ -320,7 +320,12 @@ class SurfaceMeasurer(
                     plain(n * dot + max(n - 1f, 0f) * gap, recipe.height ?: dot)
                 } else plain(0f, 0f)
                 "Input" -> when (p) {
-                    "field" -> Content(FIELD_INTRINSIC_WIDTH, ts.lineHeight, baseline(ts))
+                    // #EXP-1629: a `row` field leads with its label (the `label` part) + the gap.
+                    "field" -> if (at.exponential.ui.compose.inputRowVariant(props) && props.str("label").isNotEmpty()) {
+                        val lts = at.exponential.ui.compose.inputRowLabelStyle(ts, part("Input", "label", props))
+                        val gap = at.exponential.ui.compose.inputRowGap(leaf.control.gap, spacing("md"))
+                        Content(line(shown(props.str("label"), leaf), lts) + gap + FIELD_INTRINSIC_WIDTH, max(ts.lineHeight, lts.lineHeight), baseline(ts))
+                    } else Content(FIELD_INTRINSIC_WIDTH, ts.lineHeight, baseline(ts))
                     null -> plain(FIELD_INTRINSIC_WIDTH, 36f)
                     else -> plain(0f, 0f)
                 }
@@ -592,11 +597,9 @@ class SurfaceMeasurer(
         val text = leaf.props.str("text").ifEmpty { leaf.props.str("placeholder") }
         val gap = max(c.gap, spacing("sm"))
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
-        // #EXP-1629: the `chevron` part's size; a `row` adds its leading label (the `label` part's weight).
+        // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
         val glyph = part("Select", "chevron", leaf.props).width ?: 16f
-        val label = if (leaf.props.str("triggerVariant") == "row") leaf.props.str("label") else ""
-        val lead = if (label.isEmpty()) 0f else line(shown(label, leaf), ts.copy(fontWeight = part("Select", "label", leaf.props).style.fontWeight ?: 400)) + gap
-        return Content(lead + line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
+        return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
     }
 
     /**

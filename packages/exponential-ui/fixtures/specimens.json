@@ -10858,7 +10858,7 @@
                 "id": "specimen_input_case_1_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · text",
+                  "text": "variant · field",
                   "variant": "caption"
                 }
               },
@@ -10868,8 +10868,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "text",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "field"
                 }
               }
             ]
@@ -10887,7 +10888,7 @@
                 "id": "specimen_input_case_2_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · password",
+                  "text": "variant · row",
                   "variant": "caption"
                 }
               },
@@ -10897,8 +10898,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "password",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "row"
                 }
               }
             ]
@@ -10916,7 +10918,7 @@
                 "id": "specimen_input_case_3_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · number",
+                  "text": "type · text",
                   "variant": "caption"
                 }
               },
@@ -10926,7 +10928,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "number",
+                  "type": "text",
                   "placeholder": "you@example.com"
                 }
               }
@@ -10945,7 +10947,7 @@
                 "id": "specimen_input_case_4_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · search",
+                  "text": "type · password",
                   "variant": "caption"
                 }
               },
@@ -10955,7 +10957,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "search",
+                  "type": "password",
                   "placeholder": "you@example.com"
                 }
               }
@@ -10974,7 +10976,7 @@
                 "id": "specimen_input_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · url",
+                  "text": "type · number",
                   "variant": "caption"
                 }
               },
@@ -10984,7 +10986,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "url",
+                  "type": "number",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11003,7 +11005,7 @@
                 "id": "specimen_input_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · tel",
+                  "text": "type · search",
                   "variant": "caption"
                 }
               },
@@ -11013,7 +11015,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "tel",
+                  "type": "search",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11032,7 +11034,7 @@
                 "id": "specimen_input_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "disabled · true",
+                  "text": "type · url",
                   "variant": "caption"
                 }
               },
@@ -11042,9 +11044,8 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "email",
-                  "placeholder": "you@example.com",
-                  "disabled": true
+                  "type": "url",
+                  "placeholder": "you@example.com"
                 }
               }
             ]
@@ -11075,6 +11076,51 @@
                   "type": "search",
                   "placeholder": "Search"
                 }
+              }
+            ]
+          },
+          {
+            "id": "specimen_input_case_9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_9_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · row (in a Group)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_voice",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c9_wake",
+                    "component": "Input",
+                    "props": {
+                      "label": "Wake phrase",
+                      "name": "wake",
+                      "variant": "row",
+                      "placeholder": "Hey Exponential"
+                    }
+                  },
+                  {
+                    "id": "c9_cli",
+                    "component": "Input",
+                    "props": {
+                      "label": "CLI path",
+                      "name": "cli",
+                      "variant": "row",
+                      "value": "/usr/local/bin/claude"
+                    }
+                  }
+                ]
               }
             ]
           }

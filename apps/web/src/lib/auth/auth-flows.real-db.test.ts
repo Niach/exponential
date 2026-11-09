@@ -7,7 +7,8 @@
 // (dynamic registration, login bounce, consent, code, refresh, revocation),
 // the 1.6 rows migration 0267 carries over (hashed tokens, sealed secrets),
 // and generic OIDC sign-in on the web and through the native handoff against
-// a mock identity provider that only knows the 1.6 callback URI.
+// mock identity providers that only know the 1.6 callback URI (one without
+// PKCE, one advertising S256 whose token endpoint checks the verifier).
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createServer, type Server } from "node:http"
 import { createHash, generateKeyPairSync, randomBytes, sign as signData, type KeyObject } from "node:crypto"
@@ -23,12 +24,20 @@ const id8 = () => crypto.randomUUID().slice(0, 8)
 const b64url = (b: Buffer | Uint8Array | string) => Buffer.from(b).toString(`base64url`)
 const sha256 = (b: Buffer | string) => createHash(`sha256`).update(b).digest()
 
-// ── The mock OIDC provider (started before the auth config reads its env) ──
-const idp = await (async () => {
+// ── The mock OIDC providers (started before the auth config reads its env) ──
+// `mockidp` predates PKCE (no code_challenge_methods_supported) and refuses a
+// stray code_verifier; `pkceidp` advertises S256 and checks the verifier
+// against the authorize request's challenge, like a real IdP.
+async function mockIdp(providerId: string, opts: { s256: boolean }) {
   const { privateKey, publicKey } = await generateKeyPair(`RS256`)
   const jwk = { ...(await exportJWK(publicKey)), kid: `k1`, alg: `RS256`, use: `sig` }
-  const seen = { redirectUris: [] as string[], nonce: null as string | null }
-  const profile = { sub: `idp-${id8()}`, email: `oidc-${id8()}@idp.test`, name: `Ida Provider` }
+  const seen = {
+    redirectUris: [] as string[],
+    verifiers: [] as (string | null)[],
+    nonce: null as string | null,
+    challenge: null as string | null,
+  }
+  const profile = { sub: `idp-${id8()}`, email: `oidc-${id8()}@${providerId}.test`, name: `Ida Provider` }
   const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? `/`, `http://127.0.0.1`)
     const json = (body: unknown, status = 200) => {
@@ -45,6 +54,7 @@ const idp = await (async () => {
         response_types_supported: [`code`],
         subject_types_supported: [`public`],
         id_token_signing_alg_values_supported: [`RS256`],
+        ...(opts.s256 ? { code_challenge_methods_supported: [`S256`] } : {}),
       })
     }
     if (url.pathname === `/jwks`) return json({ keys: [jwk] })
@@ -54,9 +64,16 @@ const idp = await (async () => {
       for await (const chunk of req) body += chunk
       const form = new URLSearchParams(body)
       seen.redirectUris.push(form.get(`redirect_uri`) ?? ``)
+      const verifier = form.get(`code_verifier`)
+      seen.verifiers.push(verifier)
       // A real IdP refuses any callback but the registered (1.6) one.
-      if (form.get(`redirect_uri`) !== `${BASE}/api/auth/oauth2/callback/mockidp`) {
+      if (form.get(`redirect_uri`) !== `${BASE}/api/auth/oauth2/callback/${providerId}`) {
         return json({ error: `invalid_grant`, error_description: `redirect_uri mismatch` }, 400)
+      }
+      // PKCE (RFC 7636): the verifier must hash to the authorize request's
+      // challenge (the test hands it over); no challenge, no verifier.
+      if (seen.challenge ? !verifier || b64url(sha256(verifier)) !== seen.challenge : verifier !== null) {
+        return json({ error: `invalid_grant`, error_description: `PKCE mismatch` }, 400)
       }
       // A real IdP echoes the authorize request's nonce (the test hands it over).
       const idToken = await new SignJWT({ email: profile.email, email_verified: true, name: profile.name, ...(seen.nonce ? { nonce: seen.nonce } : {}) })
@@ -73,8 +90,10 @@ const idp = await (async () => {
   })
   await new Promise<void>((resolve) => server.listen(0, `127.0.0.1`, resolve))
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-  return { server, origin, seen, profile }
-})()
+  return { providerId, server, origin, seen, profile }
+}
+const idp = await mockIdp(`mockidp`, { s256: false })
+const pkceIdp = await mockIdp(`pkceidp`, { s256: true })
 
 process.env.BETTER_AUTH_URL = BASE
 process.env.BETTER_AUTH_SECRET ||= `real-db-auth-flows-secret-0123456789abcdef`
@@ -82,6 +101,7 @@ process.env.AUTH_RATE_LIMIT_ENABLED = `false`
 process.env.AUTH_SIGNUP_ENABLED = `true`
 process.env.OIDC_PROVIDERS = JSON.stringify([
   { id: `mockidp`, name: `Mock IdP`, clientId: `mock-client`, clientSecret: `mock-secret`, discoveryUrl: `${idp.origin}/.well-known/openid-configuration` },
+  { id: `pkceidp`, name: `PKCE IdP`, clientId: `mock-client`, clientSecret: `mock-secret`, discoveryUrl: `${pkceIdp.origin}/.well-known/openid-configuration` },
 ])
 
 const ready = await probeRealDb(`
@@ -169,8 +189,9 @@ async function sessionOf(jar: Jar): Promise<{ user: { id: string; email: string 
 
 afterAll(async () => {
   idp.server.close()
+  pkceIdp.server.close()
   if (!ready.ok) return
-  for (const email of [...made.emails, idp.profile.email]) {
+  for (const email of [...made.emails, idp.profile.email, pkceIdp.profile.email]) {
     await db.execute(sql`DELETE FROM users WHERE email = ${email}`)
   }
   for (const clientId of made.clients) {
@@ -403,45 +424,67 @@ describe.skipIf(!ready.ok)(`MCP OAuth (oauth-provider, the 1.6 paths aliased)`, 
   })
 })
 
-describe.skipIf(!ready.ok)(`generic OIDC sign-in (the 1.6 callback URI kept)`, () => {
-  it(`signs in on the web through the 1.6 callback path`, async () => {
-    const jar = new Jar()
-    const start = await call(`POST`, `/api/auth/sign-in/social`, { jar, json: { provider: `mockidp`, callbackURL: `/after` } })
-    expect(start.status).toBe(200)
-    const { url } = (await start.json()) as { url: string }
-    const authorize = new URL(url)
-    expect(authorize.origin).toBe(idp.origin)
-    expect(authorize.searchParams.get(`redirect_uri`)).toBe(`${BASE}/api/auth/oauth2/callback/mockidp`)
-    expect(authorize.searchParams.get(`code_challenge`)).toBeNull()
-    idp.seen.nonce = authorize.searchParams.get(`nonce`)
-    const back = await call(`GET`, `/api/auth/oauth2/callback/mockidp?code=c1&state=${authorize.searchParams.get(`state`)}`, { jar })
-    expect(back.status).toBe(302)
-    expect(new URL(back.headers.get(`location`)!, BASE).pathname).toBe(`/after`)
-    expect((await sessionOf(jar))?.user.email).toBe(idp.profile.email)
-  })
+describe.skipIf(!ready.ok)(`generic OIDC sign-in (the 1.6 callback URI kept, PKCE when discovery lists S256)`, () => {
+  type Idp = typeof idp
+  /** Hands the authorize request's nonce + challenge to the mock, as a browser round trip would. */
+  function authorized(target: Idp, location: string): URL {
+    const authorize = new URL(location)
+    expect(authorize.origin).toBe(target.origin)
+    expect(authorize.searchParams.get(`redirect_uri`)).toBe(`${BASE}/api/auth/oauth2/callback/${target.providerId}`)
+    target.seen.nonce = authorize.searchParams.get(`nonce`)
+    target.seen.challenge = authorize.searchParams.get(`code_challenge`)
+    return authorize
+  }
 
-  it(`signs a native in through mobile-oauth-start / -return`, async () => {
-    const jar = new Jar()
-    const verifier = b64url(randomBytes(32))
-    const challenge = b64url(sha256(verifier))
-    const start = await call(`GET`, `/api/mobile-oauth-start?providerId=mockidp&code_challenge=${challenge}&code_challenge_method=S256`, {
-      jar,
-      route: MobileStart,
+  function expectPkce(target: Idp, authorize: URL, s256: boolean) {
+    if (s256) {
+      expect(authorize.searchParams.get(`code_challenge_method`)).toBe(`S256`)
+      expect(authorize.searchParams.get(`code_challenge`)).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(target.seen.verifiers.at(-1)).toBeTruthy()
+    } else {
+      expect(authorize.searchParams.get(`code_challenge`)).toBeNull()
+      expect(authorize.searchParams.get(`code_challenge_method`)).toBeNull()
+      expect(target.seen.verifiers.at(-1)).toBeNull()
+    }
+  }
+
+  for (const [target, s256] of [[idp, false], [pkceIdp, true]] as const) {
+    it(`signs in on the web through the 1.6 callback path (${target.providerId}, PKCE ${s256 ? `on` : `off`})`, async () => {
+      const jar = new Jar()
+      const start = await call(`POST`, `/api/auth/sign-in/social`, { jar, json: { provider: target.providerId, callbackURL: `/after` } })
+      expect(start.status).toBe(200)
+      const authorize = authorized(target, ((await start.json()) as { url: string }).url)
+      const back = await call(`GET`, `/api/auth/oauth2/callback/${target.providerId}?code=c1&state=${authorize.searchParams.get(`state`)}`, { jar })
+      expect(back.status).toBe(302)
+      expect(new URL(back.headers.get(`location`)!, BASE).pathname).toBe(`/after`)
+      expectPkce(target, authorize, s256)
+      expect((await sessionOf(jar))?.user.email).toBe(target.profile.email)
     })
-    expect(start.status).toBe(302)
-    const authorize = new URL(start.headers.get(`location`)!)
-    expect(authorize.searchParams.get(`redirect_uri`)).toBe(`${BASE}/api/auth/oauth2/callback/mockidp`)
-    idp.seen.nonce = authorize.searchParams.get(`nonce`)
-    const back = await call(`GET`, `/api/auth/oauth2/callback/mockidp?code=c2&state=${authorize.searchParams.get(`state`)}`, { jar })
-    expect(back.status).toBe(302)
-    const returnUrl = new URL(back.headers.get(`location`)!, BASE)
-    expect(returnUrl.pathname).toBe(`/api/mobile-oauth-return`)
-    const handoff = await call(`GET`, `${returnUrl.pathname}${returnUrl.search}`, { jar, route: MobileReturn })
-    const location = handoff.headers.get(`location`) ?? (await handoff.text())
-    expect(location).toContain(`exponential://oauth-return`)
-    expect(location).toContain(`code=`)
-    expect(location).not.toContain(`error=`)
-  })
+
+    it(`signs a native in through mobile-oauth-start / -return (${target.providerId}, PKCE ${s256 ? `on` : `off`})`, async () => {
+      const jar = new Jar()
+      const verifier = b64url(randomBytes(32))
+      const challenge = b64url(sha256(verifier))
+      const start = await call(`GET`, `/api/mobile-oauth-start?providerId=${target.providerId}&code_challenge=${challenge}&code_challenge_method=S256`, {
+        jar,
+        route: MobileStart,
+      })
+      expect(start.status).toBe(302)
+      const authorize = authorized(target, start.headers.get(`location`)!)
+      // The IdP-side challenge is the server's own, never the native's handoff one.
+      expect(authorize.searchParams.get(`code_challenge`)).not.toBe(challenge)
+      const back = await call(`GET`, `/api/auth/oauth2/callback/${target.providerId}?code=c2&state=${authorize.searchParams.get(`state`)}`, { jar })
+      expect(back.status).toBe(302)
+      expectPkce(target, authorize, s256)
+      const returnUrl = new URL(back.headers.get(`location`)!, BASE)
+      expect(returnUrl.pathname).toBe(`/api/mobile-oauth-return`)
+      const handoff = await call(`GET`, `${returnUrl.pathname}${returnUrl.search}`, { jar, route: MobileReturn })
+      const location = handoff.headers.get(`location`) ?? (await handoff.text())
+      expect(location).toContain(`exponential://oauth-return`)
+      expect(location).toContain(`code=`)
+      expect(location).not.toContain(`error=`)
+    })
+  }
 })
 
 /** Migration 0267's statements that copy the 1.6 clients, consents and tokens. */

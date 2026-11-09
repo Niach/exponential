@@ -42,7 +42,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
@@ -60,7 +59,6 @@ import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.primitives.DrawnSwitch
 import at.exponential.ui.primitives.DrawnSwitchColors
-import at.exponential.ui.theme.ResolvedTextStyle
 import kotlin.math.max
 import kotlin.math.min
 
@@ -278,20 +276,18 @@ internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
 }
 
 /**
- * #EXP-1629: a Select trigger. `field`: the `value` part (else the muted
- * placeholder) and the `chevron` part (`Select.trigger`). `row` (a Group
- * row): the `label` part leading, the value end-aligned and truncating,
- * then the `Select.chevron` glyph; the parts' opacity and size are the
- * recipe's.
+ * #EXP-1629: a `field` Select trigger: the `value` part (else the muted
+ * placeholder) and the `chevron` part (`Select.trigger`); the parts'
+ * opacity and size are the recipe's. A `row` trigger is the core's
+ * container of parts (label, spacer, value, chevron), painted generically.
  */
 @Composable
 private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholderInk: Color?) {
-    val row = selectRowVariant(cx.props, cx.ownerProps)
     val value = cx.part("Select", "value")
     val chevron = cx.part("Select", "chevron")
     val glyphSize = chevron.width ?: 16f
     // A field's glyph keeps its 60 % ink unless the recipe says otherwise.
-    val glyphInk = (chevron.color ?: cx.ink).let { it.copy(alpha = it.alpha * (chevron.style.opacity ?: if (row) 1f else 0.6f)) }
+    val glyphInk = (chevron.color ?: cx.ink).let { it.copy(alpha = it.alpha * (chevron.style.opacity ?: 0.6f)) }
     val valueInk = (placeholderInk ?: value.color ?: cx.ink).let { it.copy(alpha = it.alpha * (value.style.opacity ?: 1f)) }
     val r = cx.inner
     LeafFrame {
@@ -300,15 +296,8 @@ private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholde
             horizontalArrangement = Arrangement.spacedBy(selectTriggerGap(cx.style.gap, cx.spacing("sm")).dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (row) {
-                val label = cx.part("Select", "label")
-                LeafLine(cx, selectRowLabel(cx.props, cx.ownerProps), color = label.color ?: cx.ink, ts = selectRowLabelStyle(cx.textStyle, label))
-                LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk, align = if (cx.rtl) TextAlign.Left else TextAlign.Right)
-                IconOrGlyph(cx.props.str("icon").ifEmpty { builtinIcon("Select.chevron", "ui-chevron-right") }, Glyph.ChevronRight, glyphSize, cx, glyphInk)
-            } else {
-                LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk)
-                GlyphView(Glyph.ChevronsUpDown, glyphSize, glyphInk)
-            }
+            LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk)
+            GlyphView(Glyph.ChevronsUpDown, glyphSize, glyphInk)
         }
     }
 }
@@ -316,14 +305,6 @@ private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholde
 /** #EXP-1629: is this Select a `row` trigger (the trigger's props, else the owner's)? */
 internal fun selectRowVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
     props.str("triggerVariant").ifEmpty { ownerProps.str("triggerVariant") } == "row"
-
-/** #EXP-1629: a `row` trigger's leading label (the core's, else the owner's `label`). */
-internal fun selectRowLabel(props: Props, ownerProps: Props = emptyMap()): String =
-    props.str("label").ifEmpty { ownerProps.str("label") }
-
-/** #EXP-1629: the row label's text style: the trigger's at the `label` part's weight (regular in a row). */
-internal fun selectRowLabelStyle(ts: ResolvedTextStyle, label: at.exponential.ui.theme.PartStyle): ResolvedTextStyle =
-    ts.copy(fontWeight = label.style.fontWeight ?: 400)
 
 /** The gap between a Select trigger's text and glyph (the recipe's, at least `$spacing.sm`; the measurer's rule). */
 internal fun selectTriggerGap(recipeGap: Float, sm: Float): Float = max(recipeGap, max(sm, 0f))
