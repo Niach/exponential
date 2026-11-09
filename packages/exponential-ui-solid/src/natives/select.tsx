@@ -13,12 +13,13 @@
 // source), or from the host's `optionSource(source, query)` when `source`
 // names a host list. Local filtering applies only to inline, unbound
 // options. `emptyText` (default `$string.noResults`) shows when nothing
-// matches. #EXP-1629: React's `row` trigger, `align` / `popupWidth`, the
-// open-scrolled cursor, item `hover` = the cursor, `selected` = chosen.
+// matches. #EXP-1629: React's `row` trigger parts and value-anchored popup,
+// `align` / `popupWidth`, the opening at the top with the cursor on the first
+// enabled option, the list's bottom fade, item `hover` = the cursor,
+// `selected` = chosen.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { boundPath, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, firstEnabledIndex, listMoreBelow, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, createField, type FieldState } from "../form"
@@ -63,6 +64,10 @@ interface SelectState {
   field: FieldState
   /** #EXP-1629: the `row` trigger's label (inside it), its glyph slot and the popup geometry. */
   rowLabel: () => JSX.Element
+  spacer: () => JSX.Element
+  /** The value box (a row popup's anchor). */
+  setValueEl: (el: HTMLElement) => void
+  valueEl: () => HTMLElement | undefined
   chevronSlot: () => string
   geometry: (triggerWidthVar: string) => ReturnType<typeof selectPopupGeometry>
 }
@@ -132,9 +137,11 @@ export function SelectNative(props: NativeProps): JSX.Element {
 
   const row = () => str(props.props.triggerVariant) === `row`
   const rowLabel = () => (row() ? <TextPart part={part(`label`)} text={props.props.label} /> : null)
+  const spacer = () => (row() ? <span class="xui-Select-spacer" aria-hidden="true" /> : null)
+  const [valueEl, setValueEl] = createSignal<HTMLElement>()
   const chevronSlot = () => (row() ? `Select.chevron` : `Select.trigger`)
   const geometry = (triggerWidthVar: string) => selectPopupGeometry(props.props, triggerWidthVar)
-  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, chevronSlot, geometry }
+  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, setValueEl, valueEl, chevronSlot, geometry }
   return (
     <div {...props.rootProps} data-source={source() || undefined}>
       <Show when={!row()}>
@@ -218,7 +225,8 @@ function PlainSelect(props: { s: SelectState; name: string; emptyText: string })
         }}
       >
         {s.rowLabel()}
-        <span>
+        {s.spacer()}
+        <span ref={s.setValueEl}>
           {chosen() ? <span {...part(`value`)} style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}
         </span>
         <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
@@ -263,11 +271,10 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
       if (document.activeElement !== previous) return
     }
   }
-  const selectedNode = () => {
-    const opts = s.options()
-    const i = opts.findIndex((o) => props.current() !== undefined && o.value === props.current())
-    return items[i >= 0 ? i : opts.findIndex((o) => !bool(o.disabled))]
-  }
+  // #EXP-1629: every opening is a fresh pick: the first enabled option, at the top.
+  const firstNode = () => items[firstEnabledIndex(s.options().length, (i) => bool(s.options()[i]?.disabled))]
+  const [moreBelow, setMoreBelow] = createSignal(false)
+  const measure = () => setMoreBelow(listMoreBelow(viewport))
   const typeahead = radixTypeahead((search) => {
     const opts = s.options()
     const list = enabledNodes().map((el) => ({ el, label: str(opts[items.indexOf(el)]?.label) }))
@@ -311,11 +318,15 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
   dismissable({ layer: () => content, onDismiss: close, keepOnFocusOutside: true })
   const geometry = untrack(() => s.geometry(`--radix-select-trigger-width`))
   const wrapper = popperWrapper({
-    anchor: s.trigger,
-    sideOffset: OVERLAY_OFFSET,
+    anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
+    sideOffset: geometry.sideOffset,
     align: geometry.align,
-    collisionPadding: OVERLAY_PADDING,
-    onPlaced: () => focusFirstOf([selectedNode(), content]),
+    collisionPadding: geometry.collisionPadding,
+    onPlaced: () => {
+      focusFirstOf([firstNode(), content])
+      if (viewport) viewport.scrollTop = 0
+      measure()
+    },
     content: (placed, ref) => (
       <div
         data-side={placed().side}
@@ -360,8 +371,9 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
           }
         }}
       >
+        <div class="xui-Select-body">
         <style>{`[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}`}</style>
-        <div ref={viewport} data-radix-select-viewport="" role="presentation" style={css({ position: `relative`, flex: 1, overflow: `hidden auto` })}>
+        <div ref={viewport} data-radix-select-viewport="" role="presentation" style={css({ position: `relative`, flex: 1, overflow: `hidden auto` })} onScroll={measure}>
           {s.options().length === 0 ? <div {...part(`empty`)}>{props.emptyText || ctx.t(`noResults`)}</div> : null}
           <For each={s.options()}>
             {(o, i) => {
@@ -417,6 +429,10 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
             }}
           </For>
         </div>
+        <Show when={moreBelow()}>
+          <div {...part(`fade`)} aria-hidden="true" />
+        </Show>
+        </div>
       </div>
     ),
   })
@@ -454,10 +470,8 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
     on(
       s.open,
       (o) => {
-        if (o) {
-          const i = shown().findIndex((x) => selected().includes(x.value))
-          nav.setActive(i >= 0 ? i : shown().findIndex((x) => !bool(x.disabled)))
-        } else s.setQuery(``)
+        if (o) nav.setActive(firstEnabledIndex(shown().length, (i) => bool(shown()[i]?.disabled)))
+        else s.setQuery(``)
       }
     )
   )
@@ -473,7 +487,7 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
   )
   const optionId = (i: number) => `${s.listId}-${i}`
   const activeId = () => (nav.active() >= 0 && nav.active() < shown().length ? optionId(nav.active()) : undefined)
-  // #EXP-1629: the list (never the page) scrolls to the cursor, on open too.
+  // #EXP-1629: the list (never the page) scrolls to the cursor.
   createEffect(() => {
     const a = activeId()
     if (s.open() && a) revealOption(listEl, listEl?.querySelector(`[id="${a}"]`))
@@ -502,7 +516,8 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
         onClick={() => s.setOpen(!s.open())}
       >
         {s.rowLabel()}
-        <span>{chosen().length ? <span {...part(`value`)}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}</span>
+        {s.spacer()}
+        <span ref={s.setValueEl}>{chosen().length ? <span {...part(`value`)}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part(`placeholder`)}>{s.placeholder()}</span>}</span>
         <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`)} />
       </button>
       <Show when={s.open()}>
@@ -540,11 +555,14 @@ function ComboboxContent(props: {
     if (!interactedOutside) setTimeout(() => trigger?.focus())
   })
   const geometry = untrack(() => s.geometry(`--radix-popover-trigger-width`))
+  const [moreBelow, setMoreBelow] = createSignal(false)
+  const measure = () => setMoreBelow(listMoreBelow(listEl))
+  createEffect(on(() => props.shown().length, () => measure()))
   const wrapper = popperWrapper({
-    anchor: s.trigger,
-    sideOffset: OVERLAY_OFFSET,
+    anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
+    sideOffset: geometry.sideOffset,
     align: geometry.align,
-    collisionPadding: OVERLAY_PADDING,
+    collisionPadding: geometry.collisionPadding,
     dir: () => undefined,
     content: (placed, ref) => (
       <div
@@ -592,11 +610,13 @@ function ComboboxContent(props: {
             />
           </div>
         ) : null}
+        <div class="xui-Select-body">
         <div
           ref={(el) => {
             listEl = el
             props.listRef(el)
           }}
+          onScroll={measure}
           id={s.listId}
           role="listbox"
           tabindex={s.searchable() ? -1 : 0}
@@ -636,6 +656,10 @@ function ComboboxContent(props: {
               )
             }}
           </For>
+        </div>
+        <Show when={moreBelow()}>
+          <div {...part(`fade`)} aria-hidden="true" />
+        </Show>
         </div>
       </div>
     ),

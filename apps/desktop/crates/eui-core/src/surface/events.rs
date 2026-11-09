@@ -71,6 +71,10 @@ impl Surface {
             .map(|l| l.id.clone())
             .collect();
         self.subtree_pending.extend(lists);
+        // #EXP-1629: a Select's fade refits after the pass (`refit_select_fades`).
+        if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && self.nodes[s as usize].owner_component.as_deref() == Some("Select")) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+            self.pending.push(OutEvent::Relayout);
+        }
         // EXP-1259: a search list's bottom fade shows only while rows sit
         // below its window.
         if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && matches!(self.nodes[s as usize].owner_component.as_deref(), Some("SearchList" | "Menu"))) {

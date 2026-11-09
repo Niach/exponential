@@ -1403,7 +1403,7 @@ class SurfaceModel(
      */
     fun nativePicker(n: NodeInfo): Boolean {
         if (options.overlays != OverlayPresentation.Native || !n.isPickerTrigger) return false
-        return when (n.component) {
+        return when (n.ownerComponent ?: n.component) {
             "DatePicker" -> true
             "Select" -> !selectPainted(ownerProps(n.index))
             else -> false

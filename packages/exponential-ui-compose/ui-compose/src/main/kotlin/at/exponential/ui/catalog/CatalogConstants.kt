@@ -36,6 +36,11 @@ object CatalogConstants {
     val SKELETON_REDUCED_OPACITY: Float = named("skeletonReducedOpacity")
     /** #EXP-1629: a `row` Select's popup width (dp) when `popupWidth` is unset. */
     val SELECT_ROW_POPUP_WIDTH: Float = named("selectRowPopupWidth")
+    /** #EXP-1629: how far under its value a `row` Select's popup hangs, and how close to the window's edges it may go (dp). */
+    val SELECT_ROW_POPUP_OFFSET: Float = named("selectRowPopupOffset")
+    val SELECT_ROW_POPUP_MARGIN: Float = named("selectRowPopupMargin")
+    /** EXP-1259: the bottom fade over a list while more rows sit below (dp; #EXP-1629: a Select's popup too). */
+    val SEARCH_LIST_FADE: Float = named("searchListFade")
 
     /** `locale.json` `rtlMirroredIcons`: the directional glyphs mirrored under rtl (round 1 §4). */
     val rtlMirroredIcons: List<String> = ExponentialUICatalog.rtlMirroredIcons

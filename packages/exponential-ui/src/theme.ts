@@ -93,7 +93,11 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   // #VAPP-258: Markdown heading / listItem margins.
   marginTop: [`spacing`],
   marginBottom: [`spacing`],
+  backgroundClip: [],
 }
+/** #EXP-1629: the recipe-only `backgroundClip` (`padding-box` = the fill
+ *  paints inside the border). */
+export const BACKGROUND_CLIPS: readonly string[] = [`border-box`, `padding-box`]
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
 /** The ONLY free text a theme contributes to a stylesheet verbatim: a family
  *  NAME (`tokens.type.family.*`) and a `fonts.*.fallback` list, both pasted
@@ -247,6 +251,10 @@ function checkFonts(value: unknown, path: string, issues: ThemeIssue[]): void {
 function checkRecipeValue(key: string, value: unknown, path: string, issues: ThemeIssue[]): void {
   if (key === `native`) {
     if (typeof value !== `boolean`) issues.push({ path, message: `expected true|false` })
+    return
+  }
+  if (key === `backgroundClip`) {
+    if (!BACKGROUND_CLIPS.includes(value as string)) issues.push({ path, message: `expected ${known(BACKGROUND_CLIPS)}` })
     return
   }
   if (ENUM_KEYS.has(key)) {

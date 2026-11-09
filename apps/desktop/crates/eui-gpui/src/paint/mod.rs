@@ -98,6 +98,9 @@ pub struct PaintStyle {
     pub border: [f32; 4],
     /// `dashed` (and `dotted`, which gpui paints dashed).
     pub dashed: bool,
+    /// #EXP-1629: `backgroundClip: padding-box`: the fill paints inside the
+    /// border (a translucent border blends over what is behind the box).
+    pub padding_box: bool,
     /// `[topLeft, topRight, bottomRight, bottomLeft]`.
     pub radii: [f32; 4],
     pub opacity: Option<f32>,
@@ -209,6 +212,7 @@ impl PaintStyle {
             border_color: color_of(v.border_color.as_deref()),
             border,
             dashed: matches!(v.border_style.as_deref(), Some("dashed" | "dotted")),
+            padding_box: v.background_clip.as_deref() == Some("padding-box"),
             radii,
             opacity: v.opacity,
             shadows: v.box_shadow.as_deref().map(shadows).unwrap_or_default(),

@@ -90,6 +90,11 @@ pub struct Visual {
     /// `solid | dashed | dotted` (solid when unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub border_style: Option<String>,
+    /// #EXP-1629: a recipe's `backgroundClip` (`border-box` when unset;
+    /// `padding-box` = the fill paints inside the border, so a translucent
+    /// border blends over what is behind the box).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_clip: Option<String>,
     /// The uniform radius in px (a `%` resolves against the laid-out box).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border_radius: Option<f32>,
@@ -678,6 +683,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         border_widths: borders.filter(|_| uniform_border.is_none()),
         border_color: str_of("borderColor"),
         border_style: str_of("borderStyle"),
+        background_clip: str_of("backgroundClip").filter(|c| c == "padding-box"),
         border_radius: radius,
         corner_radii,
         opacity: r.get("opacity").and_then(num),
@@ -783,6 +789,11 @@ mod tests {
         assert_eq!(v.border_width, Some(1.0));
         assert_eq!(v.border_style.as_deref(), Some("dashed"));
         assert_eq!(v.corner_radii, Some([2.0, 8.0, 8.0, 8.0]));
+        assert_eq!(v.background_clip, None);
+        // #EXP-1629: a recipe's padding-box clip reaches the painter; the default does not.
+        let clip = |c: &str| visual(json!({"backgroundClip": c}).as_object().unwrap(), BoxKind::Container).background_clip;
+        assert_eq!(clip("padding-box").as_deref(), Some("padding-box"));
+        assert_eq!(clip("border-box"), None);
     }
 
     #[test]
