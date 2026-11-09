@@ -803,15 +803,6 @@
             "fontSize": 12.25,
             "lineHeight": 17.5
           }
-        },
-        {
-          "when": {
-            "state": "hover",
-            "triggerVariant": "row"
-          },
-          "style": {
-            "backgroundColor": "$color.secondary"
-          }
         }
       ],
       "label": [
@@ -835,6 +826,16 @@
             "lineHeight": 17.5,
             "paddingVertical": 1
           }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 1,
+            "color": "$color.accentForeground"
+          }
         }
       ],
       "placeholder": [
@@ -847,6 +848,15 @@
             "lineHeight": 17.5,
             "paddingVertical": 1
           }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "triggerVariant": "row"
+          },
+          "style": {
+            "color": "$color.accentForeground"
+          }
         }
       ],
       "chevron": [
@@ -857,6 +867,16 @@
           "style": {
             "width": 14,
             "height": 14
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 1,
+            "color": "$color.accentForeground"
           }
         }
       ],
@@ -947,6 +967,72 @@
           },
           "style": {
             "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "multiple": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderWidth": 1,
+            "borderColor": "#00000000",
+            "paddingHorizontal": 7
+          }
+        },
+        {
+          "when": {
+            "state": "selected",
+            "multiple": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "borderColor": "#ffffff29"
+          }
+        }
+      ],
+      "button": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "height": 15.5,
+            "gap": 7,
+            "borderRadius": "$radius.md"
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "triggerVariant": "row"
+          },
+          "style": {
+            "backgroundColor": "#ffffff0e"
+          }
+        }
+      ],
+      "check": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 14,
+            "height": 14,
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "multiple": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 0,
+            "height": 0,
+            "opacity": 0
           }
         }
       ]

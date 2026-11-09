@@ -469,8 +469,9 @@ impl Builder<'_, '_> {
     }
 
     /// #EXP-1629: a `row` Select's trigger: a Group row of parts (the
-    /// leading `label`, a spacer, the `value` (else `placeholder`) and the
-    /// `chevron`), so its popup can hang off the value. The trigger itself
+    /// leading `label`, a spacer, and the `button` holding the `value`
+    /// (else `placeholder`) and the `chevron`), so its popup can hang off
+    /// the value. The trigger itself
     /// carries the text for its accessible value.
     fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool) -> (u32, Option<u32>) {
         let label = str_prop(&owner.props, "label").map(str::to_string);
@@ -484,8 +485,11 @@ impl Builder<'_, '_> {
             self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
         }
         self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
-        let value = self.part_in(t, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
-        self.part_in(t, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
+        // The IDE picker's ghost value button: the value and the chevron,
+        // the one box its hover fills.
+        let button = self.part_in(t, owner, "button", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "flexShrink": 1}), json!({}), "");
+        let value = self.part_in(button, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
+        self.part_in(button, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
         (t, Some(value))
     }
 

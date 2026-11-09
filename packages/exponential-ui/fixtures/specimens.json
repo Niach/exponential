@@ -12278,6 +12278,28 @@
                         }
                       ]
                     }
+                  },
+                  {
+                    "id": "c2_apps",
+                    "component": "Select",
+                    "props": {
+                      "label": "Apps",
+                      "name": "apps",
+                      "triggerVariant": "row",
+                      "multiple": true,
+                      "searchable": true,
+                      "value": "zoom",
+                      "options": [
+                        {
+                          "label": "Slack",
+                          "value": "slack"
+                        },
+                        {
+                          "label": "Zoom",
+                          "value": "zoom"
+                        }
+                      ]
+                    }
                   }
                 ]
               }

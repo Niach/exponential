@@ -3749,7 +3749,8 @@
         "error",
         "value",
         "chevron",
-        "fade"
+        "fade",
+        "button"
       ],
       "props": [
         "multiple",

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select (#EXP-1629, the IDE's multi picker): a row's value button (the core's `button` part) lends its pointer hover to the value, placeholder and chevron inside it; a `multiple` popup (core layer and native popup) opens with the cursor on its first chosen option; the native popup's options paint their recipe border.
+
 ## 0.21.0 (2026-11-09)
 
 - `eui-compose-primitives` `Kbd`: fills with `PrimitiveTokens.accent` (the catalog's `Kbd` recipe; was `muted`).

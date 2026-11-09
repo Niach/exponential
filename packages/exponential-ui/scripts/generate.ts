@@ -1000,7 +1000,8 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     },
   ],
   // #EXP-1629: the settings pane's picker rows (the IDE's glass picker row):
-  // a searchable timezone and a short list, inside a Group.
+  // a searchable timezone, a short list and a multiple pick (the IDE's
+  // multi picker), inside a Group.
   Select: [{
     label: `triggerVariant · row (in a Group)`,
     node: {
@@ -1009,6 +1010,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       children: [
         { id: `timezone`, component: `Select`, props: { label: `Timezone`, name: `timezone`, triggerVariant: `row`, searchable: true, value: `Europe/Vienna`, options: [`Europe/Berlin`, `Europe/London`, `Europe/Vienna`, `UTC`].map((zone) => ({ label: zone, value: zone })) } },
         { id: `week`, component: `Select`, props: { label: `Week starts on`, name: `week`, triggerVariant: `row`, value: `monday`, options: [{ label: `Monday`, value: `monday` }, { label: `Sunday`, value: `sunday` }] } },
+        { id: `apps`, component: `Select`, props: { label: `Apps`, name: `apps`, triggerVariant: `row`, multiple: true, searchable: true, value: `zoom`, options: [{ label: `Slack`, value: `slack` }, { label: `Zoom`, value: `zoom` }] } },
       ],
     },
   }],

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select (#EXP-1629, the IDE's multi picker): a `row` trigger's `value` (else `placeholder`) and `chevron` sit in a `button` part (row, centred, shrinking), the box the IDE's ghost value button fills; the popup still hangs off the value.
+
 ## 0.21.0 (2026-11-09)
 
 - Select `triggerVariant` / `align` / `popupWidth` (#EXP-1629): a `row` Select builds no `label` part above its trigger; the trigger is a container of parts: `label`, a flexible `spacer`, `value` (else `placeholder`, at most `layout::SELECT_ROW_VALUE_MAX_WIDTH` 240) and the `Select.chevron` (`ui-chevron-right`) `chevron`; it keeps `text` / `placeholder` / `label` props for its accessible value. The popup aligns by `align` (unset: `start`) and is `popupWidth` wide (unset: a row = `layout::SELECT_ROW_POPUP_WIDTH` 262, a field at least its trigger); a row's popup hangs off its VALUE (`SELECT_ROW_POPUP_OFFSET` 1 under it, `SELECT_ROW_POPUP_MARGIN` 7 from the view's edges; `LayerSpec.offset` / `margin`). Every Select that opens starts its list at the TOP. The list sits in a relative `body` with a bottom `fade` (`SEARCH_LIST_FADE`, its colour as SearchList's gradient) while options sit below its visible end (`LocalState.select_fade`, refitted after layout). `Surface::set_popup_bounds` fits anchored popups into the host's window instead of the surface. Recipes: the recipe-only `backgroundClip` (`Visual::background_clip`, `padding-box` only) and the theme shadow `popover`.

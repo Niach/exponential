@@ -95,9 +95,14 @@ describe(`select: open popup`, () => {
       expect(solid).toEqual(react)
       expect(react).toEqual({ align, width, minWidth, items: [[`hover`, false], [`selected`, true], [`disabled`, false]] })
     })
-  it(`multiple: chosen = selected + check, the cursor (the first option) = hover`, async () => {
+  it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
-    expect(react.items).toEqual([[`hover`, false], [`selected`, true], [`disabled`, false]])
+    expect(react.items).toEqual([[null, false], [`selected hover`, true], [`disabled`, false]])
+  })
+  it(`multiple, nothing chosen: no cursor until the arrows reach for the list`, async () => {
+    const { react, solid } = await both({ tree: sel({ multiple: true, value: [] }) })
+    expect(solid).toEqual(react)
+    expect(react.items).toEqual([[null, false], [null, false], [`disabled`, false]])
   })
 })

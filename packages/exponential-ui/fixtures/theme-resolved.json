@@ -3583,6 +3583,16 @@
                 "backgroundColor": "$color.popover"
               }
             }
+          ],
+          "button": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "gap": "$spacing.md"
+              }
+            }
           ]
         },
         "SearchList": {
@@ -11860,15 +11870,6 @@
                 "fontSize": 12.25,
                 "lineHeight": 17.5
               }
-            },
-            {
-              "when": {
-                "state": "hover",
-                "triggerVariant": "row"
-              },
-              "style": {
-                "backgroundColor": "$color.secondary"
-              }
             }
           ],
           "label": [
@@ -11912,6 +11913,15 @@
                 "fontSize": 12.25,
                 "lineHeight": 17.5,
                 "paddingVertical": 1
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "color": "$color.accentForeground"
               }
             }
           ],
@@ -12031,6 +12041,28 @@
               "style": {
                 "backgroundColor": "$color.accent"
               }
+            },
+            {
+              "when": {
+                "multiple": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderWidth": 1,
+                "borderColor": "#00000000",
+                "paddingHorizontal": 7
+              }
+            },
+            {
+              "when": {
+                "state": "selected",
+                "multiple": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "#ffffff29"
+              }
             }
           ],
           "check": [
@@ -12039,6 +12071,27 @@
                 "width": "$control.iconSm",
                 "height": "$control.iconSm",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14,
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "multiple": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 0,
+                "height": 0,
+                "opacity": 0
               }
             }
           ],
@@ -12124,6 +12177,16 @@
                 "lineHeight": 17.5,
                 "paddingVertical": 1
               }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 1,
+                "color": "$color.accentForeground"
+              }
             }
           ],
           "chevron": [
@@ -12149,6 +12212,16 @@
                 "width": 14,
                 "height": 14
               }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 1,
+                "color": "$color.accentForeground"
+              }
             }
           ],
           "fade": [
@@ -12156,6 +12229,35 @@
               "style": {
                 "height": 24,
                 "backgroundColor": "$color.popover"
+              }
+            }
+          ],
+          "button": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 15.5,
+                "gap": 7,
+                "borderRadius": "$radius.md"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "backgroundColor": "#ffffff0e"
               }
             }
           ]
@@ -20599,6 +20701,16 @@
               "style": {
                 "height": 24,
                 "backgroundColor": "$color.popover"
+              }
+            }
+          ],
+          "button": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "gap": "$spacing.md"
               }
             }
           ]
@@ -29207,15 +29319,6 @@
                 "fontSize": 12.25,
                 "lineHeight": 17.5
               }
-            },
-            {
-              "when": {
-                "state": "hover",
-                "triggerVariant": "row"
-              },
-              "style": {
-                "backgroundColor": "$color.secondary"
-              }
             }
           ],
           "label": [
@@ -29259,6 +29362,15 @@
                 "fontSize": 12.25,
                 "lineHeight": 17.5,
                 "paddingVertical": 1
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "color": "$color.accentForeground"
               }
             }
           ],
@@ -29378,6 +29490,28 @@
               "style": {
                 "backgroundColor": "$color.accent"
               }
+            },
+            {
+              "when": {
+                "multiple": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderWidth": 1,
+                "borderColor": "#00000000",
+                "paddingHorizontal": 7
+              }
+            },
+            {
+              "when": {
+                "state": "selected",
+                "multiple": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "#ffffff29"
+              }
             }
           ],
           "check": [
@@ -29386,6 +29520,27 @@
                 "width": "$control.iconSm",
                 "height": "$control.iconSm",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14,
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "multiple": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 0,
+                "height": 0,
+                "opacity": 0
               }
             }
           ],
@@ -29471,6 +29626,16 @@
                 "lineHeight": 17.5,
                 "paddingVertical": 1
               }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 1,
+                "color": "$color.accentForeground"
+              }
             }
           ],
           "chevron": [
@@ -29496,6 +29661,16 @@
                 "width": 14,
                 "height": 14
               }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 1,
+                "color": "$color.accentForeground"
+              }
             }
           ],
           "fade": [
@@ -29503,6 +29678,35 @@
               "style": {
                 "height": 24,
                 "backgroundColor": "$color.popover"
+              }
+            }
+          ],
+          "button": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "gap": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 15.5,
+                "gap": 7,
+                "borderRadius": "$radius.md"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "backgroundColor": "#ffffff0e"
               }
             }
           ]

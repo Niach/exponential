@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select (#EXP-1629): the row's `button` lends its hover to the value, placeholder and chevron inside it (theirs alone is never reported); a `multiple` popup opens with the cursor on its first chosen option. Against `Picker::multi` in a `glass_picker_row` at the real 14 px rem: 0 px at rest, hovered and after a pick (both close); open, only the popup's shadow ring (≤ 8 levels, the single picker's too) differs.
+
 ## 0.21.0 (2026-11-09)
 
 - Embed (#EDE-65 lane M, `view/embed.rs`): a nested `SurfaceView` painted in place, as wide as its slot and as tall as its content (the measurer lays the child out at the leaf's width; a child that grows lays the host out again), built from `eui_core::embed::embed_mount` of the resolved `surface` (the error box for a bad one) and cached per painted id + value (a new value rebuilds it, a gone node drops it). It inherits the host's theme, mode and settings (its popups stay in-surface) under the surface id `<host>/<painted id>`; its host plugin forwards the icon, media, URL policy, `open_url`, text-link and markdown hooks, re-fires every inner `event` action on the host's Embed as `action` `{name, context}` (merged over `on.action`'s context; the host's `on_action` hears it) and DENIES inner host function calls (never forwarded, their event does not follow). `SurfaceView::embedded(id)`. `tests/embed.rs` replays `fixtures/embed.json`.

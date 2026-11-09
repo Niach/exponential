@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select = the IDE's multi picker (#EXP-1629): the new `button` part holds a `row` trigger's `value` (else `placeholder`) and `chevron` (the IDE picker's ghost value button), and its `hover` is theirs too, so a theme fills only it under the pointer; a `multiple` Select opens with the cursor on its first CHOSEN enabled option (`openingCursorIndex` in `web/listbox.ts`; a single one keeps the first enabled). The exponential theme: the row trigger no longer fills under the pointer, its button does (`#ffffff0e`, 15.5 tall, `$radius.md`, the value and chevron brighten to `accentForeground`); a `multiple` row's chosen options wear the wash plus a 1 px `#ffffff29` stroke and no check; a row's check is 14 px `mutedForeground`. Neutral keeps its look (the button carries its trigger gap). The Select specimen's row Group gains a `multiple` Apps row. Prompt budget unchanged.
+
 ## 0.21.0 (2026-11-09)
 
 - Input `row` (#EXP-1629): `variant` (`field` | `row`; the app's `GlassInputRow`): a `row` field is a Group row (the `label` leading inside it, never shrinking; the value end-aligned filling the rest at 70% of the field's colour, the placeholder in its own; no fill, border or focus chrome; neutral: 44 tall, 16 / 12, gap 12). The exponential theme's row is the IDE's (14 px rem): 40.82 tall, padding 14 / 10.5, gap 10.5, label 12.25 / 19.82, value 12.25 / 17.5. The Input specimen gains `variant · row (in a Group)`, on React, Solid, gpui, SwiftUI and Compose. Prompt budget 9,782 → 9,796 tokens.

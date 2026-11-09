@@ -455,6 +455,11 @@ fun SurfaceModel.hover(id: String, hovered: Boolean) {
         if (hovered && !isDisabled(n.index)) n.owner?.let { setSelectCursor(it, id) }
         return
     }
+    // #EXP-1629: a row Select's value button lends its `hover` to the value/placeholder/chevron inside it; theirs alone is never reported.
+    if (n != null && n.ownerComponent == "Select") {
+        if (n.part in setOf("value", "placeholder", "chevron") && n.parent?.let { node(it) }?.part == "button") return
+        if (n.part == "button") for (c in n.children) node(c)?.let { child -> setInteraction(child.id) { it.copy(hover = hovered) } }
+    }
     setInteraction(id) { it.copy(hover = hovered) }
 }
 
@@ -470,7 +475,7 @@ fun SurfaceModel.setSelectCursor(owner: String, id: String?) {
 /**
  * #EXP-1629: an open Select popup (the core's layer, its list at the top)
  * puts its cursor on the FIRST enabled option (a fresh pick, the IDE's
- * picker) and focuses its search field (else, opened from the keyboard,
+ * picker; a `multiple` one's on its first chosen, the IDE's multi picker) and focuses its search field (else, opened from the keyboard,
  * that option); a cursor whose option went (a search) starts over. A
  * closed popup drops its cursor.
  */
@@ -481,8 +486,9 @@ private fun SurfaceModel.syncSelectCursors() {
         val cur = selectCursors[o]
         if (cur != null && indexOf(cur) != null) continue
         val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
-        val target = items.firstOrNull { !isDisabled(it.index) } ?: continue
         val opening = cur == null
+        val multiple = opening && indexOf(o)?.let { node(it) }?.props?.flag("multiple") == true
+        val target = (if (multiple) items.firstOrNull { !isDisabled(it.index) && it.selected } else items.firstOrNull { !isDisabled(it.index) }) ?: continue
         setSelectCursor(o, target.id)
         if (!opening) continue
         val search = nodes.firstOrNull { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }
