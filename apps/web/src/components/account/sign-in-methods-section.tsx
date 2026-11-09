@@ -141,18 +141,12 @@ export function SignInMethodsSection({
     const callbackURL = `${accountPath}?linked=${encodeURIComponent(provider.id)}`
     const errorCallbackURL = `${accountPath}?link_error=1`
     try {
-      const { error: startError } =
-        provider.kind === `oidc`
-          ? await authClient.oauth2.link({
-              providerId: provider.id,
-              callbackURL,
-              errorCallbackURL,
-            })
-          : await authClient.linkSocial({
-              provider: provider.id as `google` | `apple` | `github`,
-              callbackURL,
-              errorCallbackURL,
-            })
+      // better-auth 1.7: OIDC providers link through linkSocial too.
+      const { error: startError } = await authClient.linkSocial({
+        provider: provider.id,
+        callbackURL,
+        errorCallbackURL,
+      })
       if (startError) {
         failedAction(`link`, provider.name, startError, {
           description: authErrorMessage(startError, ``) || undefined,

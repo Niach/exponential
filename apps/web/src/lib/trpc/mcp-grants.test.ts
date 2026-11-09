@@ -5,14 +5,14 @@ import { TRPCError } from "@trpc/server"
 // ctx.db), so the fake db is installed through the mock rather than the caller
 // ctx. `select()` shifts pre-seeded rows off a FIFO queue; `insert().values()
 // .onConflictDoUpdate()` records the upserted values and stamps `upsert` on a
-// shared call log; `oAuthConsent` stamps `consent`. The call log is the
+// shared call log; `oauth2Consent` stamps `consent`. The call log is the
 // invariant under test — consent must complete before the grant upsert.
 const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
   const upserts: Record<string, unknown>[] = []
   const callLog: string[] = []
   const whereArgs: unknown[] = []
-  const oAuthConsent = vi.fn()
+  const oauth2Consent = vi.fn()
 
   function selectChain(): Promise<unknown[]> &
     Record<string, (...args: unknown[]) => unknown> {
@@ -43,12 +43,12 @@ const h = vi.hoisted(() => {
     }),
   }
 
-  return { selectQueue, upserts, callLog, whereArgs, oAuthConsent, fakeDb }
+  return { selectQueue, upserts, callLog, whereArgs, oauth2Consent, fakeDb }
 })
 
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
 vi.mock(`@/lib/auth`, () => ({
-  auth: { api: { oAuthConsent: h.oAuthConsent } },
+  auth: { api: { oauth2Consent: h.oauth2Consent } },
 }))
 
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
@@ -57,6 +57,9 @@ const REDIRECT = `https://client.example/cb?code=x`
 const WS1 = `11111111-1111-4111-8111-111111111111`
 const WS2 = `22222222-2222-4222-8222-222222222222`
 const PROJ1 = `33333333-3333-4333-8333-333333333333`
+
+// The consent page's signed query (oauth-provider), naming client-1.
+const QUERY = `response_type=code&client_id=client-1&scope=openid&exp=1&sig=s`
 
 function caller() {
   return mcpGrantsRouter.createCaller({
@@ -87,11 +90,11 @@ beforeEach(() => {
   h.upserts.length = 0
   h.callLog.length = 0
   h.whereArgs.length = 0
-  h.oAuthConsent.mockReset()
+  h.oauth2Consent.mockReset()
   // Default: consent succeeds and returns the client callback URL.
-  h.oAuthConsent.mockImplementation(async () => {
+  h.oauth2Consent.mockImplementation(async () => {
     h.callLog.push(`consent`)
-    return { redirectURI: REDIRECT }
+    return { redirect: true, url: REDIRECT }
   })
 })
 
@@ -118,10 +121,28 @@ describe(`mcpGrants.hasAny — user-level MCP-connected existence check (EXP-141
 })
 
 describe(`mcpGrants.grantAndConsent — consent completes before the grant upsert`, () => {
+  it(`hands the signed query to /oauth2/consent`, async () => {
+    await caller().grantAndConsent({ clientId: `client-1`, oauthQuery: `?${QUERY}`, accept: false })
+    expect(h.oauth2Consent.mock.calls[0]![0].body).toEqual({ accept: false, oauth_query: QUERY })
+  })
+
+  it(`refuses a signed query that names another client, before any consent`, async () => {
+    await expect(
+      caller().grantAndConsent({
+        clientId: `client-2`,
+        oauthQuery: QUERY,
+        accept: true,
+        allTeams: true,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.oauth2Consent).not.toHaveBeenCalled()
+    expect(h.upserts).toHaveLength(0)
+  })
+
   it(`accept with an expired/replayed consent code rejects and never rewrites the grant`, async () => {
     h.selectQueue.push([{ clientId: `client-1` }]) // client lookup
     h.selectQueue.push([]) // member teams
-    h.oAuthConsent.mockImplementation(async () => {
+    h.oauth2Consent.mockImplementation(async () => {
       h.callLog.push(`consent`)
       throw new TRPCError({ code: `UNAUTHORIZED`, message: `expired` })
     })
@@ -129,7 +150,7 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
     await expect(
       caller().grantAndConsent({
         clientId: `client-1`,
-        consentCode: `code-1`,
+        oauthQuery: QUERY,
         accept: true,
         allTeams: true,
       })
@@ -143,15 +164,15 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
   it(`accept where consent returns no redirectURI rejects BAD_REQUEST with no upsert`, async () => {
     h.selectQueue.push([{ clientId: `client-1` }])
     h.selectQueue.push([])
-    h.oAuthConsent.mockImplementation(async () => {
+    h.oauth2Consent.mockImplementation(async () => {
       h.callLog.push(`consent`)
-      return {}
+      return { redirect: true }
     })
 
     await expect(
       caller().grantAndConsent({
         clientId: `client-1`,
-        consentCode: `code-1`,
+        oauthQuery: QUERY,
         accept: true,
         allTeams: true,
       })
@@ -167,7 +188,7 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
 
     const result = await caller().grantAndConsent({
       clientId: `client-1`,
-      consentCode: `code-1`,
+      oauthQuery: QUERY,
       accept: true,
       allTeams: false,
       teamIds: [WS1],
@@ -192,7 +213,7 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
 
     const result = await caller().grantAndConsent({
       clientId: `client-1`,
-      consentCode: `code-1`,
+      oauthQuery: QUERY,
       accept: false,
     })
 
@@ -207,14 +228,14 @@ describe(`mcpGrants.grantAndConsent — consent completes before the grant upser
     await expect(
       caller().grantAndConsent({
         clientId: `client-1`,
-        consentCode: `code-1`,
+        oauthQuery: QUERY,
         accept: true,
         allTeams: false,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
 
     // Validation failures must leave the consent code alive for a retry.
-    expect(h.oAuthConsent).not.toHaveBeenCalled()
+    expect(h.oauth2Consent).not.toHaveBeenCalled()
     expect(h.upserts).toHaveLength(0)
     expect(h.callLog).toEqual([])
   })

@@ -4,6 +4,7 @@
 // client, a member cannot; a member leaving the team loses their apps grant,
 // policy rows and orphaned tokens (the builtin grant stays); unlinking an
 // upstream revokes at the provider (RFC 7009) and deletes the credential.
+import { hashOAuthToken } from "@/lib/auth/oauth-token-hash"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -42,14 +43,14 @@ async function client(userId: string, clientId = `client-${id8()}`): Promise<{ c
   const token = `tok-${crypto.randomUUID()}`
   if (!made.clients.includes(clientId)) {
     await db.execute(sql`
-      INSERT INTO oauth_applications (id, name, client_id, redirect_urls, type, disabled, created_at, updated_at)
-      VALUES (${clientId}, 'Claude Code', ${clientId}, 'http://localhost/cb', 'public', false, now(), now())
+      INSERT INTO oauth2_clients (id, name, client_id, redirect_uris, token_endpoint_auth_method, disabled, created_at, updated_at)
+      VALUES (${clientId}, 'Claude Code', ${clientId}, ARRAY['http://localhost/cb'], 'none', false, now(), now())
     `)
     made.clients.push(clientId)
   }
   await db.execute(sql`
-    INSERT INTO oauth_access_tokens (id, access_token, refresh_token, access_token_expires_at, refresh_token_expires_at, client_id, user_id, scopes, created_at, updated_at)
-    VALUES (${`at-${id8()}`}, ${token}, ${`rt-${crypto.randomUUID()}`}, now() + interval '1 hour', now() + interval '1 day', ${clientId}, ${userId}, 'openid', now(), now())
+    INSERT INTO oauth2_access_tokens (id, token, client_id, user_id, scopes, expires_at, created_at)
+    VALUES (${`at-${id8()}`}, ${hashOAuthToken(token)}, ${clientId}, ${userId}, ARRAY['openid'], now() + interval '1 hour', now())
   `)
   return { clientId, token }
 }
@@ -104,7 +105,7 @@ async function asUser(id: string) {
 afterEach(() => vi.unstubAllGlobals())
 afterAll(async () => {
   if (!ready.ok) return
-  if (made.clients.length) await db.execute(sql`DELETE FROM oauth_applications WHERE client_id IN ${sql.raw(`('${made.clients.join(`','`)}')`)}`)
+  if (made.clients.length) await db.execute(sql`DELETE FROM oauth2_clients WHERE client_id IN ${sql.raw(`('${made.clients.join(`','`)}')`)}`)
   if (made.teams.length) await db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`)
   if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
 })

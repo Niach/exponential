@@ -18,32 +18,35 @@ import {
 } from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
 import { AppsConsent } from "@/components/mcp/apps-consent"
+import { isAppsResource } from "@/lib/auth/mcp-resource"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize
-// endpoint lands here (prompt=consent is forced server-side) with a
-// consent_code; "Allow" persists the team/board grant and completes
-// the better-auth consent, which returns the MCP client's callback URL.
+// endpoint lands here (prompt=consent is forced server-side) with the
+// authorization request as a SIGNED query (oauth-provider's `sig`); "Allow"
+// persists the team/board grant and completes the better-auth consent with
+// that query, which returns the MCP client's callback URL.
 // The team/board control is `@exp/ui` ScopePicker — the same one the
 // Create-API-key dialog shows (FEED-76).
 
 interface ConsentSearch {
-  consent_code?: string
+  sig?: string
   client_id?: string
   scope?: string
-  /** #VAPP-182: `apps` = the client connects to `/api/mcp/apps`. */
+  /** #VAPP-182: the resource URL the client named (`/api/mcp/apps` = the
+   *  apps consent). */
   resource?: string
+  [param: string]: unknown
 }
 
 export const Route = createFileRoute(`/auth/consent`)({
   head: () => ({ meta: [{ title: pageTitle(`Authorize`) }] }),
   component: ConsentPage,
   ssr: false,
-  validateSearch: (search: Record<string, unknown>): ConsentSearch => ({
-    consent_code: (search.consent_code as string) || undefined,
-    client_id: (search.client_id as string) || undefined,
-    scope: (search.scope as string) || undefined,
-    resource: search.resource === `apps` ? `apps` : undefined,
-  }),
+  // The search passes through UNCHANGED: oauth-provider signed these exact
+  // parameters (`sig`), and a search that validates to anything else makes
+  // the router redirect to its canonical form (dropped keys, JSON-encoded
+  // repeats), which no longer verifies.
+  validateSearch: (search: Record<string, unknown>): ConsentSearch => search,
   beforeLoad: async ({ location }) => {
     const session = await fetchSessionOnce()
     if (!session) {
@@ -56,7 +59,12 @@ export const Route = createFileRoute(`/auth/consent`)({
 })
 
 function ConsentPage() {
-  const { consent_code: consentCode, client_id: clientId, resource } = Route.useSearch()
+  const search = Route.useSearch()
+  const clientId = typeof search.client_id === `string` ? search.client_id : undefined
+  const resource = isAppsResource(typeof search.resource === `string` ? search.resource : undefined) ? `apps` : undefined
+  // The signed query exactly as the provider wrote it, never rebuilt from
+  // the parsed search.
+  const [oauthQuery] = useState(() => (search.sig ? window.location.search.replace(/^\?/, ``) : ``))
 
   const [clientName, setClientName] = useState<string | null>(null)
   const [tree, setTree] = useState<Array<ScopePickerTeam> | null>(null)
@@ -105,7 +113,7 @@ function ConsentPage() {
   const hasSelection = hasScopeSelection(selection)
 
   const respond = async (accept: boolean) => {
-    if (!clientId || !consentCode) return
+    if (!clientId || !oauthQuery) return
     setPending(accept ? `allow` : `deny`)
     try {
       // Boards inside a fully-selected team are covered by the team
@@ -114,7 +122,7 @@ function ConsentPage() {
       const { redirectURI } = await trpc.mcpGrants.grantAndConsent.mutate(
         {
           clientId,
-          consentCode,
+          oauthQuery,
           accept,
           ...scope,
         },
@@ -127,7 +135,7 @@ function ConsentPage() {
     }
   }
 
-  if (!clientId || !consentCode) {
+  if (!clientId || !oauthQuery) {
     return (
       <AuthFormShell
         title="Invalid consent request"
@@ -149,7 +157,7 @@ function ConsentPage() {
         description={`Choose which apps ${clientName ?? `this MCP client`} can use on your behalf.`}
         footer={null}
       >
-        <AppsConsent clientId={clientId} clientName={clientName} consentCode={consentCode} />
+        <AppsConsent clientId={clientId} clientName={clientName} oauthQuery={oauthQuery} />
       </AuthFormShell>
     )
   }

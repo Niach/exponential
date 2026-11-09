@@ -8,8 +8,9 @@ import {
   deviceAuthorization,
   emailOTP,
   genericOAuth,
-  mcp,
 } from "better-auth/plugins"
+import { mcp } from "@better-auth/mcp"
+import { mcpOAuthOptions } from "./mcp-oauth-config"
 import { apiKey } from "@better-auth/api-key"
 import { passkey } from "@better-auth/passkey"
 import { creem } from "@creem_io/better-auth"
@@ -117,6 +118,11 @@ function decodeJwtPayload(token: string): unknown {
 }
 
 const oidcProviders = parseOidcProviders()
+
+/** The redirect URI self-hosted OIDC providers have registered (1.6's path). */
+function legacyOidcCallbackUrl(providerId: string): string {
+  return `${process.env.BETTER_AUTH_URL!.replace(/\/$/, ``)}/api/auth/oauth2/callback/${providerId}`
+}
 const googleClientConfigured = Boolean(
   process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
 )
@@ -309,7 +315,6 @@ export const auth = betterAuth({
       // are bounded like sign-ins.
       "/email-otp/request-email-change": { window: 60, max: 3 },
       "/link-social": { window: 60, max: 10 },
-      "/oauth2/link": { window: 60, max: 10 },
       "/passkey/*": { window: 60, max: 30 },
     },
   },
@@ -538,10 +543,12 @@ export const auth = betterAuth({
       const newSession = ctx.context.newSession
       if (!newSession?.user) return
 
-      // Match the genericOAuth callback path. better-auth mounts the plugin
-      // under /oauth2/callback/:providerId.
+      // Match the genericOAuth callback path. better-auth 1.7 mounts generic
+      // providers on the shared /callback/:providerId (the old
+      // /oauth2/callback/:providerId is an alias, routes/api/auth/$.ts); only
+      // a configured OIDC provider id matches below.
       const path = ctx.path
-      if (!path?.startsWith(`/oauth2/callback/`)) return
+      if (!path?.startsWith(`/callback/`)) return
 
       const providerId = path.split(`/`).pop()
       if (!providerId) return
@@ -701,27 +708,11 @@ export const auth = betterAuth({
       // no-op for its mergeSchema and satisfies the parse.
       schema: {},
     }),
-    mcp({
-      loginPage: `/auth/login`,
-      resource: process.env.BETTER_AUTH_URL
-        ? `${process.env.BETTER_AUTH_URL.replace(/\/$/, ``)}/api/mcp`
-        : undefined,
-      // Human MCP clients (Claude etc.) hold a refreshable OAuth credential.
-      // The mcp plugin reads token lifetimes from `oidcConfig`: give it a
-      // generous refresh window so a client offline for weeks can still refresh
-      // without re-authorizing; the short access-token life keeps rotation
-      // frequent (getMcpSession ignores access expiry, but the client refreshes
-      // proactively).
-      oidcConfig: {
-        loginPage: `/auth/login`,
-        // Scope-selection consent screen (team/board multi-select →
-        // mcp_grants). The /api/auth/$ route forces prompt=consent on every
-        // mcp/authorize request so no client skips it.
-        consentPage: `/auth/consent`,
-        accessTokenExpiresIn: 60 * 60 * 24,
-        refreshTokenExpiresIn: 60 * 60 * 24 * 90,
-      },
-    }),
+    // MCP OAuth (better-auth 1.7: `@better-auth/mcp` on oauth-provider; the
+    // 1.6 plugin's rows are imported at boot, lib/auth/legacy-mcp-oauth.ts).
+    // Endpoints live under /api/auth/oauth2/*; /api/auth/mcp/* stays as an
+    // alias (routes/api/auth/$.ts) for clients that cached the 1.6 metadata.
+    mcp(mcpOAuthOptions()),
     ...(oidcProviders.length > 0
       ? [
           genericOAuth({
@@ -730,6 +721,12 @@ export const auth = betterAuth({
               clientId: p.clientId,
               clientSecret: p.clientSecret,
               discoveryUrl: p.discoveryUrl,
+              // better-auth 1.7 moved generic callbacks to /callback/:id, but
+              // every IdP has the 1.6 URI registered: keep sending it (the
+              // route aliases it, routes/api/auth/$.ts) and keep 1.6's
+              // non-PKCE code flow, so no self-hosted login changes.
+              redirectURI: legacyOidcCallbackUrl(p.id),
+              pkce: false,
               scopes:
                 p.scopes ??
                 (p.adminGroups?.length
@@ -737,10 +734,8 @@ export const auth = betterAuth({
                   : [`openid`, `profile`, `email`]),
               mapProfileToUser: (profile) => ({
                 name:
-                  profile.name ||
-                  profile.preferred_username ||
-                  profile.nickname ||
-                  profile.email,
+                  [profile.name, profile.preferred_username, profile.nickname, profile.email]
+                    .find((v): v is string => typeof v === `string` && v.length > 0),
                 isAdmin: isAdminFromProfile(profile, p),
               }),
             })),
