@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer slots + paste (#EDE-65 R): a slotted Composer paints its leaf and then the core-laid slot row over it; the attach control ends one `xs` gap before `trailing`. A hardware Ctrl/⌘+V or the selection toolbar's Paste reads the clipboard's content URIs (`composerClipboard`) and `SurfaceModel.composerPaste` fires `attach` {files} for the images and calls the new `HostPlugin.onUpload(UploadEvent)` (`name` = the Composer's id, `uris` = the content URIs); files without an image insert nothing. `InteractionTest`.
+
 ## 0.21.0 (2026-11-09)
 
 - `eui-compose-primitives` `Kbd`: fills with `PrimitiveTokens.accent` (the catalog's `Kbd` recipe; was `muted`).

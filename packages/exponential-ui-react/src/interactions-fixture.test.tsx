@@ -729,3 +729,91 @@ describe(`fixtures/interactions-round1.json composerKeys`, () => {
     })
   }
 })
+
+// #EDE-65 R composerSlots: the slots sit in the Composer's controls row,
+// in order leading · attach · trailing · send (DOM order = start → end; a
+// CSS renderer mirrors it in RTL); a slot child is a live node.
+interface ComposerSlotsCase {
+  name: string
+  props: Record<string, unknown>
+  slots: Record<string, NestedNode>
+  direction?: `rtl`
+  order: string[]
+  steps: { press: string }[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+const composerSlotsFixture = (fixture as unknown as { composerSlots: { surface: NestedNode; cases: ComposerSlotsCase[] } }).composerSlots
+
+/** The controls row's children by fixture name, start → end. */
+function composerRowOrder(root: ParentNode): string[] {
+  const bar = root.querySelector(`[data-xui-id="c"] .xui-composer-bar`)!
+  return Array.from(bar.children).map((el) => {
+    const c = el.className
+    if (c.includes(`xui-composer-leading`)) return `leading`
+    if (c.includes(`xui-composer-trailing`)) return `trailing`
+    if (c.includes(`xui-Composer-attachment`)) return `attachment`
+    if (c.includes(`xui-Composer-send`)) return `send`
+    return c
+  })
+}
+
+function NestedSurface({ tree, host }: { tree: NestedNode; host: Record<string, unknown> }) {
+  const surface = useSurface({ surfaceId: `cs`, data: {}, initial: tree })
+  return <ExponentialSurface surface={surface} theme="neutral" id="cs" host={host} />
+}
+
+describe(`fixtures/interactions-round1.json composerSlots`, () => {
+  for (const c of composerSlotsFixture.cases) {
+    it(`composerSlots: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const composer = { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
+      const root = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
+      const { container } = render(<NestedSurface tree={root} host={{ onAction: (e: SurfaceActionEvent) => void actions.push(e) }} />)
+      expect(composerRowOrder(container)).toEqual(c.order)
+      for (const s of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${s.press}"]`)!)
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+})
+
+// #EDE-65 R composerPaste: a paste with image files fires `attach` {files}
+// and hands the bytes to onUpload; files without one do nothing; text alone
+// is the field's own paste.
+interface ComposerPasteCase {
+  name: string
+  data: Record<string, unknown>
+  clipboard: { text?: string; files?: { name: string; size: number; type: string }[] }
+  events: { name: string; context: Record<string, unknown> }[]
+  uploads: string[]
+  draft: string | null
+}
+const composerPasteFixture = (fixture as unknown as { composerPaste: { surface: NestedNode; cases: ComposerPasteCase[] } }).composerPaste
+
+function ComposerPasteSurface({ data, onState, host }: { data: Record<string, unknown>; onState: (s: SurfaceState) => void; host: Record<string, unknown> }) {
+  const surface = useSurface({ surfaceId: `cp`, data: structuredClone(data), initial: composerPasteFixture.surface })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="cp" host={host} />
+}
+
+describe(`fixtures/interactions-round1.json composerPaste`, () => {
+  for (const c of composerPasteFixture.cases) {
+    it(`composerPaste: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const uploads: [string[], unknown][] = []
+      const host = { onAction: (e: SurfaceActionEvent) => void actions.push(e), onUpload: (files: File[], t: unknown) => void uploads.push([files.map((f) => f.name), t]) }
+      const { container } = render(<ComposerPasteSurface data={c.data} onState={(s) => (state = s)} host={host} />)
+      const field = container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+      const files = (c.clipboard.files ?? []).map((f) => new File([`x`.repeat(f.size)], f.name, { type: f.type }))
+      const kept = fireEvent.paste(field, { clipboardData: { files, getData: () => c.clipboard.text ?? `` } })
+      // jsdom inserts nothing: a paste the Composer leaves is the browser's.
+      if (kept && c.clipboard.text) fireEvent.change(field, { target: { value: `${field.value}${c.clipboard.text}` } })
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect(uploads.flatMap((u) => u[0])).toEqual(c.uploads)
+      for (const u of uploads) expect((u[1] as { name: string }).name).toBe(`c`)
+      expect((state.data as Record<string, unknown>).draft ?? null).toBe(c.draft)
+    })
+  }
+})

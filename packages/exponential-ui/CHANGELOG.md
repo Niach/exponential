@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer slots + paste (#EDE-65 R): `slots: [leading, trailing]`, any genUI child drawn inside the composer's controls row (the send disc's row): `leading` at the start edge, `trailing` one `$spacing.xs` gap before the send disc, the attach control before `trailing`, every slot centred on the disc; slots never size the composer, so without them nothing moves. Pasting image files into the field fires the existing `attach` event with {files: [{name, size, type}]} (only the images, clipboard order; FileUpload's file shape; the bare attach control still fires `attach` with no context) and hands them to the host's upload hook (`name` = the Composer's id); files without an image do nothing, text stays the field's own. `attach` is now listed in the Composer's events. On React, Solid, gpui, SwiftUI and Compose; `interactions-round1.json` `composerSlots` + `composerPaste`, `@exponential_app/eui/web` `composerPaste`; the Composer specimen gains `slots · leading + trailing` (a "+" Menu and a context Ring). Prompt budget 9,887 → 9,921 tokens.
+
 ## 0.21.0 (2026-11-09)
 
 - Input `row` (#EXP-1629): `variant` (`field` | `row`; the app's `GlassInputRow`): a `row` field is a Group row (the `label` leading inside it, never shrinking; the value end-aligned filling the rest at 70% of the field's colour, the placeholder in its own; no fill, border or focus chrome; neutral: 44 tall, 16 / 12, gap 12). The exponential theme's row is the IDE's (14 px rem): 40.82 tall, padding 14 / 10.5, gap 10.5, label 12.25 / 19.82, value 12.25 / 17.5. The Input specimen gains `variant · row (in a Group)`, on React, Solid, gpui, SwiftUI and Compose. Prompt budget 9,782 → 9,796 tokens.
