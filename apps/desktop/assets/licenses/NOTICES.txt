@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-1142 third-party components are distributed as part of this build. They are
+1143 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -282,7 +282,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 113 components:
+Applies to the following 114 components:
 
   adler2 2.0.1
     MIT elected from `0BSD OR MIT OR Apache-2.0`
@@ -506,6 +506,7 @@ Applies to the following 113 components:
     MIT elected from `MIT OR Apache-2.0`
   zmij 1.0.21
   zvariant_utils 3.4.0
+  zvariant_utils 4.2.0
 
 ..............................................................................
 
@@ -2860,7 +2861,7 @@ Applies to the following 8 components:
     Copyright (c) 2015 Elinor Berger
   wayland-protocols-wlr 0.3.12  [x86_64-unknown-linux-gnu]
     Copyright (c) 2015 Elinor Berger
-  wayland-scanner 0.31.10  [x86_64-unknown-linux-gnu]
+  wayland-scanner 0.31.11  [x86_64-unknown-linux-gnu]
     Copyright (c) 2015 Elinor Berger
   wayland-sys 0.31.11  [x86_64-unknown-linux-gnu]
     Copyright (c) 2015 Elinor Berger
@@ -3052,13 +3053,13 @@ Applies to the following 6 components:
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
   zbus_macros 5.16.0
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
-  zbus_names 4.3.2
+  zbus_names 4.3.5
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
-  zbus_xml 5.1.1  [x86_64-unknown-linux-gnu]
+  zbus_xml 5.2.1  [x86_64-unknown-linux-gnu]
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
-  zvariant 5.12.0
+  zvariant 5.15.1
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
-  zvariant_derive 5.12.0
+  zvariant_derive 5.15.1
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
 
 ..............................................................................
@@ -5127,46 +5128,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 3 components:
-
-  quick-xml 0.30.0  [x86_64-unknown-linux-gnu; build-time only, not linked]
-    Copyright (c) 2016 Johann Tuffe
-  quick-xml 0.39.4  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2016 Johann Tuffe
-  quick-xml 0.42.0  [aarch64-apple-darwin]
-    Copyright (c) 2016 Johann Tuffe
-
-..............................................................................
-
-The MIT License (MIT)
-
-Copyright (c) 2016 Johann Tuffe
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -7442,6 +7403,44 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  quick-xml 0.41.0  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2016 Johann Tuffe
+  quick-xml 0.42.0  [aarch64-apple-darwin]
+    Copyright (c) 2016 Johann Tuffe
+
+..............................................................................
+
+The MIT License (MIT)
+
+Copyright (c) 2016 Johann Tuffe
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -22173,7 +22172,7 @@ MIT
 
 Applies to the following component:
 
-  xcb 1.7.0  [x86_64-unknown-linux-gnu]
+  xcb 1.7.1  [x86_64-unknown-linux-gnu]
     Copyright (c) 2013 James Miller <james@aatch.net>
     Copyright (c) 2016-2023 Rémi Thebault <@rtbo> and many others
 
@@ -22508,6 +22507,44 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  zcheapstr 1.2.0
+    Copyright (c) 2026 Zeeshan Ali Khan & zcheapstr contributors
+
+..............................................................................
+
+Copyright (c) 2026 Zeeshan Ali Khan & zcheapstr contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
