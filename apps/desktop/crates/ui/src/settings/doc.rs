@@ -60,6 +60,18 @@ pub(super) struct Ink {
     /// disabled fill (`color.opacity(0.15)`).
     pub(super) pill_button_fill: String,
     pub(super) pill_button_fill_disabled: String,
+    /// `glass_pill_button_primary`'s fill, hover, disabled fill (half) and ink.
+    pub(super) primary_button_fill: String,
+    pub(super) primary_button_hover: String,
+    pub(super) primary_button_fill_disabled: String,
+    pub(super) primary_button_fg: String,
+}
+
+/// How a [`Ink::pill_button_with`] paints.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PillPaint {
+    Glass,
+    Primary,
 }
 
 /// The IDE's translucent inks (`foreground.opacity(…)`) as the node's
@@ -104,6 +116,10 @@ impl Ink {
             mono: theme.mono_font_family.to_string(),
             pill_button_fill: hex(gpui_component::Colorize::mix_oklab(&eui_gpui::controls::custom_variant_fill(chrome.fill_card), theme.transparent, eui_gpui::controls::CUSTOM_VARIANT_ALPHA_FACTOR)),
             pill_button_fill_disabled: hex(eui_gpui::controls::custom_variant_fill(chrome.fill_card).opacity(0.15)),
+            primary_button_fill: hex(theme.button_primary),
+            primary_button_hover: hex(theme.button_primary_hover),
+            primary_button_fill_disabled: hex(theme.button_primary.opacity(0.5)),
+            primary_button_fg: hex(theme.button_primary_foreground),
         }
     }
 
@@ -268,7 +284,7 @@ impl Ink {
         children.push(json!({"id": format!("{id}_spacer"), "component": "Box", "style": {"flexGrow": 1}}));
         if let Some(loading) = loading {
             let size = eui_gpui::controls::INLINE_SPINNER_PX;
-            children.push(json!({"id": format!("{id}_spinner"), "component": "Spinner", "visible": loading, "style": {"width": size, "height": size, "color": self.muted, "flexShrink": 0}}));
+            children.push(json!({"id": format!("{id}_spinner"), "component": "Icon", "visible": loading, "props": {"name": path(&format!("{IDE_LOADERS}/bandLoader"))}, "style": {"width": size, "height": size, "color": self.muted, "flexShrink": 0}}));
         }
         children.extend(trailing);
         json!({"id": id, "component": "Box",
@@ -304,20 +320,58 @@ impl Ink {
     /// `text_xs` label (line height 1); no glyph without `icon`. Disabled: the faded fill and the
     /// half-muted ink. Drawn twice, `disabled` picks.
     pub(super) fn pill_button(&self, id: &str, icon: Option<&str>, label: Value, disabled: Value, event: Value) -> [Value; 2] {
+        self.pill_button_with(id, PillPaint::Glass, icon.map(|icon| json!(icon)), None, label, disabled, None, event)
+    }
+
+    /// [`Ink::pill_button`] in `paint` ([`PillPaint::Primary`] =
+    /// `glass_pill_button_primary`: the solid primary fill, no stroke, its
+    /// ink solid, disabled at half fill); `tint` colours the glyph solid
+    /// (an icon's own `text_color`); `spin` = gpui-component's `loading`
+    /// look on the disabled face: the glyph slot is its spinner (the host's
+    /// [`crate::exponential_ui_host::BUTTON_LOADER`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn pill_button_with(&self, id: &str, paint: PillPaint, icon: Option<Value>, tint: Option<&str>, label: Value, disabled: Value, spin: Option<Value>, event: Value) -> [Value; 2] {
+        let primary = paint == PillPaint::Primary;
         let draw = |dim: bool| {
             let id = if dim { format!("{id}_dim") } else { id.to_string() };
-            let (ink, alpha) = if dim { (&self.muted, 0.5) } else { (&self.foreground, VALUE_ALPHA) };
+            let (ink, alpha) = match (primary, dim) {
+                (true, _) => (&self.primary_button_fg, 1.0),
+                (false, true) => (&self.muted, 0.5),
+                (false, false) => (&self.foreground, VALUE_ALPHA),
+            };
             let size = self.r(XS);
-            let glyph = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": self.r(0.75), "height": self.r(0.75), "color": ink, "opacity": alpha, "flexShrink": 0}}));
+            let glyph_size = self.r(0.75);
+            let mut glyph: Vec<Value> = Vec::new();
+            if let Some(icon) = &icon {
+                let (color, opacity) = tint.map_or((ink.as_str(), alpha), |tint| (tint, 1.0));
+                let mut node = json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph_size, "height": glyph_size, "color": color, "opacity": opacity, "flexShrink": 0}});
+                if let (true, Some(spin)) = (dim, &spin) {
+                    node["visible"] = not(spin.clone());
+                    glyph.push(node);
+                    glyph.push(json!({"id": format!("{id}_spin"), "component": "Icon", "visible": spin, "props": {"name": path(&format!("{IDE_LOADERS}/buttonLoader"))}, "style": {"width": glyph_size, "height": glyph_size, "color": ink, "opacity": alpha, "flexShrink": 0}}));
+                } else {
+                    glyph.push(node);
+                }
+            }
             let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": ink, "opacity": alpha, "flexShrink": 0}});
+            let fill = match (primary, dim) {
+                (true, false) => &self.primary_button_fill,
+                (true, true) => &self.primary_button_fill_disabled,
+                (false, false) => &self.pill_button_fill,
+                (false, true) => &self.pill_button_fill_disabled,
+            };
             let mut button = json!({"id": id, "component": "Box", "visible": if dim { disabled.clone() } else { not(disabled.clone()) },
-                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": self.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": 9999, "borderWidth": 1, "borderColor": self.stroke_card, "backgroundColor": if dim { &self.pill_button_fill_disabled } else { &self.pill_button_fill }},
+                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": self.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": 9999, "backgroundColor": fill},
                 "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
+            if !primary {
+                button["style"]["borderWidth"] = json!(1);
+                button["style"]["borderColor"] = json!(self.stroke_card);
+            }
             if !dim {
                 button["props"] = json!({"pressable": true});
                 button["on"] = json!({"press": {"event": event.clone()}});
                 button["style"]["cursor"] = json!("pointer");
-                button["style"][":hover"] = json!({"backgroundColor": self.fill_active});
+                button["style"][":hover"] = json!({"backgroundColor": if primary { &self.primary_button_hover } else { &self.fill_active }});
             }
             button
         };
@@ -333,6 +387,11 @@ impl Ink {
             "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": self.foreground, "opacity": VALUE_ALPHA}}]})
     }
 }
+
+/// Where [`mount_with`] names the host-painted loaders in every document:
+/// `buttonLoader` (a pending pill's spinner) and `bandLoader` (a band's
+/// reload spinner).
+pub(super) const IDE_LOADERS: &str = "/ide";
 
 /// The pane's document as a [`SurfaceView`] in the Exponential theme, its actions
 /// and inputs routed to `binding`, everything else to the IDE's plugin.
@@ -365,11 +424,15 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     let view = cx.new(|cx| {
         let mut view = eui_gpui::view::SurfaceView::new(options, window, cx);
         let outcome = view.set_nested(tree, cx);
+        // The glyphs the IDE's host paints itself ([`IDE_LOADERS`]) are named
+        // through the data model (an Icon's literal name must be an icons.json one).
+        let loaders = json!({"buttonLoader": crate::exponential_ui_host::BUTTON_LOADER, "bandLoader": crate::exponential_ui_host::BAND_LOADER});
+        let _ = view.set_data(IDE_LOADERS, Some(loaders), cx);
         // The documents write the IDE's chrome as literal colours ([`Ink`]):
         // the core reports each one (a node style wants `$color.<name>`) and
         // paints it; anything else is a real mistake.
         let issues: Vec<_> = outcome.issues.iter().filter(|issue| !issue.message.ends_with("expected $color.<name>")).collect();
-        debug_assert!(issues.is_empty(), "{surface_id}: {issues:?}");
+        assert!(issues.is_empty(), "{surface_id}: {issues:?}");
         view
     });
     binding.update(cx, |binding, cx| binding.attach(&view, cx));

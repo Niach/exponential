@@ -1294,9 +1294,27 @@ pub(crate) fn icon_path(name: &str) -> Option<SharedString> {
         .map(|icon| icon.path())
 }
 
+/// #EXP-1629: the glyph gpui-component's `loading` button spins in its icon
+/// slot (`Spinner`: the spoked `Loader`, not genUI Spinner's circle), for
+/// the settings documents' pending pills.
+pub(crate) const BUTTON_LOADER: &str = "ide-button-loader";
+/// #EXP-1629: a band's reload spinner (`band_loading_glyph`: the refresh
+/// glyph on its eased, stepped turn).
+pub(crate) const BAND_LOADER: &str = "ide-band-loader";
+
 impl HostPlugin for IdePlugin {
     fn icon(&self, name: &str) -> Option<SharedString> {
         icon_path(name)
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        use gpui::IntoElement as _;
+        use gpui_component::Sizable as _;
+        match name {
+            BUTTON_LOADER => Some(gpui_component::spinner::Spinner::new().with_size(gpui_component::Size::Size(gpui::px(size))).color(color).into_any_element()),
+            BAND_LOADER => Some(eui_gpui::controls::spinner(size, color, cx)),
+            _ => None,
+        }
     }
 
     fn on_unknown(&self, node: &PlacedNode) {

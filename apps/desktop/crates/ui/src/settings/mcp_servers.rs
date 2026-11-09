@@ -18,24 +18,31 @@
 //!
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read like the widget pane's.
+//!
+//! #EXP-1629: the pane is a document on the native binding (projection at
+//! `/pane`): the band with the owner's Add server pill and the reload
+//! spinner, the skeleton, the failed and empty states, and the rows (glyph,
+//! name + Default pill over the caption, the one connection control). Each
+//! row's ⋯ stays the IDE's own menu, drawn into the document as a
+//! `host_leaf` Embed (`row_menu`); the dialogs stay native.
 
 use crate::controls::PointerMenuButtonExt as _;
 use crate::toast::Toast;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, FontWeight,
-    IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window,
-};
-use gpui_component::{
-    button::ButtonVariant,
-    h_flex,
-    input::InputState,
-    v_flex, ActiveTheme as _, Disableable as _, Icon,
-};
+use gpui::{div, AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
+use gpui::FontWeight;
+use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _, Disableable as _, Icon};
+use serde_json::{json, Value};
 
 use api::mcp_servers::{McpServerConfig, McpServerListEntry};
+use eui_gpui::binding::Binding;
+use eui_gpui::controls::CTL_MD_H;
+use eui_gpui::host::HostPlugin;
+use eui_gpui::view::SurfaceView;
 use sync::Store;
 
 use crate::controls::{glass_input, WebControl as _};
@@ -43,9 +50,9 @@ use crate::icons::registry;
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
-use crate::surface::{glass_pill, glass_pill_button, glass_pill_button_primary, PillMode, PillSize};
 
-use super::{open_url, section};
+use super::doc::{empty_state, eq, failed_state, hex, mount_with, not, path, IdeToasts, Ink, PillPaint, SM, XS};
+use super::open_url;
 
 /// How often a Connect re-reads the list while the browser is out, and for
 /// how long before it gives up.
@@ -192,6 +199,9 @@ fn test_message(name: &str, result: &api::mcp_servers::McpTestResult) -> String 
     }
 }
 
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
 enum Load {
     Idle,
     Loading,
@@ -227,7 +237,20 @@ pub struct McpServersPane {
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on entry or after a write fails quietly.
     retry_pressed: bool,
+    #[cfg(test)]
+    shot: Option<McpShot>,
+    /// The rows' ⋯ menus the document's host draws (`row_menu`).
+    host: Rc<RefCell<HostState>>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A pinned state for the headless bench (the headless store has no team).
+#[cfg(test)]
+pub(crate) struct McpShot {
+    pub team: Option<String>,
+    pub owner: bool,
 }
 
 impl McpServersPane {
@@ -242,6 +265,33 @@ impl McpServersPane {
                 .masked(true)
         });
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        // The actions leave the binding for the pane: Add server and Connect
+        // open dialogs or the browser, Retry and Cancel restart the reads.
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["add", "retry", "connect", "cancel"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let host = Rc::new(RefCell::new(HostState { menus: HashMap::new(), pane: Some(pane) }));
+        let tints = Tints { success: hex(cx.theme().success), warning: hex(cx.theme().warning), skeleton: hex(cx.theme().muted_foreground.opacity(0.18)) };
+        let plugin = Rc::new(McpHost { ide: super::doc::ide_plugin(), state: host.clone() });
+        let view = mount_with("settings-mcp-servers", document(&Ink::of(cx), &tints), &binding, plugin, false, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -255,8 +305,50 @@ impl McpServersPane {
             reload_requested: false,
             reloading: false,
             retry_pressed: false,
+            #[cfg(test)]
+            shot: None,
+            host,
+            binding,
+            view,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), window, cx)
+    }
+
+    /// The pane in a pinned state: `load` = `None` loading, `Some(Err)`
+    /// failed, `Some(Ok)` the rows; `pending` / `connecting` a row's id.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: McpShot, load: Option<Result<Vec<McpServerListEntry>, String>>, reloading: bool, pending: Option<&str>, connecting: Option<&str>, cx: &mut gpui::Context<Self>) {
+        self.team_id = shot.team.clone();
+        self.shot = Some(shot);
+        self.load = match load {
+            None => Load::Loading,
+            Some(result) => Load::Ready(result),
+        };
+        self.reloading = reloading;
+        self.pending = pending.map(str::to_string);
+        self.connecting = connecting.map(str::to_string);
+        cx.notify();
+    }
+
+    fn pane_team(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team_id(&self.nav, cx)
+    }
+
+    fn pane_owner(&self, team_id: &str, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        super::is_owner(cx, team_id)
     }
 
     /// Server read (`mcpServers.list` is tRPC — `mcp_servers` never syncs),
@@ -488,6 +580,7 @@ impl McpServersPane {
     /// Set key: the person's OWN API key for an `auth: secret` server, sent
     /// once to `mcpServers.setSecret` (stored encrypted, never shown again —
     /// web `SecretDialog`).
+    // dialog stays native: the native alert's content is a boxed `glass_input` (genUI Input `box` lands first, EXP-1629).
     fn open_key_dialog(
         &mut self,
         config: &McpServerConfig,
@@ -608,6 +701,7 @@ impl McpServersPane {
 
     /// Disconnect: delete the person's credential for the server (the row
     /// stays on the team; runs just stop getting its tools).
+    // dialog stays native: the shared native confirm alert.
     fn confirm_disconnect(
         &mut self,
         config: &McpServerConfig,
@@ -713,6 +807,7 @@ impl McpServersPane {
 
     /// Owner-only `mcpServers.remove`. The row goes for the whole TEAM, and
     /// with it every member's connection — so the confirm says so.
+    // dialog stays native: the shared native confirm alert.
     fn confirm_remove(
         &mut self,
         config: &McpServerConfig,
@@ -779,6 +874,7 @@ impl McpServersPane {
     /// Open the add/edit form (EXP-810). `config` = the row being edited;
     /// `None` adds one. `team_id` comes from the caller so an edit and an add
     /// name the same team even mid team switch.
+    // dialog stays native: `mcp_server_dialog` is its own native window (row inputs, the device picker, the Advanced disclosure; group 4).
     fn open_editor(
         &mut self,
         config: Option<McpServerConfig>,
@@ -803,298 +899,334 @@ impl McpServersPane {
         super::mcp_server_dialog::open(window, cx, team_id.to_string(), None, None, pane, Some(name));
     }
 
-    // -- render pieces --------------------------------------------------------
+    // -- the document ---------------------------------------------------------
 
-    fn chip(&self, id: String, text: String, cx: &App) -> impl IntoElement {
-        glass_pill(SharedString::from(id), PillSize::Sm, PillMode::Readonly, cx)
-            .child(div().text_xs().child(SharedString::from(text)))
-    }
-
-    /// The row's ONE connection control (web `ConnectionAction`).
-    fn render_action(&self, entry: &McpServerListEntry, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let config = &entry.config;
-        let muted = cx.theme().muted_foreground;
-        let pending = self.pending.as_deref() == Some(config.id.as_str());
-        let waiting = self.connecting.as_deref() == Some(config.id.as_str());
-        if waiting {
-            return h_flex()
-                .gap_1()
-                .items_center()
-                .child(
-                    glass_pill_button(
-                        SharedString::from(format!("mcp-waiting-{}", config.id)),
-                        PillSize::Sm,
-                        cx,
-                    )
-                    .label("Waiting for sign-in…")
-                    .loading(true)
-                    .disabled(true),
-                )
-                .child(
-                    glass_pill_button(
-                        SharedString::from(format!("mcp-cancel-{}", config.id)),
-                        PillSize::Sm,
-                        cx,
-                    )
-                    .label("Cancel")
-                    .on_click(cx.listener(|this, _, _, cx| this.cancel_connect(cx))),
-                )
-                .into_any_element();
-        }
-        match row_action(entry) {
-            RowAction::NotNeeded => div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(muted)
-                .child("No sign-in needed")
-                .into_any_element(),
-            // EXP-1285: a caption, not a control — Test / Replace key /
-            // Share / Disconnect sit in the row's "…" menu (`render_row`).
-            RowAction::Connected => {
-                let success = cx.theme().success;
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_1()
-                    .items_center()
-                    .text_xs()
-                    .text_color(success)
-                    .child(
-                        Icon::new(registry::UI_SUCCESS)
-                            .size(gpui::px(14.))
-                            .flex_shrink_0()
-                            .text_color(success),
-                    )
-                    .child("Connected")
-                    .into_any_element()
+    /// A document action (`add`, `retry`, `connect` / `cancel` on the row `key`).
+    fn action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match name {
+            "add" if !self.busy => {
+                if let Some(team) = self.pane_team(cx) {
+                    self.open_editor(None, None, &team, window, cx);
+                }
             }
-            RowAction::Reconnect => {
-                let target = config.clone();
-                glass_pill_button(
-                    SharedString::from(format!("mcp-reconnect-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
-                )
-                .icon(Icon::new(registry::UI_WARNING).text_color(cx.theme().warning))
-                .label("Reconnect")
-                .loading(pending)
-                .disabled(pending)
-                .tooltip(SharedString::from(reconnect_reason(entry)))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.connect(&target, window, cx);
-                }))
-                .into_any_element()
+            "retry" => self.retry_load(cx),
+            "cancel" => self.cancel_connect(cx),
+            "connect" => {
+                let Load::Ready(Ok(rows)) = &self.load else { return };
+                let Some(config) = rows.iter().find(|entry| entry.config.id == key).map(|entry| entry.config.clone()) else { return };
+                if self.pending.as_deref() != Some(key) {
+                    self.connect(&config, window, cx);
+                }
             }
-            RowAction::Connect => {
-                let secret = config.auth == "secret";
-                let target = config.clone();
-                glass_pill_button_primary(
-                    SharedString::from(format!("mcp-connect-{}", config.id)),
-                    PillSize::Sm,
-                )
-                .icon(Icon::new(if secret { registry::UI_PERMISSION } else { registry::UI_SIGN_IN }))
-                .label(if secret { "Set key" } else { "Connect" })
-                .loading(pending)
-                .disabled(pending)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.connect(&target, window, cx);
-                }))
-                .into_any_element()
-            }
+            _ => {}
         }
     }
 
-    /// One server row: identity + chips, the endpoint, the person's one
-    /// connection action, and the row's ONE "…" menu (EXP-1285): the
-    /// person's connection items on a connected row, Edit / Remove for an
-    /// owner.
-    fn render_row(
-        &self,
-        entry: &McpServerListEntry,
-        owner: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let config = &entry.config;
-        let muted = cx.theme().muted_foreground;
-        // VAPP-185: the caption gains "· Used by <apps>".
-        let detail = row_caption(entry);
-
-        // Web `ServerRow`: the Default pill is the row's ONLY chip.
-        let mut chips = h_flex().gap_1().items_center().flex_wrap();
-        if config.enabled_by_default {
-            chips = chips.child(self.chip(
-                format!("mcp-default-{}", config.id),
-                "Default".to_string(),
-                cx,
-            ));
+    /// The pane's state as the document reads it; the rows' ⋯ menus are
+    /// written into the host's table at the same time.
+    fn project(&self, team: Option<&str>, owner: bool) -> Value {
+        let mut menus = HashMap::new();
+        let Some(_) = team else {
+            self.host.borrow_mut().menus = menus;
+            return json!({"noTeam": true, "rows": []});
+        };
+        let mut out = json!({"noTeam": false, "owner": owner, "busy": self.busy, "reloading": self.reloading,
+            "loading": false, "failed": false, "empty": false, "hasRows": false, "rows": []});
+        match &self.load {
+            Load::Idle | Load::Loading => out["loading"] = json!(true),
+            Load::Ready(Err(_)) => out["failed"] = json!(true),
+            Load::Ready(Ok(rows)) if rows.is_empty() => out["empty"] = json!(true),
+            Load::Ready(Ok(rows)) => {
+                out["hasRows"] = json!(true);
+                let rows: Vec<Value> = rows
+                    .iter()
+                    .map(|entry| {
+                        let config = &entry.config;
+                        let pending = self.pending.as_deref() == Some(config.id.as_str());
+                        let waiting = self.connecting.as_deref() == Some(config.id.as_str());
+                        let action = row_action(entry);
+                        let connected = action == RowAction::Connected;
+                        let menu = row_menu_offered(owner, connected);
+                        if menu {
+                            menus.insert(config.id.clone(), MenuRow { entry: entry.clone(), owner, connected, pending, busy: self.busy });
+                        }
+                        let secret = config.auth == "secret";
+                        let detail = row_caption(entry);
+                        let icon = crate::picker::mcp_server_picker::mcp_server_icon(config.url.as_deref(), config.command.as_deref());
+                        json!({
+                            "key": config.id,
+                            "icon": format!("{ASSET}{}", gpui_component::IconNamed::path(icon)),
+                            "name": config.name,
+                            "isDefault": config.enabled_by_default,
+                            "detail": detail,
+                            "hasDetail": !detail.is_empty(),
+                            "action": if waiting { "waiting" } else { match action {
+                                RowAction::NotNeeded => "none",
+                                RowAction::Connected => "connected",
+                                RowAction::Reconnect => "reconnect",
+                                RowAction::Connect => "connect",
+                            } },
+                            "pending": pending,
+                            "reason": reconnect_reason(entry),
+                            "connectLabel": if secret { "Set key" } else { "Connect" },
+                            "connectIcon": if secret { "ui-permission" } else { "ui-sign-in" },
+                            "menu": menu,
+                            // The ⋯ leaf repaints when what it draws moves.
+                            "menuSurface": {"root": {"id": "menu", "component": "Box"}, "data": {"pending": pending, "busy": self.busy, "connected": connected, "shared": entry.shared}},
+                        })
+                    })
+                    .collect();
+                out["rows"] = Value::Array(rows);
+            }
         }
+        self.host.borrow_mut().menus = menus;
+        out
+    }
+}
 
-        let action = self.render_action(entry, cx);
+/// An icon the projection names by its asset path (the brand marks have no
+/// concept name).
+const ASSET: &str = "asset:";
 
-        // EXP-862 / EXP-1285 (web parity): everything a person can DO to a
-        // row sits behind ONE ghost "..." menu — the connection items (Test,
-        // Replace key, Share) with the owner's Edit, then the destructive
-        // Disconnect / Remove below the separator. The Connected caption
-        // next to it is read-only.
-        let connected = row_action(entry) == RowAction::Connected;
-        let pending = self.pending.as_deref() == Some(config.id.as_str());
-        let row_menu = row_menu_offered(owner, connected).then(|| {
-            let http = config.is_http();
-            let secret = config.auth == "secret";
-            let shared = entry.shared;
-            let target = config.clone();
-            // VAPP-239: the device it runs on, for the dialog's Runs on row.
-            let device = entry.device.clone();
-            let team = entry.config.team_id.clone();
-            let pane = cx.entity();
-            crate::controls::ghost_icon_button(
-                SharedString::from(format!("mcp-menu-{}", config.id)),
-                Icon::new(registry::UI_MORE),
-                cx,
-            )
-            .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
-            .loading(connected && pending)
-            .disabled(self.busy || pending)
-            .pointer_menu(move |menu, _window, cx| {
-                let mut menu = menu;
-                if connected && http {
-                    let (target, pane) = (target.clone(), pane.clone());
-                    menu = menu.item(
-                        crate::controls::pointer_label_item("Test connection", false)
-                            .icon(Icon::new(registry::UI_REFRESH))
-                            .on_click(move |_, window, cx| {
-                                let target = target.clone();
-                                pane.update(cx, |this, cx| this.test(&target, window, cx));
-                            }),
-                    );
-                }
-                if connected && secret {
-                    let (target, pane) = (target.clone(), pane.clone());
-                    menu = menu.item(
-                        crate::controls::pointer_label_item("Replace key", false)
-                            .icon(Icon::new(registry::UI_PRIVATE))
-                            .on_click(move |_, window, cx| {
-                                let target = target.clone();
-                                pane.update(cx, |this, cx| {
-                                    this.open_key_dialog(&target, window, cx)
-                                });
-                            }),
-                    );
-                }
-                // FEED-73: share the person's own connection with the
-                // team. A stdio row only offers the undo of an existing
-                // share.
-                if connected && share_menu_offered(http, shared) {
-                    let (target, pane) = (target.clone(), pane.clone());
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(share_menu_label(shared), false)
-                            .icon(Icon::new(registry::UI_SHARE))
-                            .on_click(move |_, window, cx| {
-                                let target = target.clone();
-                                pane.update(cx, |this, cx| {
-                                    this.toggle_shared(&target, !shared, window, cx)
-                                });
-                            }),
-                    );
-                }
-                if owner {
-                    let (edit, team, pane, device) = (target.clone(), team.clone(), pane.clone(), device.clone());
-                    menu = menu.item(
-                        crate::controls::pointer_label_item("Edit", false)
-                            .icon(Icon::new(registry::UI_EDIT))
-                            .on_click(move |_, window, cx| {
-                                let (edit, team, device) = (edit.clone(), team.clone(), device.clone());
-                                pane.update(cx, |this, cx| {
-                                    this.open_editor(Some(edit), device, &team, window, cx);
-                                });
-                            }),
-                    );
-                }
-                menu = menu.separator();
-                // Destructive rows wear the danger tint (web
-                // `DropdownMenuItem variant="destructive"`).
-                if connected {
-                    let (target, pane) = (target.clone(), pane.clone());
-                    menu = menu.item(
-                        crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLEAR), cx)
-                            .on_click(move |_, window, cx| {
-                                let target = target.clone();
-                                pane.update(cx, |this, cx| {
-                                    this.confirm_disconnect(&target, window, cx)
-                                });
-                            }),
-                    );
-                }
-                if owner {
-                    let (remove, pane) = (target.clone(), pane.clone());
-                    menu = menu.item(
-                        crate::controls::danger_menu_item("Remove", Icon::new(registry::UI_DELETE), cx)
-                            .on_click(move |_, window, cx| {
-                                let remove = remove.clone();
-                                pane.update(cx, |this, cx| {
-                                    this.confirm_remove(&remove, window, cx);
-                                });
-                            }),
-                    );
-                }
-                menu
-            })
-        });
+/// The row's ⋯ (`menu.<key>` once painted).
+const MENU_NODE: &str = "menu";
 
-        crate::surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .gap_3()
-            .items_center()
-            .px_3()
-            .py_2()
-            // EXP-792: the row wears the server's glyph (the picker's
-            // `mcp_server_icon`: the brand mark of a catalog URL, a shell for
-            // a command, else the plug), so the list and the composer's pick
-            // read the same. A mark is a one-tint mask like any Lucide glyph.
-            .child(
-                Icon::from(crate::picker::mcp_server_picker::mcp_server_icon(
-                    config.url.as_deref(),
-                    config.command.as_deref(),
-                ))
-                .size(gpui::px(14.))
-                .flex_shrink_0()
-                .text_color(muted),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(SharedString::from(config.name.clone())),
-                            )
-                            .child(chips),
-                    )
-                    .when(!detail.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .min_w_0()
-                                .text_xs()
-                                .text_color(muted)
-                                .truncate()
-                                .child(SharedString::from(detail.clone())),
-                        )
+/// What a row's ⋯ needs to draw and open its menu.
+struct MenuRow {
+    entry: McpServerListEntry,
+    owner: bool,
+    connected: bool,
+    pending: bool,
+    busy: bool,
+}
+
+#[derive(Default)]
+struct HostState {
+    menus: HashMap<String, MenuRow>,
+    pane: Option<WeakEntity<McpServersPane>>,
+}
+
+/// The pane's host: the IDE's plugin, the brand marks by asset path, and
+/// the rows' ⋯ menus drawn by the IDE itself.
+struct McpHost {
+    ide: crate::exponential_ui_host::IdePlugin,
+    state: Rc<RefCell<HostState>>,
+}
+
+impl HostPlugin for McpHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        match name.strip_prefix(ASSET) {
+            Some(path) => Some(SharedString::from(path.to_string())),
+            None => self.ide.icon(name),
+        }
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<AnyElement> {
+        self.ide.icon_element(name, size, color, cx)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.ide.on_unknown(node)
+    }
+
+    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
+        let key = component_id.strip_prefix(MENU_NODE)?.strip_prefix('.')?;
+        self.state.borrow().menus.contains_key(key).then_some(CTL_MD_H)
+    }
+
+    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        let key = component_id.strip_prefix(MENU_NODE)?.strip_prefix('.')?;
+        let state = self.state.borrow();
+        let row = state.menus.get(key)?;
+        let pane = state.pane.as_ref()?.upgrade()?;
+        Some(row_menu(row, pane, cx).into_any_element())
+    }
+}
+
+/// EXP-862 / EXP-1285 (web parity): everything a person can DO to a row
+/// sits behind ONE ghost "..." menu — the connection items (Test, Replace
+/// key, Share) with the owner's Edit, then the destructive Disconnect /
+/// Remove below the separator.
+// drop with EXP-1629-group4: the per-row menu stays the IDE's own (a
+// `host_leaf` Embed) until the catalog Menu carries icons, a separator and
+// danger items.
+fn row_menu(row: &MenuRow, pane: Entity<McpServersPane>, cx: &App) -> impl IntoElement {
+    let config = &row.entry.config;
+    let (connected, owner, pending) = (row.connected, row.owner, row.pending);
+    let http = config.is_http();
+    let secret = config.auth == "secret";
+    let shared = row.entry.shared;
+    let target = config.clone();
+    // VAPP-239: the device it runs on, for the dialog's Runs on row.
+    let device = row.entry.device.clone();
+    let team = config.team_id.clone();
+    crate::controls::ghost_icon_button(
+        SharedString::from(format!("mcp-menu-{}", config.id)),
+        Icon::new(registry::UI_MORE),
+        cx,
+    )
+    .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
+    .loading(connected && pending)
+    .disabled(row.busy || pending)
+    .pointer_menu(move |menu, _window, cx| {
+        let mut menu = menu;
+        if connected && http {
+            let (target, pane) = (target.clone(), pane.clone());
+            menu = menu.item(
+                crate::controls::pointer_label_item("Test connection", false)
+                    .icon(Icon::new(registry::UI_REFRESH))
+                    .on_click(move |_, window, cx| {
+                        let target = target.clone();
+                        pane.update(cx, |this, cx| this.test(&target, window, cx));
                     }),
-            )
-            .child(div().flex_shrink_0().child(action))
-            .children(row_menu)
+            );
+        }
+        if connected && secret {
+            let (target, pane) = (target.clone(), pane.clone());
+            menu = menu.item(
+                crate::controls::pointer_label_item("Replace key", false)
+                    .icon(Icon::new(registry::UI_PRIVATE))
+                    .on_click(move |_, window, cx| {
+                        let target = target.clone();
+                        pane.update(cx, |this, cx| this.open_key_dialog(&target, window, cx));
+                    }),
+            );
+        }
+        // FEED-73: share the person's own connection with the team. A
+        // stdio row only offers the undo of an existing share.
+        if connected && share_menu_offered(http, shared) {
+            let (target, pane) = (target.clone(), pane.clone());
+            menu = menu.item(
+                crate::controls::pointer_label_item(share_menu_label(shared), false)
+                    .icon(Icon::new(registry::UI_SHARE))
+                    .on_click(move |_, window, cx| {
+                        let target = target.clone();
+                        pane.update(cx, |this, cx| this.toggle_shared(&target, !shared, window, cx));
+                    }),
+            );
+        }
+        if owner {
+            let (edit, team, pane, device) = (target.clone(), team.clone(), pane.clone(), device.clone());
+            menu = menu.item(
+                crate::controls::pointer_label_item("Edit", false)
+                    .icon(Icon::new(registry::UI_EDIT))
+                    .on_click(move |_, window, cx| {
+                        let (edit, team, device) = (edit.clone(), team.clone(), device.clone());
+                        pane.update(cx, |this, cx| this.open_editor(Some(edit), device, &team, window, cx));
+                    }),
+            );
+        }
+        menu = menu.separator();
+        // Destructive rows wear the danger tint (web
+        // `DropdownMenuItem variant="destructive"`).
+        if connected {
+            let (target, pane) = (target.clone(), pane.clone());
+            menu = menu.item(
+                crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLEAR), cx)
+                    .on_click(move |_, window, cx| {
+                        let target = target.clone();
+                        pane.update(cx, |this, cx| this.confirm_disconnect(&target, window, cx));
+                    }),
+            );
+        }
+        if owner {
+            let (remove, pane) = (target.clone(), pane.clone());
+            menu = menu.item(
+                crate::controls::danger_menu_item("Remove", Icon::new(registry::UI_DELETE), cx)
+                    .on_click(move |_, window, cx| {
+                        let remove = remove.clone();
+                        pane.update(cx, |this, cx| this.confirm_remove(&remove, window, cx));
+                    }),
+            );
+        }
+        menu
+    })
+}
+
+/// The colours the document needs beyond [`Ink`].
+struct Tints {
+    success: String,
+    warning: String,
+    skeleton: String,
+}
+
+/// The row's ONE connection control (web `ConnectionAction`): the waiting
+/// pair, the "No sign-in needed" caption, the Connected caption, Reconnect
+/// (the reason in its tooltip) or the primary Connect / Set key.
+fn action_slot(ink: &Ink, tints: &Tints) -> Value {
+    let is = |action: &str| eq(path("action"), json!(action));
+    let connect_event = json!({"name": "connect", "context": {"key": path("key")}});
+    let [_, waiting] = ink.pill_button_with("waiting", PillPaint::Glass, None, None, json!("Waiting for sign-in\u{2026}"), json!(true), None, json!({}));
+    let [cancel, _] = ink.pill_button("cancel", None, json!("Cancel"), json!(false), json!({"name": "cancel"}));
+    let row = |id: &str, visible: Value, children: Vec<Value>| json!({"id": id, "component": "Box", "visible": visible,
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "flexShrink": 0}, "children": children});
+    let mut none = ink.text("none", json!("No sign-in needed"), XS, &ink.muted);
+    none["visible"] = is("none");
+    none["style"]["flexShrink"] = json!(0);
+    let connected = row("connected", is("connected"), vec![
+        json!({"id": "connected_icon", "component": "Icon", "props": {"name": "ui-success"}, "style": {"width": 14, "height": 14, "flexShrink": 0, "color": tints.success}}),
+        ink.text("connected_text", json!("Connected"), XS, &tints.success),
+    ]);
+    let reconnect = ink.pill_button_with("reconnect", PillPaint::Glass, Some(json!("ui-warning")), Some(&tints.warning), json!("Reconnect"), path("pending"), Some(path("pending")), connect_event.clone());
+    let reconnect = json!({"id": "reconnect_tip", "component": "Tooltip", "visible": is("reconnect"), "props": {"content": path("reason")}, "children": reconnect});
+    let connect = ink.pill_button_with("connect", PillPaint::Primary, Some(path("connectIcon")), None, path("connectLabel"), path("pending"), Some(path("pending")), connect_event);
+    let connect = row("connect", is("connect"), connect.to_vec());
+    json!({"id": "action", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0},
+        "children": [row("waiting_pair", is("waiting"), vec![waiting, cancel]), none, connected, reconnect, connect]})
+}
+
+/// One server row (`flat_row`, `px_3` / `py_2`, `gap_3`): the server's glyph,
+/// its name with the Default pill over the caption, the action, the ⋯.
+fn server_row(ink: &Ink, tints: &Tints) -> Value {
+    // The glyph is a fixed 14px (`Icon::size(px(14.))`), not a rem.
+    let glyph = 14.;
+    let mut name = ink.text("row_name", path("name"), SM, &ink.foreground);
+    name["style"]["fontWeight"] = json!(500);
+    name["style"]["minWidth"] = json!(0);
+    let mut chip = ink.pill("row_default", json!("Default"), false, None);
+    chip["visible"] = path("isDefault");
+    let mut detail = ink.text("row_detail", path("detail"), XS, &ink.muted);
+    detail["visible"] = path("hasDetail");
+    detail["props"]["lines"] = json!(1);
+    detail["style"]["minWidth"] = json!(0);
+    let menu = json!({"id": MENU_NODE, "component": "Embed", "visible": path("menu"), "props": {"surface": path("menuSurface")}, "style": {"width": CTL_MD_H, "height": CTL_MD_H, "flexShrink": 0}});
+    json!({"id": "row", "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": [
+            {"id": "row_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}},
+            {"id": "row_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
+                "children": [
+                    {"id": "row_head", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": [name, chip]},
+                    detail,
+                ]},
+            action_slot(ink, tints),
+            menu,
+        ]})
+}
+
+/// The pane's tree: the band (the owner's Add server pill, the reload
+/// spinner) over the skeleton, the failed and empty states or the rows;
+/// no team = its empty state alone.
+fn document(ink: &Ink, tints: &Tints) -> Value {
+    let mut add = ink.pill_button("add", Some("ui-add"), json!("Add server"), path("/pane/busy"), json!({"name": "add"}));
+    // gpui centres the label's line half a point lower than the flex centre.
+    for face in &mut add {
+        face["children"][1]["style"]["paddingTop"] = json!(1);
     }
+    let add = json!({"id": "add_slot", "component": "Box", "visible": path("/pane/owner"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}, "children": add});
+    let rows = json!({"id": "rows", "component": "List", "visible": path("/pane/hasRows"), "props": {"gap": "none"},
+        "template": {"component": "row_wrap", "path": "/pane/rows", "key": "key"},
+        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [server_row(ink, tints)]}]});
+    let list = json!({"id": "list", "component": "Box", "visible": not(path("/pane/noTeam")), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
+        "children": [
+            ink.band_with("band", None, super::mcp::SETTINGS_MCP.labels.servers, Some(path("/pane/reloading")), Some(add)),
+            ink.skeleton_rows("skeleton", &tints.skeleton, path("/pane/loading")),
+            failed_state(ink, "failed", "settings-mcp", crate::empty_state_copy::MCP_SERVERS, path("/pane/failed")),
+            empty_state(ink, "empty", "settings-mcp", crate::empty_state_copy::MCP_SERVERS, path("/pane/empty")),
+            rows,
+        ]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [list, empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]})
 }
 
 /// #VAPP-243: an app's Add server waiting for this pane (set, then Settings
@@ -1112,86 +1244,28 @@ pub(crate) fn request_add(name: String, cx: &mut App) {
 impl Render for McpServersPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "McpServersPane").entered();
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(crate::controls::empty_state_list(
-                Icon::new(registry::UI_TEAM),
-                crate::empty_state_copy::NO_TEAM_SELECTED,
-                cx,
-            ));
-        };
-        self.ensure_loaded(&team_id, cx);
-        let owner = super::is_owner(cx, &team_id);
-        if let Some(name) = cx.try_global::<PendingMcpAdd>().and_then(|p| p.0.clone()) {
-            cx.set_global(PendingMcpAdd(None));
-            if owner {
-                let team = team_id.clone();
-                cx.defer_in(window, move |this, window, cx| this.open_add_named(name, &team, window, cx));
+        let team = self.pane_team(cx);
+        let mut owner = false;
+        if let Some(team_id) = team.as_deref() {
+            #[cfg(test)]
+            let pinned = self.shot.is_some();
+            #[cfg(not(test))]
+            let pinned = false;
+            if !pinned {
+                self.ensure_loaded(team_id, cx);
             }
-        }
-
-        // EXP-810: authoring is owner-only, exactly like Remove — and always
-        // offered to an owner, an empty list included (the band's pill IS
-        // the empty state's call to action, EXP-1274). No Refresh: the list
-        // refetches on entry and after every write.
-        let add_team = team_id.clone();
-        let trailing = owner.then(|| {
-            glass_pill_button("mcp-servers-add", PillSize::Sm, cx)
-                .icon(registry::UI_ADD)
-                .label("Add server")
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    let team = add_team.clone();
-                    this.open_editor(None, None, &team, window, cx);
-                }))
-                .into_any_element()
-        });
-
-        let mut body = section(cx).child(crate::surface::glass_section_header_loading(
-            super::mcp::SETTINGS_MCP.labels.servers,
-            self.reloading,
-            trailing,
-            cx,
-        ));
-
-        match &self.load {
-            Load::Idle | Load::Loading => {
-                body = body.child(super::settings_skeleton("mcp-servers-skeleton", cx));
-            }
-            // A failed load (FEED-79): the empty state + Retry, no toast.
-            Load::Ready(Err(_)) => {
-                body = body.child(crate::action_error::load_failed_state(
-                    "mcp-servers-retry",
-                    Icon::new(registry::SETTINGS_MCP),
-                    crate::empty_state_copy::MCP_SERVERS,
-                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                    cx,
-                ));
-            }
-            Load::Ready(Ok(rows)) if rows.is_empty() => {
-                body = body.child(crate::controls::empty_state_list(
-                    Icon::new(registry::SETTINGS_MCP),
-                    crate::empty_state_copy::MCP_SERVERS,
-                    cx,
-                ));
-            }
-            Load::Ready(Ok(servers)) => {
-                // Cloned so the row builder can take `&mut Context` (the
-                // listeners it hangs need it) without holding `self.load`.
-                let servers = servers.clone();
-                // EXP-1076/EXP-1320: the team registry is an entity LIST —
-                // flat gapless rows, no hairlines (`list_row` + `flat_row`,
-                // the web `SETTINGS_LIST_CLASS` twin), not gapped cards.
-                let mut list = v_flex().w_full().min_w_0();
-                for entry in servers.iter() {
-                    list = list.child(crate::surface::list_row(
-                        self.render_row(entry, owner, cx),
-                    ));
+            owner = self.pane_owner(team_id, cx);
+            if let Some(name) = cx.try_global::<PendingMcpAdd>().and_then(|p| p.0.clone()) {
+                cx.set_global(PendingMcpAdd(None));
+                if owner {
+                    let team = team_id.to_string();
+                    cx.defer_in(window, move |this, window, cx| this.open_add_named(name, &team, window, cx));
                 }
-                body = body.child(list);
             }
         }
-
-        v_flex().child(body)
+        let projection = self.project(team.as_deref(), owner);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
