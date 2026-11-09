@@ -635,6 +635,7 @@ mod tests {
         }
         impl Render for Doc {
             fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Doc").entered();
                 let column_w = (f32::from(window.viewport_size().width) - 2. * PAD).min(MAX);
                 let mut doc = v_flex().size_full().items_center().p(px(PAD)).gap(px(16.));
                 for (at, piece) in PIECES.iter().enumerate() {
