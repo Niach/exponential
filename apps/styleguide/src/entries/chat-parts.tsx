@@ -6,20 +6,30 @@ import {
   sessionCard,
   type ChatsListGroup,
 } from "@exp/domain-contract/session-tree"
+import {
+  sessionScreen,
+  sessionScreenSubtitle,
+  SESSION_SCREEN_BESIDE,
+  SESSION_SCREEN_COPY,
+  SESSION_SCREEN_TEST_IDS,
+  type SessionScreenCounts,
+} from "@exp/domain-contract/session-screen"
 import { SEMANTIC_ICONS } from "@exp/icons"
 import {
-  cn,
+  BoardGlyph,
+  Button,
+  ChatLeadDisc,
+  ChatSessionTree,
   conceptIcon,
   getDeviceIcon,
-  MENU_SURFACE_CLASS,
+  ListRow,
   MenuPanel,
+  Pill,
+  SegmentedControl,
   SessionCard,
-  ChatStripGroupMenu,
-  ChatTabs,
+  StatusGlyph,
   ChatTabsAddButton,
   ChatsList,
-  type ChatStripIssue,
-  type ChatStripOpen,
   type ChatTreeRow,
 } from "@exp/ui"
 
@@ -29,9 +39,10 @@ import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1293: the CHAT's parts, the REAL `@exp/ui` components
 // (`session-chat-view.tsx`, `work-card.tsx`) painted from the contract's
-// own models: the header (title + ONE tab strip, #EXP-1433: "+" ·
-// Conversation | the one issue chip OR ONE group tab | Results, nothing
-// scrolls; the group opens THE Menu over every issue and session), THE session card at every state (`session-card.json`) and
+// own models: #EXP-1732 THE session screen's header (the lead avatar, the
+// title over ONE subtitle line, THE gear, the `…`) and THE SegmentedControl
+// of `sessionScreen().tabs` with their muted counts, per kind; the Issues
+// and Sessions tab bodies; THE session card at every state (`session-card.json`) and
 // the Chats list (`partitionChats`, `chat-list.json`) in the Reviews
 // list language. The web app binds them to the synced rows
 // (`apps/web/src/routes/t/$teamSlug/chats/`).
@@ -40,6 +51,8 @@ type ChatInput = Parameters<typeof buildSessionChat>[0]
 type ListInput = Parameters<typeof partitionChats>[0]
 
 const noop = (): void => {}
+const NavSettingsIcon = conceptIcon(`nav-settings`)
+const UiMoreIcon = conceptIcon(`ui-more`)
 /** EXP-1318: the specimen rows' root device (the Devices page's glyph). */
 const DEVICE = { icon: getDeviceIcon({ kind: `desktop` }), name: `Alex's MacBook Pro` }
 const PrivateIcon = conceptIcon(`ui-private`)
@@ -103,8 +116,7 @@ const issueTitle = (issueId: string) =>
     (issue) => issue.id === issueId
   )?.title ?? issueId
 
-/** #EXP-1433: the strip's two modes: ONE issue (chips) and the folded
- *  case's issues + sessions plus two more issues (the group). */
+/** EXP-1334: the folded case's issues + sessions plus two more issues. */
 const FOLDED = buildSessionChat(FOLDED_CASE.input as unknown as ChatInput)
 const EXTRA_ISSUES = [
   { id: `i-5`, identifier: `EXP-25`, title: `Context ring` },
@@ -120,33 +132,27 @@ const GROUP_TABS: typeof FOLDED.tabs = [
   })),
   ...FOLDED.tabs.filter((tab) => tab.kind === `session`),
 ]
-const ONE_ISSUE_TABS: typeof FOLDED.tabs = [
-  ...FOLDED.tabs.filter((tab) => tab.kind === `conversation` || tab.kind === `add`),
-  { kind: `issue` as const, issueId: `i-5`, identifier: `EXP-25`, nested: [] },
-]
 
 type IssueTab = Extract<(typeof CHAT.tabs)[number], { kind: `issue` }>
 type SessionTab = Extract<(typeof CHAT.tabs)[number], { kind: `session` }>
 
 const statusOf = (index: number) => STATUS[index % STATUS.length]!
 
-/** #EXP-1433: the strip's issues = every linked issue (a chip's sub-issues
- *  after it), the way the app binds them. */
-function stripIssues(tabs: typeof CHAT.tabs): ChatStripIssue[] {
+/** The Issues tab's rows = every linked issue (a sub-issue indented under
+ *  its parent), the way the app binds them. */
+function treeIssues(tabs: typeof CHAT.tabs) {
   return tabs
     .filter((tab): tab is IssueTab => tab.kind === `issue`)
-    .flatMap((tab) => [{ issueId: tab.issueId, identifier: tab.identifier }, ...tab.nested])
-    .map((ref, index) => ({
-      issueId: ref.issueId,
-      identifier: ref.identifier,
-      title: issueTitle(ref.issueId),
-      status: statusOf(index),
-    }))
+    .flatMap((tab) => [
+      { issueId: tab.issueId, identifier: tab.identifier, nested: false },
+      ...tab.nested.map((ref) => ({ ...ref, nested: true })),
+    ])
+    .map((ref, index) => ({ ...ref, title: issueTitle(ref.issueId), status: statusOf(index) }))
 }
 
 /** The sessions under the dispatcher as THE tree rows (depth → parent: the
  *  nearest shallower row before it). */
-function stripSessions(tabs: typeof CHAT.tabs): ChatTreeRow[] {
+function treeSessions(tabs: typeof CHAT.tabs): ChatTreeRow[] {
   return tabs
     .filter((tab): tab is SessionTab => tab.kind === `session`)
     .flatMap((tab) => {
@@ -177,79 +183,162 @@ const STATE_WORD: Record<string, string | undefined> = {
   ended: `Ended`,
 }
 
-function Strip({
-  tabs,
-  open = null,
-  width,
-  pager = false,
-}: {
-  tabs: typeof CHAT.tabs
-  open?: ChatStripOpen
-  width?: string
-  pager?: boolean
-}) {
-  return (
-    <div style={width ? { width } : undefined}>
-      <ChatTabs
-        variant={pager ? `pager` : `bar`}
-        conversation={{ label: chatFixture.copy.conversation, active: open === null, onSelect: noop }}
-        issues={stripIssues(tabs)}
-        sessions={stripSessions(tabs)}
-        open={open}
-        add={<ChatTabsAddButton />}
-        results={{ label: `Results`, active: false, onSelect: noop }}
-      />
-    </div>
-  )
-}
-
-function Header({ view }: { view: typeof CHAT }) {
-  return (
-    <div className="flex max-w-3xl flex-col gap-4">
-      <div className="flex min-w-0 items-center gap-2">
-        <h1 className="truncate text-2xl font-semibold tracking-tight">{view.title}</h1>
-        {view.private && <PrivateIcon className="size-4 shrink-0 text-muted-foreground" />}
-      </div>
-      <Strip tabs={view.tabs} width="48rem" />
-    </div>
-  )
-}
-
 const Caption = ({ children }: { children: ReactNode }) => (
   <p className="text-xs text-muted-foreground">{children}</p>
 )
 
-/** #EXP-1433: one issue keeps its chip; anything more = ONE group tab (at
- *  rest: the glyph + the count; while an item of it is open: active, its
- *  label); the phone pager; the group's Menu and the "+" menu, painted open. */
-function StripModes() {
-  const issues = stripIssues(GROUP_TABS)
-  const sessions = stripSessions(GROUP_TABS)
+/** #EXP-1732: THE session screen's header ×web (`session-screen-frame.tsx`
+ *  draws the same parts): the lead avatar, the title over ONE subtitle
+ *  line, THE gear (agent, Assistant, app), the `…`; under it THE
+ *  SegmentedControl, each label followed by its muted count. */
+function ScreenHeader({
+  kind,
+  avatar,
+  title,
+  titleTrailing,
+  subtitle,
+  trailing,
+  counts,
+  requested = null,
+  width = `48rem`,
+}: {
+  kind: string
+  avatar: ReactNode
+  title: string
+  titleTrailing?: ReactNode
+  subtitle: string
+  trailing?: ReactNode
+  counts: SessionScreenCounts
+  requested?: string | null
+  width?: string
+}) {
+  const screen = sessionScreen({ kind, wide: true, requested, open: null, counts })
   return (
-    <div className="flex w-[48rem] flex-col gap-3" data-testid="chat-strip-modes">
-      <Caption>One issue, no session: its chip stays</Caption>
-      <Strip tabs={ONE_ISSUE_TABS} width="48rem" />
-      <Caption>More: ONE group tab, the count muted</Caption>
-      <Strip tabs={GROUP_TABS} width="48rem" />
-      <Caption>A session open from the group: the tab is active and names it</Caption>
-      <Strip tabs={GROUP_TABS} open={{ kind: `session`, id: `g2` }} width="48rem" />
-      <Caption>An issue open from the group</Caption>
-      <Strip tabs={GROUP_TABS} open={{ kind: `issue`, id: `i-3` }} width="48rem" />
-      <Caption>Phone pager: Conversation and Results icon-only; the one issue = its identifier</Caption>
-      <Strip tabs={ONE_ISSUE_TABS} width="24rem" pager />
-      <Strip tabs={GROUP_TABS} open={{ kind: `session`, id: `g2` }} width="24rem" pager />
-      <div className="mt-2 flex flex-wrap items-start gap-8">
-        <div className="flex flex-col gap-2">
-          <div className={cn(MENU_SURFACE_CLASS, `w-80 p-1`)}>
-            <ChatStripGroupMenu
-              issues={issues}
-              sessions={sessions}
-              open={{ kind: `session`, id: `g2` }}
-              onOpenIssue={noop}
-              onOpenSession={noop}
-            />
+    <div className="flex flex-col gap-3 border-b border-border pb-3" style={{ width }}>
+      <div className="flex items-center gap-3">
+        {avatar}
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{title}</h1>
+            {titleTrailing}
           </div>
-          <Caption>The group's Menu: issues, a separator, the session tree (phones: the bottom sheet)</Caption>
+          {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
+        </div>
+        {trailing}
+        {screen.gear && (
+          <Button variant="ghost" size="icon-sm" aria-label={SESSION_SCREEN_COPY.settings} className="text-muted-foreground">
+            <NavSettingsIcon className="size-4" />
+          </Button>
+        )}
+        <Button variant="ghost" size="icon-sm" aria-label="More" className="text-muted-foreground">
+          <UiMoreIcon />
+        </Button>
+      </div>
+      <div data-testid={SESSION_SCREEN_TEST_IDS.tabs} className="min-w-0 overflow-x-auto">
+        <SegmentedControl
+          value={screen.active}
+          onValueChange={noop}
+          options={screen.tabs.map((tab) => ({
+            value: tab.id,
+            label: (
+              <span className="flex items-center gap-1.5 whitespace-nowrap">
+                {tab.label}
+                {tab.count !== null && <span className="text-muted-foreground tabular-nums">{tab.count}</span>}
+              </span>
+            ),
+          }))}
+        />
+      </div>
+    </div>
+  )
+}
+
+const DISC_CLASS = `!size-10 [&>svg]:size-5!`
+
+/** #EXP-1732: the header per kind + the Issues and Sessions bodies (the
+ *  wide beside rule's tab pane, 5fr chat : 7fr pane, min 360px chat). */
+function SessionScreenSpecimens() {
+  const issues = treeIssues(GROUP_TABS)
+  const sessions = treeSessions(GROUP_TABS)
+  const counts = { issues: issues.length, sessions: sessions.length, results: 3 }
+  return (
+    <div className="flex flex-col gap-6" data-testid="session-screen-headers">
+      <Caption>A chat: Chat · Issues · Sessions · Results, no gear</Caption>
+      <ScreenHeader
+        kind="session"
+        avatar={<ChatLeadDisc lead="working" agent="claude" className={DISC_CLASS} />}
+        title={CHAT.title}
+        subtitle={sessionScreenSubtitle({ status: `working`, device: DEVICE.name, trigger: null })}
+        counts={counts}
+      />
+      <ScreenHeader
+        kind="session"
+        avatar={<ChatLeadDisc lead="waiting" agent="claude" className={DISC_CLASS} />}
+        title={PRIVATE.title}
+        titleTrailing={<PrivateIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+        subtitle={sessionScreenSubtitle({ status: `idle`, device: DEVICE.name, trigger: null })}
+        counts={{ issues: 0, sessions: 0, results: 0 }}
+        requested="results"
+      />
+      <Caption>An agent: its disc, the trigger in the subtitle, THE gear</Caption>
+      <ScreenHeader
+        kind="agent"
+        avatar={
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
+            <BoardGlyph board={{ icon: `bug`, color: `#a78bfa` }} className="size-5" />
+          </span>
+        }
+        title="Triage"
+        subtitle={sessionScreenSubtitle({ status: `idle`, device: DEVICE.name, trigger: `Every 30 minutes` })}
+        counts={{ issues: 2, sessions: 4, results: 0 }}
+      />
+      <Caption>An app: its glyph + the version pill, Publish, the gear; Preview by default</Caption>
+      <ScreenHeader
+        kind="app"
+        avatar={
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
+            <BoardGlyph board={{ icon: `clock`, color: `#38bdf8` }} className="size-5" />
+          </span>
+        }
+        title="Working hours"
+        titleTrailing={<Pill size="sm" className="tabular-nums">v3</Pill>}
+        subtitle={sessionScreenSubtitle({ status: `idle`, device: DEVICE.name, trigger: null })}
+        trailing={<Button size="sm">Publish</Button>}
+        counts={{ issues: 0, sessions: 1, results: 2 }}
+      />
+      <Caption>Phone: the same strip scrolls sideways when it overflows</Caption>
+      <ScreenHeader
+        kind="app"
+        avatar={
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
+            <BoardGlyph board={{ icon: `clock`, color: `#38bdf8` }} className="size-5" />
+          </span>
+        }
+        title="Working hours"
+        subtitle="idle"
+        counts={{ issues: 0, sessions: 12, results: 7 }}
+        requested="chat"
+        width="22rem"
+      />
+      <Caption>
+        Wide: the chat ({SESSION_SCREEN_BESIDE.chat}fr, min {SESSION_SCREEN_BESIDE.chatMinWidth}px) beside the tab&apos;s pane
+        ({SESSION_SCREEN_BESIDE.pane}fr), a hairline between. The Issues pane (led by the &quot;+&quot;) and the Sessions pane:
+      </Caption>
+      <div className="flex flex-wrap items-start gap-8">
+        <div className="flex w-96 flex-col gap-1" data-testid={SESSION_SCREEN_TEST_IDS.issues}>
+          <div className="flex items-center px-1">
+            <ChatTabsAddButton />
+          </div>
+          {issues.map((issue) => (
+            <ListRow key={issue.issueId} interactive className={issue.nested ? `gap-2 pl-8 text-sm` : `gap-2 text-sm`}>
+              <StatusGlyph {...issue.status} className="size-3.5 shrink-0" />
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">{issue.identifier}</span>
+              <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+            </ListRow>
+          ))}
+        </div>
+        <div className="w-96" data-testid={SESSION_SCREEN_TEST_IDS.sessions}>
+          <ChatSessionTree rows={sessions} activeId="g2" onOpen={noop} />
         </div>
         <div className="flex flex-col gap-2">
           <MenuPanel
@@ -259,7 +348,7 @@ function StripModes() {
               { kind: `item`, id: `new`, label: `New issue`, icon: conceptIcon(`ui-add`), onSelect: noop },
             ]}
           />
-          <Caption>The "+" (left of Conversation)</Caption>
+          <Caption>The &quot;+&quot; menu</Caption>
         </div>
       </div>
     </div>
@@ -318,13 +407,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Chat`,
-  blurb: `A chat IS a root session. Header: the title (THE \`sessionTitle()\` chain: its stored title (an explicit name or the agent's own), \`#IDENT title\`, the first prompt; nobody renames it; a lock when private) and ONE tab strip that never scrolls (#EXP-1433): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left, Results pinned right (S-3: no Guide tab); between them \`chatStripMode\`: at most ONE linked issue and no session = that issue's chip (THE strip chip, \`StripChip\`: status glyph, identifier, title), anything more = ONE group tab (the \`session-tree\` glyph, the count muted) opening THE Menu (phones: the bottom sheet): the issue rows (THE search list's rows), a separator, then THE session tree rows (SessionRow small + the guides, every session under the dispatcher); a pick opens it in place and the open row carries the check. While one of them is open the group tab is active and reads its identifier or name instead of the count. No "+N", no nested chip menus. Phones' pager: Conversation · the one issue | the item open from the group · Results. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; while the chat's PR is open the header's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) and the \`…\` on every form factor, phones included; phones use the strip as the pager. THE session card = the Work card's header row: the state icon in its tone, the name (the same \`sessionTitle()\` chain, never a number), the muted state word (amber while it needs you: Needs you, Usage limit, the natives' semantic yellow ×4), trailing the elapsed and a spinner while working; it opens that session. The Chats page (and the phones' Chats tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged chat shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ChatsList\`; phones put the Agents band on top. Models = \`buildSessionChat()\`, \`sessionCard()\`, \`partitionChats()\`, \`sessionTitle()\` (fixtures \`session-chat.json\`, \`session-card.json\`, \`chat-list.json\`, \`session-title.json\` ×4).`,
+  blurb: `A chat IS a root session. #EXP-1732 THE session screen ×4 (session-screen.json, ONE screen for a chat, an agent's or the Assistant's conversation and an app's editor session): the header = the lead avatar (a chat: THE lead disc; an agent: its disc; the Assistant: THE brand mark; an app: its BoardGlyph + the version pill), the title (THE \`sessionTitle()\` chain; nobody renames it; a lock when private) over ONE subtitle line \`status · device · trigger\`, then the merge pill, an app's Publish, THE gear (agents, the Assistant, apps: their settings as an opened item) and the \`…\`; under it ONE SegmentedControl of \`sessionScreen().tabs\`, each label followed by its count as a muted number (0 = none): Chat · Issues · Sessions · Results (an app: Chat · Preview · Data · Versions · Sessions · Results); a phone scrolls it sideways. Wide (≥ 768px) = the beside rule: the chat pane (5fr, min 360px) beside the active tab's pane (7fr), a hairline between; Chat alone = the chat full width; phones = one pane, an opened item (issue, session, plan, settings) a pushed page with its \`‹\`. Issues = THE issue rows (status glyph, mono identifier, title; nested indented) led by the \`+\` (Link an issue ›, New issue); Sessions = THE tree rows (SessionRow small + the guides) of every session under the root; a row opens it in place. No chip strip, no plan tab, no pager. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; while the chat's PR is open the header's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) and the \`…\` on every form factor, phones included; phones use the strip as the pager. THE session card = the Work card's header row: the state icon in its tone, the name (the same \`sessionTitle()\` chain, never a number), the muted state word (amber while it needs you: Needs you, Usage limit, the natives' semantic yellow ×4), trailing the elapsed and a spinner while working; it opens that session. The Chats page (and the phones' Chats tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged chat shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ChatsList\`; phones put the Agents band on top. Models = \`buildSessionChat()\`, \`sessionCard()\`, \`partitionChats()\`, \`sessionTitle()\` (fixtures \`session-chat.json\`, \`session-card.json\`, \`chat-list.json\`, \`session-title.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `ChatTabs / SessionCard`,
+      symbol: `SessionScreenFrame / SegmentedControl / SessionCard`,
       file: `packages/ui/src/session-chat-view.tsx`,
-      note: `ChatsList: packages/ui/src/chats-list.tsx; card: packages/ui/src/work-card.tsx; pages: apps/web/src/routes/t/$teamSlug/chats/`,
+      note: `#EXP-1732 the screen: apps/web/src/components/chat/session-screen-frame.tsx (header + tabs + beside), bodies: session-screen-bodies.tsx; ChatsList: packages/ui/src/chats-list.tsx; card: packages/ui/src/work-card.tsx`,
     },
     desktop: {
       state: `ok`,
@@ -347,9 +436,7 @@ export const entry: StyleguideEntry = {
   },
   island: () => (
     <div className="flex flex-col gap-10 text-sm">
-      <Header view={CHAT} />
-      <Header view={PRIVATE} />
-      <StripModes />
+      <SessionScreenSpecimens />
       <div className="flex max-w-xl flex-col gap-2">
         {CARDS.map((card) => (
           <SessionCard key={card.name} card={card} onOpen={noop} />

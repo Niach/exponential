@@ -144,33 +144,25 @@ async function recipeOpenOnboardingCreateTeam(page: Page): Promise<void> {
 /**
  * VAPP-122: the phone-width `app` view photographs the PREVIEW tab (the app
  * rendered through the host with its records), like the iOS and Android
- * walks; the editor opens on Chat (VAPP-177: the Chat | Preview segments).
+ * walks; #EXP-1732: the editor is THE session screen (its `session-tabs`
+ * SegmentedControl), a phone opens on Chat.
  */
 async function recipeOpenAppPreviewTab(page: Page): Promise<void> {
-  const tabs = page.getByTestId(`app-editor-tabs`)
+  const tabs = page.getByTestId(`session-tabs`)
   await tabs.waitFor({ state: `visible`, timeout: 30_000 })
   await tabs.getByRole(`radio`, { name: `Preview` }).or(tabs.getByRole(`tab`, { name: `Preview` })).or(tabs.getByText(`Preview`, { exact: true })).first().click()
   await page.getByTestId(`app-editor-preview`).waitFor({ state: `visible`, timeout: 30_000 })
 }
 
 /** VAPP-121: the app editor's Export, Include records switched on.
- *  VAPP-177: Export lives in the Settings tab (web ≥ md) and in the
- *  header's `…` menu (phones). */
+ *  #EXP-1732: Export lives in the header's `…` menu on every width. */
 async function recipeOpenAppExport(page: Page): Promise<void> {
-  const tabs = page.getByTestId(`app-editor-tabs`)
-  await tabs.waitFor({ state: `visible`, timeout: 30_000 })
   const menu = page.getByTestId(`app-editor-menu`)
-  if (await menu.isVisible()) {
-    await menu.click()
-    const item = page.getByTestId(`app-editor-menu-export`)
-    await item.waitFor({ state: `visible`, timeout: 15_000 })
-    await item.click()
-  } else {
-    await tabs.getByRole(`radio`, { name: `Settings` }).or(tabs.getByRole(`tab`, { name: `Settings` })).or(tabs.getByText(`Settings`, { exact: true })).first().click()
-    const button = page.getByTestId(`app-export`)
-    await button.waitFor({ state: `visible`, timeout: 30_000 })
-    await button.click()
-  }
+  await menu.waitFor({ state: `visible`, timeout: 30_000 })
+  await menu.click()
+  const item = page.getByTestId(`app-editor-menu-export`)
+  await item.waitFor({ state: `visible`, timeout: 15_000 })
+  await item.click()
   const dialog = page.getByTestId(`app-export-dialog`)
   await dialog.waitFor({ state: `visible`, timeout: 15_000 })
   await page.getByTestId(`app-export-records`).click()

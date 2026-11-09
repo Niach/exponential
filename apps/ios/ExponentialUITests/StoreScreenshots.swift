@@ -132,24 +132,20 @@ final class StoreScreenshots: XCTestCase {
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // EXP-1295: the chip opens the chat; its child's session card opens
-        // the session's raw work (the pending question card still in place).
-        // EXP-1303: picked by title, the root's own card is drawn first.
+        // EXP-1295 / #EXP-1732: the chip opens the chat; its Sessions tab's
+        // row opens the child's session (its raw work, the pending question
+        // card still in place) as an item pushed over the tab.
         chatChip.tap()
-        let sessionCard = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "session-card", Self.steeredSessionTitle))
+        let sessionsTab = anyElement(app, identified: "session-tabs-sessions")
+        expect(sessionsTab, within: Wait.sync, "The chat drew no Sessions tab")
+        sessionsTab.tap()
+        let sessionRow = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "session-sessions-row-", Self.steeredSessionTitle
+            ))
             .firstMatch
-        expect(sessionCard, within: Wait.sync, "The chat drew no session card")
-        // EXP-1323: the conversation opens scrolled to its live tail (the
-        // Queue + status row is its last row), so the child's card can sit
-        // above the fold. NEW-16: scroll it below the strip (a card under the
-        // header still reads hittable) and tap its centre.
-        revealAndTap(
-            app,
-            sessionCard,
-            below: anyElement(app, identified: "chat-tab-conversation"),
-            "The chat's session card never scrolled into view"
-        )
+        expect(sessionRow, within: Wait.sync, "The Sessions tab listed no steered session")
+        sessionRow.tap()
         expect(
             app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
             within: Wait.nav,
@@ -175,10 +171,11 @@ final class StoreScreenshots: XCTestCase {
         // the circle offers the start action — which PUSHES the home
         // composer with the issue chipped. The circle needs an online desktop:
         // without one it shows a notice instead of navigating. Session →
-        // chat → issue → board. The session page is a page OF the chat
-        // (its strip stays on screen), so one Back pops both; a third Back
-        // would land on the board header's switcher sheet.
+        // chat → issue → board. #EXP-1732: the session is an item pushed
+        // over the chat's Sessions tab, so it takes its own Back; one more
+        // than that would land on the board header's switcher sheet.
         // #NEW-12: the iPad's issue is the detail's root, the board beside it.
+        goBack(app)
         goBack(app)
         if !isSplitLayout { goBack(app) }
         expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")

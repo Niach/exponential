@@ -164,7 +164,7 @@ export function canCreateDraft({
 /**
  * EXP-1284 (review T11): where a created draft lands. A "New issue in this
  * chat" draft lands back on the CHAT with the new issue's tab selected
- * (`?tab=issue&issue=<id>`, keeping `?from=`); every other draft lands on the
+ * (`?tab=issues&open=issue&issue=<id>`, keeping `?from=`); every other draft lands on the
  * issue's page, keeping `?from=`.
  */
 export function draftLandingNavigation({
@@ -186,7 +186,7 @@ export function draftLandingNavigation({
     return {
       to: `/t/$teamSlug/sessions/$sessionId` as const,
       params: { teamSlug, sessionId: chatId },
-      search: { tab: `issue` as const, issue: issueId, ...(from ? { from } : {}) },
+      search: { tab: `issues` as const, open: `issue` as const, issue: issueId, ...(from ? { from } : {}) },
     }
   }
   return {
