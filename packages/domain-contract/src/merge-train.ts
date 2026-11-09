@@ -76,6 +76,7 @@ export type MergeEvent =
   | { type: `train_start` }
   | { type: `train_landed` }
   | { type: `train_requeued` }
+  | { type: `train_unlanded` }
   | { type: `train_conflict` }
   | { type: `train_failing` }
   | { type: `tick`; now: string }
@@ -127,6 +128,16 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
         : same
     case `train_requeued`:
       return pr.state === `testing` ? { pr: { ...pr, state: `queued` }, post: null } : same
+    case `train_unlanded`: {
+      // #FEED-212: a landing the forge never confirmed: back to the queue
+      // (never closed, never merged), the attempt counted; the limit holds.
+      if (pr.state !== `testing`) return same
+      const attempts = pr.attempts + 1
+      if (attempts >= MERGE_TRAIN_LIMITS.bounces) {
+        return { pr: { ...pr, state: `held`, attempts, holdReason: `bounces`, mergeNow: false }, post: `held` }
+      }
+      return { pr: { ...pr, state: `queued`, attempts }, post: null }
+    }
     case `train_conflict`:
       return pr.state === `testing` ? bounce(pr, `conflict`) : same
     case `train_failing`:
@@ -154,6 +165,14 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
         post: null,
       }
   }
+}
+
+/** #FEED-212 (merge-train.json `landing`): a landing is confirmed only when
+ *  the base moved off its old sha to a commit that holds the landed one
+ *  (`contains` = the forge's read of the base AFTER the push: it points at
+ *  or contains `landed`; null = unreadable). Anything else = unlanded. */
+export function landingConfirmed(input: { from: string | null; landed: string | null; contains: boolean | null }): boolean {
+  return input.landed !== null && input.landed !== input.from && input.contains === true
 }
 
 // ── BATCHING + BISECT ──────────────────────────────────────────────────────
