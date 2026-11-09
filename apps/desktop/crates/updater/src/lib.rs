@@ -268,7 +268,7 @@ pub fn cleanup_staging() {
 /// Built per call — the updater makes a handful of requests in a session, so
 /// there is nothing to pool.
 fn client() -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
+    exp_http::blocking()
         .connect_timeout(Duration::from_secs(10))
         .tcp_keepalive(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::limited(10))

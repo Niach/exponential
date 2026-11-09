@@ -2983,7 +2983,7 @@
         },
         "name": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -2994,14 +2994,15 @@
           "enum": [
             "sm",
             "default",
-            "lg"
+            "lg",
+            "xl"
           ],
           "description": "Diameter class.",
           "default": "default"
         },
         "seed": {
-          "type": "string",
-          "description": "Hashes the fallback hue; default the name."
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "A user id: the palette hue; none = muted."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -16867,7 +16868,8 @@
               "hairline",
               "appBar",
               "tabBar",
-              "toast"
+              "toast",
+              "avatarXl"
             ]
           }
         },

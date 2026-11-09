@@ -760,7 +760,7 @@ const windowBody = (id: string): NestedNode => ({
 const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Box: [text(`t1`, `A Box lays its children out by style.`), text(`t2`, `Flex, grid, spacing and colours come from the whitelist.`, `muted`)],
   Stack: [
-    { id: `a`, component: `Avatar`, props: { name: `Ada Lovelace`, size: `sm` } },
+    { id: `a`, component: `Avatar`, props: { name: `Ada Lovelace`, seed: `demo-ada`, size: `sm` } },
     text(`t`, `Ada Lovelace`),
     { id: `b`, component: `Badge`, props: { text: `Owner`, variant: `outline` } },
   ],
@@ -931,9 +931,9 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
   ],
   CallSurface: [
-    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
-    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },
-    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, status: `03:10`, muted: true }, style: { minHeight: 480 } } },
+    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
+    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },
+    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `talking`, status: `03:10`, muted: true }, style: { minHeight: 480 } } },
   ],
   Plan: [
     { label: `state · proposed`, node: { id: `plan`, component: `Plan`, props: { title: `Here's my plan`, description: `I'll use your mouse and keyboard for about two minutes.`, state: `proposed`, approveLabel: `Yes, do it`, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `pending` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `pending` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }] }, style: { maxWidth: 480 } } },
@@ -962,6 +962,8 @@ const foldChildren = (selected?: string): NestedNode[] => [
 ]
 const FOLD_ON = { press: { event: { name: `select`, context: { page: `issues` } } }, change: { event: { name: `fold` } } }
 const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => ({ id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, open }, on: FOLD_ON, children: foldChildren(`statuses`), ...extra })
+/** #EXP-1629: the Avatar specimen's picture (a 64 px person mark, PNG). */
+const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
 /** VAPP-163: cases a specimen shows AFTER its generated ones (past the cap),
  *  each pinning a cross-renderer drift the spezl drafts found: a styled
  *  Heading on a band (the author's style beats the Heading recipe), the
@@ -969,6 +971,13 @@ const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // #EXP-1629 (fixtures/avatar.json): no seed = the muted fallback, an
+  // email's initials (its local part), a picture in its hairline ring.
+  Avatar: [
+    { label: `seed · none`, node: { id: `muted`, component: `Avatar`, props: { name: `Jane Doe`, size: `default` } } },
+    { label: `name · an email`, node: { id: `email`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-jonas`, size: `default` } } },
+    { label: `src · a picture`, node: { id: `picture`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `xl`, src: AVATAR_PICTURE } } },
+  ],
   // FEED-205: income vs expenses per month in EUR (ticks, values, tooltip),
   // then the same rows of a query in compact euros.
   Chart: [
@@ -1527,7 +1536,7 @@ function railTreeCases(): ComponentCase[] {
 /** #EXP-1736: the sender's avatar left of an incoming bubble (an `out` one
  *  drops the slot), with the press that opens the sender. */
 function messageBubbleCases(): ComponentCase[] {
-  const avatar: NestedNode = { id: `bubble_avatar`, component: `Avatar`, props: { name: `Release agent` } }
+  const avatar: NestedNode = { id: `bubble_avatar`, component: `Avatar`, props: { name: `Release agent`, seed: `agent-release` } }
   const props = { text: `Merged; the tag is pushed.`, author: `Release agent`, time: `18:04`, href: `https://ui.exponential.at` }
   return [
     { name: `MessageBubble/avatar:in`, node: { id: `bubble`, component: `MessageBubble`, props, slots: { avatar } } },

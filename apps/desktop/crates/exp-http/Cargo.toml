@@ -1,0 +1,13 @@
+[package]
+name = "exp-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# THE way a crate of this workspace builds a reqwest client (reqwest 0.13 on
+# `rustls-no-provider` panics at build without a process crypto provider);
+# its test is the gate that no crate builds one any other way.
+[dependencies]
+reqwest.workspace = true
+rustls.workspace = true

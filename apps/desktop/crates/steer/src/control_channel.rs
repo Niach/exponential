@@ -387,7 +387,7 @@ async fn connect_and_listen(
     // start gates on all ride `devices.register`. P2P fallback: `tunnel: 1`
     // = this device serves sealed tunnels (an older one omits it).
     let online = online_frame(&device.device_id);
-    if let Err(err) = ws.send(Message::Text(online)).await {
+    if let Err(err) = ws.send(Message::text(online)).await {
         return ConnectionOutcome::ConnectFailed(crate::redact_ticket(&err.to_string()));
     }
     log::info!(
@@ -422,7 +422,7 @@ async fn connect_and_listen(
                 // `out_tx` lives in this frame, so the channel never closes
                 // while the loop runs.
                 if let Ok(text) = outbound {
-                    if ws.send(Message::Text(text)).await.is_err() {
+                    if ws.send(Message::text(text)).await.is_err() {
                         return ConnectionOutcome::Dropped { lived: established.elapsed() };
                     }
                 }
@@ -437,7 +437,7 @@ async fn connect_and_listen(
                     );
                     return ConnectionOutcome::Dropped { lived: established.elapsed() };
                 }
-                if ws.send(Message::Ping(vec![])).await.is_err() {
+                if ws.send(Message::Ping(Default::default())).await.is_err() {
                     return ConnectionOutcome::Dropped { lived: established.elapsed() };
                 }
             }

@@ -108,6 +108,43 @@ internal open class ForeignBytes : Structure() {
 
     class ByValue : ForeignBytes(), Structure.ByValue
 }
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Only `lower` is valid — zero-copy byte buffers only flow foreign -> Rust,
+// and only in argument position. `lift`, `read`, `write`, and
+// `allocationSize` have no sound implementation here and all panic at
+// runtime. The `FfiConverter` interface is implemented so that the
+// compiler enforces the full method set (rather than relying on eyeball).
+//
+// The provided `ByteBuffer` MUST be direct — only direct buffers have a
+// stable native address that JNA can expose via `getDirectBufferPointer`.
+// The returned `ForeignBytes.ByValue` is only valid for the duration of
+// the FFI call; the Rust side treats it as a borrow.
+internal object FfiConverterByRefBytes : FfiConverter<java.nio.ByteBuffer, ForeignBytes.ByValue> {
+    override fun lower(value: java.nio.ByteBuffer): ForeignBytes.ByValue {
+        require(value.isDirect) { "UniFFI zero-copy &[u8] requires a direct ByteBuffer. Use ByteBuffer.allocateDirect()." }
+        val remaining = value.remaining()
+        val fb = ForeignBytes.ByValue()
+        fb.len = remaining
+        // Zero-length direct buffers: skip getDirectBufferPointer (platform-variable behavior)
+        // and pass null. The Rust side treats (null, 0) as &[].
+        fb.data = if (remaining == 0) null else com.sun.jna.Native.getDirectBufferPointer(value)
+        return fb
+    }
+
+    override fun lift(value: ForeignBytes.ByValue): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+
+    override fun read(buf: java.nio.ByteBuffer): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun write(value: java.nio.ByteBuffer, buf: java.nio.ByteBuffer): Unit =
+        error("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun allocationSize(value: java.nio.ByteBuffer): ULong =
+        error("ByRef bytes have no RustBuffer allocation size: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+}
 /**
  * The FfiConverter interface handles converter types to and from the FFI
  *
@@ -688,104 +725,106 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_net_ffi"))
         uniffiCheckContractApiVersion(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_exponential_net_ffi_checksum_func_generate_tree_key(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_open_body(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_open_card(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_push_keypair_derive(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_push_keypair_generate(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_push_open(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_push_seal(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_seal_body(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_seal_card(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_wrap_tree_key(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_default_config(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_endpoint_id_of(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_generate_identity(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_identity_sign(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetlistener_on_event(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_accept_call(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_add_ticket(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_allow_peer(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_allowed_peers(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_blob_add_path(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_blob_fetch_ticket(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_blob_get(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_endpoint_id(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_get_record(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_is_connected(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_join_space(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_network_change(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_next_event(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_online(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_path_kind(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_put_record(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_records(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_revoke_peer(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_send_chat(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_send_frame(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_set_access_policy(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_set_listener(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_set_open(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_shutdown(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_start_call(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_ticket(
-    ): Short
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_constructor_enetnode_start(
-    ): Short
+    ): Int
     external fun ffi_exponential_net_ffi_uniffi_contract_version(
     ): Int
 
@@ -806,226 +845,228 @@ internal object UniffiLib {
         uniffiCallbackInterfaceEnetListener.register(this)
         
     }
-    external fun uniffi_exponential_net_ffi_fn_clone_enetaccesspolicy(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_net_ffi_fn_free_enetaccesspolicy(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_init_callback_vtable_enetaccesspolicy(`vtable`: UniffiVTableCallbackInterfaceEnetAccessPolicy,
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetaccesspolicy_allow(`ptr`: Long,`peer`: RustBuffer.ByValue,`alpn`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_net_ffi_fn_clone_enetlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_net_ffi_fn_free_enetlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_init_callback_vtable_enetlistener(`vtable`: UniffiVTableCallbackInterfaceEnetListener,
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetlistener_on_event(`ptr`: Long,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_clone_enetnode(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_net_ffi_fn_free_enetnode(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_constructor_enetnode_start(`config`: RustBuffer.ByValue,`identity`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_accept_call(`ptr`: Long,`call`: Long,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_add_ticket(`ptr`: Long,`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_allow_peer(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_allowed_peers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_add(`ptr`: Long,`data`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_add_path(`ptr`: Long,`path`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch(`ptr`: Long,`peer`: RustBuffer.ByValue,`hash`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch_ticket(`ptr`: Long,`ticket`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_get(`ptr`: Long,`hash`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_endpoint_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_get_record(`ptr`: Long,`space`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_hang_up(`ptr`: Long,`call`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_join_space(`ptr`: Long,`space`: RustBuffer.ByValue,`bootstrap`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_leave_space(`ptr`: Long,`space`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_network_change(`ptr`: Long,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_next_event(`ptr`: Long,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_online(`ptr`: Long,`timeoutMs`: Long,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_put_record(`ptr`: Long,`space`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_records(`ptr`: Long,`space`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_revoke_peer(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_send_chat(`ptr`: Long,`peer`: RustBuffer.ByValue,`body`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_send_frame(`ptr`: Long,`call`: Long,`frame`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_set_access_policy(`ptr`: Long,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_set_listener(`ptr`: Long,`listener`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_set_open(`ptr`: Long,`open`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_shutdown(`ptr`: Long,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_start_call(`ptr`: Long,`peer`: RustBuffer.ByValue,
-): Long
-external fun uniffi_exponential_net_ffi_fn_method_enetnode_ticket(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_generate_tree_key(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_open_body(`body`: RustBuffer.ByValue,`keys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_open_card(`cardJson`: RustBuffer.ByValue,`keys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_push_keypair_derive(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_push_open(`recipientSecret`: RustBuffer.ByValue,`sealed`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_push_seal(`recipientPublic`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_seal_body(`treePublicKey`: RustBuffer.ByValue,`epoch`: Int,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_seal_card(`treePublicKey`: RustBuffer.ByValue,`epoch`: Int,`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(`installSecret`: RustBuffer.ByValue,`wrapped`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_wrap_tree_key(`installPublic`: RustBuffer.ByValue,`treeSecret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_generate_identity(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_identity_sign(`identity`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_net_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_net_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_net_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun ffi_exponential_net_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_net_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_u8(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_u8(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun ffi_exponential_net_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_i8(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_i8(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun ffi_exponential_net_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_u16(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_u16(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
-external fun ffi_exponential_net_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_i16(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_i16(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
-external fun ffi_exponential_net_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_u32(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_u32(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun ffi_exponential_net_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_i32(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_i32(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun ffi_exponential_net_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_u64(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_u64(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun ffi_exponential_net_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_i64(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_i64(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun ffi_exponential_net_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_f32(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_f32(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Float
-external fun ffi_exponential_net_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_f64(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_f64(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Double
-external fun ffi_exponential_net_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_rust_buffer(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_net_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_cancel_void(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_free_void(`handle`: Long,
-): Unit
-external fun ffi_exponential_net_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
 
-    
+    internal fun ensureInitialized() = Unit
+    external fun uniffi_exponential_net_ffi_fn_clone_enetaccesspolicy(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_free_enetaccesspolicy(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_init_callback_vtable_enetaccesspolicy(`vtable`: UniffiVTableCallbackInterfaceEnetAccessPolicy,
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetaccesspolicy_allow(`ptr`: Long,`peer`: RustBuffer.ByValue,`alpn`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_net_ffi_fn_clone_enetlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_free_enetlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_init_callback_vtable_enetlistener(`vtable`: UniffiVTableCallbackInterfaceEnetListener,
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetlistener_on_event(`ptr`: Long,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_clone_enetnode(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_free_enetnode(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_constructor_enetnode_start(`config`: RustBuffer.ByValue,`identity`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_accept_call(`ptr`: Long,`call`: Long,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_add_ticket(`ptr`: Long,`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_allow_peer(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_allowed_peers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_add(`ptr`: Long,`data`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_add_path(`ptr`: Long,`path`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch(`ptr`: Long,`peer`: RustBuffer.ByValue,`hash`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch_ticket(`ptr`: Long,`ticket`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_blob_get(`ptr`: Long,`hash`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_endpoint_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_get_record(`ptr`: Long,`space`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_hang_up(`ptr`: Long,`call`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_join_space(`ptr`: Long,`space`: RustBuffer.ByValue,`bootstrap`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_leave_space(`ptr`: Long,`space`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_network_change(`ptr`: Long,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_next_event(`ptr`: Long,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_online(`ptr`: Long,`timeoutMs`: Long,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_put_record(`ptr`: Long,`space`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`value`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_records(`ptr`: Long,`space`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_revoke_peer(`ptr`: Long,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_send_chat(`ptr`: Long,`peer`: RustBuffer.ByValue,`body`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_send_frame(`ptr`: Long,`call`: Long,`frame`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_set_access_policy(`ptr`: Long,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_set_listener(`ptr`: Long,`listener`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_set_open(`ptr`: Long,`open`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_shutdown(`ptr`: Long,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_start_call(`ptr`: Long,`peer`: RustBuffer.ByValue,
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetnode_ticket(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_generate_tree_key(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_open_body(`body`: RustBuffer.ByValue,`keys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_open_card(`cardJson`: RustBuffer.ByValue,`keys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_push_keypair_derive(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_push_open(`recipientSecret`: RustBuffer.ByValue,`sealed`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_push_seal(`recipientPublic`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_seal_body(`treePublicKey`: RustBuffer.ByValue,`epoch`: Int,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_seal_card(`treePublicKey`: RustBuffer.ByValue,`epoch`: Int,`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(`installSecret`: RustBuffer.ByValue,`wrapped`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_wrap_tree_key(`installPublic`: RustBuffer.ByValue,`treeSecret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_generate_identity(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_identity_sign(`identity`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_net_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_net_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_net_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun ffi_exponential_net_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_net_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_u8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_u8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_net_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_i8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_i8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun ffi_exponential_net_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_u16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_u16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_net_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_i16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_i16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Short
+    external fun ffi_exponential_net_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_u32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_u32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_net_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_i32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_i32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_net_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_u64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_u64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun ffi_exponential_net_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_i64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_i64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun ffi_exponential_net_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_f32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_f32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    external fun ffi_exponential_net_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_f64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_f64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Double
+    external fun ffi_exponential_net_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_rust_buffer(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_net_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_cancel_void(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_free_void(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_net_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+
+        
 }
 
 private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
@@ -1042,10 +1083,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -1551,6 +1592,11 @@ open class EnetAccessPolicyImpl: Disposable, AutoCloseable, EnetAccessPolicy
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -1622,7 +1668,9 @@ open class EnetAccessPolicyImpl: Disposable, AutoCloseable, EnetAccessPolicy
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetaccesspolicy_allow(
         it,
-        FfiConverterString.lower(`peer`),FfiConverterString.lower(`alpn`),_status)
+        
+        FfiConverterString.lower(`peer`),
+        FfiConverterString.lower(`alpn`),_status)
 }
     }
     )
@@ -1866,6 +1914,11 @@ open class EnetListenerImpl: Disposable, AutoCloseable, EnetListener
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -1937,6 +1990,7 @@ open class EnetListenerImpl: Disposable, AutoCloseable, EnetListener
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetlistener_on_event(
         it,
+        
         FfiConverterTypeEnetEvent.lower(`event`),_status)
 }
     }
@@ -2276,6 +2330,11 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -2349,14 +2408,15 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_accept_call(
                 uniffiHandle,
-                FfiConverterULong.lower(`call`),
+                
+        FfiConverterULong.lower(`call`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_void(future) },
         // lift function
-        { Unit },
+        { },
         
         // Error FFI converter
         EnetException.ErrorHandler,
@@ -2374,6 +2434,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_add_ticket(
         it,
+        
         FfiConverterString.lower(`ticket`),_status)
 }
     }
@@ -2388,6 +2449,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_allow_peer(
         it,
+        
         FfiConverterString.lower(`peer`),_status)
 }
     }
@@ -2415,7 +2477,8 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_blob_add(
                 uniffiHandle,
-                FfiConverterByteArray.lower(`data`),
+                
+        FfiConverterByteArray.lower(`data`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2436,7 +2499,8 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_blob_add_path(
                 uniffiHandle,
-                FfiConverterString.lower(`path`),
+                
+        FfiConverterString.lower(`path`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2457,7 +2521,9 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch(
                 uniffiHandle,
-                FfiConverterString.lower(`peer`),FfiConverterByteArray.lower(`hash`),
+                
+        FfiConverterString.lower(`peer`),
+        FfiConverterByteArray.lower(`hash`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2478,7 +2544,8 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_blob_fetch_ticket(
                 uniffiHandle,
-                FfiConverterString.lower(`ticket`),
+                
+        FfiConverterString.lower(`ticket`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2499,7 +2566,8 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_blob_get(
                 uniffiHandle,
-                FfiConverterByteArray.lower(`hash`),
+                
+        FfiConverterByteArray.lower(`hash`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2532,7 +2600,9 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_get_record(
         it,
-        FfiConverterByteArray.lower(`space`),FfiConverterString.lower(`key`),_status)
+        
+        FfiConverterByteArray.lower(`space`),
+        FfiConverterString.lower(`key`),_status)
 }
     }
     )
@@ -2546,6 +2616,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_hang_up(
         it,
+        
         FfiConverterULong.lower(`call`),_status)
 }
     }
@@ -2562,6 +2633,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(
         it,
+        
         FfiConverterString.lower(`peer`),_status)
 }
     }
@@ -2581,14 +2653,16 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_join_space(
                 uniffiHandle,
-                FfiConverterByteArray.lower(`space`),FfiConverterSequenceString.lower(`bootstrap`),
+                
+        FfiConverterByteArray.lower(`space`),
+        FfiConverterSequenceString.lower(`bootstrap`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_void(future) },
         // lift function
-        { Unit },
+        { },
         
         // Error FFI converter
         EnetException.ErrorHandler,
@@ -2602,6 +2676,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_leave_space(
         it,
+        
         FfiConverterByteArray.lower(`space`),_status)
 }
     }
@@ -2626,7 +2701,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_void(future) },
         // lift function
-        { Unit },
+        { },
         
         // Error FFI converter
         UniffiNullRustCallStatusErrorHandler,
@@ -2667,14 +2742,15 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_online(
                 uniffiHandle,
-                FfiConverterULong.lower(`timeoutMs`),
+                
+        FfiConverterULong.lower(`timeoutMs`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_void(future) },
         // lift function
-        { Unit },
+        { },
         
         // Error FFI converter
         EnetException.ErrorHandler,
@@ -2692,6 +2768,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(
         it,
+        
         FfiConverterString.lower(`peer`),_status)
 }
     }
@@ -2707,7 +2784,10 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_put_record(
                 uniffiHandle,
-                FfiConverterByteArray.lower(`space`),FfiConverterString.lower(`key`),FfiConverterByteArray.lower(`value`),
+                
+        FfiConverterByteArray.lower(`space`),
+        FfiConverterString.lower(`key`),
+        FfiConverterByteArray.lower(`value`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2727,6 +2807,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_records(
         it,
+        
         FfiConverterByteArray.lower(`space`),_status)
 }
     }
@@ -2741,6 +2822,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_revoke_peer(
         it,
+        
         FfiConverterString.lower(`peer`),_status)
 }
     }
@@ -2758,7 +2840,9 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_send_chat(
                 uniffiHandle,
-                FfiConverterString.lower(`peer`),FfiConverterByteArray.lower(`body`),
+                
+        FfiConverterString.lower(`peer`),
+        FfiConverterByteArray.lower(`body`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -2782,7 +2866,9 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_send_frame(
                 uniffiHandle,
-                FfiConverterULong.lower(`call`),FfiConverterByteArray.lower(`frame`),
+                
+        FfiConverterULong.lower(`call`),
+        FfiConverterByteArray.lower(`frame`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_u32(future, callback, continuation) },
@@ -2801,6 +2887,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_set_access_policy(
         it,
+        
         FfiConverterOptionalTypeEnetAccessPolicy.lower(`policy`),_status)
 }
     }
@@ -2817,6 +2904,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_set_listener(
         it,
+        
         FfiConverterOptionalTypeEnetListener.lower(`listener`),_status)
 }
     }
@@ -2832,6 +2920,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_set_open(
         it,
+        
         FfiConverterBoolean.lower(`open`),_status)
 }
     }
@@ -2856,7 +2945,7 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_void(future) },
         // lift function
-        { Unit },
+        { },
         
         // Error FFI converter
         EnetException.ErrorHandler,
@@ -2874,7 +2963,8 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
         callWithHandle { uniffiHandle ->
             UniffiLib.uniffi_exponential_net_ffi_fn_method_enetnode_start_call(
                 uniffiHandle,
-                FfiConverterString.lower(`peer`),
+                
+        FfiConverterString.lower(`peer`),
             )
         },
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_u64(future, callback, continuation) },
@@ -2918,7 +3008,9 @@ open class EnetNode: Disposable, AutoCloseable, EnetNodeInterface
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `start`(`config`: EnetConfig, `identity`: kotlin.ByteArray) : EnetNode {
         return uniffiRustCallAsync(
-        UniffiLib.uniffi_exponential_net_ffi_fn_constructor_enetnode_start(FfiConverterTypeEnetConfig.lower(`config`),FfiConverterByteArray.lower(`identity`),),
+        UniffiLib.uniffi_exponential_net_ffi_fn_constructor_enetnode_start(
+        FfiConverterTypeEnetConfig.lower(`config`),
+        FfiConverterByteArray.lower(`identity`),),
         { future, callback, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_poll_u64(future, callback, continuation) },
         { future, continuation -> UniffiLib.ffi_exponential_net_ffi_rust_future_complete_u64(future, continuation) },
         { future -> UniffiLib.ffi_exponential_net_ffi_rust_future_free_u64(future) },
@@ -3854,7 +3946,7 @@ public object FfiConverterTypeEnetEvent : FfiConverterRustBuffer<EnetEvent>{
         }
     }
 
-    override fun allocationSize(value: EnetEvent) = when(value) {
+    override fun allocationSize(value: EnetEvent): ULong = when(value) {
         is EnetEvent.Chat -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -4345,7 +4437,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_open_body(
     
-        FfiConverterString.lower(`body`),FfiConverterSequenceTypeEnetEpochKey.lower(`keys`),_status)
+        
+        FfiConverterString.lower(`body`),
+        FfiConverterSequenceTypeEnetEpochKey.lower(`keys`),_status)
 }
     )
     }
@@ -4356,7 +4450,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_open_card(
     
-        FfiConverterString.lower(`cardJson`),FfiConverterSequenceTypeEnetEpochKey.lower(`keys`),_status)
+        
+        FfiConverterString.lower(`cardJson`),
+        FfiConverterSequenceTypeEnetEpochKey.lower(`keys`),_status)
 }
     )
     }
@@ -4370,6 +4466,7 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_push_keypair_derive(
     
+        
         FfiConverterByteArray.lower(`identity`),_status)
 }
     )
@@ -4395,7 +4492,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_push_open(
     
-        FfiConverterByteArray.lower(`recipientSecret`),FfiConverterByteArray.lower(`sealed`),_status)
+        
+        FfiConverterByteArray.lower(`recipientSecret`),
+        FfiConverterByteArray.lower(`sealed`),_status)
 }
     )
     }
@@ -4409,7 +4508,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_push_seal(
     
-        FfiConverterByteArray.lower(`recipientPublic`),FfiConverterByteArray.lower(`plaintext`),_status)
+        
+        FfiConverterByteArray.lower(`recipientPublic`),
+        FfiConverterByteArray.lower(`plaintext`),_status)
 }
     )
     }
@@ -4423,7 +4524,10 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_seal_body(
     
-        FfiConverterString.lower(`treePublicKey`),FfiConverterUInt.lower(`epoch`),FfiConverterString.lower(`text`),_status)
+        
+        FfiConverterString.lower(`treePublicKey`),
+        FfiConverterUInt.lower(`epoch`),
+        FfiConverterString.lower(`text`),_status)
 }
     )
     }
@@ -4437,7 +4541,10 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_seal_card(
     
-        FfiConverterString.lower(`treePublicKey`),FfiConverterUInt.lower(`epoch`),FfiConverterString.lower(`cardJson`),_status)
+        
+        FfiConverterString.lower(`treePublicKey`),
+        FfiConverterUInt.lower(`epoch`),
+        FfiConverterString.lower(`cardJson`),_status)
 }
     )
     }
@@ -4448,7 +4555,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(
     
-        FfiConverterByteArray.lower(`installSecret`),FfiConverterString.lower(`wrapped`),_status)
+        
+        FfiConverterByteArray.lower(`installSecret`),
+        FfiConverterString.lower(`wrapped`),_status)
 }
     )
     }
@@ -4463,7 +4572,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_wrap_tree_key(
     
-        FfiConverterString.lower(`installPublic`),FfiConverterByteArray.lower(`treeSecret`),_status)
+        
+        FfiConverterString.lower(`installPublic`),
+        FfiConverterByteArray.lower(`treeSecret`),_status)
 }
     )
     }
@@ -4490,6 +4601,7 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_endpoint_id_of(
     
+        
         FfiConverterByteArray.lower(`identity`),_status)
 }
     )
@@ -4518,7 +4630,9 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_identity_sign(
     
-        FfiConverterByteArray.lower(`identity`),FfiConverterByteArray.lower(`message`),_status)
+        
+        FfiConverterByteArray.lower(`identity`),
+        FfiConverterByteArray.lower(`message`),_status)
 }
     )
     }
@@ -4532,6 +4646,7 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     uniffiRustCallWithError(EnetException) { _status ->
     UniffiLib.uniffi_exponential_net_ffi_fn_func_parse_ticket(
     
+        
         FfiConverterString.lower(`ticket`),_status)
 }
     )

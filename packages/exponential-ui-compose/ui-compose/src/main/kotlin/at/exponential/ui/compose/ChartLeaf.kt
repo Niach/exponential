@@ -44,7 +44,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.paint.ChartModel
-import at.exponential.ui.primitives.AvatarFallback
 import at.exponential.ui.primitives.Rgba
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlin.math.PI
@@ -58,7 +57,14 @@ import kotlin.math.sin
 private fun seriesColor(cx: LeafContext, i: Int): Color =
     cx.style.seriesColors?.getOrNull(i)
         ?: cx.themeColor("chart${i % 8 + 1}")
-        ?: Rgba.hsl(AvatarFallback.seedHue(i.toString()) * 7, 0.6, 0.55).color
+        ?: Rgba.hsl(indexHue(i) * 7, 0.6, 0.55).color
+
+/** The last-resort hue of series `i` (no theme chart colours): `h = h * 31 + utf16unit` over its decimal digits, mod 360. */
+private fun indexHue(i: Int): Double {
+    var h = 0u
+    for (unit in i.toString()) h = h * 31u + unit.code.toUInt()
+    return (h % 360u).toDouble()
+}
 
 /**
  * `Chart` (round 1 §3, round 2 §7): bar / stackedBar / line / area / pie /

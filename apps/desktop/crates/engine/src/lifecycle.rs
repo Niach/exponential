@@ -833,12 +833,12 @@ fn attach_publisher(
             };
             let command = match change {
                 steer::ConfigChange::Option { id, value } => EngineCommand::SetConfig {
-                    id: agent_client_protocol::schema::v1::SessionConfigId::new(id),
+                    id: agent_client_protocol::v1::schema::SessionConfigId::new(id),
                     value: crate::session::ConfigValue::from_wire(&value).into(),
                 },
                 // EXP-1280: a viewer's chip tap is a PERSON's move.
                 steer::ConfigChange::Mode { id } => EngineCommand::SetMode {
-                    id: agent_client_protocol::schema::v1::SessionModeId::new(id),
+                    id: agent_client_protocol::v1::schema::SessionModeId::new(id),
                     announce: true,
                 },
             };

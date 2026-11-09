@@ -48,6 +48,15 @@ name: record-compose-fixtures
 # EXP-1629 (2026-11-09): re-recorded for the core catalog's KeyRecorder
 # (`KeyRecorder.png`, pending in ComponentSnapshotImagesTest until then;
 # not in the kitchen sink, so its goldens come back unchanged).
+# EXP-1629 (2026-11-09): re-recorded for the Avatar (xl, the palette by
+# seed, half-size regular initials, the picture ring): `Avatar.png`, the
+# kitchen-sink goldens (seeded avatars), the CallSurface avatar.
+# EXP-1629 (2026-11-09, after #2440): re-recorded again for the kitchen
+# sink with the Select row trigger AND the seeded avatars.
+# EXP-1629 (2026-11-09, after #2405): re-recorded on Compose 1.11 for the
+# Avatar, CallSurface and kitchen-sink goldens.
+# EXP-1629 (2026-11-09, after #2446): the mdpi kitchen-sink goldens with
+# the seeded avatars.
 on:
   workflow_dispatch: {}
   push:

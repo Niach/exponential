@@ -158,8 +158,9 @@ struct EntityPreviewModel {
         case glyph(String, Color?)
         case user(UserEntity?, id: String?)
         /// SLOP-4: a person with no `users` row (a widget reporter, a former
-        /// member) — the initials chip of the name the card reads.
-        case initials(String)
+        /// member) — the initials chip of the name the card reads, on the
+        /// comment's author id when it has one (the hue every client hashes).
+        case initials(String, hueKey: String?)
         case team(TeamEntity)
         case sessionDot(SessionState, pulsing: Bool)
         case dot(Color)
@@ -239,9 +240,9 @@ struct EntityRefPreviewSheet: View {
                 .foregroundStyle(color ?? .white.opacity(TextOpacity.secondary))
         case let .user(user, id):
             UserAvatar(user: user, id: id, size: size + 6)
-        case let .initials(name):
+        case let .initials(name, hueKey):
             UserAvatar(
-                image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size + 6
+                image: nil, initials: memberInitials(forDisplayName: name), hueKey: hueKey ?? name, size: size + 6
             )
         case let .team(team):
             TeamAvatar(iconUrl: team.iconUrl, size: size + 6)
@@ -451,7 +452,7 @@ enum EntityRefResolver {
             source: comment.source, authorSynced: author != nil, reporterName: nil
         ) {
             title = override
-            icon = .initials(title)
+            icon = .initials(title, hueKey: comment.authorId)
         } else {
             title = memberDisplayName(author, id: comment.authorId)
             icon = .user(author, id: comment.authorId)

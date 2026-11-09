@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     AgentCapabilities, CreateElicitationRequest, ElicitationAction, ElicitationContentValue,
     ElicitationFormMode, ElicitationSchema, ElicitationSessionScope, StringPropertySchema, AvailableCommand, AvailableCommandsUpdate, CancelNotification,
     CompactionId, CompactionStatus, CompactionUpdate, ContentBlock, ContentChunk, CurrentModeUpdate, Diff,
@@ -53,7 +53,8 @@ use agent_client_protocol::schema::v1::{
     ToolCallUpdate,
     ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
-use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error};
+use agent_client_protocol::{Agent, Client, ConnectTo, Error};
+use agent_client_protocol::v1::ConnectionTo;
 use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
 
@@ -548,7 +549,7 @@ impl ConnectTo<Client> for CodexAgent {
             let set_config = shared.clone();
 
             Agent
-                .builder()
+                .v1()
                 .name("codex-app-server")
                 .on_receive_request(
                     async move |request: InitializeRequest, responder, _cx| {
@@ -1206,9 +1207,9 @@ fn prompt_input(blocks: &[ContentBlock]) -> Vec<Value> {
     input
 }
 
-fn embedded_text(resource: &agent_client_protocol::schema::v1::EmbeddedResource) -> Option<String> {
+fn embedded_text(resource: &agent_client_protocol::v1::schema::EmbeddedResource) -> Option<String> {
     match &resource.resource {
-        agent_client_protocol::schema::v1::EmbeddedResourceResource::TextResourceContents(text) => {
+        agent_client_protocol::v1::schema::EmbeddedResourceResource::TextResourceContents(text) => {
             Some(format!(
                 "<context ref=\"{}\">\n{}\n</context>",
                 text.uri, text.text
@@ -1753,7 +1754,7 @@ fn publish_context_layout(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, prefi
         SessionNotification::new(
             session_id,
             SessionUpdate::SessionInfoUpdate(
-                agent_client_protocol::schema::v1::SessionInfoUpdate::new(),
+                agent_client_protocol::v1::schema::SessionInfoUpdate::new(),
             ),
         )
         .meta(meta),
@@ -1865,7 +1866,7 @@ fn feed_updates(items: &Items, method: &str, params: &Value) -> Vec<SessionUpdat
 fn title_update(name: &str) -> Option<SessionUpdate> {
     (!name.trim().is_empty()).then(|| {
         SessionUpdate::SessionInfoUpdate(
-            agent_client_protocol::schema::v1::SessionInfoUpdate::new().title(name.to_string()),
+            agent_client_protocol::v1::schema::SessionInfoUpdate::new().title(name.to_string()),
         )
     })
 }
@@ -1881,7 +1882,7 @@ fn delta_text(params: &Value) -> Option<String> {
 }
 
 fn text_content(text: &str) -> ToolCallContent {
-    ToolCallContent::Content(agent_client_protocol::schema::v1::Content::new(
+    ToolCallContent::Content(agent_client_protocol::v1::schema::Content::new(
         ContentBlock::Text(TextContent::new(text)),
     ))
 }
@@ -3192,7 +3193,7 @@ mod tests {
         let blocks = vec![
             ContentBlock::Text(TextContent::new("fix the test")),
             ContentBlock::ResourceLink(
-                agent_client_protocol::schema::v1::ResourceLink::new("lib.rs", "file:///work/lib.rs"),
+                agent_client_protocol::v1::schema::ResourceLink::new("lib.rs", "file:///work/lib.rs"),
             ),
         ];
         let input = prompt_input(&blocks);
