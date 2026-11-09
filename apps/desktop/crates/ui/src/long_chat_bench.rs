@@ -87,13 +87,17 @@ fn seed(cx: &mut gpui::TestAppContext) {
 
 /// The feed the relay replays for the same chat: prompt, tool rows, reply.
 fn feed_events() -> Vec<steer::ViewerEvent> {
+    feed_events_of(MESSAGES)
+}
+
+fn feed_events_of(messages: usize) -> Vec<steer::ViewerEvent> {
     let mut events = vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)];
     let mut seq = 0u64;
     let mut next = |event| {
         seq += 1;
         steer::ViewerEvent::Activity(seq, event)
     };
-    for n in 0..MESSAGES {
+    for n in 0..messages {
         if n % 2 == 0 {
             events.push(next(steer::ActivityEvent::user_message(body(n))));
             events.push(next(steer::ActivityEvent::tool("Bash", Some(format!("cargo test -p crate{n}")))));
@@ -132,14 +136,36 @@ impl std::fmt::Display for Stats {
 #[ignore = "a release bench: run with --ignored --nocapture"]
 fn long_chat_bench(cx: &mut gpui::TestAppContext) {
     seed(cx);
+    // Warm: the app has drawn a chat before (fonts loaded, shaping caches).
+    {
+        let (warm, wcx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        wcx.simulate_resize(gpui::size(px(1440.), px(900.)));
+        let steer = inner(&warm, wcx);
+        steer.update(wcx, |inner, cx| inner.apply_events_for_test(feed_events_of(200), cx));
+        for _ in 0..3 {
+            frame(wcx);
+        }
+        wcx.update(|window, _| window.remove_window());
+        wcx.run_until_parked();
+    }
     let opened = Instant::now();
     let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
     cx.simulate_resize(gpui::size(px(1440.), px(900.)));
     let steer = inner(&view, cx);
     let created = opened.elapsed();
+    // `LOGS7_PROFILE=replay`: a sampler attaches, then a long replay.
+    let events = if std::env::var("LOGS7_PROFILE").as_deref() == Ok("replay") {
+        eprintln!("[LOGS-7] profiling replay in pid {}", std::process::id());
+        std::thread::sleep(Duration::from_millis(1500));
+        feed_events_of(MESSAGES * std::env::var("LOGS7_REPLAY_X").ok().and_then(|x| x.parse().ok()).unwrap_or(8))
+    } else {
+        feed_events()
+    };
+    let count = events.len();
     let replay = Instant::now();
-    steer.update(cx, |inner, cx| inner.apply_events_for_test(feed_events(), cx));
+    steer.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
     let replay = replay.elapsed();
+    println!("[LOGS-7] replay + its first frame: {count} events in {:.1} ms", replay.as_secs_f64() * 1e3);
     let first = frame(cx);
     let mut settle = Vec::new();
     for _ in 0..4 {
@@ -181,6 +207,15 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
                         window.dispatch_event(gpui::InputEvent::to_platform_input(event), cx);
                     });
                     frame(cx);
+                }
+                "open" => {
+                    let (again, ocx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+                    ocx.simulate_resize(gpui::size(px(1440.), px(900.)));
+                    let fresh = inner(&again, ocx);
+                    fresh.update(ocx, |inner, cx| inner.apply_events_for_test(feed_events(), cx));
+                    frame(ocx);
+                    ocx.update(|window, _| window.remove_window());
+                    ocx.run_until_parked();
                 }
                 "other" => {
                     other_session_syncs(k, cx);
