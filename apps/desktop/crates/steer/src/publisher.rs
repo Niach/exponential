@@ -1283,7 +1283,7 @@ mod tests {
     impl Inject {
         fn send(&self, message: Message) -> Result<(), ()> {
             let Message::Text(frame) = message else { return Err(()) };
-            self.cmd_tx.send(PublisherCmd::Frame { from: self.from.clone(), frame }).map_err(|_| ())
+            self.cmd_tx.send(PublisherCmd::Frame { from: self.from.clone(), frame: frame.as_str().to_owned() }).map_err(|_| ())
         }
     }
 
@@ -1423,14 +1423,14 @@ mod tests {
 
         // 2) remote input → the PTY-writer hook, byte-identical.
         inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
+            .send(Message::text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
             .unwrap();
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(recorded.inputs.lock().unwrap()[0], b"ls\r");
 
         // 3) a semantic answer routes to the emitter's link, NOT the PTY.
         inject_tx
-            .send(Message::Text(
+            .send(Message::text(
                 r#"{"t":"answer","questionId":"toolu_1#0","askId":"toolu_1","keys":["2"]}"#
                     .to_string(),
             ))
@@ -1450,7 +1450,7 @@ mod tests {
         // 4) an unknown frame parses to None and is ignored — the loop keeps
         // running (the kill below still lands).
         inject_tx
-            .send(Message::Text(
+            .send(Message::text(
                 r#"{"t":"presence","viewers":[],"steererId":null}"#.to_string(),
             ))
             .unwrap();
@@ -1458,7 +1458,7 @@ mod tests {
         // 5) kill → kill hook fires, the viewers hear `bye killed`, the task
         // stops.
         inject_tx
-            .send(Message::Text(r#"{"t":"kill"}"#.to_string()))
+            .send(Message::text(r#"{"t":"kill"}"#.to_string()))
             .unwrap();
         wait_for(|| !recorded.kills.lock().unwrap().is_empty());
         assert_eq!(recorded.kills.lock().unwrap()[0], KillSignal::RemoteKill);
@@ -1522,17 +1522,17 @@ mod tests {
         let (_seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
-            .send(Message::Text(
+            .send(Message::text(
                 r#"{"t":"set_config","id":"model","value":"opus"}"#.to_string(),
             ))
             .unwrap();
         inject_tx
-            .send(Message::Text(r#"{"t":"set_mode","id":"plan"}"#.to_string()))
+            .send(Message::text(r#"{"t":"set_mode","id":"plan"}"#.to_string()))
             .unwrap();
         // An `input` behind them proves the pump kept running and that the
         // two frames really were consumed (not merely slow).
         inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
+            .send(Message::text(r#"{"t":"input","data":"ls\r"}"#.to_string()))
             .unwrap();
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(
@@ -1569,12 +1569,12 @@ mod tests {
 
         // A BLANK value is the "CLI default" choice, not a malformed frame.
         inject_tx
-            .send(Message::Text(
+            .send(Message::text(
                 r#"{"t":"set_config","id":"model","value":""}"#.to_string(),
             ))
             .unwrap();
         inject_tx
-            .send(Message::Text(r#"{"t":"set_mode","id":"plan"}"#.to_string()))
+            .send(Message::text(r#"{"t":"set_mode","id":"plan"}"#.to_string()))
             .unwrap();
         let received: Mutex<Vec<ConfigChange>> = Mutex::new(Vec::new());
         wait_for(|| {
@@ -1691,7 +1691,7 @@ mod tests {
 
         let send = |data: &str| {
             inject_tx
-                .send(Message::Text(format!(
+                .send(Message::text(format!(
                     r#"{{"t":"input","data":{}}}"#,
                     serde_json::to_string(data).unwrap()
                 )))
@@ -1766,7 +1766,7 @@ mod tests {
 
         let send = |data: &str| {
             inject_tx
-                .send(Message::Text(format!(
+                .send(Message::text(format!(
                     r#"{{"t":"input","data":{}}}"#,
                     serde_json::to_string(data).unwrap()
                 )))
@@ -1883,7 +1883,7 @@ mod tests {
 
         let path = local.display().to_string();
         inject_tx
-            .send(Message::Text(format!(
+            .send(Message::text(format!(
                 r#"{{"t":"input","data":{}}}"#,
                 serde_json::to_string(&format!("look at {EMBED} please")).unwrap()
             )))
@@ -1937,7 +1937,7 @@ mod tests {
         let (_seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
-            .send(Message::Text(format!(
+            .send(Message::text(format!(
                 r#"{{"t":"input","data":{}}}"#,
                 serde_json::to_string(EMBED).unwrap()
             )))
@@ -1986,13 +1986,13 @@ mod tests {
         let (seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
-            .send(Message::Text(format!(
+            .send(Message::text(format!(
                 r#"{{"t":"input","data":{}}}"#,
                 serde_json::to_string(&format!("look at {EMBED}")).unwrap()
             )))
             .unwrap();
         inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .send(Message::text(r#"{"t":"input","data":"\r"}"#.to_string()))
             .unwrap();
 
         // The download is parked — the pump must still flush activity.
@@ -2047,13 +2047,13 @@ mod tests {
         let (_seen_rx, inject_tx) = tap(&handle);
 
         inject_tx
-            .send(Message::Text(format!(
+            .send(Message::text(format!(
                 r#"{{"t":"input","data":{}}}"#,
                 serde_json::to_string(&format!("crop this\n\n{EMBED}")).unwrap()
             )))
             .unwrap();
         inject_tx
-            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .send(Message::text(r#"{"t":"input","data":"\r"}"#.to_string()))
             .unwrap();
         wait_for(|| !sunk.lock().unwrap().is_empty());
         assert_eq!(

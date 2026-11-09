@@ -214,9 +214,16 @@ fn two_thousand_streamed_messages_cost_linear() {
     // A replaced component replaces in place (order kept).
     s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "c5", "component": "Text", "text": "five"}]}})).unwrap();
     assert_eq!(s.root().unwrap().children.len(), 2000);
-    let best = |n: usize| (0..3).map(|_| streamed(n)).fold((Duration::MAX, Duration::MAX), |(a, l), (sa, sl, _)| (a.min(sa), l.min(sl)));
-    let small = best(500);
-    let large = best(2000);
+    // Load-proof: the costs are this thread's CPU time (`cpu_now`), not wall
+    // time a busy shared runner stretches unevenly, and the sizes run
+    // interleaved so a load spike lands on both; min of five each.
+    let (mut small, mut large) = ((Duration::MAX, Duration::MAX), (Duration::MAX, Duration::MAX));
+    for _ in 0..5 {
+        let (a, l, _) = streamed(500);
+        small = (small.0.min(a), small.1.min(l));
+        let (a, l, _) = streamed(2000);
+        large = (large.0.min(a), large.1.min(l));
+    }
     let total = |(a, l): (Duration, Duration)| a + l;
     let ratio = total(large).as_secs_f64() / total(small).as_secs_f64().max(1e-6);
     eprintln!("streamed n=500: apply {:?} layout {:?}; n=2,000: apply {:?} layout {:?}; ratio {ratio:.1}x", small.0, small.1, large.0, large.1);
@@ -230,15 +237,34 @@ fn streamed(n: usize) -> (Duration, Duration, Surface) {
     s.apply(&json!({"createSurface": {"surfaceId": "t", "catalogId": CORE}})).unwrap();
     let ids: Vec<String> = (0..n).map(|i| format!("c{i}")).collect();
     s.set_viewport(400.0, 800.0, None);
-    let t = Instant::now();
+    let t = cpu_now();
     s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "root", "component": "List", "children": ids}]}})).unwrap();
     for i in 0..n {
         s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": format!("c{i}"), "component": "Text", "text": format!("Row {i}")}]}})).unwrap();
     }
-    let apply = t.elapsed();
-    let t = Instant::now();
+    let apply = cpu_now() - t;
+    let t = cpu_now();
     layout(&mut s);
-    (apply, t.elapsed(), s)
+    (apply, cpu_now() - t, s)
+}
+
+/// This thread's CPU time: what the work costs, whatever else the machine
+/// runs (wall time on a loaded runner counts the waits for a core too).
+#[cfg(unix)]
+fn cpu_now() -> Duration {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a valid out pointer; CLOCK_THREAD_CPUTIME_ID exists on Linux and macOS.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    assert_eq!(rc, 0, "clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+/// No portable thread CPU clock here: a monotonic wall clock since the
+/// first call.
+#[cfg(not(unix))]
+fn cpu_now() -> Duration {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
 }
 
 /// #EXP-1742's measurement: `EUI_STREAM_SIZES=500,1000,2000,4000 cargo test
