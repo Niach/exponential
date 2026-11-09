@@ -3490,8 +3490,8 @@
         "file": "shots/exponential-ui-input/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 28874,
-        "sha256": "13788e8d48271f7ca386856459e7a7676156b1f0a8223e4683c7449f0e532a2e"
+        "bytes": 28818,
+        "sha256": "f8fb00b04713fab2c6220b1c620b3b7bafb5609a43d7ffcccc0a33d64644e7c3"
       }
     },
     "exponential-ui-kbd": {
