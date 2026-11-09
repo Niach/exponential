@@ -454,6 +454,26 @@ impl SurfaceView {
     /// The gpui-component input of a field leaf inside its content box (the
     /// frame div paints the recipe chrome; the input draws none). A Select
     /// search field shows its glyph at the start.
+    /// #EXP-1629: a `row` Input's label (its recipe's type, never shrinking)
+    /// and the value column (`flex_1`, `min_w_0`) holding the bare field.
+    fn input_row(&self, lcx: &crate::paint::natives::LeafCx, row: gpui::Div, field: AnyElement) -> gpui::Div {
+        let label = lcx.str("label");
+        let row = if label.is_empty() {
+            row
+        } else {
+            let lp = lcx.part_props("Input", "label", &[]);
+            let ls = lcx.part("Input", "label", &[]);
+            let mut font = lcx.font.clone();
+            if let Some(w) = lp.get("fontWeight").and_then(Value::as_f64) {
+                font.weight = gpui::FontWeight(w as f32);
+            }
+            let size = crate::paint::parts::px_prop(&lp, "fontSize").map(|f| f * lcx.scale).unwrap_or(lcx.text_style.font_size);
+            let lh = crate::paint::parts::px_prop(&lp, "lineHeight").map(|f| f * lcx.scale).unwrap_or(lcx.text_style.line_height);
+            row.child(div().flex_none().whitespace_nowrap().font(font).text_size(px(size)).line_height(px(lh)).text_color(ls.color.unwrap_or(lcx.ink)).when_some(ls.opacity, |d, o| d.opacity(o)).child(gpui::SharedString::from(label.to_string())))
+        };
+        row.child(div().flex_1().min_w_0().text_color(lcx.ink.opacity(0.7)).child(field))
+    }
+
     pub(crate) fn field_element(&self, lcx: &crate::paint::natives::LeafCx, cx: &mut Context<Self>) -> Option<AnyElement> {
         let n = lcx.node;
         let f = self.fields.get(&n.id)?;
@@ -474,7 +494,11 @@ impl SurfaceView {
         // again, so the input paints enabled and the field is made inert
         // here instead (no tab stop: `is_focusable`; no pointer: the
         // occluding cover below).
+        // #EXP-1629: a `row` Input IS the Group row (`glass_input_row`): the
+        // label leads, the value fills the rest end-aligned at 70% ink.
+        let row_variant = f.kind == FieldKind::Input && n.props.get("variant").and_then(Value::as_str) == Some("row");
         let el = match &f.input {
+            FieldInput::Line(s) if row_variant => Input::new(s).appearance(false).font(font).text_size(px(size)).text_color(ink.opacity(0.7)).h_auto().px_0().py_0().text_right().into_any_element(),
             // Round 2 §7: the text starts at border + paddingHorizontal (the
             // field's own content box): no input padding of its own.
             FieldInput::Line(s) => Input::new(s).appearance(false).font(font).text_size(px(size)).text_color(ink).px_0().py_0().w(px(field_w)).h(px(h)).into_any_element(),
@@ -486,7 +510,7 @@ impl SurfaceView {
         let mut row = lcx
             .row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))
             .items_center()
-            .gap(px(if icon.is_some() { icon_gap } else { 0.0 }))
+            .gap(px(if icon.is_some() { icon_gap } else if row_variant { lcx.style.gap } else { 0.0 }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
@@ -501,7 +525,7 @@ impl SurfaceView {
             let (glyph, fade) = lcx.theme_color("mutedForeground").map_or((ink, 0.6), |muted| (muted, 1.0));
             row = row.child(div().flex_none().opacity(fade).child(icons::concept(lcx.host, &name, 16.0, glyph)));
         }
-        let row = row.child(el);
+        let row = if row_variant { self.input_row(lcx, row, el) } else { row.child(el) };
         if disabled {
             return Some(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).child(row.left_0().top_0()).child(div().absolute().size_full().occlude()).into_any_element());
         }

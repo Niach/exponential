@@ -3600,7 +3600,8 @@
       ],
       "props": [
         "type",
-        "disabled"
+        "disabled",
+        "variant"
       ]
     },
     {
@@ -3803,9 +3804,9 @@
         "field",
         "none",
         "value",
-        "key",
         "placeholder",
         "held",
+        "pending",
         "ellipsis",
         "error"
       ],

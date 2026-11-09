@@ -14700,6 +14700,73 @@
       }
     ]
   },
+  "Input\/variant=field" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/variant=row" : {
+    "height" : 40.81999969482422,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          40.82
+        ],
+        "id" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          40.82
+        ],
+        "id" : "input.field",
+        "part" : "field"
+      }
+    ]
+  },
   "Kbd\/example" : {
     "height" : 20,
     "nodes" : [

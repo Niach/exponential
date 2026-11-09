@@ -1,8 +1,8 @@
 {
   "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>. Doubled per Danny 2026-10-26: budgets were tripping CI on every small change; every budget = 2× its measured size (CI where measured, else sizes.json; the per-machine overrides 2× their measure = budget / 1.025), so the check still fails a real blow-up past 2×. VAPP-160: the entries that import catalog/style.json (eui index, schema, conformance, host, web; the element standalone) lowered by exactly the bytes + gzip that importing generated/style.runtime.json (no `$comment`s) saved, measured before/after on one machine. VAPP-275: the host contract's runtime slice (generated/host.runtime.json, only what src/host/contract.ts and exposes.ts read) replaced the whole catalog/host.json in every entry that imports the host contract: eui index, host and conformance and the element standalone lowered by exactly the bytes + gzip saved (measured before/after on one machine). eui/web gzip raised 50,500 → 54,000 for real renderer code (Markdown, Tabs strip, the inline calendar, the brand icon: 52,516 on master) plus the measured growth of the open round-7 PRs (Sidebar rail +136, foldable Row + Tree +455, anchored + hosted popovers +855). VAPP-281: eui/web gzip 54,000 → 54,100: with #2121 (Tree) merged the stack measures 54,016 (Tree landed above its estimate; the popovers grew as estimated), +84 slack. VAPP-289: eui index and host +8 B (the runtime catalog's Box `events` gains `,\"hover\"`), eui schema +53 B (that plus the Box description's `on.hover` sentence), all from 65096ff6527 (#2288, Box on.hover ×5): set to exactly the bytes + gzip measured with CI's bun 1.4.4. EXP-1740 (9ad315767d0, the Window component in the core catalog): eui index +1834 B / +261 gz, schema +1548 / +207, host +1734 / +221, set to exactly what CI's bun 1.4.4 measures. FEED-205: eui index +2,577 B / +858 gz, schema +788 / +187, host +1,409 / +448, web gzip +19 (Chart `valueFormat` + `rows`: the runtime catalog's new props and `valueFormat` shape, `formatCompact`, `formatChartValue`, `chartData`; web only passes `compact` through `memoFormatter`), exactly the growth measured with CI's bun 1.4.4 on b2ffb442932 vs the branch, summed onto #2354's numbers. #FEED-201: eui index +721 B / +81 gzip, schema +492 / +55, host +568 / +59 (the runtime catalog's StatTile + Card `pressable` prop and `press` event), measured with bun 1.4.4 on one machine, merge-base vs the branch: added to the numbers above (merged over FEED-205). VAPP-289 (suite 42507452622): eui index +24 B / +21 gz and host +28 gz past FEED-205's own raise, set to exactly what CI's bun 1.4.4 measures. a69ff3c31ec (EXP-1733/1736, the transcript bubble's catalog props) merged without a raise: index +473 B / +105 gz, schema +496 / +67, host +321 / +66 on top, measured the same way. FEED-200 (Tabs `swipeable`): eui index +1,332 B / +548 gzip (the pure swipe rules `swipe.ts`, exported for every renderer and FEED-201, + the catalog prop), schema +95 B / +29 gzip, host +38 B / +9 gzip (the prop in the runtime catalog), eui/web gzip +1,324 (the web pager `web/tabs-swipe.ts` + 5 CSS rules, after trimming), each the exact master (after #2373) → merged branch growth measured with `bun run --cwd packages/exponential-ui size --check` (bun 1.3.14) on one machine, both over budget there by the same bytes. #2402 pinned CI's bun to 1.3.14 (the Dockerfile's): eui index 704,394 → 707,798 B / 192,544 → 194,430 gz, schema 276,352 → 276,595 B, host 604,866 → 609,016 B / 155,335 → 157,400 gz, eui/web gzip 57,119 → 57,709, web/primitives 114,057 → 114,261 B, set to exactly what bun 1.3.14 measures on master 6e61e96d721 (the 1.4.4 records were over budget by those bytes; no code change). VAPP-289 (suite 42566418462): #2438 (KeyRecorder: catalog, macros, theme recipes) and #2440 (Select `row` trigger + popup props) merged without a raise, plus #2439 (Avatar xl, palette, initials) after the suite: eui index 707,798 → 712,851 B / 194,430 → 195,335 gz, schema 276,595 → 277,720 B, host 609,016 → 613,760 B / 157,400 → 158,154 gz, eui/web gzip 57,709 → 58,861, web/primitives 114,261 → 114,594 B, set to exactly what CI's bun 1.3.14 measures on master 7ffd86e9cd5 (no quick cut: the growth is runtime catalog + theme data the core reads). Master at 291a3a002b1: KbdGroup (#2441), Embed (#2462), avatar colours (815639a905f), Composer menuKeys and the eDE chat adapter landed without their deltas; every eui entry set to exactly what CI's bun 1.3.14 measures there. From here the PR gate runs this check (exponential-ui.yml), so each catalog PR carries its own delta.",
   "@exponential_app/eui/index": {
-    "bytes": 714990,
-    "gzip": 195869
+    "bytes": 715301,
+    "gzip": 195940
   },
   "@exponential_app/eui-react/index": {
     "bytes": 283892,
@@ -29,15 +29,15 @@
     "gzip": 347111
   },
   "@exponential_app/eui/host": {
-    "bytes": 614551,
-    "gzip": 158262
+    "bytes": 614802,
+    "gzip": 158313
   },
   "@exponential_app/eui/web": {
     "bytes": 304014,
-    "gzip": 59201
+    "gzip": 59281
   },
   "@exponential_app/eui/web/primitives": {
-    "bytes": 114727,
+    "bytes": 114728,
     "gzip": 69930
   },
   "@exponential_app/eui-solid/index": {

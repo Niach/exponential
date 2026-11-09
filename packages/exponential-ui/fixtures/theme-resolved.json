@@ -2698,6 +2698,20 @@
               "style": {
                 "borderColor": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
             }
           ],
           "label": [
@@ -2707,6 +2721,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
               }
             }
           ],
@@ -11015,10 +11037,38 @@
               }
             },
             {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "height": 40.82,
+                "paddingHorizontal": 14,
+                "paddingVertical": 10.5,
+                "gap": 10.5,
+                "backgroundColor": "#00000000",
+                "fontSize": 12.25,
+                "lineHeight": 17.5
               }
             }
           ],
@@ -11029,6 +11079,23 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ],
@@ -19549,6 +19616,20 @@
               }
             },
             {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.full",
                 "borderWidth": "$border.thick",
@@ -19564,6 +19645,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
               }
             }
           ],
@@ -28295,10 +28384,38 @@
               }
             },
             {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "height": 40.82,
+                "paddingHorizontal": 14,
+                "paddingVertical": 10.5,
+                "gap": 10.5,
+                "backgroundColor": "#00000000",
+                "fontSize": 12.25,
+                "lineHeight": 17.5
               }
             }
           ],
@@ -28309,6 +28426,23 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
+              }
+            },
+            {
+              "when": {
+                "variant": "row"
+              },
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ],
