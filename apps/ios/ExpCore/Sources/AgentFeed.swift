@@ -518,7 +518,8 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// A human turn: the initial prompt or a steered message. `subagentId`
     /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
     /// narration.
-    case userMessage(id: Int, text: String, subagentId: String? = nil)
+    /// #EXP-1756: `at` (epoch ms) = when it was sent, the bubble's `HH:mm`.
+    case userMessage(id: Int, text: String, subagentId: String? = nil, at: Int? = nil)
     case question(AgentQuestion)
     /// A subagent started or finished (protocol v2).
     ///
@@ -560,7 +561,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .narration(id, _, _, _): id
         case let .apiError(id, _, _, _): id
         case let .tool(id, _, _, _, _, _, _, _, _, _, _, _, _): id
-        case let .userMessage(id, _, _): id
+        case let .userMessage(id, _, _, _): id
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _, _, _, _): id
         case let .permission(id, _, _): id
@@ -589,8 +590,8 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
                 diff: diff, preview: preview, output: output, script: script,
                 settledAt: settledAt
             )
-        case let .userMessage(_, text, subagentId):
-            .userMessage(id: id, text: text, subagentId: subagentId)
+        case let .userMessage(_, text, subagentId, at):
+            .userMessage(id: id, text: text, subagentId: subagentId, at: at)
         case let .question(question):
             {
                 var next = question
@@ -642,7 +643,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .subagent(_, subagentId, _, _, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .apiError(_, _, _, subagentId): return subagentId
-        case let .userMessage(_, _, subagentId): return subagentId
+        case let .userMessage(_, _, subagentId, _): return subagentId
         case let .thought(_, _, _, _, subagentId): return subagentId
         default: return nil
         }
@@ -949,7 +950,7 @@ public enum AgentFeed {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
         case let .apiError(_, message, errorType, _):
             return overhead + message.utf8.count + (errorType?.utf8.count ?? 0)
-        case let .userMessage(_, text, _): return overhead + text.utf8.count
+        case let .userMessage(_, text, _, _): return overhead + text.utf8.count
         case let .tool(_, name, detail, _, _, _, _, _, diff, _, output, _, _):
             // EXP-786/895: a folded per-call diff and the command output its
             // settle carried both weigh too.
