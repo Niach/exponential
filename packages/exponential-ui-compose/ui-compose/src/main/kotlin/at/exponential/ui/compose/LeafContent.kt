@@ -40,6 +40,8 @@ fun LeafContent(context: LeafContext) {
         "Motion" -> MotionLeaf(cx)
         // Round 8: a static drawing on the core's CanvasPlayer (shapes, then native text).
         "Canvas" -> CanvasLeaf(cx)
+        // #EDE-65: a nested surface drawn in place, sandboxed (fixtures/embed.json).
+        "Embed" -> if (n.part == null) EmbedLeaf(cx)
         "AudioPlayer" -> AudioLeaf(cx)
         "Spinner" -> LeafFrame {
             SpinnerView(min(cx.inner.width, cx.inner.height), cx.ink, Modifier.align(Alignment.Center))

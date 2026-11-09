@@ -186,6 +186,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`settings-row`]: `Inputs & pickers`,
   [`kbd-group`]: `Inputs & pickers`,
   [`key-recorder`]: `Inputs & pickers`,
+  embed: `Surfaces`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,

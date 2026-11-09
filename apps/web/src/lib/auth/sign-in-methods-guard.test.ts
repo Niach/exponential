@@ -33,6 +33,7 @@ import {
   signInMethodsGuardPlugin,
 } from "./sign-in-methods"
 import { API_KEY_IDENTITY_CODE } from "./api-key-kind"
+import { isAllowedDeviceClient } from "./device-clients"
 
 const BASE = `http://localhost:3000`
 
@@ -93,6 +94,7 @@ function makeAuth() {
         expiresIn: `10m`,
         interval: `5s`,
         verificationUri: `/auth/device`,
+        validateClient: isAllowedDeviceClient,
         schema: {},
       }),
     ],
@@ -330,6 +332,27 @@ describe(`signInMethodsGuardPlugin — a key cannot manage keys or approve a dev
     const started = await post(harness, `/device/code`, { client_id: `exponential-cli` })
     expect(started.status).toBe(200)
     expect(typeof started.json.user_code).toBe(`string`)
+  })
+
+  // GHSA-q84f-53jg-9ppm: only allow-listed clients start or poll a request.
+  it(`an unknown client_id cannot start a device request`, async () => {
+    const refused = await post(harness, `/device/code`, { client_id: `evil-client` })
+    expect(refused.status).toBe(400)
+    expect(refused.json.error).toBe(`invalid_client`)
+    expect(harness.db.deviceCode).toHaveLength(0)
+  })
+
+  it(`an unknown client_id cannot poll an allow-listed client's code`, async () => {
+    const started = await post(harness, `/device/code`, { client_id: `exponential-cli` })
+    const polled = await post(harness, `/device/token`, {
+      grant_type: `urn:ietf:params:oauth:grant-type:device_code`,
+      device_code: started.json.device_code,
+      client_id: `evil-client`,
+    })
+    // The plugin's token endpoint words a refused client as `invalid_grant`.
+    expect(polled.status).toBe(400)
+    expect(polled.json.error).toBe(`invalid_grant`)
+    expect(polled.json.error_description).toBe(`Invalid client ID`)
   })
 })
 
