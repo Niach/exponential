@@ -102,4 +102,14 @@ wait "$firstpid"
 [ ! -e "$root/exp-perf-heavy-1" ] && ok "the first run releases slot 1" || no "the first run releases slot 1"
 rm -f "$root/exp-lane-slots" "$root/first-in"
 
+
+# --own-target: the command sees THIS checkout's apps/desktop/target as
+# CARGO_TARGET_DIR, whatever the machine exports; without it, the shared one.
+top=$(git -C "$here" rev-parse --show-toplevel)
+seen=$(CARGO_TARGET_DIR=/shared/target "$here/lane.sh" heavy me --own-target -- sh -c 'echo "$CARGO_TARGET_DIR"' 2>/dev/null)
+[ "$seen" = "$top/apps/desktop/target" ] && ok "--own-target builds into this checkout's target" || no "--own-target builds into this checkout's target (got '$seen')"
+seen=$(CARGO_TARGET_DIR=/shared/target "$here/lane.sh" heavy me -- sh -c 'echo "$CARGO_TARGET_DIR"')
+[ "$seen" = /shared/target ] && ok "without --own-target the shared target stays" || no "without --own-target the shared target stays (got '$seen')"
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "--own-target still releases the lane" || no "--own-target still releases the lane"
+
 [ "$fails" -eq 0 ] && echo "all lane lock checks passed" || { echo "$fails lane lock check(s) failed"; exit 1; }
