@@ -849,6 +849,85 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertEqual(SurfaceModel.composerMenuKey("ArrowLeft", modified: false), nil)
     }
 
+    // MARK: - interactions-round1.json composerSlots / composerPaste (#EDE-65 R)
+
+    /// Every composerSlots case through the MODEL (the core's layout): the
+    /// slot roots sit in the controls row in `order` (start → end, mirrored
+    /// in RTL), centred on the send disc's row (`c.sendSpace`), inside the
+    /// composer; `trailing` ends before the disc; a press on a slot child
+    /// fires its own action. The attach control's place is the leaf's
+    /// (`ComposerLeaf`: before `trailing`).
+    func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 7)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let rtl = c["direction"]?.string == "rtl"
+            guard case .object(var composer) = f["surface"]!, case .object(var props) = composer["props"] ?? .object([:]) else { return XCTFail("\(name): surface") }
+            for (k, v) in c["props"]?.object ?? [:] { props[k] = v }
+            composer["props"] = .object(props)
+            let slots = c["slots"]?.object ?? [:]
+            if !slots.isEmpty { composer["slots"] = .object(slots) }
+            let tree: JSONValue = .object(["id": .string("root"), "component": .string("Box"), "style": .object(["display": .string("flex"), "flexDirection": .string("column"), "direction": .string(rtl ? "rtl" : "ltr")]), "children": .array([.object(composer)])])
+            let host = Round1Host()
+            let m = try model(tree, host: host)
+            let frame = { (id: String) in m.index(of: id).map { m.frame($0) } }
+            let cf = try XCTUnwrap(frame("c"), "\(name): composer")
+            guard !slots.isEmpty else {
+                XCTAssertNil(frame("c.bar"), "\(name): no row without slots")
+                continue
+            }
+            let send = try XCTUnwrap(frame("c.sendSpace"), "\(name): the disc's square")
+            var along: [(CGFloat, String)] = []
+            for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
+                guard let b = frame(id) else {
+                    XCTAssertNil(slots[slot], "\(name): \(slot) laid out")
+                    continue
+                }
+                XCTAssertEqual(b.midY, send.midY, accuracy: 0.01, "\(name): \(slot) centred on the disc")
+                XCTAssertTrue(cf.insetBy(dx: -0.01, dy: -0.01).contains(b), "\(name): \(slot) inside the composer")
+                along.append((rtl ? -b.maxX : b.minX, slot))
+                if slot == "trailing" {
+                    XCTAssertTrue(rtl ? b.minX >= send.maxX : b.maxX <= send.minX, "\(name): trailing before the disc")
+                }
+            }
+            let order = (c["order"]?.array ?? []).compactMap(\.string).filter { $0 == "leading" || $0 == "trailing" }
+            XCTAssertEqual(along.sorted { $0.0 < $1.0 }.map(\.1), order, "\(name): order")
+            for step in c["steps"]?.array ?? [] { m.press(id: step["press"]?.string ?? "") }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): events")
+        }
+    }
+
+    /// Every composerPaste case through the MODEL: `composerPaste` with the
+    /// clipboard's files (what the text views read off the pasteboard,
+    /// `ComposerPasteboard`); not taken + text = the field's own edit.
+    func testComposerPasteCasesAttachImagesThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerPaste"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 5)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try model(f["surface"]!, host: host)
+            for (path, value) in c["data"]?.object ?? [:] { m.setData(path: "/\(path)", value: value) }
+            let index = try XCTUnwrap(m.index(of: "c"), "\(name): no composer")
+            let files = (c["clipboard"]?["files"]?.array ?? []).map { SurfaceUploadFile(name: $0["name"]?.string ?? "", size: Int($0["size"]?.number ?? 0), type: $0["type"]?.string ?? "", data: Data(count: Int($0["size"]?.number ?? 0))) }
+            let taken = m.composerPaste(index, files: files)
+            if !taken, let text = c["clipboard"]?["text"]?.string {
+                m.fieldEdited(index, text: (m.data["draft"]?.string ?? "") + text)
+                m.flushPending(index)
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(host.uploads.flatMap { $0.files.map(\.name) }, (c["uploads"]?.array ?? []).compactMap(\.string), "\(name): uploads")
+            XCTAssertTrue(host.uploads.allSatisfy { $0.componentId == "c" && $0.name == "c" }, "\(name): the upload names the Composer")
+            XCTAssertEqual(m.data["draft"] ?? .null, c["draft"] ?? .null, "\(name): /draft")
+        }
+    }
+
     // MARK: - interactions-round1.json foldRow (#VAPP-284)
 
     /// A foldable Row (children): a press on the head or its fold button, or

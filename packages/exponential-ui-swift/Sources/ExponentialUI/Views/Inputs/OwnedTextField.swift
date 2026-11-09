@@ -106,6 +106,10 @@ extension OwnedTextField {
 
     /// #EDE-65: a Composer key for the host's menu (`menuKeys`): `true` = taken.
     func menuKey(_ name: String, modified: Bool, composing: Bool) -> Bool { model.composerKey(index, key: name, modified: modified, composing: composing) }
+
+    /// #EDE-65 R: a paste into a Composer: `true` = taken (its files went to
+    /// `attach`; the field inserts nothing).
+    func paste() -> Bool { model.composerPaste(index, files: ComposerPasteboard.files()) }
 }
 
 #if canImport(UIKit)
@@ -202,6 +206,7 @@ extension OwnedTextField: UIViewRepresentable {
         } else if let tv = view as? PlaceholderTextView {
             let coordinator = context.coordinator
             tv.onMenuKey = submitsOnReturn ? { name, modified, composing in coordinator.parent.menuKey(name, modified: modified, composing: composing) } : nil
+            tv.onPaste = submitsOnReturn ? { coordinator.parent.paste() } : nil
             tv.font = font
             tv.textColor = color
             tv.tintColor = color
@@ -290,6 +295,19 @@ extension OwnedTextField: UIViewRepresentable {
     final class PlaceholderTextView: UITextView {
         let placeholderLabel = UILabel()
         var onMenuKey: ((String, Bool, Bool) -> Bool)?
+        /// #EDE-65 R: a Composer's paste: `true` = taken (composerPaste).
+        var onPaste: (() -> Bool)?
+
+        override func paste(_ sender: Any?) {
+            if onPaste?() == true { return }
+            super.paste(sender)
+        }
+
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            // UITextView offers Paste for text only; a Composer takes images.
+            if action == #selector(paste(_:)), onPaste != nil, isEditable, ComposerPasteboard.hasFiles() { return true }
+            return super.canPerformAction(action, withSender: sender)
+        }
 
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
             if let onMenuKey {
@@ -476,6 +494,8 @@ extension OwnedTextField: NSViewRepresentable {
                 tv.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             }
             if let ptv = tv as? PlaceholderTextView {
+                let coordinator = context.coordinator
+                ptv.onPaste = submitsOnReturn ? { coordinator.parent.paste() } : nil
                 ptv.placeholder = placeholder.isEmpty ? nil : NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
                 ptv.placeholderLineHeight = lineHeight
             }
@@ -499,6 +519,14 @@ extension OwnedTextField: NSViewRepresentable {
     /// the text, centred in one `placeholderLineHeight` line (the iOS
     /// `PlaceholderTextView` label's frame).
     final class PlaceholderTextView: NSTextView {
+        /// #EDE-65 R: a Composer's paste: `true` = taken (composerPaste).
+        var onPaste: (() -> Bool)?
+
+        override func paste(_ sender: Any?) {
+            if onPaste?() == true { return }
+            super.paste(sender)
+        }
+
         var placeholder: NSAttributedString? { didSet { if placeholder != oldValue { needsDisplay = true } } }
         var placeholderLineHeight: CGFloat = 0 { didSet { if placeholderLineHeight != oldValue { needsDisplay = true } } }
 
