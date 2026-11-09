@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-65 lane I: THE agent chat document both hosts draw (docs/chat.json: eDE's chat in the ground, the IDE's agent and chat pages later), a pure projection of ONE conversation the host already resolved, replayed in TS (src/chat.ts) and Rust (uicore-model chat.rs). The host builds the rows from the domain's chat rows (session-chat.json; the words other fixtures own, a divider's label, an event's text, a card's state word, come resolved), so this layer owns only how the chat is drawn. FACE: no sessionId = `home` (the Agent page: the agent row over the composer, composer-home.json: placeholder `copy.homePlaceholder`, the label `copy.to` with the picked agent's name, rows always empty); a sessionId = `conversation` (header = the title + the agent's icon, the rows, the composer with `copy.placeholder` while the host's composer has the `/` menu (`slashCommands`: the IDE), else `copy.messagePlaceholder` (chats.json copy.emptyPlaceholder) with the title as {name}: eDE never promises a menu it does not have). AGENT ROW: single select over `agents` in the given order; `agentId` picks one, an unknown or null pick falls back to the first; no agents = no label and nothing selected. ROWS keep their order; every row carries EVERY field (a template binds any of them), the ones its kind does not use blank: `` strings, false, [] or null. A message by `user` = kind `user` (`bubble` = the chat's `bubbles`, session-chat.json chatModeCases; caption: bubbles = the time alone, inside the bubble; a transcript = `name · time` under it, a missing part dropped with its separator; `queued` kept); by `agent` = kind `agent` (bubbles = a left bubble with its time; a transcript = plain prose, no caption); any other author = a muted `line` with `copy.systemIcon`. `pill` (a /new or /compact divider, a locked row) = kind `pill`, its label as `text`. `line` (an event, a subagent) and `card` (a session card, a report, a plan row, a surface or suggestions card; `target` = the session a press opens) pass through. `question` = kind `question` with `copy.questionIcon` (waiting-cards.json icons.question), the question as `title`, its options (each carrying the row's id as `messageId`: a template cannot read its parent), custom, multi, waiting and answer. `picture` = its attachment and the caption as `text` (blank without one). empty = no rows. COMPOSER: canSend = the draft has a non-blank character, nothing is sending, and on home an agent is picked; busy = a turn is running (submit becomes stop).",
+  "$comment": "#EDE-65 lane I: THE agent chat document both hosts draw (docs/chat.json: eDE's chat in the ground, the IDE's agent and chat pages later), a pure projection of ONE conversation the host already resolved, replayed in TS (src/chat.ts) and Rust (uicore-model chat.rs). The host builds the rows from the domain's chat rows (session-chat.json; the words other fixtures own, a divider's label, an event's text, a card's state word, come resolved), so this layer owns only how the chat is drawn. FACE: no sessionId = `home` (the Agent page: the agent row over the composer, composer-home.json: placeholder `copy.homePlaceholder`, the label `copy.to` with the picked agent's name, rows always empty); a sessionId = `conversation` (header = the title + the agent's icon, the rows, the composer with `copy.placeholder` while the host's composer has the `/` menu (`slashCommands`: the IDE), else `copy.messagePlaceholder` (chats.json copy.emptyPlaceholder) with the title as {name}: eDE never promises a menu it does not have). AGENT ROW: single select over `agents` in the given order; `agentId` picks one, an unknown or null pick falls back to the first; no agents = no label and nothing selected. ROWS keep their order; every row carries EVERY field (a template binds any of them), the ones its kind does not use blank: `` strings, false, [] or null. A message by `user` = kind `user` (`bubble` = the chat's `bubbles`, session-chat.json chatModeCases; caption: bubbles = the time alone, inside the bubble; a transcript = `name · time` under it, a missing part dropped with its separator; `queued` kept); by `agent` = kind `agent` (bubbles = a left bubble with its time; a transcript = plain prose, no caption); any other author = a muted `line` with `copy.systemIcon`. `pill` (a /new or /compact divider, a locked row) = kind `pill`, its label as `text`. `line` (an event, a subagent) and `card` (a session card, a report, a plan row, a surface or suggestions card; `target` = the session a press opens) pass through. CARD SURFACE (lane Q): a `card` or `question` may carry `surface` = the genUI card the document draws in an Embed under its title (`{root, data, version?}`: an `exponential_show` surface, a plan's or question's inline surface; the host passes a closed card's answered data model as `data`); it passes through as is, absent = null, and every other kind's is null. `question` = kind `question` with `copy.questionIcon` (waiting-cards.json icons.question), the question as `title`, its options (each carrying the row's id as `messageId`: a template cannot read its parent), custom, multi, waiting and answer. `picture` = its attachment and the caption as `text` (blank without one). empty = no rows. COMPOSER: canSend = the draft has a non-blank character, nothing is sending, and on home an agent is picked; busy = a turn is running (submit becomes stop).",
   "version": 1,
   "copy": {
     "to": "To {name}",
@@ -402,7 +402,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           },
           {
             "id": "m2",
@@ -420,7 +421,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -498,7 +500,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           },
           {
             "id": "m2",
@@ -516,7 +519,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -592,7 +596,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           },
           {
             "id": "m2",
@@ -610,7 +615,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -676,7 +682,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -761,7 +768,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           },
           {
             "id": "l1",
@@ -779,7 +787,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           },
           {
             "id": "c1",
@@ -797,7 +806,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           },
           {
             "id": "c2",
@@ -815,7 +825,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -902,7 +913,8 @@
             "multi": false,
             "waiting": true,
             "answer": null,
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -980,7 +992,8 @@
             "multi": true,
             "waiting": false,
             "answer": "Yes",
-            "attachmentId": null
+            "attachmentId": null,
+            "surface": null
           }
         ],
         "empty": false,
@@ -1049,7 +1062,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": "att-1"
+            "attachmentId": "att-1",
+            "surface": null
           },
           {
             "id": "x2",
@@ -1067,7 +1081,8 @@
             "multi": false,
             "waiting": false,
             "answer": null,
-            "attachmentId": "att-2"
+            "attachmentId": "att-2",
+            "surface": null
           }
         ],
         "empty": false,
@@ -1149,6 +1164,356 @@
         "empty": true,
         "composer": {
           "placeholder": "What do you want to build?",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a card carries its surface; a card without one has none",
+      "input": {
+        "rows": [
+          {
+            "id": "m1",
+            "type": "card",
+            "icon": "ui-widget",
+            "title": "Tests",
+            "text": "",
+            "target": "S1",
+            "surface": {
+              "version": "1.0",
+              "root": {
+                "id": "r",
+                "component": "Stack",
+                "children": [
+                  {
+                    "id": "t",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "/greeting"
+                      }
+                    }
+                  },
+                  {
+                    "id": "b",
+                    "component": "Button",
+                    "props": {
+                      "label": "Ship"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "reply",
+                          "context": {
+                            "text": "Ship"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "greeting": "Tests green"
+              }
+            }
+          },
+          {
+            "id": "m2",
+            "type": "card",
+            "icon": "coding-plan",
+            "title": "Plan",
+            "text": "Needs you",
+            "target": "S1",
+            "surface": null
+          },
+          {
+            "id": "m3",
+            "type": "card",
+            "icon": "session-tree",
+            "title": "Child",
+            "text": "Coding",
+            "target": "S2"
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "m1",
+            "kind": "card",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "ui-widget",
+            "title": "Tests",
+            "text": "",
+            "target": "S1",
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null,
+            "surface": {
+              "version": "1.0",
+              "root": {
+                "id": "r",
+                "component": "Stack",
+                "children": [
+                  {
+                    "id": "t",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "/greeting"
+                      }
+                    }
+                  },
+                  {
+                    "id": "b",
+                    "component": "Button",
+                    "props": {
+                      "label": "Ship"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "reply",
+                          "context": {
+                            "text": "Ship"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "greeting": "Tests green"
+              }
+            }
+          },
+          {
+            "id": "m2",
+            "kind": "card",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "coding-plan",
+            "title": "Plan",
+            "text": "Needs you",
+            "target": "S1",
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null,
+            "surface": null
+          },
+          {
+            "id": "m3",
+            "kind": "card",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "session-tree",
+            "title": "Child",
+            "text": "Coding",
+            "target": "S2",
+            "options": [],
+            "custom": false,
+            "multi": false,
+            "waiting": false,
+            "answer": null,
+            "attachmentId": null,
+            "surface": null
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
+          "canSend": false,
+          "busy": false
+        }
+      }
+    },
+    {
+      "name": "a question carries its surface next to its options",
+      "input": {
+        "rows": [
+          {
+            "id": "q1",
+            "type": "question",
+            "question": "Which build?",
+            "options": [
+              {
+                "label": "Debug",
+                "description": null
+              }
+            ],
+            "custom": false,
+            "multi": false,
+            "waiting": true,
+            "answer": null,
+            "surface": {
+              "version": "1.0",
+              "root": {
+                "id": "r",
+                "component": "Stack",
+                "children": [
+                  {
+                    "id": "t",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "/greeting"
+                      }
+                    }
+                  },
+                  {
+                    "id": "b",
+                    "component": "Button",
+                    "props": {
+                      "label": "Ship"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "reply",
+                          "context": {
+                            "text": "Ship"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "greeting": "Tests green"
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "face": "conversation",
+        "header": {
+          "title": "Assistant",
+          "icon": "agent:A1"
+        },
+        "agentRow": {
+          "label": "To Assistant",
+          "agents": [
+            {
+              "id": "A1",
+              "name": "Assistant",
+              "icon": "agent:A1",
+              "selected": true
+            },
+            {
+              "id": "A2",
+              "name": "Triage",
+              "icon": "agent:A2",
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "q1",
+            "kind": "question",
+            "bubble": false,
+            "body": "",
+            "caption": "",
+            "queued": false,
+            "icon": "ui-help",
+            "title": "Which build?",
+            "text": "",
+            "target": null,
+            "options": [
+              {
+                "label": "Debug",
+                "description": null,
+                "messageId": "q1"
+              }
+            ],
+            "custom": false,
+            "multi": false,
+            "waiting": true,
+            "answer": null,
+            "attachmentId": null,
+            "surface": {
+              "version": "1.0",
+              "root": {
+                "id": "r",
+                "component": "Stack",
+                "children": [
+                  {
+                    "id": "t",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "/greeting"
+                      }
+                    }
+                  },
+                  {
+                    "id": "b",
+                    "component": "Button",
+                    "props": {
+                      "label": "Ship"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "reply",
+                          "context": {
+                            "text": "Ship"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "greeting": "Tests green"
+              }
+            }
+          }
+        ],
+        "empty": false,
+        "composer": {
+          "placeholder": "Type / for commands",
           "canSend": false,
           "busy": false
         }

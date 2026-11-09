@@ -5,6 +5,7 @@
 //! (`packages/uicore/docs/chat.json`) binds the result under `/chatting`.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 const SOURCE: &str = include_str!("../../../../../packages/uicore/fixtures/chat.json");
 
@@ -38,8 +39,28 @@ pub enum ChatRowInput {
     Message { id: String, author: String, body: String, name: Option<String>, time: String, queued: bool },
     Pill { id: String, icon: String, label: String },
     Line { id: String, icon: String, text: String },
-    Card { id: String, icon: String, title: String, text: String, target: Option<String> },
-    Question { id: String, question: String, options: Vec<ChatOption>, custom: bool, multi: bool, waiting: bool, answer: Option<String> },
+    /// `surface` = the genUI card the document draws in an Embed (Round 9
+    /// §19 `{root, data, version?}`), absent = none.
+    Card {
+        id: String,
+        icon: String,
+        title: String,
+        text: String,
+        target: Option<String>,
+        #[serde(default)]
+        surface: Option<Value>,
+    },
+    Question {
+        id: String,
+        question: String,
+        options: Vec<ChatOption>,
+        custom: bool,
+        multi: bool,
+        waiting: bool,
+        answer: Option<String>,
+        #[serde(default)]
+        surface: Option<Value>,
+    },
     Picture { id: String, attachment_id: String, caption: Option<String> },
 }
 
@@ -93,6 +114,8 @@ pub struct ChatRow {
     pub waiting: bool,
     pub answer: Option<String>,
     pub attachment_id: Option<String>,
+    /// The card's genUI surface (cards and questions), else `None`.
+    pub surface: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +189,7 @@ fn blank(id: &str, kind: ChatRowKind) -> ChatRow {
         waiting: false,
         answer: None,
         attachment_id: None,
+        surface: None,
     }
 }
 
@@ -194,10 +218,15 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
         },
         ChatRowInput::Pill { id, icon, label } => ChatRow { icon: icon.clone(), text: label.clone(), ..blank(id, ChatRowKind::Pill) },
         ChatRowInput::Line { id, icon, text } => ChatRow { icon: icon.clone(), text: text.clone(), ..blank(id, ChatRowKind::Line) },
-        ChatRowInput::Card { id, icon, title, text, target } => {
-            ChatRow { icon: icon.clone(), title: title.clone(), text: text.clone(), target: target.clone(), ..blank(id, ChatRowKind::Card) }
-        }
-        ChatRowInput::Question { id, question, options, custom, multi, waiting, answer } => ChatRow {
+        ChatRowInput::Card { id, icon, title, text, target, surface } => ChatRow {
+            icon: icon.clone(),
+            title: title.clone(),
+            text: text.clone(),
+            target: target.clone(),
+            surface: surface.clone(),
+            ..blank(id, ChatRowKind::Card)
+        },
+        ChatRowInput::Question { id, question, options, custom, multi, waiting, answer, surface } => ChatRow {
             icon: copy("questionIcon"),
             title: question.clone(),
             options: options.iter().map(|o| ChatRowOption { label: o.label.clone(), description: o.description.clone(), message_id: id.clone() }).collect(),
@@ -205,6 +234,7 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
             multi: *multi,
             waiting: *waiting,
             answer: answer.clone(),
+            surface: surface.clone(),
             ..blank(id, ChatRowKind::Question)
         },
         ChatRowInput::Picture { id, attachment_id, caption } => ChatRow {
