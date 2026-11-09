@@ -322,7 +322,38 @@ pub struct SendContext<'a> {
     pub device_id: &'a str,
     /// the target session and its conversation when `sessionId` names one
     pub existing: Option<(Row, Row)>,
+    /// #EDE-65 lane L: the rows of the send's `attachmentIds` (id, filename, content_type)
+    pub attachments: Vec<Row>,
     pub now: &'a str,
+}
+
+const INLINE_IMAGE_TYPES: [&str; 5] = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"];
+
+/// The server's `attachmentLine`: an embed for an inline image, else a link.
+pub fn attachment_line(row: &Row) -> String {
+    let url = format!("/api/attachments/{}", str_of(row, "id").unwrap_or_default());
+    let name: String = str_of(row, "filename").unwrap_or_default().chars().filter(|c| !matches!(c, '[' | ']')).collect();
+    if INLINE_IMAGE_TYPES.contains(&str_of(row, "content_type").unwrap_or_default()) {
+        format!("![{name}]({url})")
+    } else {
+        format!("[{name}]({url})")
+    }
+}
+
+/// A sent body with the line of every attachment it does not name yet (the
+/// server's `claimMessageAttachments`).
+pub fn body_with_attachments(text: &str, ids: &[String], attachments: &[Row]) -> String {
+    let lines: Vec<String> = ids
+        .iter()
+        .filter(|id| !text.contains(&format!("/api/attachments/{id}")))
+        .filter_map(|id| attachments.iter().find(|row| str_of(row, "id") == Some(id.as_str())))
+        .map(attachment_line)
+        .collect();
+    if lines.is_empty() {
+        return text.to_string();
+    }
+    let text = text.trim_end();
+    std::iter::once(text.to_string()).filter(|t| !t.is_empty()).chain(lines).collect::<Vec<_>>().join("\n\n")
 }
 
 /// `sessions.send`: the rows written and the answer `(session_id, message_id)`.
@@ -351,11 +382,12 @@ pub fn send_rows(input: &Row, ctx: &SendContext, next_id: &mut dyn FnMut() -> St
         }
     };
     let message_id = next_id();
+    let attachment_ids: Vec<String> = input.get("attachmentIds").and_then(Value::as_array).map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
     rows.push(("messages", obj(json!({
         "id": message_id, "conversation_id": conversation_id, "root_id": session_id, "team_id": ctx.team_id,
         "author_kind": "user", "author_id": ctx.identity.user_id, "author_session_id": null,
-        "body": str_of(input, "text").unwrap_or(""), "card": null,
-        "attachment_ids": input.get("attachmentIds").cloned().filter(Value::is_array).unwrap_or_else(|| json!([])),
+        "body": body_with_attachments(str_of(input, "text").unwrap_or(""), &attachment_ids, &ctx.attachments), "card": null,
+        "attachment_ids": attachment_ids,
         "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": ctx.now, "updated_at": ctx.now,
     }))));
     if ctx.existing.is_none() {
