@@ -833,6 +833,20 @@ class SurfaceModel(
         if (this.width > 0f) pass()
     }
 
+    /** #EXP-1629: the window around the surface (surface coordinates, dp): anchored popups fit into it, not the surface. */
+    private var popupWindow: FloatArray? = null
+
+    /**
+     * #EXP-1629: [popupWindow], kept for the next pass, which it only forces
+     * while a layer is open (a host scroll moves it on every frame).
+     */
+    internal fun setPopupWindow(x: Float, y: Float, width: Float, height: Float) {
+        val next = floatArrayOf(x, y, width, height)
+        if (popupWindow?.contentEquals(next) == true) return
+        popupWindow = next
+        if (layers.isNotEmpty() && this.width > 0f) pass()
+    }
+
     /** The surface's width from its own layout (`ExponentialSurface`). */
     internal fun setSurfaceWidth(width: Float) = applyViewport(width, viewportHeight, maxHeight)
 
@@ -935,6 +949,7 @@ class SurfaceModel(
         benchCounters?.sent(0)
         surface.setViewport(width, viewportHeight, maxHeight)
         surface.setLayerViewport(layerViewportWidth ?: 0f, 0f)
+        popupWindow.let { surface.setPopupBounds(it?.get(0) ?: 0f, it?.get(1) ?: 0f, it?.get(2) ?: 0f, it?.get(3) ?: 0f) }
         var measureCalls = 0
         var tries = 0
         val touched = HashSet<Int>()

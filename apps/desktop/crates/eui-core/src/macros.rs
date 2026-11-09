@@ -20,7 +20,7 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use crate::catalog::{CatalogView, TOKEN_GROUPS};
-use crate::expr::{eval_condition_value, eval_value, is_binding, Decided, ExprContext};
+use crate::expr::{eval_condition_value, eval_value, is_binding, is_dynamic, Decided, ExprContext};
 use crate::json;
 use crate::types::{MacroDef, MacroRoute, MacroTemplate, Props, Recipe, ReduceIssue, TemplateChild, UiNode};
 
@@ -486,9 +486,16 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
     }
     let mut base_props = props_at(&node.props, None);
     // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
-    // #EXP-1674: so does an `href` (Row).
-    if (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || base_props.get("href").is_some_and(|h| !h.is_null() && h != "")) && !base_props.contains_key("pressable") && view.components.get(macro_).is_some_and(|d| d.props.contains_key("pressable")) {
-        base_props.insert("pressable".into(), Value::Bool(true));
+    // #EXP-1674: so does an `href` (Row). #EDE-65: a BOUND href only while it
+    // resolves to a non-empty value (`cond {if: href}`, presence: null,
+    // undefined and "" leave it plain).
+    if !base_props.contains_key("pressable") && view.components.get(macro_).is_some_and(|d| d.props.contains_key("pressable")) {
+        let href = base_props.get("href").filter(|h| !h.is_null() && *h != "");
+        if node.on.as_ref().is_some_and(|o| o.contains_key("press")) || href.is_some_and(|h| !is_dynamic(h)) {
+            base_props.insert("pressable".into(), Value::Bool(true));
+        } else if let Some(href) = href.cloned() {
+            base_props.insert("pressable".into(), crate::expr::call("cond", vec![("if", Some(href)), ("then", Some(Value::Bool(true))), ("else", Some(Value::Bool(false)))]));
+        }
     }
     let variants = responsive_variants(&node.props);
     let mut exp = Expansion { view, macro_, def, source: &node, base_props: base_props.clone(), variants, claimed: HashSet::new(), issues: Vec::new(), built: Vec::new() };

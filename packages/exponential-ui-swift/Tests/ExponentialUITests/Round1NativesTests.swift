@@ -421,6 +421,24 @@ final class Round1NativesTests: XCTestCase {
         paint(m)
     }
 
+    /// #EXP-1629: a `row` Select's `description` stacks under its label in
+    /// the `labels` column; the value and chevron sit in the `control`
+    /// column; the row grows past its 40.82 to hold the hint (10.5 around).
+    func testSelectRowDescription() throws {
+        let options: JSONValue = .array(["English", "Deutsch"].map { .object(["label": .string($0), "value": .string($0)]) })
+        let m = try surface(node("lang", "Select", ["label": .string("Language"), "description": .string("Spoken replies and dictation use it"), "triggerVariant": .string("row"), "value": .string("English"), "options": options]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.index(of: "lang.trigger"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["lang.labels", "lang.control"])
+        let labels = try XCTUnwrap(m.index(of: "lang.labels"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == labels && !$0.removed }.map(\.id), ["lang.label", "lang.description"])
+        let hint = m.part("Select", "description", props: m.ownerProps(trigger))
+        XCTAssertEqual(hint.style.opacity ?? 1, 0.5, accuracy: 0.001, "the IDE's 50 % hint")
+        let (t, l, d) = (m.frame(trigger), m.frame(m.index(of: "lang.label")!), m.frame(m.index(of: "lang.description")!))
+        XCTAssertGreaterThanOrEqual(d.minY, l.maxY)
+        XCTAssertEqual(t.height, 21 + (d.maxY - l.minY), accuracy: 0.01)
+    }
+
     /// #EXP-1629: a `row` Select's trigger is the core's container of parts
     /// (label, spacer, value, chevron); opening puts the cursor (the ONE
     /// `hover`) on the FIRST enabled option and focus in the search field;

@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
@@ -171,6 +172,9 @@ private fun SurfaceBody(model: SurfaceModel, density: Float, modifier: Modifier)
                 val x = kotlin.math.max(0f, (visible.left - at.x) / density)
                 if (visible.height > 0f) model.autoViewportHeight(visible.height / density)
                 if (x != model.surfaceScroll.x || y != model.surfaceScroll.y) model.setSurfaceScroll(x, y)
+                // #EXP-1629: anchored popups fit into the window around the surface.
+                val window = c.findRootCoordinates().size
+                model.setPopupWindow(-at.x / density, -at.y / density, window.width / density, window.height / density)
             }
             .bringIntoViewRequester(bring)
             .surfaceKeys(model)
