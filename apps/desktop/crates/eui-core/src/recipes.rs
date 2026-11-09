@@ -219,7 +219,7 @@ mod tests {
     fn recipe_keys_are_a_subset_of_the_box_visual_keys_plus_the_box_keys_and_native() {
         let style: Value = serde_json::from_str(gc::STYLE_JSON).unwrap();
         let mut allowed: Vec<String> = style["visual"].as_object().unwrap().keys().cloned().collect();
-        for k in ["padding", "paddingHorizontal", "paddingVertical", "gap", "width", "height", "minWidth", "minHeight", "native", "marginTop", "marginBottom", "backgroundClip"] {
+        for k in ["padding", "paddingHorizontal", "paddingVertical", "gap", "width", "height", "minWidth", "minHeight", "native", "marginTop", "marginBottom", "maxWidth", "backgroundClip"] {
             allowed.push(k.into());
         }
         for key in RECIPE_KEYS {

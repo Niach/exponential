@@ -980,6 +980,20 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `name · an email`, node: { id: `email`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-jonas`, size: `default` } } },
     { label: `src · a picture`, node: { id: `picture`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `xl`, src: AVATAR_PICTURE } } },
   ],
+  // #EDE-65 R: the IDE's composer row: the "+" options Menu in `leading`,
+  // the context Ring in `trailing` (before the send disc).
+  Composer: [{
+    label: `slots · leading + trailing`,
+    node: {
+      id: `slotted`,
+      component: `Composer`,
+      props: { placeholder: `Ask anything` },
+      slots: {
+        leading: { id: `options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
+        trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
+  }],
   // FEED-205: income vs expenses per month in EUR (ticks, values, tooltip),
   // then the same rows of a query in compact euros.
   Chart: [
@@ -1009,6 +1023,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       children: [
         { id: `timezone`, component: `Select`, props: { label: `Timezone`, name: `timezone`, triggerVariant: `row`, searchable: true, value: `Europe/Vienna`, options: [`Europe/Berlin`, `Europe/London`, `Europe/Vienna`, `UTC`].map((zone) => ({ label: zone, value: zone })) } },
         { id: `week`, component: `Select`, props: { label: `Week starts on`, name: `week`, triggerVariant: `row`, value: `monday`, options: [{ label: `Monday`, value: `monday` }, { label: `Sunday`, value: `sunday` }] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: a picker row with its hint under the label (the IDE's
+    // `glass_picker_row(label, Some(description), …)`: Settings → Voice).
+    label: `triggerVariant · row + description`,
+    node: {
+      id: `voice_prefs`,
+      component: `Group`,
+      children: [
+        { id: `language`, component: `Select`, props: { label: `Language`, description: `Spoken replies and dictation use it`, name: `language`, triggerVariant: `row`, value: `en`, options: [{ label: `English`, value: `en` }, { label: `Deutsch`, value: `de` }] } },
       ],
     },
   }],
@@ -1786,6 +1811,34 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     name: `Progress/bound:valueText+detail`,
     input: { id: `download`, component: `Progress`, props: { value: { "@path": `/done` }, valueText: { "@path": `/rate` }, detail: { "@path": `/files` } } },
     datasets: [{ done: 41, rate: `41 MB/s · 12 min`, files: `3 of 8 files` }, { done: 0 }],
+  },
+  // #EDE-65: a bubble is pressable only while its href RESOLVES to a
+  // non-empty value (a URL, not null, "" or missing) or it has an on.press;
+  // a literal href always is. Row follows the same rule.
+  {
+    name: `MessageBubble/href:bound-resolves`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.`, href: { "@path": `/href` } } },
+    datasets: [{ href: `https://exponential.at` }, { href: null }, { href: `` }, {}],
+  },
+  {
+    name: `MessageBubble/href:literal`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.`, href: `https://exponential.at` } },
+    datasets: [{}],
+  },
+  {
+    name: `MessageBubble/press:no-href`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.` }, on: { press: { event: { name: `open` } } } },
+    datasets: [{}],
+  },
+  {
+    name: `MessageBubble/press:bound-href`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.`, href: { "@path": `/href` } }, on: { press: { event: { name: `open` } } } },
+    datasets: [{ href: null }],
+  },
+  {
+    name: `Row/href:bound-resolves`,
+    input: { id: `row`, component: `Row`, props: { title: `Docs`, href: { "@path": `/href` } } },
+    datasets: [{ href: `https://exponential.at` }, { href: null }, {}],
   },
 ]
 

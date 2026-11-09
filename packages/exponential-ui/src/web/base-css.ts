@@ -57,6 +57,11 @@ const INLINE_OVERLAYS_CSS = [
 // opens with the layer order (theme-css LAYERS), so `xui-part` ranks above
 // `xui-recipe` whichever sheet a page loads first. A task item's box sits in
 // the list gutter (the marker's place) as the natives paint it.
+// #VAPP-289: `.xui-Avatar-image`'s object-position `calc(50% + 0px) 50%` =
+// the centre, but NOT the initial value: Chromium then always paints the
+// `Avatar/image` fill under the picture (its round edge's antialiasing)
+// instead of skipping it as obscured only when the picture had decoded by
+// the paint, which made React and Solid differ by timing.
 export const BASE_CSS = `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;
 ${ANIMATION_PROPERTIES_CSS}
 @layer xui-base{
@@ -109,7 +114,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-audio-progress>span{display:block;height:100%;background-color:var(--xui-color-foreground)}
 .xui-audio-clock{font-size:12px;color:var(--xui-color-mutedForeground);font-variant-numeric:tabular-nums;white-space:nowrap}
 [data-xui-c="Avatar"].xui-el{overflow:clip;flex-shrink:0;align-items:center;justify-content:center}
-.xui-Avatar-image{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.xui-Avatar-image{width:100%;height:100%;object-fit:cover;object-position:calc(50% + 0px) 50%;border-radius:inherit}
 .xui-Avatar-fallback{display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:inherit;text-transform:uppercase;user-select:none}
 [data-xui-c="List"].xui-el{flex-direction:column;overflow:auto;min-height:0}
 [data-xui-c="List"][data-r-direction="horizontal"].xui-el{flex-direction:row}
@@ -253,6 +258,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-label{flex:0 0 auto}
 .xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-spacer{flex:1 1 0;min-width:0}
 .xui-Select-trigger[data-r-trigger-variant="row"]>span:not(.xui-Select-label):not(.xui-Select-spacer){flex:0 1 auto;max-width:${LAYOUT_CONSTANTS.selectRowValueMaxWidth}px}
+.xui-Select-labels{display:flex;flex-direction:column;flex:0 1 auto;min-width:0;white-space:normal}
+.xui-Select-labels>.xui-Select-description{display:block;max-width:${LAYOUT_CONSTANTS.selectRowDescriptionMaxWidth}px}
+.xui-Select-control{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;flex:1 1 0}
+.xui-Select-control>span{overflow:clip;text-overflow:ellipsis;min-width:0;flex:0 1 auto;max-width:${LAYOUT_CONSTANTS.selectRowValueMaxWidth}px}
+.xui-Select-control>svg{width:16px;height:16px;flex-shrink:0}
 .xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}
@@ -298,6 +308,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-DatePicker-day:disabled,.xui-DateRangePicker-day:disabled{opacity:.3;cursor:default;pointer-events:none}
 .xui-Composer-field{display:block;width:100%;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit;resize:none;max-height:200px}
 .xui-composer-bar{display:flex;align-items:center;justify-content:flex-end;gap:var(--xui-spacing-xs)}
+.xui-composer-leading{display:flex;align-items:center;flex-shrink:0;margin-inline-end:auto}
+.xui-composer-trailing{display:flex;align-items:center;flex-shrink:0}
 .xui-Composer-attachment{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send>svg,.xui-Composer-attachment>svg{width:16px;height:16px}

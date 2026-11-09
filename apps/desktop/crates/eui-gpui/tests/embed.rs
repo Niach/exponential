@@ -263,3 +263,58 @@ fn the_host_follows_the_nested_height(cx: &mut TestAppContext) {
     assert!(grown > before + 10.0, "the host's next node moved down: {before} → {grown}");
     assert!(cx.read(|cx| painted_texts(&view, cx)).contains(&"Extra line".to_string()));
 }
+
+/// #EDE-65 lane O: a host that claims an Embed by its painted id paints it
+/// itself at the height it answers (no nested surface); a new height laid
+/// out once the host says it moved. An unclaimed Embed keeps its own.
+#[gpui::test]
+fn the_host_paints_a_claimed_leaf_at_its_own_height(cx: &mut TestAppContext) {
+    use std::cell::Cell;
+    struct Rows {
+        height: Rc<Cell<f32>>,
+        painted: Rc<Cell<u32>>,
+    }
+    impl HostPlugin for Rows {
+        fn host_leaf_height(&self, id: &str, _width: f32, _: &mut Window, _: &mut App) -> Option<f32> {
+            (id == "row").then(|| self.height.get())
+        }
+        fn host_leaf(&self, id: &str, _: &mut Window, _: &mut App) -> Option<gpui::AnyElement> {
+            (id == "row").then(|| {
+                self.painted.set(self.painted.get() + 1);
+                div().size_full().into_any_element()
+            })
+        }
+    }
+    let (height, painted) = (Rc::new(Cell::new(40.0)), Rc::new(Cell::new(0)));
+    cx.update(gpui_component::init);
+    let host = Rc::new(Rows { height: height.clone(), painted: painted.clone() });
+    let options = SurfaceViewOptions { surface_id: "host".into(), theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, host, ..Default::default() };
+    let (holder, cx) = cx.add_window_view(|_, _| Holder { view: None });
+    let view = cx.update(|window, cx| cx.new(|cx| SurfaceView::new(options, window, cx)));
+    let tree: NestedNode = serde_json::from_value(json!({"id": "host", "component": "Stack", "props": {"gap": "none"}, "children": [
+        {"id": "row", "component": "Embed", "props": {"surface": null}},
+        {"id": "card", "component": "Embed", "props": {"surface": {"root": {"id": "inner", "component": "Text", "props": {"text": "Inner"}}}}},
+        {"id": "after", "component": "Text", "props": {"text": "After"}}
+    ]}))
+    .unwrap();
+    view.update(cx, |v, cx| {
+        v.set_nested(tree, cx);
+    });
+    let v = view.clone();
+    holder.update(cx, |h, cx| {
+        h.view = Some(v);
+        cx.notify();
+    });
+    draw(cx);
+    let frame = |id: &str, view: &Entity<SurfaceView>, cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.frame(v.index_of(id).unwrap()).unwrap());
+    assert_eq!(frame("row", &view, cx).h, 40.0);
+    assert!(painted.get() > 0, "the host painted its row");
+    assert!(view.read_with(cx, |v, _| v.embedded("row")).is_none(), "no nested surface for a claimed leaf");
+    assert!(view.read_with(cx, |v, _| v.embedded("card")).is_some(), "an unclaimed Embed keeps its own");
+    let card_y = frame("card", &view, cx).y;
+    height.set(90.0);
+    view.update(cx, |v, cx| v.host_leaf_resized("row", cx));
+    draw(cx);
+    assert_eq!(frame("row", &view, cx).h, 90.0);
+    assert_eq!(frame("card", &view, cx).y, card_y + 50.0, "the rows after it moved down");
+}

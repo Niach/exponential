@@ -325,7 +325,9 @@ impl Builder<'_, '_> {
     /// Description and error lines under the control; `control` (the part
     /// that IS the control) gets the `invalid` state.
     fn field_close(&mut self, owner: &LNode, control: Option<u32>) {
-        if let Some(d) = str_prop(&owner.props, "description") {
+        // #EXP-1629: a `row` Select's description sits in its trigger.
+        let row_select = owner.component == "Select" && owner.props.get("triggerVariant").and_then(Value::as_str) == Some("row");
+        if let Some(d) = str_prop(&owner.props, "description").filter(|_| !row_select) {
             self.text_part(owner.index, owner, "description", d, "muted", "");
         }
         if let (Some((_, true)), Some(c)) = (self.field_message(owner.index, owner), control) {
@@ -480,13 +482,31 @@ impl Builder<'_, '_> {
         if self.is_open(&owner.id, &Map::new(), false) {
             self.add_state(t, "open");
         }
+        // #EXP-1629: a `description` stacks under the label in the `labels`
+        // column, which shrinks so the hint wraps; the value and chevron then
+        // sit end-aligned in the `control` column (its recipe `minWidth`).
+        let Some(description) = str_prop(&owner.props, "description") else {
+            if let Some(label) = label {
+                self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
+            }
+            self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
+            return (t, Some(self.row_value(t, owner, text, placeholder)));
+        };
+        let labels = self.part_in(t, owner, "labels", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "minWidth": 0, "flexShrink": 1}), json!({}), "");
         if let Some(label) = label {
-            self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
+            self.part_in(labels, owner, "label", "Text", NodeKind::Leaf, json!({}), json!({"text": label}), "");
         }
-        self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
-        let value = self.part_in(t, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
-        self.part_in(t, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
-        (t, Some(value))
+        let d = self.part_in(labels, owner, "description", "Text", NodeKind::Leaf, json!({"maxWidth": crate::layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH}), json!({"text": description, "variant": "muted"}), "");
+        self.nodes[d as usize].lines = None;
+        let control = self.part_in(t, owner, "control", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0}), json!({}), "");
+        (t, Some(self.row_value(control, owner, text, placeholder)))
+    }
+
+    /// A `row` trigger's `value` (else `placeholder`) and `chevron` under `parent`.
+    fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool) -> u32 {
+        let value = self.part_in(parent, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
+        self.part_in(parent, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
+        value
     }
 
     /// A `yyyy-mm-dd` as the surface formatter's medium date (the raw
@@ -1030,6 +1050,31 @@ impl Builder<'_, '_> {
             }
         }
         self.children_of(index, node, scope, false);
+    }
+
+    /// #EDE-65 R: a Composer's `leading` and `trailing` slots. The Composer
+    /// stays ONE measured leaf (its painter draws the field, the attach
+    /// control and the send disc); the core lays out a `bar` row at the
+    /// bottom of its content box, the send disc's height: `leading` at the
+    /// start edge, a spacer, `trailing`, then the send disc's square
+    /// (`sendSpace`, never painted). A painter draws the attach control
+    /// before `trailing` (its frame's width + the bar's gap further from
+    /// send). A leaf with children lays them out at its measured size
+    /// (`engine.rs`).
+    pub(crate) fn composer_slots(&mut self, index: u32, node: &UiNode, layer: u32, scope: &str) {
+        let Some(slots) = &node.slots else { return };
+        let owner = self.nodes[index as usize].clone();
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!("flex-end"))]);
+        let bar = self.part(&owner, "bar", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.buttonIcon", "flexShrink": 0, "alignSelf": "stretch"}), json!({}));
+        for (name, grow) in [("leading", false), ("trailing", true)] {
+            if grow {
+                self.part_in(bar, &owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), "");
+            }
+            let Some(slot) = slots.get(name) else { continue };
+            let wrap = self.part_in(bar, &owner, name, "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}), json!({}), "");
+            self.add(slot, Some(wrap), layer, scope, false);
+        }
+        self.part_in(bar, &owner, "sendSpace", "Box", NodeKind::Container, json!({"width": "$control.buttonIcon", "height": "$control.buttonIcon", "flexShrink": 0}), json!({}), "");
     }
 
     /// The ids of the named fields a Form collects (not inside a nested Form).

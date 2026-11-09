@@ -4718,10 +4718,11 @@ private fun ExpToolCallRow(
             .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
     ) {
         // EXP-1324: our call is a Trace line too — the mark, the sentence,
-        // the SUBJECT (the input field the contract's `subjectKey` names,
-        // published as the call's `detail`) muted after it; rose when it
-        // failed, shimmering while it runs.
-        val subject = item.detail?.takeIf { it.isNotBlank() && display.subjectKey.isNotEmpty() }
+        // the call's `detail` muted after it (#EXP-1756: whatever the
+        // publisher put there, a `subjectKey`-less list's `Product Feedback ·
+        // 2 new` too, as web, desktop and iOS draw it); rose when it failed,
+        // shimmering while it runs.
+        val subject = item.detail?.takeIf { it.isNotBlank() }
         Trace(size = TraceSize.Sm, modifier = Modifier.testTag("session-exp-tool-line")) {
             TraceLine(
                 title = remember(display.caption, subject) {

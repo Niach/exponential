@@ -383,7 +383,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case ("Input", "field") where InputRow.isRow(props):
             // #EXP-1629: a `row` field leads with its `label` part, the
             // recipe `gap` before the 160 px value.
-            let labelStyle = SelectTrigger.labelStyle(ts, part("Input", "label", props))
+            let labelStyle = InputRow.labelStyle(ts, part("Input", "label", props))
             let label = props.str("label")
             let labelW = label.isEmpty ? 0 : line(label, labelStyle) + leaf.control.gap
             content = MeasuredContent(labelW + 160, max(ts.lineHeight, label.isEmpty ? 0 : labelStyle.lineHeight), Self.baseline(ts))
@@ -901,6 +901,7 @@ enum SelectTrigger {
     static func glyphSize(_ look: PartStyle) -> CGFloat {
         look.width ?? look.height ?? 16
     }
+
 }
 
 /// #EXP-1629: an Input `variant: row` field, shared by the measurer and
@@ -913,6 +914,15 @@ enum InputRow {
     /// `variant: row` on the field (the core copies the owner's props).
     static func isRow(_ props: Props) -> Bool {
         props["variant"]?.string == "row"
+    }
+
+    /// The label in the field's text style with the `label` part's face.
+    static func labelStyle(_ ts: TextStyle, _ look: PartStyle) -> TextStyle {
+        var s = ts
+        if let w = look.style.fontWeight { s.fontWeight = w }
+        if let f = look.style.fontSize { s.fontSize = f }
+        if let l = look.style.lineHeight { s.lineHeight = l }
+        return s
     }
 
     /// The label's width inside `width`: its whole line (it never shrinks),

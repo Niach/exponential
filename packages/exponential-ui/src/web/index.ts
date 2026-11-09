@@ -76,3 +76,5 @@ export { embedHost, embedDenied, embedBoxStyle } from "./embed-host"
 // #EDE-65: the Composer's `menuKeys` (React + Solid Composer).
 export { composerMenuKey } from "./composer-keys"
 export type { ComposerMenuKey, ComposerKeyEvent } from "./composer-keys"
+export { composerPaste } from "./composer-paste"
+export type { ComposerFileMeta, ComposerPaste } from "./composer-paste"

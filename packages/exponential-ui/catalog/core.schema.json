@@ -13064,6 +13064,10 @@
           "type": "string",
           "description": "Field label."
         },
+        "description": {
+          "type": "string",
+          "description": "Muted hint (`row`: under the label)."
+        },
         "name": {
           "type": "string",
           "description": "Field's key in the submitted data."
@@ -13778,7 +13782,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: a growing text field, a submit button, optional attachments.",
+      "description": "Chat input: a growing text field, a submit button, optional attachments; `leading`/`trailing` slots sit in its controls row.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -13798,7 +13802,7 @@
         },
         "attachments": {
           "type": "boolean",
-          "description": "Shows the attach control.",
+          "description": "Shows the attach control (`attach`; a pasted image fires `attach` {files}).",
           "default": false
         },
         "busy": {
@@ -13810,6 +13814,9 @@
           "$ref": "common_types.json#/$defs/DynamicBoolean",
           "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu).",
           "default": false
+        },
+        "slots": {
+          "$ref": "#/$defs/Slots_Composer"
         },
         "on": {
           "$ref": "#/$defs/On_Composer"
@@ -13824,7 +13831,6 @@
       "required": [
         "component"
       ],
-      "allowedChildren": [],
       "metadata": {
         "extensions": {
           "at_exponential_component": {
@@ -13832,11 +13838,16 @@
             "group": "input",
             "lite": true,
             "children": "none",
+            "slots": [
+              "leading",
+              "trailing"
+            ],
             "events": [
               "submit",
               "change",
               "stop",
-              "key"
+              "key",
+              "attach"
             ]
           }
         }
@@ -22209,7 +22220,8 @@
               "chart6",
               "chart7",
               "chart8",
-              "link"
+              "link",
+              "borderStrong"
             ]
           }
         },
@@ -27433,6 +27445,18 @@
       },
       "additionalProperties": false
     },
+    "Slots_Composer": {
+      "type": "object",
+      "properties": {
+        "leading": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        },
+        "trailing": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        }
+      },
+      "additionalProperties": false
+    },
     "On_Composer": {
       "type": "object",
       "properties": {
@@ -27446,6 +27470,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "key": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "attach": {
           "$ref": "#/$defs/EuiAction"
         }
       },

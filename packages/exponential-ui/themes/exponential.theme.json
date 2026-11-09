@@ -31,6 +31,7 @@
         "chart4": "#ffb900",
         "chart5": "#fe9a00",
         "link": "#2b59c8",
+        "borderStrong": "#d4d4d4",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -121,6 +122,7 @@
         "chart4": "#ad46ff",
         "chart5": "#ff2056",
         "link": "#5f8bea",
+        "borderStrong": "#ffffff1f",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -797,8 +799,9 @@
             "triggerVariant": "row"
           },
           "style": {
-            "height": 40.82,
+            "minHeight": 40.82,
             "paddingHorizontal": 14,
+            "paddingVertical": 10.5,
             "gap": 7,
             "fontSize": 12.25,
             "lineHeight": 17.5
@@ -857,6 +860,40 @@
           "style": {
             "width": 14,
             "height": 14
+          }
+        }
+      ],
+      "description": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 16.99,
+            "color": "$color.foreground",
+            "opacity": 0.5
+          }
+        }
+      ],
+      "labels": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "gap": 1.75
+          }
+        }
+      ],
+      "control": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "minWidth": 203.5,
+            "gap": 7
           }
         }
       ],
@@ -1365,6 +1402,40 @@
         {
           "style": {
             "backgroundColor": "$color.card"
+          }
+        }
+      ]
+    },
+    "MessageBubble": {
+      "bubble": [
+        {
+          "style": {
+            "backgroundColor": "$color.popover",
+            "color": "$color.popoverForeground",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": 16,
+            "borderTopLeftRadius": 16,
+            "paddingHorizontal": 14,
+            "paddingVertical": 10,
+            "maxWidth": "62%"
+          }
+        },
+        {
+          "when": {
+            "side": "out"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground",
+            "borderColor": "$color.borderStrong"
+          }
+        }
+      ],
+      "time": [
+        {
+          "style": {
+            "fontSize": 10
           }
         }
       ]

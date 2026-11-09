@@ -154,7 +154,7 @@ export type InputVariantValue = (typeof ENUMS)["inputVariant"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
-  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link"],
+  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong"],
   "spacing": ["none","xxs","xs","sm","md","lg","xl","xl2","xl3"],
   "radius": ["none","sm","md","lg","xl","xl2","xl3","full"],
   "type.size": ["xs","sm","base","lg","xl","xl2","xl3"],
@@ -294,7 +294,7 @@ export interface ComponentProps {
   Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean; size?: SwitchSizeValue }
   Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic; icon?: IconName; endLabel?: string | Dynamic; showValue?: boolean }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
-  Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Select: { label?: string; description?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
   KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }
