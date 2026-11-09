@@ -312,6 +312,7 @@ impl View<'_, '_> {
         if inputs.run_mode == RunMode::PerformHiddenLayout {
             return compute_hidden_layout(self, node);
         }
+        let inputs = self.clamped_known(node, inputs);
         compute_cached_layout(self, node, inputs, |view, node, inputs| {
             let n = &view.engine.nodes[slot(node)];
             let display = n.laid_style().display;
@@ -344,6 +345,28 @@ impl View<'_, '_> {
                 (_, false) => view.measured_leaf(node, inputs),
             }
         })
+    }
+
+    /// #EDE-65 lane O: a known (definite) dimension is the node's own
+    /// min/max-clamped one, as CSS uses it. taffy sizes a flex item's base
+    /// size with its `width: 100%` resolved but NOT clamped by its
+    /// `maxWidth` (a centred column item), then lays it out clamped: a
+    /// wrapping text inside came out shorter in the sizing than in the
+    /// layout (a chat row a line short, the next row painted over it).
+    fn clamped_known(&self, node: NodeId, inputs: LayoutInput) -> LayoutInput {
+        use taffy::util::{MaybeMath as _, MaybeResolve as _};
+        let style = self.engine.nodes[slot(node)].laid_style();
+        let calc = |_: *const (), _: f32| 0.0;
+        let (parent, known) = (inputs.parent_size, inputs.known_dimensions);
+        let clamp = |value: Option<f32>, min: Dimension, max: Dimension, basis: Option<f32>| {
+            value.map(|v| v.maybe_min(max.maybe_resolve(basis, calc)).maybe_max(min.maybe_resolve(basis, calc)))
+        };
+        let width = clamp(known.width, style.min_size.width, style.max_size.width, parent.width);
+        let height = clamp(known.height, style.min_size.height, style.max_size.height, parent.height);
+        if width == known.width && height == known.height {
+            return inputs;
+        }
+        LayoutInput { known_dimensions: Size { width, height }, ..inputs }
     }
 
     /// A leaf's layout: its measure (or zero when not measured).
@@ -659,6 +682,40 @@ mod tests {
         e.mark_all_dirty();
         e.compute(0, Size { width: AvailableSpace::Definite(300.0), height: AvailableSpace::MaxContent }, &mut bottoms);
         assert_eq!(e.layout(2).location.y, 20.0);
+    }
+
+    /// #EDE-65 lane O: a centred column item `width: 100%` + `maxWidth`
+    /// over a wrapping text: its height is the text's at the CLAMPED width
+    /// (taffy sized its flex base at the unclamped 100%, a line short of
+    /// the layout: the next item painted over it).
+    #[test]
+    fn a_max_width_clamps_the_width_a_flex_item_is_sized_at() {
+        let mut e = Engine::new();
+        e.resize(3);
+        e.set_style(0, Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Style::default() });
+        e.set_style(
+            1,
+            Style {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_self: Some(AlignSelf::CENTER),
+                size: Size { width: Dimension::percent(1.0), height: Dimension::auto() },
+                max_size: Size { width: Dimension::length(200.0), height: Dimension::auto() },
+                ..Style::default()
+            },
+        );
+        e.set_children(0, &[1]);
+        e.set_children(1, &[2]);
+        e.set_measured(2, true);
+        // 1000 px of text, 20 px a line: the lines it takes at its width.
+        let mut measure = |_: u32, known: Size<Option<f32>>, available: Size<AvailableSpace>| {
+            let w = known.width.or(available.width.into_option()).unwrap_or(1000.0).min(1000.0);
+            LeafAnswer { size: Size { width: w, height: (1000.0 / w).ceil() * 20.0 }, baseline: None }
+        };
+        e.compute(0, Size { width: AvailableSpace::Definite(500.0), height: AvailableSpace::MaxContent }, &mut measure);
+        assert_eq!(e.layout(1).size.width, 200.0);
+        assert_eq!(e.layout(2).size.height, 100.0, "five lines at 200");
+        assert_eq!(e.layout(1).size.height, 100.0, "the item holds its text");
     }
 
     #[test]
