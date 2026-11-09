@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn http() -> reqwest::blocking::Client {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::blocking::Client::new()
 }
 

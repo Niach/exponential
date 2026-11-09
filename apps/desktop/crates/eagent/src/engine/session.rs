@@ -169,7 +169,7 @@ impl EngineSession {
     /// IS the confirmation (D4).
     pub fn set_config(&self, id: &str, value: ConfigValue) {
         self.send(EngineCommand::SetConfig {
-            id: agent_client_protocol::schema::v1::SessionConfigId::new(id.to_string()),
+            id: agent_client_protocol::v1::schema::SessionConfigId::new(id.to_string()),
             value: value.into(),
         });
     }
@@ -179,7 +179,7 @@ impl EngineSession {
     /// `PLAN_MODE_OFF_LINE`).
     pub fn set_mode(&self, id: &str) {
         self.send(EngineCommand::SetMode {
-            id: agent_client_protocol::schema::v1::SessionModeId::new(id.to_string()),
+            id: agent_client_protocol::v1::schema::SessionModeId::new(id.to_string()),
             announce: true,
         });
     }
@@ -188,7 +188,7 @@ impl EngineSession {
     /// a plan approval (the answer the agent reads already says so).
     pub fn set_plan_mode_silent(&self, on: bool) {
         self.send(EngineCommand::SetMode {
-            id: agent_client_protocol::schema::v1::SessionModeId::new(plan_mode_id(on).to_string()),
+            id: agent_client_protocol::v1::schema::SessionModeId::new(plan_mode_id(on).to_string()),
             announce: false,
         });
     }
@@ -687,14 +687,14 @@ impl ConfigValue {
     }
 }
 
-impl From<ConfigValue> for agent_client_protocol::schema::v1::SessionConfigOptionValue {
+impl From<ConfigValue> for agent_client_protocol::v1::schema::SessionConfigOptionValue {
     fn from(value: ConfigValue) -> Self {
         match value {
             ConfigValue::ValueId(id) => {
-                agent_client_protocol::schema::v1::SessionConfigOptionValue::value_id(id)
+                agent_client_protocol::v1::schema::SessionConfigOptionValue::value_id(id)
             }
             ConfigValue::Bool(value) => {
-                agent_client_protocol::schema::v1::SessionConfigOptionValue::boolean(value)
+                agent_client_protocol::v1::schema::SessionConfigOptionValue::boolean(value)
             }
         }
     }
@@ -759,7 +759,7 @@ mod tests {
 
     #[test]
     fn config_values_cross_into_the_acp_shape() {
-        use agent_client_protocol::schema::v1::SessionConfigOptionValue;
+        use agent_client_protocol::v1::schema::SessionConfigOptionValue;
         let value: SessionConfigOptionValue = ConfigValue::Bool(true).into();
         assert_eq!(value.as_bool(), Some(true));
         let value: SessionConfigOptionValue = ConfigValue::ValueId("high".into()).into();

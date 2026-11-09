@@ -24,6 +24,8 @@ emcp = { path = "../emcp" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
+# The ring provider reqwest 0.13 (`rustls-no-provider`) builds its TLS from.
+rustls = { workspace = true }
 # #EDE-65 lane L: the attachment upload path (attachment_upload.rs).
 anyhow = { workspace = true }
 flume = { workspace = true }

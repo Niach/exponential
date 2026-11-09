@@ -68,7 +68,7 @@ rio-vt = { version = "=0.5.29", default-features = false, features = ["graphics"
 rio-graphics = { version = "=0.5.29", default-features = false }        # GraphicData/ColorType/texture keys the terminal crate names
 image = { version = "0.25", default-features = false }                 # RenderImage frames for inline images; already in the tree via gpui
 portable-pty = "0.9"                                                   # resolves 0.9.0
-rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
+rusqlite = { version = "0.41", features = ["bundled", "serde_json"] }  # feature set matches §5.1
 # THE HTTP client for the whole desktop app (EXP-304). It replaced `ureq`
 # outright — one stack, not two. ureq is HTTP/1.1-only, which meant the 15
 # Electric shape threads each held their own connection: every launch fired 15
@@ -83,14 +83,21 @@ rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature
 # what ureq used and keeping OpenSSL off the Linux build. hyper/h2/rustls/tokio
 # were already compiled into the binary via zed-reqwest and crates/steer, so the
 # marginal tree weight is roughly what dropping ureq gives back.
-reqwest = { version = "0.12", default-features = false, features = [
+#
+# 0.13: `rustls-no-provider` (the ring provider `rustls` below, installed as
+# the process default before a client is built, as crates/emcp does); the
+# roots are the OS trust store (rustls-platform-verifier), 0.13's only rustls
+# verifier, no longer the bundled webpki roots.
+reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "http2",
-    "rustls-tls",
+    "rustls-no-provider",
     "gzip",
     "charset",
 ] }
-rustls = "0.23"
+# Ring only: reqwest's `rustls` feature would turn on aws-lc-rs for EVERY
+# rustls user (a C build, and two providers make rustls refuse to pick).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flume = "0.11"
@@ -99,7 +106,7 @@ rust-embed = "8"    # embeds assets/ (Inter TTFs, future icons) into the binary 
 dirs = "6"          # per-user state dir for the DockAreaState layout persistence (§3.3)
 open = "5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 # Steer publisher stream/sink combinators (§8) — already a transitive of
 # tokio-tungstenite at this exact minor version; adds no new tree weight.
 futures-util = "0.3"
@@ -122,12 +129,14 @@ tar = { version = "0.4", default-features = false }
 # `crates/engine` links it — the adapters speak ACP in-process to the user's
 # unmodified agent CLI, so it must stay gpui-free; the crate itself carries zero
 # non-dev tokio dependencies and is driven on steer's existing runtime.
-# Pinned EXACTLY (`=2.1.0`): the 2.x line pins its own `-schema`/`-derive`
-# companions to exact versions, and the role/builder API moved between 2.0 and
-# 2.1 — a caret range would silently resolve a surface this code does not
-# compile against. Everything used is stable protocol v1 except
-# `CompactionUpdate`, which lives behind `unstable_session_compaction`.
-agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_compaction"] }
+# Pinned EXACTLY (`=5.0.0`): the SDK pins its own `-schema`/`-derive`
+# companions to exact versions, and its unstable surface may move in a minor —
+# a caret range would silently resolve a surface this code does not compile
+# against. The wire stays protocol v1 (`Client.v1()`/`Agent.v1()`, the
+# `v1::schema` types); `CompactionUpdate` is stable since schema 1.11, so no
+# unstable feature. No features: since 3.0 the native transports (`process`,
+# `stdio`) and `schemars` are opt-in, and the adapters connect in-process.
+agent-client-protocol = "=5.0.0"
 
 # #EXP-1484: iroh 1.4.1 keeps a closed connection's direct path selected while
 # another connection to the same peer stays open (a restarted peer redialing),

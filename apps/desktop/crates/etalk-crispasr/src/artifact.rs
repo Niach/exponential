@@ -199,6 +199,9 @@ pub fn ensure(dir: &Path, artifact: &Artifact, mut progress: impl FnMut(u64)) ->
 }
 
 fn download(artifact: &Artifact, part: &Path, progress: &mut impl FnMut(u64)) -> Result<(), Error> {
+    // reqwest 0.13 without a bundled provider builds its TLS from the process
+    // default: ring, unless the host installed one already.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::blocking::Client::builder()
         .timeout(None)
         .connect_timeout(std::time::Duration::from_secs(30))

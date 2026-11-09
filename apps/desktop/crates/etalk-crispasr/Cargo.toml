@@ -21,6 +21,8 @@ log = "0.4"
 # O_NOFOLLOW when hashing a file that is about to be loaded.
 libc = { workspace = true }
 reqwest = { workspace = true }
+# The ring provider reqwest 0.13 (`rustls-no-provider`) builds its TLS from.
+rustls = { workspace = true }
 sha2 = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }

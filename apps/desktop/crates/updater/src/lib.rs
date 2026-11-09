@@ -268,6 +268,9 @@ pub fn cleanup_staging() {
 /// Built per call — the updater makes a handful of requests in a session, so
 /// there is nothing to pool.
 fn client() -> Result<reqwest::blocking::Client> {
+    // reqwest 0.13 without a bundled provider builds its TLS from the process
+    // default: ring, unless the host installed one already.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .tcp_keepalive(Duration::from_secs(30))

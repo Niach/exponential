@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     AgentCapabilities, AvailableCommand, AvailableCommandInput, AvailableCommandsUpdate,
     CancelNotification, CompactionId, CompactionStatus, CompactionUpdate, ConfigOptionUpdate,
     Content, ContentBlock, ContentChunk, Cost, CreateElicitationRequest, CurrentModeUpdate, Diff, ElicitationAction, ElicitationContentValue, ElicitationFormMode,
@@ -60,8 +60,9 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
-    on_receive_notification, on_receive_request, Agent, Client, ConnectTo, ConnectionTo, Error,
+    on_receive_notification, on_receive_request, Agent, Client, ConnectTo, Error,
 };
+use agent_client_protocol::v1::ConnectionTo;
 use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
@@ -175,7 +176,7 @@ impl ConnectTo<Client> for ClaudeAgent {
             let on_config = session.clone();
             let on_cancel = session.clone();
             Agent
-                .builder()
+                .v1()
                 .name("exponential-claude")
                 .on_receive_request(
                     async move |request: InitializeRequest, responder, _cx| {
@@ -5406,7 +5407,7 @@ fn image_block(block: &Value) -> Option<ContentBlock> {
     let data = source.get("data")?.as_str()?;
     let media_type = source.get("media_type").and_then(Value::as_str).unwrap_or("image/png");
     Some(ContentBlock::Image(
-        agent_client_protocol::schema::v1::ImageContent::new(data, media_type),
+        agent_client_protocol::v1::schema::ImageContent::new(data, media_type),
     ))
 }
 
@@ -6570,7 +6571,7 @@ mod tests {
         let request = ask_elicitation(&SessionId::new("s1"), "toolu_1", &questions);
         assert_eq!(request.message, "Tabs or spaces?");
         let schema = match &request.mode {
-            agent_client_protocol::schema::v1::ElicitationMode::Form(form) => {
+            agent_client_protocol::v1::schema::ElicitationMode::Form(form) => {
                 &form.requested_schema
             }
             other => panic!("expected a form, got {other:?}"),
@@ -6616,7 +6617,7 @@ mod tests {
     fn the_user_message_carries_images_beside_its_text() {
         let blocks = vec![
             ContentBlock::Text(TextContent::new("look at this")),
-            ContentBlock::Image(agent_client_protocol::schema::v1::ImageContent::new(
+            ContentBlock::Image(agent_client_protocol::v1::schema::ImageContent::new(
                 "AAAA", "image/png",
             )),
         ];

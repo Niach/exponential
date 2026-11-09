@@ -1789,6 +1789,7 @@ mod tests {
     /// One tools/call through the gateway → the result's text parsed.
     fn call(grant: &codemode::Grant, tool: &str, args: Value) -> Value {
         let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": args } });
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let text = reqwest::blocking::Client::new()
             .post(format!("{}/api/mcp", grant.url))
             .header("Authorization", format!("Bearer {}", grant.token))

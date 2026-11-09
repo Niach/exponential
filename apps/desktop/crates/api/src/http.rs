@@ -110,6 +110,9 @@ fn jitter_at(base: Duration, roll: u64) -> Duration {
 }
 
 fn build() -> Client {
+    // reqwest 0.13 without a bundled provider builds its TLS from the process
+    // default: ring, unless the host installed one already.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     // The keepalive pings live on the async builder only; the blocking
     // builder wraps one, so configure there and convert.
     let builder = reqwest::Client::builder()

@@ -83,3 +83,4 @@ log = "0.4"
 # the gateway over HTTP (both already in the tree via codemode).
 tiny_http = { version = "0.12", default-features = false }
 reqwest = { workspace = true }
+rustls = { workspace = true }

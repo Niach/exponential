@@ -218,7 +218,14 @@ mod net {
         }
     }
 
+    /// reqwest 0.13 without a bundled provider builds its TLS from the
+    /// process default: ring, unless the host installed one already.
+    pub(crate) fn install_crypto() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
     fn client() -> reqwest::blocking::Client {
+        install_crypto();
         // No total timeout: a live stream stays open for as long as the
         // server keeps it.
         reqwest::blocking::Client::builder().timeout(None::<Duration>).build().unwrap_or_else(|_| reqwest::blocking::Client::new())
@@ -263,6 +270,7 @@ mod net {
 
     /// The POST side's client: bounded, unlike the stream's [`client`].
     fn post_client(connect: Duration, total: Duration) -> reqwest::blocking::Client {
+        install_crypto();
         reqwest::blocking::Client::builder().connect_timeout(connect).timeout(total).build().unwrap_or_else(|_| reqwest::blocking::Client::new())
     }
 
@@ -626,7 +634,7 @@ mod net {
                                             },
                                             out = rx.recv_async() => match out {
                                                 Ok(message) => {
-                                                    let _ = write.send(Message::Text(message.to_string())).await;
+                                                    let _ = write.send(Message::text(message.to_string())).await;
                                                 }
                                                 Err(_) => {
                                                     let _ = write.send(Message::Close(None)).await;
