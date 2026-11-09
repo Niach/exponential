@@ -42,7 +42,7 @@ use etalk::voice::{
 
 use etalk::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudio, DesktopAudioCapability, MEETING};
 
-use super::doc::{and, faded, hex, mount, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, VALUE_ALPHA, XS};
+use super::doc::{and, faded, hex, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, VALUE_ALPHA, XS};
 use crate::queries;
 
 /// The member's agents (every team's), by id: the pickers' options and the
@@ -968,6 +968,9 @@ pub struct VoicePrefsPane {
     /// What the mounted tree was built over.
     options: Options,
     _subscriptions: Vec<Subscription>,
+    /// The bench's presses (node ids), each two painted frames after the last.
+    #[cfg(test)]
+    shot_presses: (std::collections::VecDeque<String>, u8),
 }
 
 impl VoicePrefsPane {
@@ -1027,7 +1030,8 @@ impl VoicePrefsPane {
             binding
         });
         let options = options(binding.read(cx).state(), cx);
-        let view = mount("settings-voice", document(&Inks::of(cx), &options), &binding, window, cx);
+        // `lift_layers`: the pickers' popups open at window level, as the IDE's do.
+        let view = super::doc::mount_with("settings-voice", document(&Inks::of(cx), &options), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
         let mut subscriptions = Vec::new();
         if live {
             // A change another client made (a tray toggle, a heartbeat) reaches
@@ -1043,7 +1047,14 @@ impl VoicePrefsPane {
                 etalk_gpui::push_to_talk::set_recording(false, cx);
             }
         }));
-        Self { view, binding, options, _subscriptions: subscriptions }
+        Self {
+            view,
+            binding,
+            options,
+            _subscriptions: subscriptions,
+            #[cfg(test)]
+            shot_presses: Default::default(),
+        }
     }
 
     #[cfg(test)]
@@ -1070,14 +1081,36 @@ impl VoicePrefsPane {
 
     /// The bench presses these nodes in turn (a trigger, then an option).
     #[cfg(test)]
-    pub(crate) fn press_for_shots(&mut self, ids: &[String], window: &mut Window, cx: &mut gpui::Context<Self>) {
-        for id in ids {
-            self.view.update(cx, |view, cx| {
-                if let Some(index) = view.index_of(id) {
-                    view.press(index, window, cx);
-                }
-            });
+    pub(crate) fn press_for_shots(&mut self, ids: &[String], _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.shot_presses = (ids.iter().cloned().collect(), 2);
+        cx.notify();
+    }
+
+    /// The bench's next press once its target is laid out (two painted
+    /// frames in); the headless clock stands still, so an open popup's
+    /// enter fade is run out by hand.
+    #[cfg(test)]
+    fn shot_press(&mut self, cx: &mut gpui::Context<Self>) {
+        let (queue, wait) = &mut self.shot_presses;
+        if queue.is_empty() {
+            if !self.view.read(cx).layers().is_empty() {
+                self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            }
+            return;
         }
+        if *wait > 0 {
+            *wait -= 1;
+            cx.notify();
+            return;
+        }
+        let id = queue.pop_front().unwrap_or_default();
+        *wait = 2;
+        self.view.update(cx, |view, cx| {
+            if let Some(index) = view.index_of(&id) {
+                view.fire(index, "press", None, cx);
+            }
+        });
+        cx.notify();
     }
 
     fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
@@ -1173,6 +1206,8 @@ impl Render for VoicePrefsPane {
             });
             self.options = now;
         }
+        #[cfg(test)]
+        self.shot_press(cx);
         div().w_full().min_w_0().child(self.view.clone())
     }
 }
