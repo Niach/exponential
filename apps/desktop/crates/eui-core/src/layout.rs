@@ -55,7 +55,16 @@ pub const TAB_DRAG_THRESHOLD: f32 = 4.0;
 /// VAPP-279: how long a touch rests on a strip tab before it drags (ms).
 pub const TAB_LONG_PRESS_MS: f64 = 500.0;
 /// #EXP-1629: a `row` Select's popup width when `popupWidth` is unset (px).
-pub const SELECT_ROW_POPUP_WIDTH: f32 = 260.0;
+pub const SELECT_ROW_POPUP_WIDTH: f32 = 262.0;
+/// #EXP-1629: how far under its value a `row` Select's popup hangs (px):
+/// the IDE's picker popover opens a point under the trigger's value.
+pub const SELECT_ROW_POPUP_OFFSET: f32 = 1.0;
+/// #EXP-1629: how close to the view's edges a `row` Select's popup may go
+/// (px): gpui-component's popovers keep 8 from the window around their
+/// 260 content, the border outside it.
+pub const SELECT_ROW_POPUP_MARGIN: f32 = 7.0;
+/// #EXP-1629: the widest a `row` Select's value gets before it truncates.
+pub const SELECT_ROW_VALUE_MAX_WIDTH: f32 = 240.0;
 
 #[cfg(test)]
 mod tests {
@@ -63,10 +72,10 @@ mod tests {
 
     #[test]
     fn the_constants_are_layout_json() {
-        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS), ("selectRowPopupWidth", SELECT_ROW_POPUP_WIDTH as f64)] {
+        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS), ("selectRowPopupWidth", SELECT_ROW_POPUP_WIDTH as f64), ("selectRowPopupOffset", SELECT_ROW_POPUP_OFFSET as f64), ("selectRowValueMaxWidth", SELECT_ROW_VALUE_MAX_WIDTH as f64), ("selectRowPopupMargin", SELECT_ROW_POPUP_MARGIN as f64)] {
             assert_eq!(layout_constant(name), Some(v), "{name}");
         }
-        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 22);
+        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 25);
         let json: serde_json::Value = serde_json::from_str(g::LAYOUT_JSON).unwrap();
         assert_eq!(json["windowThreshold"], 50);
     }

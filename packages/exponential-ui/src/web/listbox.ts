@@ -5,6 +5,7 @@
 // label (a 700 ms buffer; one repeated letter cycles).
 
 import { LAYOUT_CONSTANTS } from "../layout"
+import { OVERLAY_OFFSET, OVERLAY_PADDING } from "../overlay"
 
 /** The TYPE-AHEAD buffer resets after this pause (ms). */
 export const TYPEAHEAD_RESET_MS = 700
@@ -36,16 +37,50 @@ export function typeaheadStep(buffer: TypeaheadBuffer, key: string, now: number,
   return { buffer: next, index: -1 }
 }
 
-/** #EXP-1629: a Select popup's alignment and width. `align` unset = `end`
- *  for a `row` trigger, `start` for a field; `popupWidth` (px) wins, else a
- *  row popup is the layout's `selectRowPopupWidth` and a field's at least
- *  the trigger's width (`minWidth` = that trigger-width variable). */
-export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined } {
+/** #EXP-1629: a Select popup's placement. `align` unset = `start`;
+ *  `popupWidth` (px) wins, else a row popup is the layout's
+ *  `selectRowPopupWidth` and a field's at least the trigger's width
+ *  (`minWidth` = that trigger-width variable). A `row` popup hangs off its
+ *  VALUE (`anchorValue`) by `selectRowPopupOffset`, fitted into the window
+ *  `selectRowPopupMargin` from its edges; a field's off the trigger by the
+ *  overlay defaults. */
+export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined; anchorValue: boolean; sideOffset: number; collisionPadding: number } {
   const row = props.triggerVariant === `row`
-  const align = props.align === `start` || props.align === `center` || props.align === `end` ? props.align : row ? `end` : `start`
+  const align = props.align === `start` || props.align === `center` || props.align === `end` ? props.align : `start`
   const set = typeof props.popupWidth === `number` && Number.isFinite(props.popupWidth) && props.popupWidth > 0 ? props.popupWidth : undefined
   const width = set ?? (row ? LAYOUT_CONSTANTS.selectRowPopupWidth : undefined)
-  return { align, minWidth: width === undefined ? `var(${triggerWidthVar})` : undefined, width: width === undefined ? undefined : `${width}px` }
+  return {
+    align,
+    minWidth: width === undefined ? `var(${triggerWidthVar})` : undefined,
+    width: width === undefined ? undefined : `${width}px`,
+    anchorValue: row,
+    sideOffset: row ? LAYOUT_CONSTANTS.selectRowPopupOffset! : OVERLAY_OFFSET,
+    collisionPadding: row ? LAYOUT_CONSTANTS.selectRowPopupMargin! : OVERLAY_PADDING,
+  }
+}
+
+/** #EXP-1629: a popper anchored on the TRIGGER placed as if anchored on
+ *  `value` inside it (Radix's Select anchors its trigger): the side offset
+ *  and the align offset that move it under the value. */
+export function valueAnchorOffsets(trigger: Element, value: Element, align: `start` | `center` | `end`, sideOffset: number, rtl: boolean): { sideOffset: number; alignOffset: number } {
+  const t = trigger.getBoundingClientRect()
+  const v = value.getBoundingClientRect()
+  const start = rtl ? t.right - v.right : v.left - t.left
+  const end = rtl ? v.left - t.left : t.right - v.right
+  return { sideOffset: sideOffset - (t.bottom - v.bottom), alignOffset: align === `start` ? start : align === `end` ? end : (v.left + v.width / 2 - (t.left + t.width / 2)) * (rtl ? -1 : 1) }
+}
+
+/** #EXP-1629: the first enabled option index, or -1 (where every Select
+ *  opening puts its cursor: a fresh pick). */
+export function firstEnabledIndex(count: number, isDisabled: (index: number) => boolean = () => false): number {
+  for (let i = 0; i < count; i++) if (!isDisabled(i)) return i
+  return -1
+}
+
+/** #EXP-1629: does `list` have rows below its visible end (the bottom
+ *  `fade` shows; SearchList's rule)? */
+export function listMoreBelow(list: HTMLElement | null | undefined): boolean {
+  return Boolean(list && list.scrollTop + list.clientHeight < list.scrollHeight - 1)
 }
 
 /** #EXP-1629: scroll `list` (only it, never the page) so `option` is in
