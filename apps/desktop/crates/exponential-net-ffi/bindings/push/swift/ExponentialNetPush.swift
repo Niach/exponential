@@ -39,6 +39,52 @@ fileprivate extension ForeignBytes {
     init(bufferPointer: UnsafeBufferPointer<UInt8>) {
         self.init(len: Int32(bufferPointer.count), data: bufferPointer.baseAddress)
     }
+
+    init(rawBufferPointer: UnsafeRawBufferPointer) {
+        self.init(
+            len: Int32(rawBufferPointer.count),
+            data: rawBufferPointer.baseAddress?.assumingMemoryBound(to: UInt8.self)
+        )
+    }
+}
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Conforms to `FfiConverter` so the compiler enforces the full converter
+// method set. Only the scope-bound `lower(_:_body:)` overload is sound —
+// zero-copy byte buffers only flow foreign -> Rust, and only in argument
+// position. The four protocol-witness methods (`lift`, `lower`, `read`,
+// `write`) `fatalError` at runtime if anyone reaches them.
+//
+// The scope-bound `lower` takes a closure because the `ForeignBytes`
+// pointer is only guaranteed valid for the duration of
+// `Data.withUnsafeBytes`. Callers must run the full FFI call inside
+// the closure body.
+fileprivate enum FfiConverterByRefBytes: FfiConverter {
+    typealias SwiftType = Data
+    typealias FfiType = ForeignBytes
+
+    static func lower<R>(_ value: Data, _ body: (ForeignBytes) throws -> R) rethrows -> R {
+        return try value.withUnsafeBytes { rawBuf in
+            try body(ForeignBytes(rawBufferPointer: rawBuf))
+        }
+    }
+
+    static func lower(_ value: Data) -> ForeignBytes {
+        fatalError("ByRef bytes cannot use the plain lower: returning ForeignBytes escapes the Data.withUnsafeBytes scope. Use the scope-bound lower(_:_body:) overload instead.")
+    }
+
+    static func lift(_ value: ForeignBytes) throws -> Data {
+        fatalError("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+    }
+
+    static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        fatalError("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
+
+    static func write(_ value: Data, into buf: inout [UInt8]) {
+        fatalError("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
 }
 
 // For every type used in the interface, we provide helper methods for conveniently
@@ -447,7 +493,11 @@ fileprivate struct FfiConverterString: FfiConverter {
             return String()
         }
         let bytes = UnsafeBufferPointer<UInt8>(start: value.data!, count: Int(value.len))
-        return String(bytes: bytes, encoding: String.Encoding.utf8)!
+        // Use Swift's native UTF-8 decoder; `String(bytes:encoding:.utf8)` goes
+        // through Foundation's NSString and silently strips a leading U+FEFF BOM.
+        // Invalid UTF-8 substitutes U+FFFD instead of trapping (unreachable
+        // given Rust's `String` invariant).
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     public static func lower(_ value: String) -> RustBuffer {
@@ -463,7 +513,8 @@ fileprivate struct FfiConverterString: FfiConverter {
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> String {
         let len: Int32 = try readInt(&buf)
-        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        // See `lift` above for why we avoid Foundation's NSString-backed decoder here.
+        return String(decoding: try readBytes(&buf, count: Int(len)), as: UTF8.self)
     }
 
     public static func write(_ value: String, into buf: inout [UInt8]) {
@@ -800,7 +851,8 @@ public func FfiConverterTypeEnetTreeKey_lower(_ value: EnetTreeKey) -> RustBuffe
 }
 
 
-public enum EnetError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum EnetError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -977,8 +1029,7 @@ public func FfiConverterTypeEnetError_lower(_ value: EnetError) -> RustBuffer {
     return FfiConverterTypeEnetError.lower(value)
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * What opening sealed content gave (fixture spelling: plain, opened,
  * noKey, unsupported, malformed, refused).
@@ -1150,23 +1201,26 @@ fileprivate struct FfiConverterSequenceTypeEnetEpochKey: FfiConverterRustBuffer 
 }
 public func generateTreeKey() -> EnetTreeKey  {
     return try!  FfiConverterTypeEnetTreeKey_lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_generate_tree_key($0
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_generate_tree_key(uniffiCallStatus
     )
 })
 }
 public func openBody(body: String, keys: [EnetEpochKey])throws  -> EnetOpenedBody  {
     return try  FfiConverterTypeEnetOpenedBody_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_open_body(
         FfiConverterString.lower(body),
-        FfiConverterSequenceTypeEnetEpochKey.lower(keys),$0
+        FfiConverterSequenceTypeEnetEpochKey.lower(keys),uniffiCallStatus
     )
 })
 }
 public func openCard(cardJson: String, keys: [EnetEpochKey])throws  -> EnetOpenedCard  {
     return try  FfiConverterTypeEnetOpenedCard_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_open_card(
         FfiConverterString.lower(cardJson),
-        FfiConverterSequenceTypeEnetEpochKey.lower(keys),$0
+        FfiConverterSequenceTypeEnetEpochKey.lower(keys),uniffiCallStatus
     )
 })
 }
@@ -1175,14 +1229,16 @@ public func openCard(cardJson: String, keys: [EnetEpochKey])throws  -> EnetOpene
  */
 public func pushKeypairDerive(identity: Data)throws  -> EnetPushKeypair  {
     return try  FfiConverterTypeEnetPushKeypair_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_push_keypair_derive(
-        FfiConverterData.lower(identity),$0
+        FfiConverterData.lower(identity),uniffiCallStatus
     )
 })
 }
 public func pushKeypairGenerate() -> EnetPushKeypair  {
     return try!  FfiConverterTypeEnetPushKeypair_lift(try! rustCall() {
-    uniffi_exponential_net_ffi_fn_func_push_keypair_generate($0
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffiCallStatus
     )
 })
 }
@@ -1192,9 +1248,10 @@ public func pushKeypairGenerate() -> EnetPushKeypair  {
  */
 public func pushOpen(recipientSecret: Data, sealed: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_push_open(
         FfiConverterData.lower(recipientSecret),
-        FfiConverterData.lower(sealed),$0
+        FfiConverterData.lower(sealed),uniffiCallStatus
     )
 })
 }
@@ -1203,9 +1260,10 @@ public func pushOpen(recipientSecret: Data, sealed: Data)throws  -> Data  {
  */
 public func pushSeal(recipientPublic: Data, plaintext: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_push_seal(
         FfiConverterData.lower(recipientPublic),
-        FfiConverterData.lower(plaintext),$0
+        FfiConverterData.lower(plaintext),uniffiCallStatus
     )
 })
 }
@@ -1214,10 +1272,11 @@ public func pushSeal(recipientPublic: Data, plaintext: Data)throws  -> Data  {
  */
 public func sealBody(treePublicKey: String, epoch: UInt32, text: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_seal_body(
         FfiConverterString.lower(treePublicKey),
         FfiConverterUInt32.lower(epoch),
-        FfiConverterString.lower(text),$0
+        FfiConverterString.lower(text),uniffiCallStatus
     )
 })
 }
@@ -1226,18 +1285,20 @@ public func sealBody(treePublicKey: String, epoch: UInt32, text: String)throws  
  */
 public func sealCard(treePublicKey: String, epoch: UInt32, cardJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_seal_card(
         FfiConverterString.lower(treePublicKey),
         FfiConverterUInt32.lower(epoch),
-        FfiConverterString.lower(cardJson),$0
+        FfiConverterString.lower(cardJson),uniffiCallStatus
     )
 })
 }
 public func unwrapTreeKey(installSecret: Data, wrapped: String)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(
         FfiConverterData.lower(installSecret),
-        FfiConverterString.lower(wrapped),$0
+        FfiConverterString.lower(wrapped),uniffiCallStatus
     )
 })
 }
@@ -1247,9 +1308,10 @@ public func unwrapTreeKey(installSecret: Data, wrapped: String)throws  -> Data  
  */
 public func wrapTreeKey(installPublic: String, treeSecret: Data)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
     uniffi_exponential_net_ffi_fn_func_wrap_tree_key(
         FfiConverterString.lower(installPublic),
-        FfiConverterData.lower(treeSecret),$0
+        FfiConverterData.lower(treeSecret),uniffiCallStatus
     )
 })
 }
@@ -1269,37 +1331,37 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_generate_tree_key() != 12122) {
+    if (uniffi_exponential_net_ffi_checksum_func_generate_tree_key() != 47742) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_open_body() != 11262) {
+    if (uniffi_exponential_net_ffi_checksum_func_open_body() != 45547) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_open_card() != 12774) {
+    if (uniffi_exponential_net_ffi_checksum_func_open_card() != 16678) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 7760) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_derive() != 40752) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_generate() != 12778) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_keypair_generate() != 35841) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_open() != 54862) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_open() != 31338) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_push_seal() != 37617) {
+    if (uniffi_exponential_net_ffi_checksum_func_push_seal() != 34718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_seal_body() != 44895) {
+    if (uniffi_exponential_net_ffi_checksum_func_seal_body() != 43399) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_seal_card() != 34112) {
+    if (uniffi_exponential_net_ffi_checksum_func_seal_card() != 38638) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key() != 64941) {
+    if (uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key() != 63198) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_net_ffi_checksum_func_wrap_tree_key() != 45859) {
+    if (uniffi_exponential_net_ffi_checksum_func_wrap_tree_key() != 51680) {
         return InitializationResult.apiChecksumMismatch
     }
 
