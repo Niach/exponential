@@ -158,11 +158,20 @@ struct ChatRows: Sendable {
     ) -> TranscriptGrouping.Input {
         let chat = chat ?? root
         let isRoot = chat.id == root.id
-        let title = isRoot && !agentName.isEmpty ? agentName : (chat.title ?? SessionTitle.Copy.untitled)
+        // EXP-1341: THE session title (an issue-named root reads its
+        // issues, never `Untitled`), like web and Android.
+        let titles = SessionTitle.titles(
+            sessions.map(TreeSession.init(sessionRow:)),
+            sessionIssues: sessionIssues.map(TreeSessionIssue.init(sessionIssueRow:)),
+            issues: issues.map(TreeIssue.init(issueRow:)),
+            messages: messages.map(TreeMessage.init(messageRow:))
+        )
+        let titleOf = { (session: SessionEntity) in titles[session.id] ?? session.title ?? SessionTitle.Copy.untitled }
+        let title = isRoot && !agentName.isEmpty ? agentName : titleOf(chat)
         let known = sessions.map { session in
             TranscriptGrouping.KnownSession(
                 id: session.id,
-                title: session.title ?? SessionTitle.Copy.untitled,
+                title: titleOf(session),
                 agentId: session.agentId
             )
         }
