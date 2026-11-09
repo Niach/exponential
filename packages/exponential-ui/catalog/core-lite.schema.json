@@ -8652,6 +8652,11 @@
           "description": "Turns submit into a stop while a reply streams.",
           "default": false
         },
+        "menuKeys": {
+          "$ref": "common_types.json#/$defs/DynamicBoolean",
+          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu).",
+          "default": false
+        },
         "on": {
           "$ref": "#/$defs/On_Composer"
         },
@@ -8676,7 +8681,8 @@
             "events": [
               "submit",
               "change",
-              "stop"
+              "stop",
+              "key"
             ]
           }
         }
@@ -21707,6 +21713,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "stop": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "key": {
           "$ref": "#/$defs/EuiAction"
         }
       },
