@@ -11808,6 +11808,14 @@
           "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Text; bind it to a data path."
         },
+        "variant": {
+          "enum": [
+            "field",
+            "row"
+          ],
+          "description": "`row` = a Group row: label, value.",
+          "default": "field"
+        },
         "disabled": {
           "type": "boolean",
           "description": "Shows it inert.",
@@ -22328,7 +22336,8 @@
               "sm",
               "md",
               "lg",
-              "xl"
+              "xl",
+              "popover"
             ]
           }
         },

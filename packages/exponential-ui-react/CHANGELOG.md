@@ -5,9 +5,14 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.21.0 (2026-11-09)
+
+- Select `triggerVariant: row` (#EXP-1629): the trigger is the `label`, a spacer, the `value` (at most `selectRowValueMaxWidth`, truncated) and the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: hung off the VALUE, `start`, 262 px, `selectRowPopupOffset` under it, `selectRowPopupMargin` from the window's edges); every Select opens at the TOP with the cursor on the first enabled option (the search field focused when searchable), no longer scrolled to the chosen one; the list's bottom `fade` (`searchListFade`) while options sit below; the search glyph in `mutedForeground`; item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
+- Recipes (#EXP-1629): `backgroundClip: padding-box` paints a part's fill inside its border, `$shadow.popover` resolves like every shadow, and an Avatar's picture paints its `image` recipe fill (the exponential theme's `secondary`) under its ring.
+- `primitives/kbd` `Kbd`: the `accent` fill (the catalog's `Kbd` recipe; was `muted`), through the shared `KBD_CLASSES`.
+- Input `variant: "row"` (#EXP-1629): a Group row (label inside, the value end-aligned at 70%); the exponential theme's row is the IDE's (14 px rem). Snapshots re-recorded (every Input field gains `data-r-variant="field"`).
 - Embed (#EDE-65): a nested genUI surface painted in place, sandboxed: its own data model, its own surface id (`embedSurfaceId`, so inner ids never meet the host's), the host's theme, mode, strings, locale and presentation hooks only (`embedHost`); every inner event fires the Embed's `action` with `{name, context}`, an inner host function is denied, a bad `surface` paints the `embedInvalid` error Alert, a deep change of the surface remounts the card.
 - Composer `menuKeys` (#EDE-65): while it is on, Up, Down, Enter, Tab and Escape without a modifier fire `key` {key} (prevented and stopped); an IME composition's keys stay the IME's (its Enter never submits).
-- Select `triggerVariant: row` (#EXP-1629): the label inside the trigger, the `value` part trailing, the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: `end`, 260 px); the open list scrolls to the chosen option (never the page); item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
 - KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
 
 ## 0.20.0 (2026-11-08)
@@ -42,13 +47,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## 0.16.3 (2026-11-06)
 
-- DatePicker `inline` (the month grid in place), `marks` event dots, `today`, the `month` event; days carry the `isToday` / `outside` recipe props (VAPP-282).
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception). React paints the row in the same DOM order.
 - `host.popupHost` (VAPP-281): anchored Popovers / Menus render into the host's element outside the surface (theme scope copied, in-flow content, events route back).
 - Popover `align` + `anchor`, Menu `side` + `align` + `anchor` (VAPP-276): Radix's `align`; an `anchor`ed overlay is placed against that node (`PopoverPrimitive.Anchor virtualRef`, a virtual DropdownMenu trigger), the node gets the trigger's aria + toggle, Escape returns focus to it.
-- `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`): hard breaks, the chat rhythm (`data-r-density` on the Markdown root), selection off, and streamed text whose finished blocks are memoized (each top-level block re-renders only when its block changes).
-- Markdown host hooks (`catalog/host.json` `markdown`): a `textLinks` chip paints the Chip look inline, `imageSize` / `onImagePress` size and press block images, `attachment` paints a one-link paragraph as the Video / AudioPlayer native or the FileUpload file row. `hostPlugin(host)` forwards the policy's hooks.
 - Markdown parses the same on all five renderers (`markdown-render.json`, every golden case passes; VAPP-258), and a number field seeded with a value selects it on focus so Save runs once (VAPP-208).
 
 ## 0.16.2 (2026-11-06)

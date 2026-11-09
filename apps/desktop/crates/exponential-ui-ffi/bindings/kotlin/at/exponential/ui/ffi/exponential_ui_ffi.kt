@@ -10749,6 +10749,12 @@ data class FfiVisual (
      * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
      */
     var `sticky`: kotlin.Boolean = false 
+    , 
+    /**
+     * #EXP-1629: `padding-box` = the background paints inside the border
+     * (a recipe's `backgroundClip`); `None` = under it (`border-box`).
+     */
+    var `backgroundClip`: kotlin.String? = null 
     
 ){
     
@@ -10806,6 +10812,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -10850,7 +10857,8 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.allocationSize(value.`direction`) +
             FfiConverterOptionalFloat.allocationSize(value.`backdropBlur`) +
             FfiConverterOptionalString.allocationSize(value.`animationJson`) +
-            FfiConverterBoolean.allocationSize(value.`sticky`)
+            FfiConverterBoolean.allocationSize(value.`sticky`) +
+            FfiConverterOptionalString.allocationSize(value.`backgroundClip`)
     )
 
     override fun write(value: FfiVisual, buf: ByteBuffer) {
@@ -10895,6 +10903,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.write(value.`backdropBlur`, buf)
             FfiConverterOptionalString.write(value.`animationJson`, buf)
             FfiConverterBoolean.write(value.`sticky`, buf)
+            FfiConverterOptionalString.write(value.`backgroundClip`, buf)
     }
 }
 

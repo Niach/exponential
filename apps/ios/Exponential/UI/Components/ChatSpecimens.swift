@@ -451,7 +451,8 @@ private struct ClearNavigationBackground: ViewModifier {
 }
 
 /// `chat-header` (#EXP-1688, chats.json `shell.chatHeader`): THE chat header:
-/// a chat waiting on you, a working one, an agent chat with its telephone.
+/// a chat waiting on you (#EXP-1732: THE tabs under it), a working one, an
+/// agent chat with its telephone and THE gear.
 struct ChatHeaderSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -461,7 +462,7 @@ struct ChatHeaderSpecimens: View {
             ChatHeader {
                 ChatHeaderTitle(
                     title: "Reduce cold start",
-                    subtitle: "needs input · Alex's MacBook",
+                    subtitle: SessionScreen.subtitle(status: SessionScreen.Copy.Status.needsInput, device: "Alex's MacBook", trigger: nil),
                     subtitleTone: .needsYou,
                     cli: "claude",
                     mark: .needsYou
@@ -469,11 +470,18 @@ struct ChatHeaderSpecimens: View {
             } trailing: {
                 more
             }
+            SessionScreenTabs(
+                tabs: SessionScreen.screen(
+                    kind: .session, requested: .chat, open: nil,
+                    counts: SessionScreen.Counts(issues: 1, sessions: 6, results: 4)
+                ).tabs,
+                selection: .chat
+            ) { _ in }
             PhoneShellSpecimen.caption("A working chat")
             ChatHeader {
                 ChatHeaderTitle(
                     title: "A title long enough that it truncates on one line",
-                    subtitle: Chats.Copy.Preview.working,
+                    subtitle: SessionScreen.Copy.Status.working,
                     subtitleTone: .working,
                     cli: "claude",
                     mark: .working
@@ -485,12 +493,13 @@ struct ChatHeaderSpecimens: View {
             ChatHeader {
                 ChatHeaderTitle(
                     title: "Triage",
-                    subtitle: Chats.agentChatSubtitle(modelLabel: nil),
+                    subtitle: SessionScreen.subtitle(status: SessionScreen.Copy.Status.idle, device: "Alex's MacBook", trigger: "every 30 min"),
                     agentIcon: BoardTypeDisplay.iconName(for: "bug"),
                     agentColor: "#a855f7"
                 )
             } trailing: {
                 ChatHeaderGhostButton(icon: AppIcons.voiceCall, label: "Call") {}
+                SessionScreenGear {}
                 more
             }
         }
@@ -880,8 +889,9 @@ struct ResultsTabSpecimens: View {
     }
 }
 
-/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the chat's
-/// title + strip with the plan chip active, the tab's body under them, waiting.
+/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): #EXP-1732
+/// the plan as an OPENED item (a page pushed over the chat): THE chat header
+/// with its back and the plan's title, the plan page's body under it, waiting.
 private struct PlanPageSpecimen: View {
     let card: TreeMessageCard?
 
@@ -899,20 +909,13 @@ private struct PlanPageSpecimen: View {
         ZStack {
             AppBackground()
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(PlanPage.Specimen.chatName)
-                        .font(.headline)
+                ChatHeader {
+                    Text(PlanPage.Copy.title)
+                        .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
-                    ChatStripTabs(
-                        tabs: [.conversation],
-                        selection: .plan(nil),
-                        onSelect: { _ in },
-                        showsResults: true,
-                        planWaiting: true
-                    )
+                } trailing: {
+                    EmptyView()
                 }
                 Rectangle()
                     .fill(GlassTokens.strokeCard)

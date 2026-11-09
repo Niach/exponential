@@ -12,7 +12,8 @@ public enum KbdMetrics {
 
 /// THE keycap outside a surface (the painter draws the `Kbd` macro inside
 /// one): 20pt tall, at least 20pt wide, 4pt side padding, the `radius.sm`
-/// corner, the muted fill, 12pt medium muted text.
+/// corner, the `accent` fill with no border (the theme's `recipes.Kbd`),
+/// 12pt medium muted text.
 public struct KbdView: View {
     @Environment(\.primitiveTokens) private var tokens
     let label: String
@@ -28,7 +29,7 @@ public struct KbdView: View {
             .lineLimit(1)
             .padding(.horizontal, KbdMetrics.horizontalPadding)
             .frame(minWidth: KbdMetrics.height, minHeight: KbdMetrics.height, maxHeight: KbdMetrics.height)
-            .background(tokens.muted, in: RoundedRectangle(cornerRadius: tokens.radiusSm, style: .continuous))
+            .background(tokens.accent, in: RoundedRectangle(cornerRadius: tokens.radiusSm, style: .continuous))
     }
 }
 

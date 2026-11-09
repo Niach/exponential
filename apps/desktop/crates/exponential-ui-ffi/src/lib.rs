@@ -456,6 +456,10 @@ pub struct FfiVisual {
     /// Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
     #[uniffi(default = false)]
     pub sticky: bool,
+    /// #EXP-1629: `padding-box` = the background paints inside the border
+    /// (a recipe's `backgroundClip`); `None` = under it (`border-box`).
+    #[uniffi(default = None)]
+    pub background_clip: Option<String>,
 }
 
 /// What a host sets per surface. `strings_json` = `{id: text}` overrides;
@@ -714,6 +718,7 @@ fn visual(v: &eui_core::style::Visual) -> FfiVisual {
         backdrop_blur: v.backdrop_blur,
         animation_json: v.animation.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
         sticky: v.sticky,
+        background_clip: v.background_clip.clone(),
     }
 }
 

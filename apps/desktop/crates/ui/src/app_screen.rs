@@ -1,12 +1,14 @@
 //! VAPP-110 — one app's EDITOR ([`Screen::App`], web `app-editor.tsx`,
-//! fixtures/apps.json THE EDITOR). VAPP-177 (`editorTabs`): header = the
-//! app's glyph + name + the version pill, then the SegmentedControl of
-//! `editorTabs.wide` (Preview | Data | Versions | Settings, `copy.tabs.*`); body =
-//! two panes `5fr : 7fr` with a hairline between: the CHAT (the member's
-//! editor session, [`crate::agent_screen::AgentScreenView::for_app`]: the
-//! agent channel's rows and THE composer; the first send
-//! `sessions.send({appId, text, deviceId})`; no header strip of its own)
-//! beside the TAB pane:
+//! fixtures/apps.json THE EDITOR). #EXP-1732: the editor IS THE session
+//! screen (session-screen.json, kind `app`): THE header
+//! ([`crate::session_chat::screen_header`]: the app's glyph + the version
+//! pill, the name over the subtitle, Publish, THE gear = the app's settings
+//! in the pane, the `…` = Export and Delete), THE Segmented under it (Chat ·
+//! Preview · Data · Versions · Sessions · Results, opening on Preview); body
+//! = the beside rule (`5fr : 7fr`, a hairline between): the CHAT (the
+//! member's editor session, [`crate::agent_screen::AgentScreenView::for_app`]:
+//! THE transcript and THE composer; the first send
+//! `sessions.send({appId, text, deviceId})`) beside the TAB pane:
 //! - PREVIEW: the IDE's Exponential UI host ([`crate::exponential_ui_host::IdeHost`])
 //!   installs the head package and applies its first template
 //!   (`applyTemplate`, a surface minted under `app`) in a 12px frame, repainting
@@ -22,13 +24,14 @@
 //!   `who · relative time`; the head row = the `Current` badge, every other
 //!   row = Preview (ghost, → the Preview tab on that version) + Restore
 //!   (outline, `apps.restore` = a NEW head, toast `Restored v{n} as v{m}`).
-//! - SETTINGS: [`crate::settings::app_detail::AppDetailPane`], ≤
-//!   `editorTabs.settingsMaxWidth` px.
+//! - SESSIONS: THE tree rows of every session under the editor root; a row
+//!   opens its raw work in the pane. RESULTS: results-tab.json's body.
+//! - THE GEAR: [`crate::settings::app_detail::AppDetailPane`] in the pane.
 //!
-//! The editor opens on `editorTabs.default` (no tab is kept); the settings
-//! nav (Settings → Apps, the sidebar's hover gear, the dev `app:<slug>`
-//! settings drive) opens it on Settings ([`open_app_tab`]), the dev screen
-//! `app:<slug>:<tab>` on that tab (`app:<slug>:preview:phone` = the
+//! The editor opens on Preview (no tab is kept); the settings nav (Settings
+//! → Apps, the sidebar's hover gear, the dev `app:<slug>` settings drive)
+//! opens the gear's settings ([`open_app_tab`] with Settings), the dev
+//! screen `app:<slug>:<tab>` on that tab (`app:<slug>:preview:phone` = the
 //! Phone frame). VAPP-129's floating layout is gone.
 //!
 //! VAPP-218 (apps.json `screens`): a package with `screens` gets its
@@ -64,7 +67,7 @@ use eui_core::theme::Mode;
 use eui_gpui::runtime::ExponentialHost;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, relative, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,
+    div, px, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
     Styled, Subscription, Window,
 };
@@ -80,11 +83,16 @@ use eui_core::host::{nav_screens, package_screens, resolve_screen, screen_data, 
 use sync::Store;
 
 use domain::apps::{
-    editor_tab, is_draft, preview_template, preview_templates, screen_shell, surface_state, version_label, version_row, viewing_label, EditorTab,
+    is_draft, preview_template, preview_templates, screen_shell, surface_state, version_label, version_row, viewing_label, EditorTab,
     PreviewFrame, ScreenShell, SurfaceState, VersionRowKind,
     APPS,
 };
 use domain::rows::AppVersionRow;
+
+use domain::session_screen::{
+    session_screen, SessionScreen, SessionScreenCounts, SessionScreenKind, SessionScreenLayout, SessionScreenOpen,
+    SessionScreenTab, SESSION_SCREEN,
+};
 
 use crate::apps_view::{find_app, version_pill, AppEntry};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
@@ -92,10 +100,8 @@ use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation, Screen};
 
-/// The header glyph (the web's `size-5`).
-const HEADER_GLYPH_PX: f32 = 20.;
-/// One header segment's width (the segmented control sizes to its tabs).
-const TAB_SEGMENT_PX: f32 = 96.;
+/// The header glyph in its lead disc (the chat header's `disc`, `size-4`).
+const HEADER_GLYPH_PX: f32 = 16.;
 /// VAPP-179: one frame segment's width in the preview toolbar.
 const FRAME_SEGMENT_PX: f32 = 88.;
 
@@ -171,9 +177,17 @@ pub(crate) fn split_app_spec(spec: &str) -> (&str, Option<&str>, Option<&str>) {
     (app, parts.next(), parts.next())
 }
 
+/// #EXP-1732: a requested tab id (the settings nav's, the dev drive's; the
+/// legacy ids included) on THE session screen of an app: the tab on show
+/// and whether THE gear's settings open (`settings` = the gear).
+pub(crate) fn requested_tab(requested: Option<&str>) -> (SessionScreenTab, bool) {
+    let screen = session_screen(SessionScreenKind::App.as_str(), true, requested, None, SessionScreenCounts::default());
+    (screen.active, screen.open == Some(SessionScreenOpen::Settings))
+}
+
 /// DEV-ONLY: the tab `EXP_DEV_SCREEN=app:<slug>:<tab>` asks of the first
 /// editor that shows that app (once).
-fn dev_tab(shows: impl Fn(&str) -> bool) -> Option<EditorTab> {
+fn dev_tab(shows: impl Fn(&str) -> bool) -> Option<String> {
     static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
     let (app, tab, _) = split_app_spec(spec.trim().strip_prefix("app:")?);
@@ -181,7 +195,7 @@ fn dev_tab(shows: impl Fn(&str) -> bool) -> Option<EditorTab> {
     if !shows(app) || TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
-    Some(editor_tab(Some(tab), false).0)
+    Some(tab.to_string())
 }
 
 /// DEV-ONLY (VAPP-179): the preview frame `EXP_DEV_SCREEN=app:<slug>:<tab>:<frame>`
@@ -325,7 +339,9 @@ pub struct AppScreenView {
     /// #EXP-1729 (apps.json `editorHeader`): the header's `status · device`
     /// subtitle off the chat (its root and the composer's device),
     /// repainted only when it changes.
-    editor_header: Option<domain::apps::EditorHeader>,
+    /// #EXP-1732: with its DEVICE part alone (the subtitle = THE tree's
+    /// word · this part, in the header's tone).
+    editor_header: Option<(domain::apps::EditorHeader, String)>,
     preview: Option<Preview>,
     /// The version being previewed (`None` = the head) and its package.
     viewing: Option<i64>,
@@ -338,9 +354,15 @@ pub struct AppScreenView {
     preview_scroll: ScrollHandle,
     versions_scroll: ScrollHandle,
     settings_scroll: ScrollHandle,
-    /// VAPP-177: the tab on screen (`editorTabs.wide`).
-    tab: EditorTab,
-    /// VAPP-177: the Settings tab's body, built once the app resolves.
+    /// #EXP-1732: the header tab on show (session-screen.json, kind `app`).
+    tab: SessionScreenTab,
+    /// #EXP-1732: THE gear's settings open in the pane.
+    settings_open: bool,
+    /// #EXP-1732: a Sessions row's session open in the pane (its raw work).
+    opened_session: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
+    /// The Results tab's pictures.
+    images: Entity<crate::markdown::ImageCache>,
+    /// VAPP-177: the gear's settings body, built once the app resolves.
     settings: Option<Entity<crate::settings::app_detail::AppDetailPane>>,
     /// VAPP-178: the Data tab's body, built once the app resolves.
     data: Option<Entity<crate::app_data_tab::AppDataTab>>,
@@ -405,7 +427,7 @@ impl AppScreenView {
             }
             let shows = |app: &str| this.shows(app);
             if let Some(tab) = take_tab_request(shows, cx) {
-                this.tab = tab;
+                (this.tab, this.settings_open) = requested_tab(Some(tab.as_str()));
                 cx.notify();
             }
         }));
@@ -422,6 +444,10 @@ impl AppScreenView {
         // Leaving ends the live editor session: the screens panel drops this
         // view on a navigation off it, the window drops it on close.
         cx.on_release(|this, cx| this.end_live_session(cx)).detach();
+        let transport = crate::queries::attachment_transport(cx);
+        let images = cx.new(|_| crate::markdown::ImageCache::new(transport));
+        subscriptions.push(cx.observe(&images, |_, _, cx| cx.notify()));
+        let (tab, settings_open) = requested_tab(None);
         let mut this = Self {
             requested,
             run,
@@ -441,7 +467,10 @@ impl AppScreenView {
             preview_scroll: ScrollHandle::new(),
             versions_scroll: ScrollHandle::new(),
             settings_scroll: ScrollHandle::new(),
-            tab: editor_tab(None, false).0,
+            tab,
+            settings_open,
+            opened_session: None,
+            images,
             settings: None,
             data: None,
             frame: PreviewFrame::default_frame(),
@@ -465,9 +494,11 @@ impl AppScreenView {
         }
         // VAPP-177: the editor opens on the default tab unless the settings
         // nav (or the dev screen) asked for one.
-        let requested = take_tab_request(|app| this.shows(app), cx).or_else(|| dev_tab(|app| this.shows(app)));
+        let requested = take_tab_request(|app| this.shows(app), cx)
+            .map(|tab| tab.as_str().to_string())
+            .or_else(|| dev_tab(|app| this.shows(app)));
         if let Some(tab) = requested {
-            this.tab = editor_tab(Some(tab.as_str()), false).0;
+            (this.tab, this.settings_open) = requested_tab(Some(tab.as_str()));
         }
         if let Some(frame) = dev_frame(|app| this.shows(app)) {
             this.frame = frame;
@@ -562,11 +593,61 @@ impl AppScreenView {
         cx.notify();
     }
 
-    fn set_tab(&mut self, tab: EditorTab, cx: &mut gpui::Context<Self>) {
+    /// #EXP-1732: pick a header tab; an opened item (the settings, a
+    /// session) closes.
+    fn set_tab(&mut self, tab: SessionScreenTab, cx: &mut gpui::Context<Self>) {
+        self.settings_open = false;
+        self.close_session(cx);
         if self.tab != tab {
             self.tab = tab;
-            cx.notify();
         }
+        cx.notify();
+    }
+
+    /// The session a Sessions row opened in the pane goes (its feed, never
+    /// the session).
+    fn close_session(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Some((_, view)) = self.opened_session.take() {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
+    }
+
+    /// #EXP-1732: a Sessions row: that session's raw work in the pane.
+    fn open_session(&mut self, session_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.opened_session.as_ref().is_some_and(|(id, _)| *id == session_id) {
+            return;
+        }
+        self.close_session(cx);
+        self.settings_open = false;
+        let id = session_id.clone();
+        let view = cx.new(|cx| crate::session_screen::SessionScreenView::new(id, window, cx));
+        cx.observe(&view, |_, _, cx| cx.notify()).detach();
+        self.opened_session = Some((session_id, view));
+        cx.notify();
+    }
+
+    /// The member's editor session (the tree root), once the first send
+    /// made it.
+    fn editor_root(&self, cx: &App) -> Option<domain::rows::SessionRow> {
+        self.app.as_ref().and_then(|app| crate::session_data::my_editor_session(&app.id, cx))
+    }
+
+    /// #EXP-1732: this editor's `session_screen` (kind `app`, the IDE is
+    /// wide).
+    fn screen(&self, cx: &mut gpui::Context<Self>) -> SessionScreen {
+        let root = self.editor_root(cx);
+        let sessions = root
+            .as_ref()
+            .map(|root| crate::session_data::tree_of_root(&root.id, cx).iter().filter(|row| row.id != root.id).count())
+            .unwrap_or(0);
+        let results = root.as_ref().map(|root| crate::results_tab::results_of_root(&root.id, cx).len()).unwrap_or(0);
+        let open = if self.settings_open {
+            Some(SessionScreenOpen::Settings.as_str())
+        } else {
+            self.opened_session.as_ref().map(|_| SessionScreenOpen::Session.as_str())
+        };
+        let counts = SessionScreenCounts { issues: 0, sessions: sessions as u64, results: results as u64 };
+        session_screen(SessionScreenKind::App.as_str(), true, Some(self.tab.as_str()), open, counts)
     }
 
     /// Whether this view shows `app` (the id or slug it was opened with,
@@ -816,6 +897,7 @@ impl AppScreenView {
 
     /// The screens panel calls this when a navigation leaves the editor.
     pub(crate) fn leave(&mut self, cx: &mut gpui::Context<Self>) {
+        self.close_session(cx);
         self.end_live_session(cx);
     }
 
@@ -957,61 +1039,33 @@ impl AppScreenView {
         crate::native_dialog::open_alert(window, cx, spec);
     }
 
-    fn render_header(&self, app: &AppEntry, cx: &mut gpui::Context<Self>) -> AnyElement {
+    /// #EXP-1732 THE header (session-screen.json, kind `app`): the app's
+    /// glyph, the name + the version pill (web's order; VAPP-235: the outbox
+    /// glyph while record writes wait) over the subtitle, Publish, THE gear
+    /// (the app's settings), the `…` (Export, Delete); THE Segmented under it.
+    fn render_header(&self, app: &AppEntry, screen: &SessionScreen, cx: &mut gpui::Context<Self>) -> AnyElement {
+        use crate::session_chat::{screen_header, screen_tabs, OnPress, OnTabPick, ScreenHeader};
         let show_publish = self.can_write(cx) && domain::apps::can_publish(app.versions());
         let head = app.head_version;
-        let theme = cx.theme();
-        let tabs = EditorTab::wide();
-        let segments: Vec<_> = tabs
-            .iter()
-            .map(|&tab| {
-                crate::controls::segmented_item(self.tab == tab, cx)
-                    .id(SharedString::from(format!("{}-{}", APPS.test_ids.tabs, tab.as_str())))
-                    .child(tab.label())
-                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| this.set_tab(tab, cx)))
-            })
-            .collect();
-        h_flex()
-            .flex_shrink_0()
+        // session-screen.json APP LEAD: the BoardGlyph IN the lead disc.
+        let avatar =
+            crate::agent_screen::header_disc(app.icon().with_size(px(HEADER_GLYPH_PX)).into_any_element(), cx);
+        let muted = cx.theme().muted_foreground;
+        let foreground = cx.theme().foreground;
+        let title = h_flex()
+            .min_w_0()
+            .gap_2()
             .items_center()
-            .gap_3()
-            .px_6()
-            .py_3()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(app.icon().with_size(px(HEADER_GLYPH_PX)))
-            // #EXP-1729: the chat header's title block, the name over the
-            // `status · device` subtitle in its tone.
             .child(
-                v_flex()
+                div()
                     .min_w_0()
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.foreground)
-                            .child(SharedString::from(app.name.clone())),
-                    )
-                    .when_some(self.editor_header.clone(), |block, header| {
-                        let tone = match header.tone {
-                            domain::apps::EditorHeaderTone::Attention => theme::tokens::YELLOW.to_hsla(),
-                            domain::apps::EditorHeaderTone::Active => theme.foreground,
-                            domain::apps::EditorHeaderTone::Muted => theme.muted_foreground,
-                        };
-                        block.child(
-                            div()
-                                .id("app-editor-subtitle")
-                                .min_w_0()
-                                .truncate()
-                                .text_size(px(domain::chats::CHATS.shell.chat_header.subtitle))
-                                .text_color(tone)
-                                .child(SharedString::from(header.subtitle)),
-                        )
-                    }),
+                    .truncate()
+                    .text_2xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(foreground)
+                    .child(SharedString::from(app.name.clone())),
             )
-            .child(version_pill("app-editor-version", app, cx))
+            .child(div().flex_shrink_0().child(version_pill("app-editor-version", app, cx)))
             // VAPP-235 (app-records.json `outbox`): while the running app has
             // record writes waiting to sync, the muted `ui-offline` glyph.
             .when_some(crate::app_outbox::pending_label_for(&app.id, cx), |row, label| {
@@ -1020,32 +1074,126 @@ impl AppScreenView {
                     div()
                         .id("app-outbox-pending")
                         .flex_shrink_0()
-                        .child(Icon::new(registry::UI_OFFLINE).size_4().text_color(theme.muted_foreground))
+                        .child(Icon::new(registry::UI_OFFLINE).size_4().text_color(muted))
                         .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)),
                 )
             })
-            .child(div().flex_1())
-            .when(show_publish, |row| {
-                row.child(
-                    Button::new(SharedString::from(APPS.test_ids.publish.clone()))
-                        .primary()
-                        .web_sm()
-                        .cursor_pointer()
-                        .label(APPS.copy.publish.clone())
-                        .loading(self.publishing == Some(head))
-                        .disabled(self.publishing.is_some())
-                        .on_click(cx.listener(move |this, _, _, cx| this.publish(head, cx))),
-                )
-            })
-            .child(
-                crate::controls::segmented(cx)
-                    .id(SharedString::from(APPS.test_ids.tabs.clone()))
-                    .flex_shrink_0()
-                    .w(px(TAB_SEGMENT_PX * tabs.len() as f32))
-                    .h(px(32.))
-                    .children(segments),
-            )
-            .into_any_element()
+            .into_any_element();
+        let publish = show_publish.then(|| {
+            Button::new(SharedString::from(APPS.test_ids.publish.clone()))
+                .primary()
+                .web_sm()
+                .cursor_pointer()
+                .label(APPS.copy.publish.clone())
+                .loading(self.publishing == Some(head))
+                .disabled(self.publishing.is_some())
+                .on_click(cx.listener(move |this, _, _, cx| this.publish(head, cx)))
+                .into_any_element()
+        });
+        let this = cx.entity().downgrade();
+        let on_tab: OnTabPick = Rc::new(move |tab, _window, cx| {
+            let _ = this.update(cx, |this, cx| this.set_tab(tab, cx));
+        });
+        let tabs = screen_tabs(&screen.tabs, screen.active, on_tab, cx);
+        let open = self.settings_open;
+        let this = cx.entity().downgrade();
+        let on_gear: OnPress = Rc::new(move |_window, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.close_session(cx);
+                this.settings_open = !open;
+                cx.notify();
+            });
+        });
+        // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word
+        // (never dropped) · apps.json `editorHeader`'s DEVICE part (the
+        // name, else `no device online`), in the word's TONE (amber while no
+        // device is online).
+        let root = self.editor_root(cx);
+        let tree = root.as_ref().map(|root| crate::session_data::tree_of_root(&root.id, cx)).unwrap_or_default();
+        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree);
+        let (subtitle, subtitle_color) = match self.editor_header.clone() {
+            Some((_, device)) => {
+                let offline = device == domain::apps::APPS.editor_header.copy.no_device_online;
+                let tone = crate::session_chat::tone_color(domain::session_screen::session_screen_tone(&word, offline), cx);
+                (domain::session_screen::session_screen_subtitle(Some(word.as_str()), Some(device.as_str()), None), Some(tone))
+            }
+            None => {
+                let tone = crate::session_chat::tone_color(domain::session_screen::session_screen_tone(&word, false), cx);
+                (crate::session_chat::screen_subtitle(root.as_ref(), &tree, None, cx), Some(tone))
+            }
+        };
+        screen_header(
+            ScreenHeader {
+                avatar,
+                title,
+                subtitle,
+                subtitle_color,
+                trailing: publish.into_iter().collect(),
+                gear: screen.gear.then_some((on_gear, open)),
+                menu: self.render_menu(app, cx),
+                back: None,
+                tabs,
+            },
+            cx,
+        )
+    }
+
+    /// #EXP-1732: the app's `…`: Export (an app with a version) and Delete
+    /// (its creator or an owner; it leaves for the team's home). Versions
+    /// and Settings left it (a tab, the gear).
+    fn render_menu(&self, app: &AppEntry, cx: &App) -> Option<AnyElement> {
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let owner = app
+            .row
+            .as_ref()
+            .and_then(|row| row.team_id.as_deref())
+            .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
+        let manage = crate::apps_view::can_manage(app, me.as_deref(), owner);
+        let export = app.head_version > 0;
+        if !manage && !export {
+            return None;
+        }
+        let copy = &APPS.copy.menu;
+        let (export_label, delete_label) = (copy.export.clone(), copy.delete.clone());
+        let (app_id, name) = (app.id.clone(), app.name.clone());
+        let trigger = crate::controls::ghost_icon_button("app-editor-more", Icon::new(registry::UI_MORE), cx).tooltip("More");
+        Some(
+            div()
+                .flex_shrink_0()
+                .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, cx| {
+                    if export {
+                        let app_id = app_id.clone();
+                        menu = menu.item(crate::controls::pointer_menu_item(
+                            Some(registry::UI_SHARE),
+                            export_label.clone(),
+                            |_| None,
+                            move |window, cx| crate::app_export_dialog::open(window, cx, app_id.clone(), false),
+                        ));
+                    }
+                    if manage {
+                        if export {
+                            menu = menu.separator();
+                        }
+                        let (app_id, name) = (app_id.clone(), name.clone());
+                        menu = menu.item(
+                            crate::controls::danger_menu_item(delete_label.clone(), Icon::new(registry::UI_DELETE), cx)
+                                .on_click(move |_, window, cx| {
+                                    crate::apps_view::confirm_delete(
+                                        app_id.clone(),
+                                        name.clone(),
+                                        // VAPP-242: the delete leaves for the team's home.
+                                        |window, cx| crate::navigation::navigate(window, cx, Screen::Home),
+                                        window,
+                                        cx,
+                                    )
+                                }),
+                        );
+                    }
+                    menu
+                }))
+                .into_any_element(),
+        )
     }
 
     fn render_chat(&self, chat: &Entity<crate::agent_screen::AgentScreenView>) -> AnyElement {
@@ -1514,7 +1662,7 @@ impl AppScreenView {
                                             .label(copy.preview.clone())
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.pick_version(number, cx);
-                                                this.set_tab(EditorTab::Preview, cx);
+                                                this.set_tab(SessionScreenTab::Preview, cx);
                                             })),
                                     )
                                 }
@@ -1594,7 +1742,7 @@ impl AppScreenView {
         .into_any_element()
     }
 
-    /// VAPP-177: the Settings tab: the app's settings column (≤
+    /// VAPP-177 / #EXP-1732: THE gear's page: the app's settings column (≤
     /// `editorTabs.settingsMaxWidth`, left-aligned), scrollable.
     fn render_settings(&self) -> AnyElement {
         let Some(settings) = self.settings.clone() else {
@@ -1608,13 +1756,87 @@ impl AppScreenView {
         .into_any_element()
     }
 
-    /// The tab pane on the right of the chat.
-    fn render_tab(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        match self.tab {
-            EditorTab::Versions => self.render_versions(cx),
-            EditorTab::Settings => self.render_settings(),
-            EditorTab::Data => self.data.clone().map(|data| v_flex().size_full().min_h_0().child(data).into_any_element()).unwrap_or_else(|| div().into_any_element()),
-            EditorTab::Preview | EditorTab::Chat => self.render_preview(cx),
+    /// #EXP-1732: the Sessions tab: THE tree rows of every session under
+    /// the editor root; a row opens its raw work in the pane.
+    fn render_sessions(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        use crate::session_chat::{OnTreePick, TreeItem};
+        let test_id = SESSION_SCREEN.test_ids.sessions.clone();
+        let Some(root) = self.editor_root(cx) else {
+            return crate::session_chat::tab_list(&test_id, None, Vec::new());
+        };
+        let tree = crate::session_data::tree_of_root(&root.id, cx);
+        let items = crate::session_chat::session_tree_items(&root.id, &tree, cx);
+        let this = cx.entity().downgrade();
+        let on_pick: OnTreePick = Rc::new(move |item, window, cx| {
+            if let TreeItem::Session { session_id, .. } = item {
+                let session_id = session_id.clone();
+                let _ = this.update(cx, |this, cx| this.open_session(session_id, window, cx));
+            }
+        });
+        let open = self.opened_session.as_ref().map(|(id, _)| id.as_str());
+        let rows = crate::session_chat::tree_rows(&test_id, &items, open, on_pick, None, cx);
+        crate::session_chat::tab_list(&test_id, None, rows)
+    }
+
+    /// #EXP-1732: the Results tab (results-tab.json): the editor tree's
+    /// results inline; a picture opens THE lightbox.
+    fn render_results(&self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let results = match self.editor_root(cx) {
+            Some(root) => crate::results_tab::results_of_root(&root.id, cx),
+            None => Rc::new(Vec::new()),
+        };
+        let images = self.images.clone();
+        let body =
+            crate::results_tab::results_tab_body(&results, None, &images, &crate::results_tab::store_surface, window, cx);
+        div()
+            .id(SharedString::from(domain::results_tab::RESULTS_TAB.tab.test_ids.list.clone()))
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .overflow_y_scroll()
+            .child(crate::issue_detail::centered_column(
+                v_flex().px(px(crate::work_header::WORK_GUTTER)).pt_6().pb_10().child(body),
+            ))
+            .into_any_element()
+    }
+
+    /// The tab pane beside the chat: THE gear's settings or a session under
+    /// its `‹`, else the active tab's body.
+    fn render_tab(&mut self, screen: &SessionScreen, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // The `‹` goes back to the tab the session came from.
+        let label = crate::session_chat::pane_back_label(self.tab);
+        if screen.open == Some(SessionScreenOpen::Settings) {
+            let this = cx.entity().downgrade();
+            let on_back: crate::session_chat::OnPress = Rc::new(move |_window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.settings_open = false;
+                    cx.notify();
+                });
+            });
+            return crate::session_chat::pane_item(&label, on_back, self.render_settings(), cx);
+        }
+        if let Some((_, view)) = self.opened_session.clone() {
+            let this = cx.entity().downgrade();
+            let on_back: crate::session_chat::OnPress = Rc::new(move |_window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.close_session(cx);
+                    cx.notify();
+                });
+            });
+            let body = crate::session_chat::session_pane(&view, cx);
+            return crate::session_chat::pane_item(&label, on_back, body, cx);
+        }
+        match screen.active {
+            SessionScreenTab::Versions => self.render_versions(cx),
+            SessionScreenTab::Data => self
+                .data
+                .clone()
+                .map(|data| v_flex().size_full().min_h_0().child(data).into_any_element())
+                .unwrap_or_else(|| div().into_any_element()),
+            SessionScreenTab::Sessions => self.render_sessions(cx),
+            SessionScreenTab::Results => self.render_results(window, cx),
+            SessionScreenTab::Preview => self.render_preview(cx),
+            _ => div().flex_1().into_any_element(),
         }
     }
 }
@@ -1650,38 +1872,29 @@ impl Render for AppScreenView {
         if self.run {
             return self.render_surface(false, cx);
         }
-        let panes = &APPS.panes;
-        let chat_share = panes.chat / (panes.chat + panes.preview);
-        let tab_pane = v_flex().h_full().min_h_0().min_w_0().flex_1().child(self.render_tab(cx));
-        // The chat is built with the app (refresh): the tab pane alone until
-        // then. The chat pane has no header strip of its own.
-        let body = match self.chat.clone() {
-            None => div().flex_1().min_h_0().w_full().child(tab_pane).into_any_element(),
-            Some(chat) => h_flex()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .items_stretch()
-                .child(
-                    v_flex()
-                        .h_full()
-                        .min_h_0()
-                        .w(relative(chat_share))
-                        .min_w(px(panes.chat_min_width))
-                        .flex_shrink_0()
-                        .border_r_1()
-                        .border_color(cx.theme().border)
-                        .child(div().flex_1().min_h_0().child(self.render_chat(&chat))),
-                )
-                .child(tab_pane)
-                .into_any_element(),
+        // #EXP-1732 (session-screen.json LAYOUT): the beside rule; the chat
+        // is built with the app (refresh): the tab pane alone until then.
+        let screen = self.screen(cx);
+        let header = self.render_header(&app, &screen, cx);
+        let body = match (self.chat.clone(), screen.layout) {
+            (None, _) => {
+                let pane = self.render_tab(&screen, window, cx);
+                v_flex().flex_1().min_h_0().w_full().child(pane).into_any_element()
+            }
+            (Some(chat), SessionScreenLayout::Chat) => {
+                v_flex().flex_1().min_h_0().w_full().child(self.render_chat(&chat)).into_any_element()
+            }
+            (Some(chat), _) => {
+                let pane = self.render_tab(&screen, window, cx);
+                crate::session_chat::screen_beside(self.render_chat(&chat), pane, cx)
+            }
         };
         v_flex()
             .id(SharedString::from(APPS.test_ids.editor.clone()))
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .child(self.render_header(&app, cx))
+            .child(header)
             .child(body)
             .into_any_element()
     }
@@ -1690,6 +1903,7 @@ impl Render for AppScreenView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::apps::editor_tab;
 
     #[test]
     fn the_preview_applies_the_first_template_of_the_package() {
@@ -1742,6 +1956,13 @@ mod tests {
         // VAPP-178: `app:<slug>:data` opens the Data tab.
         assert_eq!(split_app_spec("working-hours:data"), ("working-hours", Some("data"), None));
         assert_eq!(editor_tab(Some("data"), false).0, EditorTab::Data);
+        // #EXP-1732: on THE session screen: Preview by default, Chat is a
+        // tab, Settings is THE gear (over Preview).
+        assert_eq!(requested_tab(None), (SessionScreenTab::Preview, false));
+        assert_eq!(requested_tab(Some("chat")), (SessionScreenTab::Chat, false));
+        assert_eq!(requested_tab(Some("data")), (SessionScreenTab::Data, false));
+        assert_eq!(requested_tab(Some("versions")), (SessionScreenTab::Versions, false));
+        assert_eq!(requested_tab(Some("settings")), (SessionScreenTab::Preview, true));
     }
 
     /// VAPP-179: `app:<slug>:<tab>:<frame>` (the catalog's

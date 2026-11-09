@@ -76,6 +76,22 @@
             "spread": -12,
             "color": "#00000014"
           }
+        ],
+        "popover": [
+          {
+            "x": 0,
+            "y": 10,
+            "blur": 15,
+            "spread": -3,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -4,
+            "color": "#0000001a"
+          }
         ]
       }
     },
@@ -149,6 +165,22 @@
             "blur": 48,
             "spread": -12,
             "color": "#00000066"
+          }
+        ],
+        "popover": [
+          {
+            "x": 0,
+            "y": 10,
+            "blur": 15,
+            "spread": -3,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -4,
+            "color": "#0000001a"
           }
         ]
       }
@@ -712,6 +744,31 @@
             "borderColor": "$color.input",
             "boxShadow": "$shadow.none"
           }
+        },
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "height": 40.82,
+            "paddingHorizontal": 14,
+            "paddingVertical": 10.5,
+            "gap": 10.5,
+            "backgroundColor": "#00000000",
+            "fontSize": 12.25,
+            "lineHeight": 17.5
+          }
+        }
+      ],
+      "label": [
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
         }
       ]
     },
@@ -737,11 +794,69 @@
         },
         {
           "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "height": 40.82,
+            "paddingHorizontal": 14,
+            "gap": 7,
+            "fontSize": 12.25,
+            "lineHeight": 17.5
+          }
+        },
+        {
+          "when": {
             "state": "hover",
             "triggerVariant": "row"
           },
           "style": {
             "backgroundColor": "$color.secondary"
+          }
+        }
+      ],
+      "label": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "value": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 17.5,
+            "paddingVertical": 1
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 17.5,
+            "paddingVertical": 1
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 14,
+            "height": 14
           }
         }
       ],
@@ -752,6 +867,19 @@
             "borderRadius": "$radius.lg",
             "borderColor": "$color.border"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "padding": 3.5,
+            "gap": 3.5,
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.popover",
+            "backgroundClip": "padding-box",
+            "borderColor": "#ffffff19"
+          }
         }
       ],
       "search": [
@@ -760,6 +888,18 @@
             "height": 40,
             "gap": "$spacing.sm"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "height": 41,
+            "paddingHorizontal": 7,
+            "gap": 7,
+            "fontSize": 12.25,
+            "borderColor": "#ffffff0d"
+          }
         }
       ],
       "item": [
@@ -767,6 +907,17 @@
           "style": {
             "height": "$control.row",
             "borderRadius": "$radius.md"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "paddingHorizontal": 8,
+            "gap": 7,
+            "fontSize": 12.25,
+            "lineHeight": 17
           }
         },
         {
@@ -796,6 +947,15 @@
           },
           "style": {
             "backgroundColor": "$color.accent"
+          }
+        }
+      ]
+    },
+    "Avatar": {
+      "image": [
+        {
+          "style": {
+            "backgroundColor": "#262626"
           }
         }
       ]

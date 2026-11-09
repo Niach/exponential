@@ -421,40 +421,35 @@ final class Round1NativesTests: XCTestCase {
         paint(m)
     }
 
-    /// #EXP-1629: a `row` Select carries its label into the trigger and
-    /// measures label + gap + value + gap + chevron; opening puts the cursor
-    /// (the ONE `hover`) on the chosen option; the pointer and the arrows
-    /// move it, `selected` stays the chosen one; ↑/↓ in a searchable
-    /// Select's field move it too and Enter picks it.
+    /// #EXP-1629: a `row` Select's trigger is the core's container of parts
+    /// (label, spacer, value, chevron); opening puts the cursor (the ONE
+    /// `hover`) on the FIRST enabled option and focus in the search field;
+    /// the pointer and the arrows move it, `selected` stays the chosen one;
+    /// ↑/↓ in a searchable Select's field move it too and Enter picks it.
     func testSelectRowTriggerAndTheCursor() throws {
         let options: JSONValue = .array(["Monday", "Tuesday", "Sunday"].map { .object(["label": .string($0), "value": .string($0.lowercased())]) })
         let m = try surface(node("week", "Select", ["label": .string("Week starts on"), "triggerVariant": .string("row"), "value": .string("tuesday"), "options": options]))
         paint(m)
         let trigger = try XCTUnwrap(m.index(of: "week.trigger"))
-        let props = m.node(trigger)!.props
-        XCTAssertTrue(SelectTrigger.isRow(props, owner: m.ownerProps(trigger)))
-        XCTAssertEqual(SelectTrigger.label(props, owner: m.ownerProps(trigger)), "Week starts on")
+        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["week.label", "week.spacer", "week.value", "week.chevron"])
+        XCTAssertEqual(m.node(m.index(of: "week.label")!)?.props.str("text"), "Week starts on")
+        XCTAssertEqual(m.node(m.index(of: "week.value")!)?.props.str("text"), "Tuesday")
         let chevron = m.part("Select", "chevron", props: m.ownerProps(trigger))
-        XCTAssertEqual(SelectTrigger.glyphSize(chevron), 16)
+        XCTAssertEqual(SelectTrigger.glyphSize(chevron), 14, "the row recipe's chevron")
         XCTAssertEqual(chevron.style.opacity ?? 1, 0.7, accuracy: 0.001)
         XCTAssertEqual(m.part("Select", "value", props: m.ownerProps(trigger)).style.opacity ?? 1, 0.7, accuracy: 0.001)
         XCTAssertNil(m.part("Select", "chevron", props: [:]).style.opacity, "the field glyph keeps its look")
-        let measurer = SurfaceMeasurer(theme: m.theme, mode: m.mode, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
-        let ts = TextStyle.body
-        let rowProps: Props = ["text": .string("Tuesday"), "label": .string("Week"), "triggerVariant": .string("row")]
-        let measured = measurer.measureLeaf(LeafRequest(component: "Select", part: "trigger", props: rowProps, textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
-        XCTAssertEqual(measured.width, TextShaper.width("Week", ts) + 12 + TextShaper.width("Tuesday", ts) + 12 + 16, accuracy: 0.01)
 
         m.setOpen("week", true)
         paint(m)
         let hovered = { m.liveParts("week", "item").filter { m.states(of: $0.id).contains("hover") }.map(\.id) }
-        XCTAssertEqual(hovered(), ["week.item.1"], "the cursor starts on the chosen option")
+        XCTAssertEqual(hovered(), ["week.item.0"], "the cursor starts on the first option: a fresh pick")
         m.setHover(id: "week.item.2", true)
         XCTAssertEqual(hovered(), ["week.item.2"], "the pointer moves the one cursor")
         m.setHover(id: "week.item.2", false)
         XCTAssertEqual(hovered(), ["week.item.2"])
         XCTAssertEqual(m.liveParts("week", "item").filter(\.selected).map(\.id), ["week.item.1"], "the cursor is never `selected`")
-        m.requestFocus("week.item.1", keyboard: true)
+        m.requestFocus("week.item.2", keyboard: true)
         m.handleKey(key: "up")
         XCTAssertEqual(hovered(), ["week.item.1"], "the arrows step from the cursor")
         m.handleKey(key: "enter")
@@ -465,14 +460,54 @@ final class Round1NativesTests: XCTestCase {
         s.setOpen("tz", true)
         paint(s)
         let tzHovered = { s.liveParts("tz", "item").filter { s.states(of: $0.id).contains("hover") }.map(\.id) }
-        XCTAssertEqual(tzHovered(), ["tz.item.2"])
+        XCTAssertEqual(tzHovered(), ["tz.item.0"])
+        XCTAssertEqual(s.focusedId, "tz.search", "focus in the search field")
         let search = try XCTUnwrap(s.index(of: "tz.search"))
+        for _ in 0..<2 { s.fieldKey(search, key: "down") }
         XCTAssertTrue(s.fieldKey(search, key: "down"))
         XCTAssertEqual(tzHovered(), ["tz.item.3"])
         s.fieldKey(search, key: "down")
         XCTAssertEqual(tzHovered(), ["tz.item.3"], "no wrap")
         s.fieldCommitted(search)
         XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
+    }
+
+    /// #EXP-1629: a `row` Input IS a Group row: no label above, the field
+    /// carries the label (its row-weight `label` part) and the IDE metrics,
+    /// measures label + gap + field; the default Input keeps its label.
+    func testInputRowCarriesItsLabelInsideTheField() throws {
+        let m = try surface(node("mail", "Input", ["label": .string("Email"), "placeholder": .string("you@example.com"), "variant": .string("row")]))
+        let painted = paint(m)
+        XCTAssertNil(m.index(of: "mail.label"), "a row has no label above")
+        let field = try XCTUnwrap(m.index(of: "mail.field"))
+        XCTAssertTrue(painted.contains(field))
+        let props = m.node(field)!.props
+        XCTAssertTrue(InputRow.isRow(props))
+        XCTAssertEqual(props.str("label"), "Email")
+        XCTAssertEqual(m.frame(field).height, 40.82, accuracy: 0.01)
+        XCTAssertEqual(m.style(field).gap, 10.5, accuracy: 0.01)
+        XCTAssertEqual(m.style(field).paddingHorizontal, 14, accuracy: 0.01)
+        let look = m.part("Input", "label", props: m.ownerProps(field))
+        let labelStyle = SelectTrigger.labelStyle(m.textStyle(field), look)
+        XCTAssertEqual(labelStyle.fontSize, 12.25, accuracy: 0.001)
+        XCTAssertEqual(labelStyle.lineHeight, 19.82, accuracy: 0.001)
+        XCTAssertEqual(look.style.fontWeight, 400, "the row label is regular")
+        XCTAssertEqual(InputRow.labelWidth("Email", labelStyle, width: 4), 4, "at most the row")
+        XCTAssertEqual(InputRow.valueOpacity, 0.7, accuracy: 0.001)
+
+        let measurer = SurfaceMeasurer(theme: m.theme, mode: m.mode, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+        let ts = TextStyle.body
+        let rowStyle = SelectTrigger.labelStyle(ts, m.part("Input", "label", props: ["variant": .string("row")]))
+        let row = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email"), "variant": .string("row")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(row.width, TextShaper.width("Email", rowStyle) + 12 + 160, accuracy: 0.01)
+        XCTAssertEqual(row.height, max(ts.lineHeight, rowStyle.lineHeight), accuracy: 0.01)
+        let plain = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(plain.width, 160, accuracy: 0.01, "the default field is unchanged")
+
+        let d = try surface(node("mail", "Input", ["label": .string("Email"), "placeholder": .string("you@example.com")]))
+        paint(d)
+        XCTAssertNotNil(d.index(of: "mail.label"), "the default Input keeps its label")
+        XCTAssertFalse(InputRow.isRow(d.node(d.index(of: "mail.field")!)!.props))
     }
 
     func testDateRangePickerSelectsInTwoSteps() throws {

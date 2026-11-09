@@ -101,3 +101,15 @@ describe(`nodeSheet`, () => {
     )
   })
 })
+
+describe(`#EXP-1629 exponential recipes`, () => {
+  const css = compileTheme(builtinTheme(`exponential`)).css
+  it(`the row popup paints inside its border under the popover shadow`, () => {
+    expect(css).toContain(`background-clip:padding-box`)
+    expect(css).toMatch(/--xui-shadow-popover:0px 10px 15px -3px #0000001a, 0px 4px 6px -4px #0000001a/)
+    expect(css).toContain(`box-shadow:var(--xui-shadow-popover)`)
+  })
+  it(`a picture avatar has gpui-component's opaque secondary fill under its ring`, () => {
+    expect(css).toMatch(/\.xui-Avatar-image[^{]*\{[^}]*background-color:#262626/)
+  })
+})

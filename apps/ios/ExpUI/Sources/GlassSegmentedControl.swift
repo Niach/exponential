@@ -26,6 +26,9 @@ public enum GlassSegmentedControlTokens {
     /// than be squeezed inside it. The `.embedded` style has no height of its
     /// own: the row's insets set it.
     public static let height: CGFloat = DesignTokens.Size.controlLg
+    /// #EXP-1732 TAB SIZING: a HUGGING segment's own horizontal padding
+    /// (the label + count, never stretched, never squeezed).
+    public static let huggingPadding: CGFloat = 12
 }
 
 /// Full-width glass-pill segmented control — the My Work Inbox/My Issues tab
@@ -85,6 +88,11 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
     /// nil keeps `label`.
     let spokenLabel: (Option) -> String?
     let style: Style
+    /// #EXP-1732 TAB SIZING: true = every segment sized to its label (+
+    /// accessory), never equal widths and never squeezed (the strip grows
+    /// past its container: wrap it in a horizontal scroll); false = the
+    /// equal-width full strip, as before.
+    let hugging: Bool
     let onSelect: (Option) -> Void
 
     public init(
@@ -100,6 +108,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         accessoryGap: CGFloat = 6,
         spokenLabel: @escaping (Option) -> String? = { _ in nil },
         style: Style = .capsule,
+        hugging: Bool = false,
         onSelect: @escaping (Option) -> Void
     ) {
         self.init(
@@ -116,6 +125,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             accessoryGap: accessoryGap,
             spokenLabel: spokenLabel,
             style: style,
+            hugging: hugging,
             onSelect: onSelect
         )
     }
@@ -136,6 +146,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         accessoryGap: CGFloat = 6,
         spokenLabel: @escaping (Option) -> String? = { _ in nil },
         style: Style = .capsule,
+        hugging: Bool = false,
         onSelect: @escaping (Option) -> Void
     ) {
         self.options = options
@@ -151,6 +162,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         self.accessoryGap = accessoryGap
         self.spokenLabel = spokenLabel
         self.style = style
+        self.hugging = hugging
         self.onSelect = onSelect
     }
 
@@ -161,22 +173,24 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         SegmentedControl(
             options.map(segment),
             selection: Binding(get: { selection }, set: { onSelect($0) }),
-            style: Self.segmentedStyle(style)
+            style: Self.segmentedStyle(style, hugging: hugging),
+            fill: !hugging
         )
+        .fixedSize(horizontal: hugging, vertical: false)
     }
 
     /// The SDK style for a placement: capsule track and segments, the
     /// `controlLg` MINIMUM height, `capsulePadding` inset, the section fill +
     /// hairline (`.capsule`) or no track at all (`.embedded`), segments sized
     /// by their own vertical padding.
-    static func segmentedStyle(_ style: Style) -> SegmentedStyle {
+    static func segmentedStyle(_ style: Style, hugging: Bool = false) -> SegmentedStyle {
         SegmentedStyle(
             height: GlassSegmentedControlTokens.height,
             trackFill: GlassSegmentedControlTokens.containerFill,
             trackStroke: GlassSegmentedControlTokens.stroke,
             segmentFill: GlassSegmentedControlTokens.activeFill,
             inset: GlassSegmentedControlTokens.capsulePadding,
-            horizontalPadding: 0,
+            horizontalPadding: hugging ? GlassSegmentedControlTokens.huggingPadding : 0,
             font: .subheadline.weight(.medium),
             capsule: true,
             minimumHeight: true,
@@ -184,7 +198,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             showsTrack: style == .capsule,
             trackStrokeWidth: GlassSegmentedControlTokens.hairline,
             strokeCentered: true,
-            minimumScaleFactor: 0.8
+            minimumScaleFactor: hugging ? 1 : 0.8
         )
     }
 
