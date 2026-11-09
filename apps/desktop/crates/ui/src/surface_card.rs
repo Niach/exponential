@@ -151,6 +151,10 @@ impl HostPlugin for ReplyHost {
         self.inner.markdown_options(cx)
     }
 
+    fn markdown_options_for(&self, text: &str, cx: &App) -> eui_gpui::host::MarkdownOptions {
+        self.inner.markdown_options_for(text, cx)
+    }
+
     fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
         self.inner.open_media_file(path, cx)
     }

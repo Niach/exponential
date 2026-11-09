@@ -141,8 +141,36 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     input.busy = view.busy;
     input.session_id = Some(root.id.clone());
     input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
+    // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
+    let transcript = domain::transcript_grouping::TranscriptInput {
+        viewer_id: Some(rows.account.user_id.clone()),
+        chat: domain::transcript_grouping::TranscriptChat { session_id: root.id.clone(), title: view.title.clone(), agent_id: root.agent_id.clone(), ..Default::default() },
+        members: rows.users.iter().map(|u| domain::transcript_grouping::TranscriptMember { id: u.id.clone(), name: author_label(Some(u)) }).collect(),
+        agents: input.agents.iter().map(|a| domain::transcript_grouping::TranscriptAgent { id: a.id.clone(), name: a.name.clone() }).collect(),
+        ..Default::default()
+    };
+    let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
+    crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(avatar_icon(sender, &icons)));
     input
 }
+
+/// #EDE-65 lane O: a sender's avatar as the chat document names it (the
+/// host paints `avatar:<icon>` as the IDE's disc): an agent's own glyph, a
+/// session's, a person's.
+pub fn avatar_icon(sender: &domain::transcript_grouping::TranscriptSender, agent_icons: &HashMap<String, String>) -> String {
+    use domain::transcript_grouping::SenderKind;
+    let icon = match sender.kind {
+        SenderKind::Agent => agent_icons.get(&sender.id).cloned().unwrap_or_else(|| agent_icon(&sender.id)),
+        SenderKind::Session => SESSION_AVATAR_ICON.into(),
+        SenderKind::Member => MEMBER_AVATAR_ICON.into(),
+    };
+    format!("{}{icon}", crate::chat::AVATAR_ICON_PREFIX)
+}
+
+/// The muted session avatar's glyph (the IDE's `session_avatar`).
+const SESSION_AVATAR_ICON: &str = "coding-assistant";
+/// A person without a picture.
+const MEMBER_AVATAR_ICON: &str = "user";
 
 /// The open session's chat as the domain builds it (session-chat.json),
 /// with the tree's messages it read.
@@ -244,12 +272,13 @@ pub fn demo_input() -> ChatInput {
         name: (author == "user").then(|| "Dana Reyes".to_string()),
         time: time.into(),
         queued: false,
+        group: None,
     };
     let agents = vec![
         ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },
         ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: agent_icon("a2") },
     ];
-    ChatInput {
+    let mut input = ChatInput {
         session_id: Some("s1".into()),
         title: "Triage".into(),
         icon: agent_icon("a2"),
@@ -273,13 +302,30 @@ pub fn demo_input() -> ChatInput {
             },
         ],
         ..Default::default()
-    }
+    };
+    crate::chat::demo_group(&mut input.rows, &agent_icon("a2"), "Triage");
+    input
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// #EDE-65 lane O: the golden's agent bubbles sit under the agent's
+    /// avatar disc with its name like the IDE's, the person's own on the right.
+    #[test]
+    fn the_demo_groups_like_the_ide_transcript() {
+        let view = uicore_model::chat::chat_view(&demo_input());
+        let row = |id: &str| view.rows.iter().find(|r| r.id == id).unwrap();
+        let avatar = format!("{}{}", crate::chat::AVATAR_ICON_PREFIX, agent_icon("a2"));
+        assert_eq!((row("m1").side.as_str(), row("m1").avatar.as_str(), row("m1").indent, row("m1").author.as_str()), ("in", avatar.as_str(), true, "Triage"));
+        assert_eq!((row("m2").side.as_str(), row("m2").avatar.as_str()), ("out", ""));
+        assert_eq!((row("m3").side.as_str(), row("m3").avatar.as_str(), row("m3").gap), ("in", avatar.as_str(), 12));
+        let sender = domain::transcript_grouping::TranscriptSender { kind: domain::transcript_grouping::SenderKind::Agent, id: "a1".into(), name: "Assistant".into(), link: None };
+        let icons = HashMap::from([("a1".to_string(), ASSISTANT_ICON.to_string())]);
+        assert_eq!(avatar_icon(&sender, &icons), format!("{}{ASSISTANT_ICON}", crate::chat::AVATAR_ICON_PREFIX));
+    }
 
     fn rows() -> TeamRows {
         let account = AccountRows {

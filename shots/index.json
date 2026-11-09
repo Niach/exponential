@@ -50,8 +50,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 62942,
-        "sha256": "8fb55978f59932ce36cfa91b6c4ea2be88476448989303f69ea93bd063878832"
+        "bytes": 63272,
+        "sha256": "f4e22d05c6bd1162071f33e9302a9bbd369a1b2d2fb9534a5526083e6fd926e1"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
@@ -1541,8 +1541,8 @@
         "file": "shots/chat-screen/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 77730,
-        "sha256": "eb14402162d1aec055c968578ffede7d0faf1ecbf14c98167d69313e82a13d70"
+        "bytes": 77950,
+        "sha256": "bf70332a4d3ec818b1f9fae136caf2c36fc4544340fea5f2faba32b8d3cd8027"
       },
       "ios": {
         "file": "shots/chat-screen/ios.webp",
@@ -1614,9 +1614,9 @@
       "desktop": {
         "file": "shots/chat-transcript/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 48466,
-        "sha256": "6670dfabf9dfb37990fd07105a9236d94be8f90dd440efd2aec4c1acf8e33c4a"
+        "height": 1125,
+        "bytes": 54320,
+        "sha256": "53d54d58d9f9b158dfb5e26fc63f5a1c68a26e08bf946e16bf0d3dba86565402"
       },
       "ios": {
         "file": "shots/chat-transcript/ios.webp",
@@ -2080,8 +2080,8 @@
         "file": "shots/ede-chat/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 15038,
-        "sha256": "b2f6cb9a8ac341036229235a6406b52c4a942daf364207a4b2ced05be8bc2a03"
+        "bytes": 14994,
+        "sha256": "eb1d1f85155c8b91f6fc0fb769971ff7d07f4b1f4c346c9705101e37943ccd31"
       }
     },
     "ede-connect": {
@@ -6591,8 +6591,8 @@
         "file": "shots/session/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 72042,
-        "sha256": "6822b094a3ad0262492360166e18449b786a30328cf827601594544f870b7a48"
+        "bytes": 93864,
+        "sha256": "664f35e6fbfffd6ab7e1718addd7fe1512153e77415415cf0de8c3f6a2660369"
       },
       "ios": {
         "file": "shots/session/ios.webp",

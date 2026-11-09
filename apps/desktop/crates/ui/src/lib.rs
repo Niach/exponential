@@ -48,7 +48,7 @@ mod chat_launch;
 // Session 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
 mod chat_actions;
 mod chat_list;
-mod chat_transcript;
+mod chat_tab_transcript;
 mod chat_screen;
 mod dawn_mark;
 pub mod coding_flow;

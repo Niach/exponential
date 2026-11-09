@@ -63,26 +63,6 @@ pub(crate) fn highlighted_id(cx: &App) -> Option<&str> {
     cx.try_global::<CardHighlight>()?.id.as_deref()
 }
 
-/// Scroll the list row `ix` holding the card `id` to the CENTRE of the
-/// viewport, then ring the card: the row goes to the top first (it may not
-/// be measured yet), and one frame later the measured row is centred.
-pub(crate) fn reveal_in_list(list: &gpui::ListState, ix: usize, id: &str, cx: &mut App) {
-    list.scroll_to(gpui::ListOffset { item_ix: ix, offset_in_item: px(0.) });
-    cx.refresh_windows();
-    let (list, id) = (list.clone(), id.to_string());
-    cx.spawn(async move |cx| {
-        cx.background_executor().timer(Duration::from_millis(32)).await;
-        let _ = cx.update(|cx| {
-            if let Some(bounds) = list.bounds_for_item(ix) {
-                let viewport = list.viewport_bounds();
-                list.scroll_by(bounds.center().y - viewport.center().y);
-            }
-            highlight(&id, cx);
-        });
-    })
-    .detach();
-}
-
 /// The ring's opacity on the card `id` now (`None` = no ring): full for
 /// `highlightMs`, then one step down per [`FADE_STEP`].
 pub(crate) fn ring_alpha(id: &str, cx: &App) -> Option<f32> {

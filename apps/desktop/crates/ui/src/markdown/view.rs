@@ -32,7 +32,7 @@ use serde_json::json;
 use super::{ImageCache, RefResolver};
 use crate::plan_card::CardSurfaceHost;
 
-type Callback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+pub(crate) type Callback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 type SourceEditCallback = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
 /// A chat's block picture height cap (px); documents have none (Android's
@@ -465,12 +465,125 @@ struct HostConfig {
 pub(crate) struct AppMarkdownHost {
     media: CardSurfaceHost,
     config: RefCell<HostConfig>,
+    /// #EDE-65 lane O: a DOCUMENT's host ([`Self::for_document`]) answers
+    /// many Markdowns: each text's own [`hooks_mark`] (by [`text_key`]).
+    document: Option<RefCell<DocumentMarks>>,
+}
+
+/// A document host's per-text answers' fingerprints, and the store revision
+/// they were taken at.
+#[derive(Default)]
+struct DocumentMarks {
+    revision: u64,
+    resolves: bool,
+    marks: HashMap<u64, u64>,
 }
 
 impl AppMarkdownHost {
     fn new(team_id: Option<String>, cx: &App) -> Self {
-        Self { media: CardSurfaceHost::for_team(team_id, cx), config: RefCell::default() }
+        Self { media: CardSurfaceHost::for_team(team_id, cx), config: RefCell::default(), document: None }
     }
+
+    /// #EDE-65 lane O: ONE host for every Markdown of a document (the Chat
+    /// tab's bubbles in the shared chat document): what a [`MarkdownView`]
+    /// configures per view, [`Self::prepare_document`] sets for all of them.
+    pub(crate) fn for_document(team_id: Option<String>, cx: &App) -> Self {
+        Self { document: Some(RefCell::default()), ..Self::new(team_id, cx) }
+    }
+
+    /// The bodies as the document binds them, each prepared as a
+    /// [`MarkdownView`] with `.chat(true).autolink(true).selectable(true)`
+    /// prepares its own (the entity chips numbered across all of them), and
+    /// this host set to answer for every one.
+    pub(crate) fn prepare_document(&self, bodies: &[String], prose: DocumentProse, cx: &App) -> Vec<String> {
+        let mut entities = Vec::new();
+        let texts: Vec<String> = bodies
+            .iter()
+            .map(|body| {
+                let source = match prose.chip_team.as_deref() {
+                    Some(team_id) => crate::links::chip_prose_links(body, Some(team_id), cx),
+                    None => body.clone(),
+                };
+                let (text, own) = prepare(&source, true);
+                let text = renumber_tokens(&text, entities.len());
+                entities.extend(own);
+                text
+            })
+            .collect();
+        let resolves = prose.resolver.is_some();
+        *self.config.borrow_mut() = HostConfig {
+            resolver: prose.resolver,
+            entities,
+            images: prose.images,
+            on_open_issue: prose.on_open_issue,
+            on_open_link: prose.on_open_link,
+            on_open_image: None,
+            on_source_edit: None,
+            source: String::new(),
+            chat: true,
+            selectable: true,
+            streaming: false,
+            mark: 0,
+        };
+        if let Some(document) = &self.document {
+            let revision = store_revision(cx);
+            let mut old = std::mem::take(&mut *document.borrow_mut());
+            let keep = old.revision == revision && old.resolves == resolves;
+            let mut marks = HashMap::with_capacity(texts.len());
+            for text in &texts {
+                let key = text_key(text);
+                let mark = match old.marks.remove(&key).filter(|_| keep) {
+                    Some(mark) => mark,
+                    None => hooks_mark(text, self, cx) ^ u64::from(resolves),
+                };
+                marks.insert(key, mark);
+            }
+            *document.borrow_mut() = DocumentMarks { revision, resolves, marks };
+        }
+        texts
+    }
+}
+
+/// #EDE-65 lane O: what a document's Markdowns read as prose (the
+/// [`MarkdownView`] builder's, once for all of them).
+#[derive(Default)]
+pub(crate) struct DocumentProse {
+    pub resolver: Option<RefResolver>,
+    pub images: Option<Entity<ImageCache>>,
+    pub on_open_issue: Option<Callback>,
+    pub on_open_link: Option<Callback>,
+    /// The team whose bare in-app URLs read as chips.
+    pub chip_team: Option<String>,
+}
+
+/// A text's key in a document host's marks.
+fn text_key(text: &str) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// `text`'s entity tokens numbered from `base` (a document's bodies share
+/// one entity list).
+fn renumber_tokens(text: &str, base: usize) -> String {
+    if base == 0 || !text.contains(TOKEN_OPEN) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut rest = text;
+    while let Some(open) = rest.find(TOKEN_OPEN) {
+        let body = open + TOKEN_OPEN.len_utf8();
+        let Some(close) = rest[body..].find(TOKEN_CLOSE).map(|i| body + i) else { break };
+        out.push_str(&rest[..body]);
+        match rest[body..close].parse::<usize>() {
+            Ok(n) => out.push_str(&(n + base).to_string()),
+            Err(_) => out.push_str(&rest[body..close]),
+        }
+        out.push(TOKEN_CLOSE);
+        rest = &rest[close + TOKEN_CLOSE.len_utf8()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The chip of a resolved `#IDENT`: the token as written + the title, the
@@ -652,8 +765,12 @@ impl HostPlugin for AppMarkdownHost {
     }
 
     /// The answers' fingerprint this render took ([`hooks_mark`]).
-    fn markdown_hooks_version(&self, _text: &str, _cx: &App) -> Option<u64> {
-        Some(self.config.borrow().mark)
+    fn markdown_hooks_version(&self, text: &str, _cx: &App) -> Option<u64> {
+        match &self.document {
+            // A text the document did not prepare is asked again every paint.
+            Some(document) => document.borrow().marks.get(&text_key(text)).copied(),
+            None => Some(self.config.borrow().mark),
+        }
     }
 
     /// EXP-521: a selectable text joins the window's TextSelection layer
@@ -718,7 +835,7 @@ struct Slot {
 /// The revisions of the collections the host's answers read (issues, their
 /// statuses and boards, members, attachments, sessions, agents): the same
 /// revision = the same answers for the same text. `0` without a store.
-fn store_revision(cx: &App) -> u64 {
+pub(crate) fn store_revision(cx: &App) -> u64 {
     let Some(store) = sync::Store::try_global(cx) else { return 0 };
     let c = store.collections();
     let mut h = std::hash::DefaultHasher::new();
@@ -892,6 +1009,18 @@ impl gpui::RenderOnce for MarkdownView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-65 lane O: a document's bodies share one entity list: a later
+    /// body's chip tokens count on from the bodies before it.
+    #[test]
+    fn a_documents_entity_tokens_number_across_its_bodies() {
+        let token = |n: usize| format!("{TOKEN_OPEN}{n}{TOKEN_CLOSE}");
+        let text = format!("see {} and {} done", token(0), token(1));
+        assert_eq!(renumber_tokens(&text, 3), format!("see {} and {} done", token(3), token(4)));
+        assert_eq!(renumber_tokens(&text, 0), text);
+        let open = format!("half {TOKEN_OPEN}2 open");
+        assert_eq!(renumber_tokens(&open, 5), open, "an unclosed token stays");
+    }
 
     /// A markdown href reaches the OS opener only as http(s) or mailto.
     #[test]

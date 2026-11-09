@@ -53,6 +53,7 @@ pub(crate) use editor::{
     RETRY_AFTER as IMAGE_RETRY_AFTER, CachedImage};
 pub use editor::{ImageCache, IssueChipCache, IssueChipData, MarkdownEditor, RefResolver};
 pub use view::MarkdownView;
+pub(crate) use view::{store_revision, AppMarkdownHost, Callback, DocumentProse};
 pub(crate) use view::open_link_href;
 pub use image_paste::{
     read_any_file, AttachmentFetchStatus, AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,

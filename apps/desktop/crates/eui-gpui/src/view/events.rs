@@ -302,6 +302,12 @@ impl SurfaceView {
         }
     }
 
+    /// #EDE-65 lane O: the host selects Markdown text at the window level
+    /// ([`crate::host::HostPlugin::markdown_window_selection`]).
+    pub(crate) fn host_window_selection(&self, cx: &gpui::App) -> bool {
+        self.host.markdown_window_selection(cx)
+    }
+
     pub(crate) fn press_cancel(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.pressed.as_deref() == Some(id) {
             self.pressed = None;
@@ -1042,6 +1048,7 @@ impl SurfaceView {
             };
             if y >= -0.5 {
                 if self.surface.scroll_to(&n.id, s.offset_x, y.clamp(0.0, max_y)) {
+                    self.reader_scrolled(n.index, s.offset_y, y.clamp(0.0, max_y));
                     self.scrolled(cx);
                 }
                 return true;
@@ -1571,6 +1578,7 @@ impl SurfaceView {
         cx.stop_propagation();
         if self.surface.scroll_to(id, x, y) {
             self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+            self.reader_scrolled(index, s.offset_y, y);
             self.scrolled(cx);
         }
     }
@@ -1597,6 +1605,7 @@ impl SurfaceView {
             let y = if s.scroll_y { y.clamp(0.0, (s.content_height - f.h).max(0.0)) } else { s.offset_y };
             if self.surface.scroll_to(&id, x, y) {
                 self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+                self.reader_scrolled(index, s.offset_y, y);
                 moved = true;
             }
         }

@@ -444,7 +444,8 @@ pub(crate) fn render_floating_bar(
 /// bottom one when `bottom_edge` (the body runs to the pane's end).
 ///
 /// EXP-1261: the top strip only once the body has SCROLLED (`scrolled`, the
-/// caller's read of its scroll offset, e.g. [`list_scrolled`]). At
+/// caller's read of its scroll offset, e.g. the session view's
+/// `body_scrolled`). At
 /// rest nothing has slid under the header, so a strip there only veiled the
 /// body's first row. Reading the offset at render is enough: a scroll
 /// notifies the scrolling view, and gpui re-renders every ancestor view of
@@ -462,13 +463,6 @@ pub(crate) fn work_body(body: AnyElement, bottom_edge: bool, scrolled: bool) -> 
         .when(scrolled, |body| body.child(crate::surface::edge_fade_top()))
         .when(bottom_edge, |body| body.child(crate::surface::edge_fade_bottom()))
         .into_any_element()
-}
-
-/// EXP-1261 — has a `gpui::list` left its top? Past its first item, or into
-/// it.
-pub(crate) fn list_scrolled(list: &gpui::ListState) -> bool {
-    let top = list.logical_scroll_top();
-    top.item_ix > 0 || top.offset_in_item > px(0.)
 }
 
 // ---------------------------------------------------------------------------

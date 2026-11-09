@@ -174,6 +174,15 @@ pub trait HostPlugin: 'static {
         None
     }
 
+    /// #EDE-65 lane O: before the claimed leaf `component_id` paints at
+    /// `width` (prepaint: outside any layout, so the host may lay its own
+    /// element out): bring the height [`Self::host_leaf_height`] answers up
+    /// to date. `true` = it changed: the surface lays out again in the SAME
+    /// frame, so the leaf never paints at a stale height. Default: nothing.
+    fn host_leaf_prepaint(&self, _component_id: &str, _width: f32, _window: &mut gpui::Window, _cx: &mut gpui::App) -> bool {
+        false
+    }
+
     /// A host function call (`functionCall` to a non-built-in name). The
     /// default ignores it; [`crate::runtime::host_plugin`] routes it through
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
@@ -315,6 +324,14 @@ pub trait HostPlugin: 'static {
     /// markdown.options), read by the measurer and the painter alike.
     fn markdown_options(&self, _cx: &gpui::App) -> MarkdownOptions {
         MarkdownOptions::default()
+    }
+
+    /// #EDE-65 lane O (gpui host extra): the Markdown render options for ONE
+    /// text (a host whose surface shows many Markdowns answers per text: the
+    /// one reply still streaming takes `streaming`). Read by the measurer and
+    /// the painter alike. Default: [`Self::markdown_options`].
+    fn markdown_options_for(&self, _text: &str, cx: &gpui::App) -> MarkdownOptions {
+        self.markdown_options(cx)
     }
 
     /// A `Video` / `AudioPlayer` press hands its policed source to the

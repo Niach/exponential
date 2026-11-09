@@ -264,6 +264,28 @@ impl SurfaceView {
         }
     }
 
+    /// #EDE-65 lane O: the host's Markdown options for `text` changed
+    /// ([`HostPlugin::markdown_options_for`]: a reply stopped streaming): every
+    /// Markdown showing it measures and paints again.
+    pub fn markdown_options_changed(&mut self, text: &str, cx: &mut Context<Self>) {
+        let ids: Vec<String> = self
+            .cache
+            .nodes
+            .iter()
+            .filter(|n| n.component == "Markdown" && n.props.get("text").and_then(serde_json::Value::as_str) == Some(text))
+            .map(|n| n.id.clone())
+            .collect();
+        for id in ids {
+            if let Some(i) = self.cache.index_of(&id) {
+                self.surface.mark_dirty(i);
+                self.changed = true;
+            }
+        }
+        if self.changed {
+            cx.notify();
+        }
+    }
+
     /// #EDE-65: the nested view Embed `id` paints (a test and automation
     /// aid like [`Self::painted_bounds`]).
     pub fn embedded(&self, id: &str) -> Option<Entity<SurfaceView>> {
@@ -363,6 +385,10 @@ impl HostPlugin for EmbedHost {
 
     fn markdown_options(&self, cx: &App) -> MarkdownOptions {
         self.inner.markdown_options(cx)
+    }
+
+    fn markdown_options_for(&self, text: &str, cx: &App) -> MarkdownOptions {
+        self.inner.markdown_options_for(text, cx)
     }
 
     fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {

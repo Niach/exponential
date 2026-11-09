@@ -1264,16 +1264,34 @@ pub(crate) fn session_avatar(size: f32, cx: &App) -> AnyElement {
 /// THE sender's avatar at `layout.avatar`: a member's (picture, else the
 /// initials in the member's hue), an agent's own, else the session's.
 pub(crate) fn sender_avatar(sender: &domain::transcript_grouping::TranscriptSender, cx: &mut App) -> AnyElement {
+    let image = sender_image(sender, cx);
+    sender_avatar_of(sender, image, cx)
+}
+
+/// #EDE-65 lane O: a member sender's picture, resolved (loading it) where
+/// the app is mutable; the Chat tab's document paints the avatar later
+/// ([`sender_avatar_of`]).
+pub(crate) fn sender_image(sender: &domain::transcript_grouping::TranscriptSender, cx: &mut App) -> Option<std::sync::Arc<gpui::Image>> {
+    if sender.kind != domain::transcript_grouping::SenderKind::Member {
+        return None;
+    }
+    let image = Store::try_global(cx)
+        .and_then(|store| store.collections().users.read(cx).get(&sender.id).cloned())
+        .and_then(|user| user.image);
+    crate::user_avatar::cached_avatar_image(cx, image.as_deref())
+}
+
+/// [`sender_avatar`] with the member's picture already resolved.
+pub(crate) fn sender_avatar_of(
+    sender: &domain::transcript_grouping::TranscriptSender,
+    image: Option<std::sync::Arc<gpui::Image>>,
+    cx: &App,
+) -> AnyElement {
     use domain::transcript_grouping::SenderKind;
     let side = transcript_sizes().avatar;
     let size = gpui_component::Size::Size(px(side));
     match sender.kind {
-        SenderKind::Member => {
-            let image = Store::try_global(cx)
-                .and_then(|store| store.collections().users.read(cx).get(&sender.id).cloned())
-                .and_then(|user| user.image);
-            crate::user_avatar::user_avatar(&sender.id, &sender.name, image.as_deref(), size, cx)
-        }
+        SenderKind::Member => crate::user_avatar::avatar_element(&sender.id, &sender.name, image, size),
         SenderKind::Agent => {
             let def = crate::session_data::agent_def(&sender.id, cx);
             crate::user_avatar::agent_avatar(
@@ -1321,20 +1339,7 @@ pub(crate) fn sender_row(
 /// child's report (a message from its session), a subagent line (the
 /// agent's trace), every other card full.
 pub(crate) fn transcript_item(row: &SessionChatRow) -> domain::transcript_grouping::TranscriptItem {
-    use domain::transcript_grouping::TranscriptItem;
-    match row {
-        SessionChatRow::Message { id, author, author_id, author_session_id, .. } => {
-            TranscriptItem::message(id.as_str(), author, author_id.as_deref(), author_session_id.as_deref())
-        }
-        SessionChatRow::Report { id, session_id, .. } => TranscriptItem::message(
-            id.as_str(),
-            domain::contract::MESSAGE_AUTHOR_KIND_AGENT,
-            None,
-            Some(session_id.as_str()),
-        ),
-        SessionChatRow::Subagent { id, .. } => TranscriptItem::trace(id.as_str()),
-        other => TranscriptItem::full(other.id()),
-    }
+    domain::chat_document::transcript_item(row)
 }
 
 /// #EXP-1736: a row layout's identity for the list's measure (its avatar,
@@ -2717,7 +2722,7 @@ pub(crate) fn pane_back_label(active: SessionScreenTab) -> String {
 /// in-place session view's body).
 pub(crate) fn session_pane(view: &Entity<crate::session_screen::SessionScreenView>, cx: &App) -> AnyElement {
     let inner = view.read(cx).inner().clone();
-    let scrolled = inner.read(cx).body_scrolled();
+    let scrolled = inner.read(cx).body_scrolled(cx);
     let via_app = crate::session_screen::via_app_line(inner.read(cx).session_row(), cx)
         .map(|line| div().w_full().px(px(crate::work_header::WORK_GUTTER)).pb_1().child(line));
     v_flex()
@@ -4551,6 +4556,394 @@ mod tests {
         });
     }
 
+    /// #EDE-65 lane O: the Chat tab's transcript document (the root's
+    /// session view's).
+    fn chat_document(view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext) -> Entity<eui_gpui::view::SurfaceView> {
+        cx.update(|_, cx| {
+            let inner = view.read(cx).root_view.read(cx).inner().clone();
+            let document = inner.read(cx).chat_document().cloned();
+            document.expect("the Chat tab mounts its transcript document")
+        })
+    }
+
+    /// The document's painted Markdowns `(y, text, id)`, top to bottom (a
+    /// bubble's text is its MessageBubble's Markdown part).
+    fn painted_markdowns(document: &Entity<eui_gpui::view::SurfaceView>, cx: &mut gpui::VisualTestContext) -> Vec<(f32, String, String)> {
+        cx.update(|_, cx| {
+            let document = document.read(cx);
+            let mut texts: Vec<(f32, String, String)> = document
+                .placed_nodes()
+                .iter()
+                .filter(|node| node.component == "Markdown" && !node.hidden && !node.removed)
+                .filter_map(|node| {
+                    let bounds = document.painted_bounds(&node.id)?;
+                    Some((f32::from(bounds.origin.y), node.props.get("text")?.as_str()?.to_string(), node.id.clone()))
+                })
+                .collect();
+            texts.sort_by(|a, b| a.0.total_cmp(&b.0));
+            texts
+        })
+    }
+
+    /// The painted bounds of the bubble text `text` in the Chat tab.
+    fn bubble_text_bounds(view: &Entity<SessionChatScreenView>, text: &str, cx: &mut gpui::VisualTestContext) -> gpui::Bounds<gpui::Pixels> {
+        let document = chat_document(view, cx);
+        let id = painted_markdowns(&document, cx).into_iter().find(|(_, painted, _)| painted == text).map(|(_, _, id)| id).expect("the bubble's text paints");
+        cx.update(|_, cx| document.read(cx).painted_bounds(&id)).expect("painted")
+    }
+
+    /// #EDE-65 lane O: the Chat tab's transcript IS the shared chat
+    /// document: a person's prompt and the agent's narration are its
+    /// bubbles, a tool row is the view's own row painted by the host (a
+    /// host row, measured at its own height), in the feed's order.
+    #[gpui::test]
+    fn the_chat_tab_draws_its_transcript_as_the_chat_document(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        cx.update(|_, cx| {
+            let inner = view.read(cx).root_view.read(cx).inner().clone();
+            inner.update(cx, |inner, cx| {
+                inner.apply_events_for_test(
+                    vec![
+                        steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+                        steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Ship the fix")),
+                        steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("Bash", Some("cargo test".into()))),
+                        steer::ViewerEvent::Activity(3, steer::ActivityEvent::narration("All green.")),
+                    ],
+                    cx,
+                )
+            });
+        });
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let document = chat_document(&view, cx);
+        let markdowns = painted_markdowns(&document, cx);
+        let y_of = |text: &str| markdowns.iter().find(|(_, painted, _)| painted == text).map(|(y, _, _)| *y);
+        let prompt = y_of("Ship the fix").expect("the prompt is the document's bubble");
+        let reply = y_of("All green.").expect("the narration is the document's bubble");
+        assert!(prompt < reply, "the feed's order: {markdowns:?}");
+        // The tool row: a host row the view painted, between the two.
+        let painted = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().painted());
+        let tool = painted
+            .iter()
+            .filter(|id| id.starts_with("chat_row_host.r"))
+            .filter_map(|id| {
+                let bounds = cx.update(|_, cx| document.read(cx).painted_bounds(id))?;
+                let y = f32::from(bounds.origin.y);
+                (y > prompt && y < reply).then(|| (id.clone(), bounds))
+            })
+            .next();
+        let (id, bounds) = tool.expect("the tool row is painted by the host between the bubbles");
+        assert!(f32::from(bounds.size.height) > 0., "the host row has its height");
+        let measured = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().host_height(&id));
+        assert!(measured.is_some_and(|height| height > 0.), "the host measured its row: {measured:?}");
+        // The row's own content PAINTED inside the frame the document gave it
+        // (a host row whose element failed or was clipped away left its
+        // space blank).
+        let key = id.strip_prefix("chat_row_host.").expect("a host id");
+        let selector: &'static str = Box::leak(format!("chat-host-row.{key}").into_boxed_str());
+        let content = cx.debug_bounds(selector).expect("the host row's content paints");
+        assert!(f32::from(content.size.height) > 0., "{content:?}");
+        assert!((f32::from(content.origin.y) - f32::from(bounds.origin.y)).abs() < 1., "it paints in its frame: {content:?} vs {bounds:?}");
+        assert!(f32::from(content.size.height) <= f32::from(bounds.size.height) + 0.5, "inside its frame: {content:?} vs {bounds:?}");
+    }
+
+    /// #EDE-65 lane O (transcript-grouping.json `maxWidth.wide`): an `in`
+    /// bubble's cap is 62 % of the column RIGHT of the avatar column (32 +
+    /// 8 px), as the IDE's own bubble was, not of the whole row.
+    #[gpui::test]
+    fn an_in_bubbles_cap_is_of_the_column_right_of_the_avatar(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let long = "A reply long enough to wrap: ".repeat(12);
+        cx.update(|_, cx| {
+            let inner = view.read(cx).root_view.read(cx).inner().clone();
+            inner.update(cx, |inner, cx| {
+                inner.apply_events_for_test(
+                    vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live), steer::ViewerEvent::Activity(1, steer::ActivityEvent::narration(&long))],
+                    cx,
+                )
+            });
+        });
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let document = chat_document(&view, cx);
+        let (row, bubble) = cx.update(|_, cx| {
+            let document = document.read(cx);
+            let id = |prefix: &str| {
+                document.placed_nodes().iter().find(|n| n.id.starts_with(prefix) && !n.hidden && !n.removed).map(|n| n.id.clone()).expect(prefix)
+            };
+            let row = document.painted_bounds(&id("chat_row_agent.")).expect("the row paints");
+            let bubble = document.painted_bounds(&id("chat_agent_bubble_in.bubble.")).expect("the bubble paints");
+            (row, bubble)
+        });
+        let sizes = transcript_sizes();
+        let column = f32::from(row.size.width) - sizes.avatar - sizes.avatar_gap;
+        let cap = column * sizes.max_width.wide;
+        assert!((f32::from(bubble.size.width) - cap).abs() < 1., "bubble {} vs 62 % of {column} = {cap}", f32::from(bubble.size.width));
+        assert!((f32::from(bubble.origin.x) - f32::from(row.origin.x) - sizes.avatar - sizes.avatar_gap).abs() < 1., "right of the avatar column");
+    }
+
+    /// #VAPP-258 (#EDE-65 lane O): the live reply (the run's last item, a
+    /// narration, while live) is the one bubble whose Markdown streams (its
+    /// unfinished tail held back), as `render_narration` did; once a row
+    /// follows it, or the run settles, it reads whole.
+    #[gpui::test]
+    fn the_live_reply_streams_in_the_chat_document(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let apply = |events: Vec<steer::ViewerEvent>, cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                let inner = view.read(cx).root_view.read(cx).inner().clone();
+                inner.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
+            });
+            for _ in 0..3 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        apply(
+            vec![
+                steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+                steer::ViewerEvent::Activity(1, steer::ActivityEvent::narration("Earlier **bo")),
+                steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("Bash", Some("ls".into()))),
+                steer::ViewerEvent::Activity(3, steer::ActivityEvent::narration("Say **bo")),
+            ],
+            cx,
+        );
+        let document = chat_document(&view, cx);
+        let streams = |text: &str, cx: &mut gpui::VisualTestContext| {
+            assert!(painted_markdowns(&document, cx).iter().any(|(_, painted, _)| painted == text), "{text:?} paints");
+            cx.update(|_, cx| document.read(cx).host_plugin().markdown_options_for(text, cx).streaming)
+        };
+        assert!(streams("Say **bo", cx), "the live reply streams");
+        assert!(!streams("Earlier **bo", cx), "an earlier reply reads whole");
+        apply(vec![steer::ViewerEvent::Activity(4, steer::ActivityEvent::tool("Bash", Some("pwd".into())))], cx);
+        assert!(!streams("Say **bo", cx), "a row after it: it reads whole");
+    }
+
+    /// The root's session view under the Chat tab.
+    fn chat_inner(view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext) -> Entity<crate::steer_viewer::SteerSessionView> {
+        cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().clone())
+    }
+
+    fn apply_events(view: &Entity<SessionChatScreenView>, events: Vec<steer::ViewerEvent>, cx: &mut gpui::VisualTestContext) {
+        let inner = chat_inner(view, cx);
+        inner.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
+    }
+
+    /// ONE frame, nothing deferred run after it.
+    fn one_frame(cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    fn settle_frames(cx: &mut gpui::VisualTestContext) {
+        for _ in 0..4 {
+            one_frame(cx);
+            cx.run_until_parked();
+        }
+    }
+
+    /// The document's transcript list `(offset, viewport, content)`.
+    fn chat_extent(view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext) -> (f32, f32, f32) {
+        let document = chat_document(view, cx);
+        cx.update(|_, cx| document.read(cx).scroll_extent(crate::chat_tab_transcript::SCROLL)).expect("the transcript laid out")
+    }
+
+    fn chat_at_bottom(view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext) -> bool {
+        let (offset, viewport, content) = chat_extent(view, cx);
+        (offset - (content - viewport).max(0.)).abs() < 0.5
+    }
+
+    fn chat_follows(view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext) -> bool {
+        let inner = chat_inner(view, cx);
+        cx.update(|_, cx| inner.read(cx).chat_transcript().following())
+    }
+
+    /// A wheel over the transcript (`dy` > 0 = up), dispatched without
+    /// drawing a frame.
+    #[allow(deprecated)]
+    fn wheel_chat(view: &Entity<SessionChatScreenView>, dy: f32, cx: &mut gpui::VisualTestContext) {
+        let document = chat_document(view, cx);
+        let list = cx.update(|_, cx| document.read(cx).painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("the transcript painted");
+        let position = list.center();
+        let event = gpui::ScrollWheelEvent { position, delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(dy))), ..Default::default() };
+        cx.update(|window, cx| {
+            window.dispatch_event(gpui::InputEvent::to_platform_input(event), cx);
+        });
+    }
+
+    /// Every host row the document laid out now: its painted id, the
+    /// height it was laid out at and the height the host measured.
+    fn host_rows_now(view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext) -> Vec<(String, f32, Option<f32>)> {
+        let document = chat_document(view, cx);
+        let inner = chat_inner(view, cx);
+        cx.update(|_, cx| {
+            let document = document.read(cx);
+            let transcript = inner.read(cx).chat_transcript();
+            document
+                .placed_nodes()
+                .iter()
+                .filter(|node| node.component == "Embed" && !node.removed && !node.hidden && node.id.starts_with("chat_row_host.r"))
+                .filter_map(|node| Some((node.id.clone(), document.frame(node.index)?.h, transcript.host_height(&node.id))))
+                .collect()
+        })
+    }
+
+    /// #EDE-65 lane O: a host row (a tool row) is measured where the
+    /// document is about to paint it: from the first frame it shows, and a
+    /// row arriving later on the frame it arrives, it is laid out at its
+    /// measured height (never at the estimate, then a jump).
+    #[gpui::test]
+    fn a_host_row_paints_at_its_measured_height_from_its_first_frame(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let mut events = vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)];
+        for n in 0..6u64 {
+            events.push(steer::ViewerEvent::Activity(2 * n + 1, steer::ActivityEvent::tool("Bash", Some(format!("cargo test -p crate{n}")))));
+            events.push(steer::ViewerEvent::Activity(2 * n + 2, steer::ActivityEvent::narration("Checked.")));
+        }
+        apply_events(&view, events, cx);
+        let mut seen = 0;
+        for frame in 0..4 {
+            one_frame(cx);
+            for (id, laid_out, measured) in host_rows_now(&view, cx) {
+                seen += 1;
+                assert_eq!(Some(laid_out), measured, "frame {frame}: {id} laid out at its measured height");
+                assert!(laid_out > 0.);
+            }
+            cx.run_until_parked();
+        }
+        assert!(seen > 0, "the tool rows laid out");
+        // Every frame drawn so far (the updates draw some too): no row ever
+        // painted in a frame other than its measured height.
+        let inner = chat_inner(&view, cx);
+        let misfits = cx.update(|_, cx| inner.read(cx).chat_transcript().misfits());
+        assert!(misfits.is_empty(), "rows painted at an unmeasured height: {misfits:?}");
+        apply_events(&view, vec![steer::ViewerEvent::Activity(20, steer::ActivityEvent::tool("Read", Some("src/lib.rs".into())))], cx);
+        one_frame(cx);
+        let rows = host_rows_now(&view, cx);
+        assert!(rows.len() > 6, "the new row laid out: {rows:?}");
+        for (id, laid_out, measured) in rows {
+            assert_eq!(Some(laid_out), measured, "{id} on the frame it arrived");
+        }
+        let misfits = cx.update(|_, cx| inner.read(cx).chat_transcript().misfits());
+        assert!(misfits.is_empty(), "the new row painted at an unmeasured height: {misfits:?}");
+    }
+
+    /// #EDE-65 lane O FOLLOW (the old list's `FollowMode::Tail`): while the
+    /// reader is at the bottom a new row keeps the transcript at its bottom
+    /// in the SAME frame; a wheel up stops following (a new row leaves the
+    /// reader where they are); back at the bottom it follows again.
+    #[gpui::test]
+    fn the_chat_tab_follows_its_newest_row_in_the_frame_it_arrives(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let line = "A line of the agent's narration that wraps once or twice in the reading column of the chat, so rows differ.";
+        let mut events = vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)];
+        for n in 0..40u64 {
+            events.push(steer::ViewerEvent::Activity(2 * n + 1, steer::ActivityEvent::tool("Bash", Some(format!("step {n}")))));
+            events.push(steer::ViewerEvent::Activity(2 * n + 2, steer::ActivityEvent::narration(&line.repeat(1 + (n % 3) as usize))));
+        }
+        apply_events(&view, events, cx);
+        settle_frames(cx);
+        assert!(chat_at_bottom(&view, cx), "it opens at the bottom: {:?}", chat_extent(&view, cx));
+        let mut seq = 100;
+        let mut arrive = |kind: u64, view: &Entity<SessionChatScreenView>, cx: &mut gpui::VisualTestContext| {
+            seq += 1;
+            let event = if kind % 2 == 0 { steer::ActivityEvent::tool("Bash", Some(format!("more {seq}"))) } else { steer::ActivityEvent::narration(&line.repeat(3)) };
+            apply_events(view, vec![steer::ViewerEvent::Activity(seq, event)], cx);
+        };
+        // (The update that lands a row draws its frame: checked right after
+        // it, and after one more.)
+        for kind in 0..4 {
+            arrive(kind, &view, cx);
+            assert!(chat_at_bottom(&view, cx), "row {kind}: at the bottom on the frame it arrived: {:?}", chat_extent(&view, cx));
+            one_frame(cx);
+            assert!(chat_at_bottom(&view, cx), "row {kind}: still at the bottom: {:?}", chat_extent(&view, cx));
+            cx.run_until_parked();
+        }
+        wheel_chat(&view, 300., cx);
+        settle_frames(cx);
+        assert!(!chat_follows(&view, cx), "a wheel up stops following");
+        // The reader's view stays put (the estimated rows far above may
+        // move the offset; what is on screen does not move).
+        let document = chat_document(&view, cx);
+        let list_top = cx.update(|_, cx| document.read(cx).painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("painted").top();
+        let (y, _, id) = painted_markdowns(&document, cx).into_iter().find(|(y, _, _)| *y >= f32::from(list_top)).expect("a bubble on screen");
+        arrive(1, &view, cx);
+        for _ in 0..2 {
+            let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
+            assert!(now.is_some_and(|now| (now - y).abs() < 0.5), "a reader above stays put: {y} -> {now:?}");
+            one_frame(cx);
+        }
+        assert!(!chat_at_bottom(&view, cx), "not pulled to the bottom");
+        cx.run_until_parked();
+        wheel_chat(&view, -1_000_000., cx);
+        settle_frames(cx);
+        assert!(chat_follows(&view, cx), "back at the bottom it follows again");
+        arrive(0, &view, cx);
+        assert!(chat_at_bottom(&view, cx), "following again: {:?}", chat_extent(&view, cx));
+        one_frame(cx);
+        assert!(chat_at_bottom(&view, cx), "following again: {:?}", chat_extent(&view, cx));
+    }
+
+    /// #EDE-65 lane O PAGING: the reader scrolled to the top of the window
+    /// (the paging row painted): the older rows load ABOVE them and the row
+    /// they were looking at stays exactly where it was on screen.
+    #[gpui::test]
+    fn older_rows_loading_keep_the_readers_row_in_place(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let total = domain::contract::STEER_FEED_WINDOW as u64 + 120;
+        // Narration and tool rows alternating (bubbles and host rows).
+        let events: Vec<steer::ViewerEvent> = (0..total)
+            .map(|n| {
+                let event = if n % 2 == 0 {
+                    steer::ActivityEvent::tool("Bash", Some(format!("step {n}")))
+                } else if n % 3 == 0 {
+                    steer::ActivityEvent::narration(&format!("n{n} {}", "and a longer line that wraps in the column ".repeat(4)))
+                } else {
+                    steer::ActivityEvent::narration(&format!("n{n}"))
+                };
+                steer::ViewerEvent::Activity(n + 1, event)
+            })
+            .collect();
+        apply_events(&view, events, cx);
+        settle_frames(cx);
+        let document = chat_document(&view, cx);
+        let number = |text: &str| text.strip_prefix('n').and_then(|rest| rest.split(' ').next()).and_then(|n| n.parse::<u64>().ok());
+        // To the top: the paging row paints and the older rows load (the
+        // update that dispatches the wheel draws those frames).
+        wheel_chat(&view, 10_000_000., cx);
+        settle_frames(cx);
+        // The reader was at the top: the window's first row right under the
+        // paging row (8 px). The older rows came in ABOVE it, and it is
+        // exactly where it was.
+        let list_top = f32::from(cx.update(|_, cx| document.read(cx).painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("painted").top());
+        let rows: Vec<f32> = cx.update(|_, cx| {
+            let document = document.read(cx);
+            let mut ys: Vec<f32> = document
+                .placed_nodes()
+                .iter()
+                .filter(|node| !node.removed && !node.hidden && node.id.starts_with("chat_row.r"))
+                .filter_map(|node| document.painted_bounds(&node.id).map(|b| f32::from(b.top())))
+                .filter(|y| *y >= list_top - 0.5)
+                .collect();
+            ys.sort_by(f32::total_cmp);
+            ys
+        });
+        let first = rows.first().copied().expect("rows on screen");
+        assert!((first - (list_top + 8.)).abs() < 0.5, "the reader's row stays 8 px under the top: {first} vs {list_top}");
+        let first_bubble = painted_markdowns(&document, cx).into_iter().find(|(y, _, _)| *y >= list_top).map(|(_, text, _)| text).expect("a bubble");
+        assert_eq!(number(&first_bubble), Some(121), "the old window's first bubble leads the screen: {first_bubble:?}");
+        assert!(chat_extent(&view, cx).0 > 100., "the older rows came in above it: {:?}", chat_extent(&view, cx));
+    }
+
     /// EXP-1228: a right press on an agent chat's bubbles opens THE
     /// transcript menu (Copy): the Chat tab is the root's session view.
     #[gpui::test]
@@ -4562,7 +4955,7 @@ mod tests {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             cx.run_until_parked();
         }
-        let bounds = cx.debug_bounds(MESSAGE_BUBBLE_BODY).expect("the reply's bubble paints");
+        let bounds = bubble_text_bounds(&view, "Hey, what's up?", cx);
         let opens = || crate::steer_viewer::TRANSCRIPT_MENU_OPENS.with(|opens| opens.get());
         let before = opens();
         cx.simulate_mouse_down(
@@ -4609,7 +5002,7 @@ mod tests {
         }
         // #EXP-1736: the bubble sits under its sender's avatar + name line, so
         // the sweeps measure from the bubble's own text block.
-        let body = cx.debug_bounds(MESSAGE_BUBBLE_BODY).expect("the bubble's text paints");
+        let body = bubble_text_bounds(&view, REPLY, cx);
         let text = |x: f32, y: f32| body.origin + gpui::point(px(x), px(y));
         // Right-click Copy's text after sweeping `from` → `to` ("" = disabled).
         let copy_after_sweep = |from: gpui::Point<Pixels>, to: gpui::Point<Pixels>, cx: &mut VisualTestContext| {
@@ -4918,5 +5311,100 @@ mod tests {
         for option in domain::ask_dock::plan_options() {
             assert!(!option.label.to_lowercase().contains("thread"), "{}", option.label);
         }
+    }
+
+    /// #EDE-65 lane O: the Chat tab drawn HEADLESS under the platform's real
+    /// text system, one picture (the inner loop for its look). Run with
+    /// `EXP_CHAT_SHOTS=/tmp/chat cargo test -p ui -- --ignored chat_tab_picture --nocapture`.
+    #[test]
+    #[ignore]
+    fn chat_tab_picture() {
+        use std::sync::Arc;
+        use sync::ShapeRow as _;
+        let dir = std::env::var("EXP_CHAT_SHOTS").expect("EXP_CHAT_SHOTS = the output folder");
+        let mut cx = gpui::HeadlessAppContext::with_platform(
+            crate::test_text_system(),
+            Arc::new(gpui_component_assets::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "r1", "team_id": "t1", "root_id": "r1", "agent_id": "ag1", "status": "idle", "shared": true,
+                "title": "Triage",
+                "created_at": "2026-11-04T09:00:00.000Z", "updated_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |c, cx| {
+                c.seed(root.key(), root);
+                cx.notify();
+            });
+            let agent: domain::rows::AgentDefRow = serde_json::from_value(serde_json::json!({
+                "id": "ag1", "team_id": "t1", "name": "Triage", "icon": "bug", "color": "#a855f7",
+            }))
+            .unwrap();
+            collections.agents.update(cx, |c, cx| {
+                c.seed(agent.key(), agent);
+                cx.notify();
+            });
+            let board: domain::rows::Board = serde_json::from_value(serde_json::json!({"id": "b1", "team_id": "t1", "name": "Product Feedback", "slug": "fb", "prefix": "FB", "sort_order": 0})).unwrap();
+            collections.boards.update(cx, |c, cx| {
+                c.seed(board.key(), board);
+                cx.notify();
+            });
+            for (id, n, title) in [("i3", 3, "Syntax highlighting ships every language in the editor bundle"), ("i8", 8, "Editor takes seconds to open on older phones"), ("i9", 9, "Screenshots attached to feedback are cut off on Android")] {
+                let issue: domain::rows::Issue = serde_json::from_value(serde_json::json!({"id": id, "board_id": "b1", "number": n, "identifier": format!("FB-{n}"), "title": title, "status": "backlog"})).unwrap();
+                collections.issues.update(cx, |c, cx| {
+                    c.seed(issue.key(), issue);
+                    cx.notify();
+                });
+            }
+        });
+        let long = vec![
+            steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+            steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Check Product Feedback for new widget reports.")),
+            steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_list", Some("Product Feedback · 2 new".into()))),
+            steer::ViewerEvent::Activity(3, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_get", Some("FB-8".into()))),
+            steer::ViewerEvent::Activity(4, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_get", Some("FB-9".into()))),
+            steer::ViewerEvent::Activity(5, steer::ActivityEvent::narration("Two new widget reports on Product Feedback.\nFB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a chat:")),
+            steer::ViewerEvent::Activity(6, steer::ActivityEvent::tool("mcp__exponential__exponential_sessions_send", Some("Sort today's widget reports".into()))),
+            steer::ViewerEvent::Activity(7, steer::ActivityEvent::user_message("Message from Release (session s9): The 2.4 build is green, ship it?")),
+            steer::ViewerEvent::Activity(8, steer::ActivityEvent::user_message("Label the Android ones too, and check the board every hour.")),
+            steer::ViewerEvent::Activity(9, steer::ActivityEvent::tool("Grep", Some("subscribeShapes( · 6 matches across 3 files".into()))),
+            steer::ViewerEvent::Activity(10, steer::ActivityEvent::narration("Done, 3 issues labelled android.")),
+        ];
+        let short = vec![
+            steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+            steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Label the Android ones too, and check the board every hour.")),
+            steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_list", Some("search: android · 3 issues".into()))),
+            steer::ViewerEvent::Activity(3, steer::ActivityEvent::narration("Done, 3 issues labelled android. The board now carries the android label on every report that names a phone, and the hourly check runs from the next full hour on, so a new report never waits longer than an hour.")),
+        ];
+        for (name, events) in [("chat-tab-long", long), ("chat-tab-short", short)] {
+            let window = cx
+                .open_window(gpui::size(gpui::px(1100.), gpui::px(760.)), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
+                .expect("a headless window");
+            let view = window.root(&mut cx).expect("the view");
+            cx.update_window(window.into(), |_, _, cx| {
+                let inner = view.read(cx).root_view.read(cx).inner().clone();
+                inner.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
+            })
+            .expect("events");
+            for _ in 0..6 {
+                cx.update_window(window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .expect("a frame draws");
+                cx.run_until_parked();
+            }
+            let shot = cx.capture_screenshot(window.into()).expect("a capture");
+            shot.save(format!("{dir}/{name}.png")).expect("saved");
+        }
+        std::mem::forget(cx);
     }
 }
