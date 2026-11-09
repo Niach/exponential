@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -74,6 +75,7 @@ import at.exponential.ui.json.str
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.composerKey
 import at.exponential.ui.model.composerMenuKeysOn
+import at.exponential.ui.model.composerPaste
 import at.exponential.ui.model.composerSubmit
 import at.exponential.ui.model.field
 import at.exponential.ui.model.fieldCommitted
@@ -159,111 +161,117 @@ fun OwnedTextField(
         multiline -> ImeAction.Default
         else -> ImeAction.Done
     }
-    BasicTextField(
-        value = value,
-        onValueChange = { next ->
-            val prev = value
-            // #EDE-65: the IME composition the surface's menu keys pass by.
-            state?.composing = next.composition != null
-            if (submitsOnReturn && next.text.length == prev.text.length + 1 && next.text.count { it == '\n' } > prev.text.count { it == '\n' }) {
-                // Return in a composer submits instead of inserting a newline
-                // (#EDE-65: with menuKeys on it is the host's `key` Enter).
-                if (!model.composerKey(index, "Enter")) model.composerSubmit(index)
-                return@BasicTextField
-            }
-            value = if (selectingAll && next.text == prev.text) next.copy(selection = TextRange(0, next.text.length)) else next
-            if (next.text != prev.text) selectingAll = false
-            if (next.text != prev.text) model.fieldEdited(index, next.text)
-        },
-        modifier = modifier
-            .focusRequester(requester)
-            .onFocusChanged {
-                if (it.isFocused != focused) {
-                    focused = it.isFocused
-                    model.fieldFocused(index, it.isFocused)
+    // #EDE-65 R: a Composer's paste with files (composerPaste).
+    val paste = { submitsOnReturn && composerClipboard().let { (files, uris) -> model.composerPaste(index, files, uris) } }
+    ComposerPasteToolbar(enabled = submitsOnReturn, onPaste = paste) {
+        BasicTextField(
+            value = value,
+            onValueChange = { next ->
+                val prev = value
+                // #EDE-65: the IME composition the surface's menu keys pass by.
+                state?.composing = next.composition != null
+                if (submitsOnReturn && next.text.length == prev.text.length + 1 && next.text.count { it == '\n' } > prev.text.count { it == '\n' }) {
+                    // Return in a composer submits instead of inserting a newline
+                    // (#EDE-65: with menuKeys on it is the host's `key` Enter).
+                    if (!model.composerKey(index, "Enter")) model.composerSubmit(index)
+                    return@BasicTextField
                 }
-            }
-            .onPreviewKeyEvent { e ->
-                when {
-                    // #EDE-65: the surface's keys take the menu keys first; this
-                    // catches a Composer outside them (the same rule).
-                    submitsOnReturn && model.composerMenuKeysOn(index) && menuKeyName(e.key) != null &&
-                        !(e.isShiftPressed || e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) && value.composition == null -> {
-                        if (e.type == KeyEventType.KeyDown) model.composerKey(index, menuKeyName(e.key)!!)
-                        true
-                    }
-                    // An IME composition's Enter is the IME's (never a submit).
-                    submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && !e.isShiftPressed && value.composition == null -> {
-                        model.composerSubmit(index)
-                        true
-                    }
-                    // A hardware Enter in a single-line field submits (the IME's Done does too).
-                    !multiline && !submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) -> {
-                        model.fieldSubmitted(index)
-                        true
-                    }
-                    // EXP-1259: a search list's field picks on Tab and leaves a
-                    // searchable submenu on ← (→ in RTL) at the caret's start.
-                    searchList && e.key == Key.Tab && !e.isShiftPressed && !e.isCtrlPressed -> {
-                        if (e.type == KeyEventType.KeyDown) model.searchKey(index, "Tab")
-                        true
-                    }
-                    searchList && submenu && e.type == KeyEventType.KeyDown && value.selection == TextRange(0) &&
-                        e.key == (if (model.direction == "rtl") Key.DirectionRight else Key.DirectionLeft) -> {
-                        model.searchKey(index, "ArrowLeft")
-                        true
-                    }
-                    // Tab leaves a field (a multi-line one too), like the web's.
-                    e.key == Key.Tab && !e.isCtrlPressed -> {
-                        if (e.type == KeyEventType.KeyDown) focusManager.moveFocus(if (e.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
-                        true
-                    }
-                    else -> false
-                }
-            }
-            .inputAutofill(inputType) { filled ->
-                value = TextFieldValue(filled, TextRange(filled.length))
-                model.fieldEdited(index, filled)
-            }
-            .semantics { contentDescription = accessibilityLabel },
-        // `visibility: hidden` (an ancestor's too) takes no focus and no taps.
-        enabled = !disabled && !LocalInvisible.current,
-        textStyle = textStyle,
-        singleLine = !multiline,
-        maxLines = if (multiline) Int.MAX_VALUE else 1,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (secure) KeyboardType.Password else keyboardType,
-            imeAction = imeAction,
-            autoCorrectEnabled = autoCorrectOf(inputType),
-        ),
-        keyboardActions = KeyboardActions(
-            onDone = {
-                // Enter in a single-line field submits (a Form, a ChipInput's chip).
-                if (!multiline) model.fieldSubmitted(index) else model.fieldCommitted(index)
-                if (model.node(index)?.component != "ChipInput" && !searchList) focusManager.clearFocus()
+                value = if (selectingAll && next.text == prev.text) next.copy(selection = TextRange(0, next.text.length)) else next
+                if (next.text != prev.text) selectingAll = false
+                if (next.text != prev.text) model.fieldEdited(index, next.text)
             },
-            onSend = { if (!model.composerKey(index, "Enter")) model.composerSubmit(index) },
-        ),
-        visualTransformation = if (secure) PasswordVisualTransformation() else VisualTransformation.None,
-        cursorBrush = SolidColor(textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
-        decorationBox = { inner ->
-            Box(Modifier.fillMaxSize(), contentAlignment = when {
-                multiline -> Alignment.TopStart
-                endAligned -> Alignment.CenterEnd
-                else -> Alignment.CenterStart
-            }) {
-                if (value.text.isEmpty() && placeholder.isNotEmpty()) {
-                    BasicText(
-                        placeholder,
-                        style = textStyle.copy(color = placeholderColor),
-                        maxLines = if (multiline) Int.MAX_VALUE else 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            modifier = modifier
+                .focusRequester(requester)
+                .onFocusChanged {
+                    if (it.isFocused != focused) {
+                        focused = it.isFocused
+                        model.fieldFocused(index, it.isFocused)
+                    }
                 }
-                inner()
-            }
-        },
-    )
+                .onPreviewKeyEvent { e ->
+                    when {
+                        // #EDE-65: the surface's keys take the menu keys first; this
+                        // catches a Composer outside them (the same rule).
+                        submitsOnReturn && model.composerMenuKeysOn(index) && menuKeyName(e.key) != null &&
+                            !(e.isShiftPressed || e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) && value.composition == null -> {
+                            if (e.type == KeyEventType.KeyDown) model.composerKey(index, menuKeyName(e.key)!!)
+                            true
+                        }
+                        // #EDE-65 R: a hardware Ctrl/⌘+V with files on the clipboard.
+                        submitsOnReturn && e.type == KeyEventType.KeyDown && e.key == Key.V && (e.isCtrlPressed || e.isMetaPressed) && !e.isShiftPressed && paste() -> true
+                        // An IME composition's Enter is the IME's (never a submit).
+                        submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && !e.isShiftPressed && value.composition == null -> {
+                            model.composerSubmit(index)
+                            true
+                        }
+                        // A hardware Enter in a single-line field submits (the IME's Done does too).
+                        !multiline && !submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) -> {
+                            model.fieldSubmitted(index)
+                            true
+                        }
+                        // EXP-1259: a search list's field picks on Tab and leaves a
+                        // searchable submenu on ← (→ in RTL) at the caret's start.
+                        searchList && e.key == Key.Tab && !e.isShiftPressed && !e.isCtrlPressed -> {
+                            if (e.type == KeyEventType.KeyDown) model.searchKey(index, "Tab")
+                            true
+                        }
+                        searchList && submenu && e.type == KeyEventType.KeyDown && value.selection == TextRange(0) &&
+                            e.key == (if (model.direction == "rtl") Key.DirectionRight else Key.DirectionLeft) -> {
+                            model.searchKey(index, "ArrowLeft")
+                            true
+                        }
+                        // Tab leaves a field (a multi-line one too), like the web's.
+                        e.key == Key.Tab && !e.isCtrlPressed -> {
+                            if (e.type == KeyEventType.KeyDown) focusManager.moveFocus(if (e.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                .inputAutofill(inputType) { filled ->
+                    value = TextFieldValue(filled, TextRange(filled.length))
+                    model.fieldEdited(index, filled)
+                }
+                .semantics { contentDescription = accessibilityLabel },
+            // `visibility: hidden` (an ancestor's too) takes no focus and no taps.
+            enabled = !disabled && !LocalInvisible.current,
+            textStyle = textStyle,
+            singleLine = !multiline,
+            maxLines = if (multiline) Int.MAX_VALUE else 1,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (secure) KeyboardType.Password else keyboardType,
+                imeAction = imeAction,
+                autoCorrectEnabled = autoCorrectOf(inputType),
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    // Enter in a single-line field submits (a Form, a ChipInput's chip).
+                    if (!multiline) model.fieldSubmitted(index) else model.fieldCommitted(index)
+                    if (model.node(index)?.component != "ChipInput" && !searchList) focusManager.clearFocus()
+                },
+                onSend = { if (!model.composerKey(index, "Enter")) model.composerSubmit(index) },
+            ),
+            visualTransformation = if (secure) PasswordVisualTransformation() else VisualTransformation.None,
+            cursorBrush = SolidColor(textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
+            decorationBox = { inner ->
+                Box(Modifier.fillMaxSize(), contentAlignment = when {
+                    multiline -> Alignment.TopStart
+                    endAligned -> Alignment.CenterEnd
+                    else -> Alignment.CenterStart
+                }) {
+                    if (value.text.isEmpty() && placeholder.isNotEmpty()) {
+                        BasicText(
+                            placeholder,
+                            style = textStyle.copy(color = placeholderColor),
+                            maxLines = if (multiline) Int.MAX_VALUE else 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    inner()
+                }
+            },
+        )
+    }
 }
 
 /** How long after a NumberField's focus the focusing tap's caret still lands. */
@@ -509,6 +517,13 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     ) {
                         IconOrGlyph("ui-attach", Glyph.Attach, 16f, cx, chipInk)
                     }
+                }
+                // #EDE-65 R: the core lays the `trailing` slot out one `xs`
+                // gap before the send disc (it paints over this leaf); the
+                // attach control ends one `xs` gap before it (composerSlots).
+                model.indexOf("${cx.node.id}.trailing")?.let { t ->
+                    val xs = cx.spacing("xs")
+                    Spacer(Modifier.width(maxOf(0f, model.frame(t).width + 2 * xs - 16f).dp))
                 }
                 // Web: an empty draft disables send (half opacity); `busy`
                 // dims the stop through the recipe's own opacity.
