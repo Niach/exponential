@@ -14700,6 +14700,60 @@
       }
     ]
   },
+  "Input\/variant=bare" : {
+    "height" : 18,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          18
+        ],
+        "id" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          18
+        ],
+        "id" : "input.field",
+        "part" : "field"
+      }
+    ]
+  },
+  "Input\/variant=code" : {
+    "height" : 18,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          18
+        ],
+        "id" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          18
+        ],
+        "id" : "input.field",
+        "part" : "field"
+      }
+    ]
+  },
   "Input\/variant=field" : {
     "height" : 60,
     "nodes" : [
@@ -39058,6 +39112,100 @@
         "id" : "textarea.field",
         "part" : "field",
         "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/variant=code" : {
+    "height" : 117,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          117
+        ],
+        "id" : "textarea"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          117
+        ],
+        "id" : "textarea.field",
+        "part" : "field"
+      }
+    ]
+  },
+  "Textarea\/variant=field" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/variant=row" : {
+    "height" : 117,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          117
+        ],
+        "id" : "textarea"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          117
+        ],
+        "id" : "textarea.field",
+        "part" : "field"
       }
     ]
   },
