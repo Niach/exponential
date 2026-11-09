@@ -5479,12 +5479,21 @@
         },
         {
           "name": "variant",
-          "type": "field | row | bare | code",
+          "type": "field | row | bare | code | box",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        {
+          "name": "size",
+          "type": "default | sm",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "sm = compact."
         },
         {
           "name": "disabled",

@@ -1945,7 +1945,10 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        "size": {
+          "description": "sm = compact."
         },
         "disabled": {
           "description": "Shows it inert."
