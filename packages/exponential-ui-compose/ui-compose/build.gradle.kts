@@ -8,7 +8,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("maven-publish")
     // Test-only: the component image snapshots (src/test/snapshots/images).
@@ -58,7 +57,7 @@ version = (findProperty("uiVersion") as String?) ?: "0.3.0"
 
 android {
     namespace = "at.exponential.ui"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 26
@@ -189,10 +188,10 @@ val benchScenarios = tasks.register<BenchScenarios>("exponentialUiBenchScenarios
 }
 
 androidComponents {
-    // `java`: the Kotlin compile reads the variant's java source dirs (AGP
-    // leaves `sources.kotlin` null under the kotlin-android plugin).
+    // AGP 9's built-in Kotlin compiles `sources.kotlin` (Kotlin files under
+    // `sources.java` are no longer picked up).
     onVariants { variant ->
-        variant.sources.java?.addGeneratedSourceDirectory(catalogSource, CatalogSource::output)
+        variant.sources.kotlin?.addGeneratedSourceDirectory(catalogSource, CatalogSource::output)
         variant.androidTest?.sources?.assets?.addGeneratedSourceDirectory(benchScenarios, BenchScenarios::output)
     }
 }

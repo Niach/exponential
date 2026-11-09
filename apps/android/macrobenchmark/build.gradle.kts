@@ -5,12 +5,11 @@
 // README.md. Not part of the PR gate (no device there).
 plugins {
     alias(libs.plugins.android.test)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "com.exponential.macrobenchmark"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 28
