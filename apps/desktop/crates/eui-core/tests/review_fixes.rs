@@ -253,6 +253,31 @@ fn a_link_with_an_href_is_pressable() {
 }
 
 #[test]
+fn a_message_bubble_is_pressable_only_while_its_bound_href_resolves() {
+    // #EDE-65: the layout node's `pressable` (what gpui, Swift and Compose
+    // read) follows the RESOLVED href, not the binding's presence.
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [
+        {"id": "bound", "component": "MessageBubble", "props": {"text": "Merged.", "href": {"@path": "/href"}}},
+        {"id": "literal", "component": "MessageBubble", "props": {"text": "Merged.", "href": "https://exponential.at"}},
+        {"id": "press", "component": "MessageBubble", "props": {"text": "Merged."}, "on": {"press": {"event": {"name": "open"}}}},
+        {"id": "plain", "component": "MessageBubble", "props": {"text": "Merged."}}
+    ]}));
+    s.set_viewport(400.0, 600.0, None);
+    let mut m = fixed();
+    s.layout(&mut m);
+    let pressable = |s: &mut Surface, id: &str| s.nodes().into_iter().find(|n| n.id == id).unwrap_or_else(|| panic!("no node {id}")).pressable;
+    assert!(!pressable(&mut s, "bound"), "a missing href leaves it plain");
+    assert!(pressable(&mut s, "literal") && pressable(&mut s, "press") && !pressable(&mut s, "plain"));
+    for (value, expected) in [(json!(null), false), (json!(""), false), (json!("https://exponential.at"), true)] {
+        s.set_data("/href", Some(value.clone())).unwrap();
+        s.layout(&mut m);
+        assert_eq!(pressable(&mut s, "bound"), expected, "href = {value}");
+    }
+    let events = press(&mut s, "bound");
+    assert!(events.iter().any(|e| matches!(e, OutEvent::OpenUrl { url } if url == "https://exponential.at")));
+}
+
+#[test]
 fn a_hover_card_stays_open_while_the_pointer_moves_into_its_content() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
         {"id": "hc", "component": "Popover", "props": {"openOn": "hover"}, "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}},

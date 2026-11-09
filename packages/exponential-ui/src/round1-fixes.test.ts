@@ -81,7 +81,7 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
 
   test(`bind-time.json extra cases replay, rowSlots included`, () => {
     const extra = bindFixture.extra as unknown as { name: string; input: NestedNode; expanded: UiNode; issues: unknown[]; datasets: { data: unknown; bound: UiNode | null; presses: { id: string; outcome: unknown }[]; rowSlots?: { id: string; rows: { index: number; slots: Record<string, UiNode | null> }[] }[] }[] }[]
-    expect(extra.map((c) => c.name)).toEqual([`Table/slot-cell:bound-rows`, `Table/slot-cell:literal-rows`, `Text/accessibility:bound-label`, `Section/set:author-function`, `Row/fold:bound`, `Row/fold:bound-plain`, `Tree/bound`, `Pagination/page:string-data`, `Text/expressions:bound`, `Sidebar/rail:bound-collapsed`, `Stepper/collapse-always:bound-current`, `Progress/bound:valueText+detail`])
+    expect(extra.map((c) => c.name)).toEqual([`Table/slot-cell:bound-rows`, `Table/slot-cell:literal-rows`, `Text/accessibility:bound-label`, `Section/set:author-function`, `Row/fold:bound`, `Row/fold:bound-plain`, `Tree/bound`, `Pagination/page:string-data`, `Text/expressions:bound`, `Sidebar/rail:bound-collapsed`, `Stepper/collapse-always:bound-current`, `Progress/bound:valueText+detail`, `MessageBubble/href:bound-resolves`, `MessageBubble/href:literal`, `MessageBubble/press:no-href`, `MessageBubble/press:bound-href`, `Row/href:bound-resolves`])
     for (const c of extra) {
       const { root, issues } = reduce(c.input)
       expect(canon(root), c.name).toBe(canon(c.expanded))

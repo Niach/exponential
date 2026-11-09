@@ -71579,7 +71579,16 @@
         "id": "message_bubble",
         "component": "Box",
         "props": {
-          "pressable": true,
+          "pressable": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/href"
+              },
+              "then": true,
+              "else": false
+            }
+          },
           "href": {
             "@path": "/href"
           }
@@ -71710,7 +71719,23 @@
           }
         },
         "accessibility": {
-          "role": "button",
+          "role": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/href"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              },
+              "then": "button",
+              "else": "group"
+            }
+          },
           "label": "18:00"
         }
       }

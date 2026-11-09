@@ -114,7 +114,7 @@ fn bind_time_extra_cases_replay_issues_and_row_slots_included() {
     let file = fixture("bind-time.json");
     let extra = file["extra"].as_array().unwrap();
     let names: Vec<&str> = extra.iter().map(|c| c["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["Table/slot-cell:bound-rows", "Table/slot-cell:literal-rows", "Text/accessibility:bound-label", "Section/set:author-function", "Row/fold:bound", "Row/fold:bound-plain", "Tree/bound", "Pagination/page:string-data", "Text/expressions:bound", "Sidebar/rail:bound-collapsed", "Stepper/collapse-always:bound-current", "Progress/bound:valueText+detail"]);
+    assert_eq!(names, ["Table/slot-cell:bound-rows", "Table/slot-cell:literal-rows", "Text/accessibility:bound-label", "Section/set:author-function", "Row/fold:bound", "Row/fold:bound-plain", "Tree/bound", "Pagination/page:string-data", "Text/expressions:bound", "Sidebar/rail:bound-collapsed", "Stepper/collapse-always:bound-current", "Progress/bound:valueText+detail", "MessageBubble/href:bound-resolves", "MessageBubble/href:literal", "MessageBubble/press:no-href", "MessageBubble/press:bound-href", "Row/href:bound-resolves"]);
     for c in extra {
         replay_bind_case(c);
     }
