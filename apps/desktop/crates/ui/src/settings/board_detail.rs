@@ -562,10 +562,12 @@ impl BoardDetailPane {
         // whose branch GitHub no longer has), the repo default tagged.
         let branch = self.branch_value(board).map(|(value, repo_default)| {
             let mut names = vec![value.clone()];
-            if let Some((_, crate::board_form::BranchLoad::Ready(branches))) = self.branches.as_ref().filter(|(id, _)| board.repository_id.as_deref() == Some(id.as_str())) {
+            let load = self.branches.as_ref().filter(|(id, _)| board.repository_id.as_deref() == Some(id.as_str())).map(|(_, load)| load);
+            if let Some(crate::board_form::BranchLoad::Ready(branches)) = load {
                 names.extend(branches.iter().filter(|name| **name != value).cloned());
             }
-            let options: Vec<Value> = names
+            let failed = matches!(load, Some(crate::board_form::BranchLoad::Failed));
+            let mut options: Vec<Value> = names
                 .iter()
                 .map(|name| match repo_default.as_deref() == Some(name.as_str()) {
                     // The trigger reads the bare name; the list tags it.
@@ -573,6 +575,10 @@ impl BoardDetailPane {
                     false => json!({"label": name, "value": name}),
                 })
                 .collect();
+            // FEED-79: a failed list is quiet; the open menu says so.
+            if failed {
+                options.push(json!({"label": crate::board_form::NO_BRANCHES, "value": "", "disabled": true}));
+            }
             json!({"value": value, "options": options})
         });
         let _ = cx;
@@ -636,9 +642,13 @@ impl Render for BoardDetailPane {
             self.relist_if_unknown(team_id, board.repository_id.as_deref(), cx);
         }
         // EXP-712: the Branch list loads with the page (the document's
-        // Select has no open hook), cached per repository.
+        // Select has no open hook): ONCE per repository, the same request
+        // the menu's open made; a failure stays quiet (the open list says
+        // so) and is not re-fetched until the repository changes.
         if let Some(repository_id) = board.repository_id.clone() {
-            self.ensure_branches(repository_id, cx);
+            if self.branches.as_ref().map(|(id, _)| id) != Some(&repository_id) {
+                self.ensure_branches(repository_id, cx);
+            }
         }
         let projection = self.project(&board, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
