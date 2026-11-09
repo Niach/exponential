@@ -656,8 +656,9 @@
               "triggerVariant": "row"
             },
             "geometry": {
-              "height": 44,
+              "minHeight": 44,
               "paddingHorizontal": 16,
+              "paddingVertical": 12,
               "gap": 12,
               "borderWidth": 0,
               "borderRadius": 0
@@ -2066,8 +2067,9 @@
               "triggerVariant": "row"
             },
             "geometry": {
-              "height": 40.82,
+              "minHeight": 40.82,
               "paddingHorizontal": 14,
+              "paddingVertical": 10.5,
               "gap": 7,
               "borderWidth": 0,
               "borderRadius": 0
@@ -3475,8 +3477,9 @@
               "triggerVariant": "row"
             },
             "geometry": {
-              "height": 44,
+              "minHeight": 44,
               "paddingHorizontal": 16,
+              "paddingVertical": 12,
               "gap": 12,
               "borderWidth": 0,
               "borderRadius": 0
@@ -4888,8 +4891,9 @@
               "triggerVariant": "row"
             },
             "geometry": {
-              "height": 40.82,
+              "minHeight": 40.82,
               "paddingHorizontal": 14,
+              "paddingVertical": 10.5,
               "gap": 7,
               "borderWidth": 0,
               "borderRadius": 0

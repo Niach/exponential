@@ -2252,6 +2252,9 @@
         "label": {
           "description": "Field label."
         },
+        "description": {
+          "description": "Muted hint (`row`: under the label)."
+        },
         "name": {
           "description": "Field's key in the submitted data."
         },

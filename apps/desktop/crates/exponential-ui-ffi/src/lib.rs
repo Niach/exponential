@@ -1502,6 +1502,16 @@ impl Surface {
         })
     }
 
+    /// #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+    /// go, in SURFACE coordinates: the host's window around the surface (a
+    /// popup that does not fit is fitted into it, not into the surface).
+    /// Width or height <= 0 = unset, the default: the surface's own view.
+    pub fn set_popup_bounds(&self, x: f32, y: f32, width: f32, height: f32) -> bool {
+        self.shield("set_popup_bounds", || false, || {
+            self.core().set_popup_bounds((width > 0.0 && height > 0.0).then_some((x, y, width, height)))
+        })
+    }
+
     /// Off = fractional frames (the default; Android rounds once itself).
     pub fn set_rounding(&self, on: bool) {
         self.shield("set_rounding", || (), || {

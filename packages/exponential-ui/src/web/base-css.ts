@@ -253,6 +253,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-label{flex:0 0 auto}
 .xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-spacer{flex:1 1 0;min-width:0}
 .xui-Select-trigger[data-r-trigger-variant="row"]>span:not(.xui-Select-label):not(.xui-Select-spacer){flex:0 1 auto;max-width:${LAYOUT_CONSTANTS.selectRowValueMaxWidth}px}
+.xui-Select-labels{display:flex;flex-direction:column;flex:0 1 auto;min-width:0;white-space:normal}
+.xui-Select-labels>.xui-Select-description{display:block;max-width:${LAYOUT_CONSTANTS.selectRowDescriptionMaxWidth}px}
+.xui-Select-control{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;flex:1 1 0}
+.xui-Select-control>span{overflow:clip;text-overflow:ellipsis;min-width:0;flex:0 1 auto;max-width:${LAYOUT_CONSTANTS.selectRowValueMaxWidth}px}
+.xui-Select-control>svg{width:16px;height:16px;flex-shrink:0}
 .xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}

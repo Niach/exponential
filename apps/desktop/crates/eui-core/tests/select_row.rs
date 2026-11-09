@@ -3,6 +3,8 @@
 //! `popupWidth` (row: under the VALUE, start, the layout's 262), the
 //! options' states (only the chosen one is `selected` and checked), the
 //! list opening at the top and the bottom fade while options sit below.
+//! A row's `description` stacks under its label (the `labels` column) and
+//! the value + chevron move into the trailing `control` column.
 
 use std::collections::HashMap;
 
@@ -63,7 +65,10 @@ fn a_row_trigger_is_label_spacer_value_and_chevron() {
     assert_eq!(node(&mut s, "sel.value").props["text"], json!("Sunday"));
     assert_eq!(node(&mut s, "sel.chevron").props["name"], json!("ui-chevron-right"), "Select.chevron");
     let f = frame(&s, &out, "sel.trigger");
-    assert!((f.h - 40.82).abs() < 0.01, "the exponential row recipe: the IDE picker row's height, {}", f.h);
+    // The recipe's minHeight 40.82 or 10.5 around the label (the fixed
+    // measurer's lines are at least 20 tall).
+    let label_h = frame(&s, &out, "sel.label").h;
+    assert!((f.h - (10.5 * 2.0 + label_h).max(40.82)).abs() < 0.01, "the exponential row recipe: the IDE picker row's height, {}", f.h);
     assert_eq!(f.w, 760.0 - 32.0, "the whole row");
     let value = frame(&s, &out, "sel.value");
     let chevron = frame(&s, &out, "sel.chevron");
@@ -79,6 +84,38 @@ fn a_row_trigger_is_label_spacer_value_and_chevron() {
     let t = node(&mut field, "sel.trigger");
     assert!(t.props.get("label").is_none());
     assert_eq!(t.props["icon"], json!("ui-selector"), "Select.trigger");
+}
+
+#[test]
+fn a_row_description_stacks_under_the_label_and_wraps() {
+    let mut s = surface(select(json!({"triggerVariant": "row", "description": "Used for speech recognition and every spoken reply"})));
+    let out = s.layout(&mut fixed());
+    let trigger = s.index_of("sel.trigger").unwrap();
+    let parts: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(trigger)).map(|n| n.id).collect();
+    assert_eq!(parts, ["sel.labels", "sel.control"]);
+    let labels = s.index_of("sel.labels").unwrap();
+    let column: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(labels)).map(|n| n.id).collect();
+    assert_eq!(column, ["sel.label", "sel.description"]);
+    let control = s.index_of("sel.control").unwrap();
+    let end: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(control)).map(|n| n.id).collect();
+    assert_eq!(end, ["sel.value", "sel.chevron"]);
+    let (t, label, desc) = (frame(&s, &out, "sel.trigger"), frame(&s, &out, "sel.label"), frame(&s, &out, "sel.description"));
+    assert!(desc.y >= label.y + label.h, "the hint sits under the label");
+    assert!((t.h - (10.5 * 2.0 + label.h + 1.75 + desc.h)).abs() < 0.01, "the row grows past its minHeight: {}", t.h);
+    assert!(frame(&s, &out, "sel.control").w >= 203.49, "the control column's minWidth");
+    assert!(desc.w <= 460.01, "selectRowDescriptionMaxWidth");
+
+    // Narrow: the labels column gives way, the control keeps its 203.5.
+    let mut narrow = surface(select(json!({"triggerVariant": "row", "description": "x ".repeat(120)})));
+    narrow.set_viewport(420.0, 900.0, None);
+    let out = narrow.layout(&mut fixed());
+    let (t, c) = (frame(&narrow, &out, "sel.trigger"), frame(&narrow, &out, "sel.control"));
+    assert!((c.w - 203.5).abs() < 0.01, "control at its min: {}", c.w);
+    assert!((frame(&narrow, &out, "sel.labels").w - (t.w - 28.0 - 7.0 - 203.5)).abs() < 0.01);
+
+    let mut field = surface(select(json!({"description": "Hint"})));
+    let out = field.layout(&mut fixed());
+    assert!(frame(&field, &out, "sel.description").y >= frame(&field, &out, "sel.trigger").y + frame(&field, &out, "sel.trigger").h, "a field's hint sits under it");
 }
 
 #[test]

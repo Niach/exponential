@@ -5266,6 +5266,10 @@
           "type": "string",
           "description": "Field label."
         },
+        "description": {
+          "type": "string",
+          "description": "Muted hint (`row`: under the label)."
+        },
         "name": {
           "type": "string",
           "required": true,
